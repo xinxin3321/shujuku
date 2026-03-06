@@ -13,6 +13,155 @@
 
 ## 更新日志
 
+### 2026-03-06 模板加载错误提示优化
+
+#### 修复问题
+- **启动时误报模板解析错误**：移除了插件启动时不必要的自检错误提示，避免困扰用户。
+
+#### 问题原因
+1. **误报场景**：当存储中存在旧的/其他标识的损坏数据时，`loadTemplateFromStorage_ACU()` 函数会抛出错误并显示提示框。
+2. **实际影响**：这个错误并不影响正在使用的自定义模板，也不会真的重置为默认模板，纯属误报。
+3. **错误信息示例**：`SyntaxError: Bad control character in string literal in JSON at position 2 (line 1 column 3)`
+
+#### 修改内容
+
+| 文件 | 代码行数区间 | 修改说明 |
+|------|-------------|----------|
+| `index.js` | 7427-7455 | 将 `JSON.parse(savedTemplate)` 替换为 `safeJsonParse_ACU(savedTemplate, null)`，移除 `logError_ACU` 和 `showToastr_ACU` 错误提示，改为静默处理 |
+
+#### 修复后的效果
+- 当存储中的模板数据损坏时，插件会静默回退到默认模板，不再显示错误提示框
+- 仅在调试模式下记录日志，便于开发者排查问题
+- 用户不再被无意义的错误提示困扰
+
+---
+
+### 2026-03-06 模板解析错误修复
+
+#### 修复问题
+- **启动时模板解析错误**：修复了插件启动时报错 `SyntaxError: Expected property name or '}' in JSON at position 1` 的问题。
+
+#### 问题原因
+1. **JSON.parse 未使用安全解析**：在 `loadTemplateFromStorage_ACU()` 函数中，直接使用 `JSON.parse(savedTemplate)` 解析从存储中读取的模板数据，当数据格式不正确时会抛出异常。
+2. **Tavern 设置命名空间类型检查不足**：`getTavernSettingsNamespace_ACU()` 函数只检查 `root.__userscripts[TAVERN_SETTINGS_NAMESPACE_ACU]` 是否为 truthy，但没有验证它是否为对象类型。如果该值是字符串或其他非对象类型，会导致后续读取逻辑出错。
+
+#### 修改内容
+
+| 文件 | 代码行数区间 | 修改说明 |
+|------|-------------|----------|
+| `index.js` | 8022-8023 | 将 `JSON.parse(savedTemplate)` 替换为 `safeJsonParse_ACU(savedTemplate, null)`，并添加 `parsedTemplate &&` 条件检查 |
+| `index.js` | 961-972 | 修改 `getTavernSettingsNamespace_ACU()` 函数，添加类型检查确保 namespace 是对象类型 |
+
+#### 修复后的效果
+- 当存储中的模板数据损坏时，插件会优雅地回退到默认模板，而不是抛出错误
+- 当 Tavern 设置命名空间中存储了非对象类型的值时，会自动重置为空对象
+- 错误日志仍会记录解析失败的信息，便于调试
+
+---
+
+### 2026-03-06 纪要表功能优化
+
+#### 修改内容
+1. **0TK功能开关控制优化**
+   - 修改 `updateOutlineTableEntry_ACU()` 函数，在更新 `TavernDB-ACU-OutlineTable` 条目后，额外查找并同步更新 `TavernDB-ACU-CustomExport-纪要索引` 条目的 `enabled` 状态
+   - 当0TK占用模式启用时，同时禁用这两个条目；禁用时，同时启用这两个条目
+
+2. **剧情推进$5占位符优化**
+   - 新增 `getSummaryIndexContentForPlot_ACU()` 函数，从世界书获取"纪要索引"条目内容
+   - 修改 `$5` 占位符生成逻辑：优先从世界书读取纪要索引条目内容，如果不存在或未启用则回退到总体大纲表内容
+
+3. **合并总结功能优化（改为合并纪要）**
+   - 修改 `DEFAULT_MERGE_SUMMARY_PROMPT_ACU` 默认提示词：
+     - 将"总结表"和"总体大纲"改为"纪要表"（单表）
+     - 更新表格结构：列0=时间跨度，列1=地点，列2=纪要（≥300字），列3=概要（≤30字），列4=编码索引
+     - 更新约束条件和输出格式
+   - 修改UI文本：将"总结与大纲合并"改为"纪要合并"，"合并总结"改为"合并纪要"
+   - 修改 `checkAndTriggerAutoMergeSummary_ACU()` 函数：只检测纪要表，删除总体大纲表相关逻辑
+   - 修改 `performAutoMergeSummary_ACU()` 函数：只处理纪要表，删除总体大纲表相关逻辑
+   - 修改 `handleManualMergeSummary_ACU()` 函数：只查找纪要表，兼容旧数据"总结表"
+
+4. **语法错误修复**
+   - 删除 `performAutoMergeSummary_ACU()` 函数中残留的 `allOutlineRows`、`newOutlineRows`、`accumulatedOutline` 等大纲表相关变量引用
+   - 删除 `handleManualMergeSummary_ACU()` 函数中所有大纲表相关代码（`allOutlineRows`、`outlineKey`、`accumulatedOutline`、`newOutlineRows`、`outlineTableObj`、`fullOutlineRows`）
+   - 修复了"Missing catch or finally after try"语法错误
+
+#### 修改内容
+
+| 文件 | 代码行数区间 | 修改说明 |
+|------|-------------|----------|
+| `index.js` | 10648-10663 | 0TK开关：添加纪要索引条目的同步更新逻辑 |
+| `index.js` | 6435-6474 | 新增 `getSummaryIndexContentForPlot_ACU()` 函数 |
+| `index.js` | 7335-7357 | 修改 `$5` 占位符生成逻辑，优先读取纪要索引条目 |
+| `index.js` | 2831 | 修改 `DEFAULT_MERGE_SUMMARY_PROMPT_ACU` 默认提示词 |
+| `index.js` | 15131 | UI文本修改：标题"总结与大纲合并" → "纪要合并" |
+| `index.js` | 15132 | UI文本修改：描述文字 |
+| `index.js` | 15168 | UI文本修改："开启自动合并总结" → "开启自动合并纪要" |
+| `index.js` | 15201 | UI文本修改："开始合并总结" → "开始合并纪要" |
+| `index.js` | 19280-19403 | 修改 `checkAndTriggerAutoMergeSummary_ACU()` 函数 |
+| `index.js` | 19419-19691 | 修改 `performAutoMergeSummary_ACU()` 函数 |
+| `index.js` | 20060-20157 | 修改 `handleManualMergeSummary_ACU()` 函数 |
+| `index.js` | 19451 | 删除 `batchOutlineRows` 定义 |
+| `index.js` | 19606-19636 | 删除大纲表相关变量和处理逻辑 |
+| `index.js` | 20128-20330 | 删除 `handleManualMergeSummary_ACU()` 中所有大纲表相关代码 |
+
+#### 使用说明
+1. **0TK功能**：启用0TK占用模式时，会同时禁用"总体大纲"和"纪要索引"两个世界书条目
+2. **剧情推进$5占位符**：优先使用世界书中的"纪要索引"条目内容，如果该条目不存在或未启用，则回退到总体大纲表
+3. **合并纪要功能**：现在只对纪要表生效，不再处理总体大纲表。UI和提示词已相应更新
+
+---
+
+### 2026-03-06 API模型选择优化（双框模式）
+
+#### 修复问题
+- **模型选择优化**：同时支持手动输入和下拉选择两种方式。
+
+#### 问题原因
+之前将`<input>`+`<datalist>`改为纯`<select>`下拉菜单后，用户无法手动输入模型名称。用户希望同时支持两种方式。
+
+#### 解决方案
+采用双框模式：
+- **上方输入框**：用于手动输入模型名称，读取/保存时只使用这个输入框的值
+- **下方下拉框**：用于从加载的模型列表中选择，选择后自动覆盖到上方输入框
+
+#### 修改内容
+
+| 文件 | 代码行数区间 | 修改说明 |
+|------|-------------|----------|
+| `index.js` | 2855-2856 | 变量声明：添加`$customApiModelInput_ACU`和`$customApiModelSelect_ACU` |
+| `index.js` | 8244-8253 | 加载设置逻辑：输入框显示已保存模型，select也添加该模型选项 |
+| `index.js` | 8441-8447 | 保存配置逻辑：从输入框获取模型值 |
+| `index.js` | 8469-8471 | 保存后添加模型：将新模型添加到select中 |
+| `index.js` | 9045-9129 | 加载模型列表逻辑：填充select下拉菜单 |
+| `index.js` | 14879-14884 | UI部分：添加两个模型框（输入框+下拉框） |
+| `index.js` | 15503-15504 | UI初始化：绑定输入框和select元素 |
+| `index.js` | 16080-16086 | 事件绑定：下拉选择改变时自动覆盖到输入框 |
+
+#### 使用说明
+1. **手动输入**：直接在上方输入框中输入模型名称
+2. **下拉选择**：点击"加载模型列表"按钮后，从下方下拉框选择模型，会自动填入上方输入框
+3. 保存时只读取上方输入框的值
+
+### 2026-03-06 Import路径修复
+
+#### 修复问题
+- **Import路径错误**：修复了动态import语句使用绝对路径导致模块加载失败的问题。
+
+#### 问题原因
+在SillyTavern的插件环境中，动态import语句使用绝对路径（如`/script.js`）会导致模块解析失败。需要使用相对路径（如`./script.js`）来正确加载模块。
+
+#### 修改内容
+
+| 文件 | 代码行数区间 | 修改说明 |
+|------|-------------|----------|
+| `index.js` | 939 | 将`import('/script.js')`改为`import('./script.js')` |
+| `index.js` | 950 | 将`import('/scripts/extensions.js')`改为`import('./scripts/extensions.js')` |
+
+#### 修复后的效果
+- 插件能够正确加载SillyTavern的核心模块
+- 正确获取`saveSettings`和`extension_settings`功能
+- 避免控制台报错
+
 ### 2026-03-02 API模型输入优化
 
 #### 新增功能
