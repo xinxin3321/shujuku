@@ -13,6 +13,68 @@
 
 ## 更新日志
 
+### 2026-03-07 API接口扩展与纪要表索引锁定功能
+
+#### 新增功能
+
+**1. 更新配置参数读写 API**
+- `getUpdateConfigParams()` - 获取自动更新阈值、频率、批处理大小等配置参数
+- `setUpdateConfigParams(params)` - 设置更新配置参数
+
+**2. 手动更新表选择读写 API**
+- `getManualSelectedTables()` - 获取手动更新时选择的表格列表
+- `setManualSelectedTables(sheetKeys)` - 设置手动更新选择的表格
+- `clearManualSelectedTables()` - 清除手动选择（恢复全选状态）
+
+**3. API 预设管理 API**
+- `getApiPresets()` - 获取所有 API 预设列表
+- `getTableApiPreset()` / `setTableApiPreset(name)` - 填表 API 预设读写
+- `getPlotApiPreset()` / `setPlotApiPreset(name)` - 剧情推进 API 预设读写
+- `saveApiPreset(data)` - 保存/更新 API 预设
+- `loadApiPreset(name)` - 加载 API 预设到当前配置
+- `deleteApiPreset(name)` - 删除 API 预设
+
+**4. 纪要表索引编码锁定功能**
+- 纪要表现在拥有与总结表相同的"编码索引列特殊锁定"功能
+- 支持编码索引列的自动锁定
+- 新增/删除行时自动重新排序编码
+
+#### 修改内容
+
+| 文件 | 代码行数区间 | 修改说明 |
+|------|-------------|----------|
+| `index.js` | 5044-5049 | 修改 `isSummaryOrOutlineTable_ACU()` 函数，添加对"纪要表"的判断，使其支持索引编码锁定功能 |
+| `index.js` | 3771-4058 | 在 `AutoCardUpdaterAPI` 对象中新增更新配置参数、手动更新表选择、API预设管理等 API 接口 |
+
+#### API 使用示例
+
+```javascript
+// 获取更新配置参数
+const config = window.AutoCardUpdaterAPI.getUpdateConfigParams();
+console.log('阈值:', config.autoUpdateThreshold);
+
+// 设置更新配置参数
+window.AutoCardUpdaterAPI.setUpdateConfigParams({
+    autoUpdateThreshold: 5,
+    updateBatchSize: 3
+});
+
+// 获取/设置手动更新表选择
+const selection = window.AutoCardUpdaterAPI.getManualSelectedTables();
+window.AutoCardUpdaterAPI.setManualSelectedTables(['sheet_xxx', 'sheet_yyy']);
+
+// API 预设管理
+const presets = window.AutoCardUpdaterAPI.getApiPresets();
+window.AutoCardUpdaterAPI.setTableApiPreset('战斗场景API');
+window.AutoCardUpdaterAPI.saveApiPreset({
+    name: '新预设',
+    apiMode: 'custom',
+    apiConfig: { customApiUrl: '...', customApiKey: '...', customApiModel: 'gpt-4' }
+});
+```
+
+---
+
 ### 2026-03-07 纪要表填表优化（减少TK压力）
 
 #### 优化内容

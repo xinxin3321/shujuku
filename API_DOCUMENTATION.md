@@ -25,6 +25,9 @@ if (window.AutoCardUpdaterAPI) {
 - [TXT导入链路 API](#txt导入链路-api)
 - [表格锁定 API](#表格锁定-api)
 - [回调注册 API](#回调注册-api)
+- [更新配置参数 API](#更新配置参数-api)
+- [手动更新表选择 API](#手动更新表选择-api)
+- [API 预设管理 API](#api-预设管理-api)
 
 ---
 
@@ -879,6 +882,293 @@ async function restorePresets() {
 
 ---
 
+## 更新配置参数 API
+
+### `getUpdateConfigParams()`
+
+获取更新配置参数（自动更新阈值、频率、批处理大小等）。
+
+**返回值**: `Object` - 包含以下属性的对象
+
+**返回结构**:
+```javascript
+{
+    autoUpdateThreshold: 3,      // 自动更新阈值（消息层数）
+    autoUpdateFrequency: 1,      // 自动更新频率（每N层更新一次）
+    updateBatchSize: 2,          // 批处理大小（每批处理楼层数）
+    autoUpdateTokenThreshold: 0  // Token阈值（0表示不限制）
+}
+```
+
+**示例**:
+```javascript
+const config = window.AutoCardUpdaterAPI.getUpdateConfigParams();
+console.log('当前阈值:', config.autoUpdateThreshold);
+console.log('当前频率:', config.autoUpdateFrequency);
+console.log('批处理大小:', config.updateBatchSize);
+```
+
+---
+
+### `setUpdateConfigParams(params)`
+
+设置更新配置参数。
+
+**参数**:
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| params | Object | 是 | 要更新的参数对象 |
+| params.autoUpdateThreshold | number | 否 | 自动更新阈值（≥0） |
+| params.autoUpdateFrequency | number | 否 | 自动更新频率（≥1） |
+| params.updateBatchSize | number | 否 | 批处理大小（≥1） |
+| params.autoUpdateTokenThreshold | number | 否 | Token阈值（≥0） |
+
+**返回值**: `boolean` - 设置是否成功
+
+**示例**:
+```javascript
+// 修改部分参数
+const success = window.AutoCardUpdaterAPI.setUpdateConfigParams({
+    autoUpdateThreshold: 5,
+    updateBatchSize: 3
+});
+```
+
+---
+
+## 手动更新表选择 API
+
+### `getManualSelectedTables()`
+
+获取手动更新时选择的表格列表。
+
+**返回值**: `Object` - 包含以下属性的对象
+
+**返回结构**:
+```javascript
+{
+    selectedTables: ['sheet_xxx', 'sheet_yyy'],  // 选中的表格 key 数组
+    hasManualSelection: true                      // 是否用户显式选择过
+}
+```
+
+**示例**:
+```javascript
+const selection = window.AutoCardUpdaterAPI.getManualSelectedTables();
+console.log('已选择的表:', selection.selectedTables);
+console.log('是否手动选择过:', selection.hasManualSelection);
+```
+
+---
+
+### `setManualSelectedTables(sheetKeys)`
+
+设置手动更新时选择的表格。
+
+**参数**:
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| sheetKeys | Array<string> | 是 | 要选择的表格 key 数组 |
+
+**返回值**: `boolean` - 设置是否成功
+
+**说明**:
+- 无效的表格 key 会被自动过滤
+- 设置后会自动将 `hasManualSelection` 标记为 `true`
+
+**示例**:
+```javascript
+const success = window.AutoCardUpdaterAPI.setManualSelectedTables(['sheet_abc123', 'sheet_def456']);
+```
+
+---
+
+### `clearManualSelectedTables()`
+
+清除手动更新表选择（恢复全选状态）。
+
+**返回值**: `boolean` - 清除是否成功
+
+**示例**:
+```javascript
+window.AutoCardUpdaterAPI.clearManualSelectedTables();
+```
+
+---
+
+## API 预设管理 API
+
+### `getApiPresets()`
+
+获取所有 API 预设列表。
+
+**返回值**: `Array<Object>` - API 预设数组的深拷贝
+
+**返回结构**:
+```javascript
+[
+    {
+        name: '预设名称',
+        apiMode: 'custom',        // API 模式
+        apiConfig: {              // API 配置
+            customApiUrl: 'https://...',
+            customApiKey: '...',
+            customApiModel: 'gpt-4'
+        },
+        tavernProfile: ''         // Tavern Profile 名称
+    }
+]
+```
+
+**示例**:
+```javascript
+const presets = window.AutoCardUpdaterAPI.getApiPresets();
+console.log('可用预设:', presets.map(p => p.name));
+```
+
+---
+
+### `getTableApiPreset()`
+
+获取当前选中的填表 API 预设名称。
+
+**返回值**: `string` - 预设名称，如果使用当前配置则返回空字符串
+
+**示例**:
+```javascript
+const preset = window.AutoCardUpdaterAPI.getTableApiPreset();
+console.log('当前填表预设:', preset || '使用当前配置');
+```
+
+---
+
+### `setTableApiPreset(presetName)`
+
+设置填表 API 预设。
+
+**参数**:
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| presetName | string | 是 | 预设名称，空字符串表示使用当前配置 |
+
+**返回值**: `boolean` - 设置是否成功
+
+**示例**:
+```javascript
+// 切换到指定预设
+window.AutoCardUpdaterAPI.setTableApiPreset('战斗场景API');
+
+// 恢复使用当前配置
+window.AutoCardUpdaterAPI.setTableApiPreset('');
+```
+
+---
+
+### `getPlotApiPreset()`
+
+获取当前选中的剧情推进 API 预设名称。
+
+**返回值**: `string` - 预设名称，如果使用当前配置则返回空字符串
+
+**示例**:
+```javascript
+const preset = window.AutoCardUpdaterAPI.getPlotApiPreset();
+console.log('当前剧情推进预设:', preset || '使用当前配置');
+```
+
+---
+
+### `setPlotApiPreset(presetName)`
+
+设置剧情推进 API 预设。
+
+**参数**:
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| presetName | string | 是 | 预设名称，空字符串表示使用当前配置 |
+
+**返回值**: `boolean` - 设置是否成功
+
+**示例**:
+```javascript
+window.AutoCardUpdaterAPI.setPlotApiPreset('日常对话API');
+```
+
+---
+
+### `saveApiPreset(presetData)`
+
+保存或更新 API 预设。
+
+**参数**:
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| presetData | Object | 是 | 预设数据 |
+| presetData.name | string | 是 | 预设名称 |
+| presetData.apiMode | string | 否 | API 模式（如 'custom', 'proxy' 等） |
+| presetData.apiConfig | Object | 否 | API 配置对象 |
+| presetData.tavernProfile | string | 否 | Tavern Profile 名称 |
+
+**返回值**: `boolean` - 保存是否成功
+
+**示例**:
+```javascript
+const success = window.AutoCardUpdaterAPI.saveApiPreset({
+    name: '测试预设',
+    apiMode: 'custom',
+    apiConfig: {
+        customApiUrl: 'https://api.example.com/v1',
+        customApiKey: 'sk-xxx',
+        customApiModel: 'gpt-4o'
+    },
+    tavernProfile: ''
+});
+```
+
+---
+
+### `loadApiPreset(presetName)`
+
+加载 API 预设（应用到当前配置）。
+
+**参数**:
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| presetName | string | 是 | 预设名称 |
+
+**返回值**: `boolean` - 加载是否成功
+
+**示例**:
+```javascript
+const success = window.AutoCardUpdaterAPI.loadApiPreset('测试预设');
+if (success) {
+    console.log('预设已应用到当前配置');
+}
+```
+
+---
+
+### `deleteApiPreset(presetName)`
+
+删除 API 预设。
+
+**参数**:
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| presetName | string | 是 | 预设名称 |
+
+**返回值**: `boolean` - 删除是否成功
+
+**说明**:
+- 如果删除的预设正在被使用（填表或剧情推进），相关引用会被自动清除
+
+**示例**:
+```javascript
+window.AutoCardUpdaterAPI.deleteApiPreset('测试预设');
+```
+
+---
+
 ## 注意事项
 
 1. **API 可用性检查**: 在调用任何 API 方法前，请先检查 `window.AutoCardUpdaterAPI` 是否存在。
@@ -904,3 +1194,4 @@ async function restorePresets() {
 | 1.0 | 初始 API：数据导入导出、设置管理、世界书操作 |
 | 1.1 | 新增剧情推进预设管理 API：`getPlotPresets()`, `getPlotPresetNames()`, `getCurrentPlotPreset()`, `switchPlotPreset()`, `getPlotPresetDetails()` |
 | 1.2 | 新增前端导入 API：`importTemplateFromData()`, `importPlotPresetFromData()`, `importPlotPresetsFromData()`, `getTableTemplate()`, `exportAllPlotPresets()` |
+| 1.3 | 新增更新配置参数 API：`getUpdateConfigParams()`, `setUpdateConfigParams()`；新增手动更新表选择 API：`getManualSelectedTables()`, `setManualSelectedTables()`, `clearManualSelectedTables()`；新增 API 预设管理 API：`getApiPresets()`, `getTableApiPreset()`, `setTableApiPreset()`, `getPlotApiPreset()`, `setPlotApiPreset()`, `saveApiPreset()`, `loadApiPreset()`, `deleteApiPreset()` |

@@ -3768,6 +3768,337 @@
             logError_ACU('exportAllPlotPresets failed:', e);
             return [];
         }
+    },
+
+    // =========================
+    // 更新配置参数读写 API
+    // =========================
+
+    /**
+     * 获取更新配置参数
+     * @returns {Object} 包含 autoUpdateThreshold, autoUpdateFrequency, updateBatchSize 等参数
+     */
+    getUpdateConfigParams: function() {
+        try {
+            return {
+                autoUpdateThreshold: settings_ACU.autoUpdateThreshold ?? 3,
+                autoUpdateFrequency: settings_ACU.autoUpdateFrequency ?? 1,
+                updateBatchSize: settings_ACU.updateBatchSize ?? 2,
+                autoUpdateTokenThreshold: settings_ACU.autoUpdateTokenThreshold ?? 0
+            };
+        } catch (e) {
+            logError_ACU('getUpdateConfigParams failed:', e);
+            return {
+                autoUpdateThreshold: 3,
+                autoUpdateFrequency: 1,
+                updateBatchSize: 2,
+                autoUpdateTokenThreshold: 0
+            };
+        }
+    },
+
+    /**
+     * 设置更新配置参数
+     * @param {Object} params - 要更新的参数对象
+     * @param {number} [params.autoUpdateThreshold] - 自动更新阈值
+     * @param {number} [params.autoUpdateFrequency] - 自动更新频率
+     * @param {number} [params.updateBatchSize] - 批处理大小
+     * @param {number} [params.autoUpdateTokenThreshold] - Token阈值
+     * @returns {boolean} 设置是否成功
+     */
+    setUpdateConfigParams: function(params) {
+        try {
+            if (!params || typeof params !== 'object') {
+                logError_ACU('setUpdateConfigParams: Invalid params');
+                return false;
+            }
+
+            // 验证并设置每个参数
+            if (typeof params.autoUpdateThreshold === 'number' && params.autoUpdateThreshold >= 0) {
+                settings_ACU.autoUpdateThreshold = Math.floor(params.autoUpdateThreshold);
+            }
+            if (typeof params.autoUpdateFrequency === 'number' && params.autoUpdateFrequency >= 1) {
+                settings_ACU.autoUpdateFrequency = Math.floor(params.autoUpdateFrequency);
+            }
+            if (typeof params.updateBatchSize === 'number' && params.updateBatchSize >= 1) {
+                settings_ACU.updateBatchSize = Math.floor(params.updateBatchSize);
+            }
+            if (typeof params.autoUpdateTokenThreshold === 'number' && params.autoUpdateTokenThreshold >= 0) {
+                settings_ACU.autoUpdateTokenThreshold = Math.floor(params.autoUpdateTokenThreshold);
+            }
+
+            saveSettings_ACU();
+            logDebug_ACU('Update config params saved:', params);
+            return true;
+        } catch (e) {
+            logError_ACU('setUpdateConfigParams failed:', e);
+            return false;
+        }
+    },
+
+    // =========================
+    // 手动更新表选择读写 API
+    // =========================
+
+    /**
+     * 获取手动更新表选择
+     * @returns {Object} 包含 selectedTables 和 hasManualSelection
+     */
+    getManualSelectedTables: function() {
+        try {
+            return {
+                selectedTables: Array.isArray(settings_ACU.manualSelectedTables)
+                    ? [...settings_ACU.manualSelectedTables]
+                    : [],
+                hasManualSelection: !!settings_ACU.hasManualSelection
+            };
+        } catch (e) {
+            logError_ACU('getManualSelectedTables failed:', e);
+            return { selectedTables: [], hasManualSelection: false };
+        }
+    },
+
+    /**
+     * 设置手动更新表选择
+     * @param {Array<string>} sheetKeys - 要选择的表格 key 数组
+     * @returns {boolean} 设置是否成功
+     */
+    setManualSelectedTables: function(sheetKeys) {
+        try {
+            if (!Array.isArray(sheetKeys)) {
+                logError_ACU('setManualSelectedTables: sheetKeys must be an array');
+                return false;
+            }
+
+            // 获取当前可用的表格 keys
+            const availableKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
+            
+            // 过滤出有效的 keys
+            const validKeys = sheetKeys.filter(key => availableKeys.includes(key));
+            
+            settings_ACU.manualSelectedTables = validKeys;
+            settings_ACU.hasManualSelection = true;
+            saveSettings_ACU();
+            
+            logDebug_ACU('Manual selected tables updated:', validKeys);
+            return true;
+        } catch (e) {
+            logError_ACU('setManualSelectedTables failed:', e);
+            return false;
+        }
+    },
+
+    /**
+     * 清除手动更新表选择（恢复全选状态）
+     * @returns {boolean} 清除是否成功
+     */
+    clearManualSelectedTables: function() {
+        try {
+            settings_ACU.manualSelectedTables = [];
+            settings_ACU.hasManualSelection = false;
+            saveSettings_ACU();
+            logDebug_ACU('Manual selected tables cleared');
+            return true;
+        } catch (e) {
+            logError_ACU('clearManualSelectedTables failed:', e);
+            return false;
+        }
+    },
+
+    // =========================
+    // API 预设管理 API
+    // =========================
+
+    /**
+     * 获取所有 API 预设列表
+     * @returns {Array<Object>} API 预设数组的深拷贝
+     */
+    getApiPresets: function() {
+        try {
+            const presets = settings_ACU.apiPresets || [];
+            return JSON.parse(JSON.stringify(presets));
+        } catch (e) {
+            logError_ACU('getApiPresets failed:', e);
+            return [];
+        }
+    },
+
+    /**
+     * 获取当前选中的填表 API 预设名称
+     * @returns {string} 预设名称，如果使用当前配置则返回空字符串
+     */
+    getTableApiPreset: function() {
+        try {
+            return settings_ACU.tableApiPreset || '';
+        } catch (e) {
+            logError_ACU('getTableApiPreset failed:', e);
+            return '';
+        }
+    },
+
+    /**
+     * 设置填表 API 预设
+     * @param {string} presetName - 预设名称，空字符串表示使用当前配置
+     * @returns {boolean} 设置是否成功
+     */
+    setTableApiPreset: function(presetName) {
+        try {
+            // 空字符串表示使用当前配置
+            if (presetName === '') {
+                settings_ACU.tableApiPreset = '';
+                saveSettings_ACU();
+                logDebug_ACU('Table API preset cleared (use current config)');
+                return true;
+            }
+
+            // 验证预设是否存在
+            const presets = settings_ACU.apiPresets || [];
+            const exists = presets.some(p => p.name === presetName);
+            if (!exists) {
+                logError_ACU(`setTableApiPreset: Preset "${presetName}" not found`);
+                return false;
+            }
+
+            settings_ACU.tableApiPreset = presetName;
+            saveSettings_ACU();
+            logDebug_ACU(`Table API preset set to: ${presetName}`);
+            return true;
+        } catch (e) {
+            logError_ACU('setTableApiPreset failed:', e);
+            return false;
+        }
+    },
+
+    /**
+     * 获取当前选中的剧情推进 API 预设名称
+     * @returns {string} 预设名称，如果使用当前配置则返回空字符串
+     */
+    getPlotApiPreset: function() {
+        try {
+            return settings_ACU.plotApiPreset || '';
+        } catch (e) {
+            logError_ACU('getPlotApiPreset failed:', e);
+            return '';
+        }
+    },
+
+    /**
+     * 设置剧情推进 API 预设
+     * @param {string} presetName - 预设名称，空字符串表示使用当前配置
+     * @returns {boolean} 设置是否成功
+     */
+    setPlotApiPreset: function(presetName) {
+        try {
+            // 空字符串表示使用当前配置
+            if (presetName === '') {
+                settings_ACU.plotApiPreset = '';
+                saveSettings_ACU();
+                logDebug_ACU('Plot API preset cleared (use current config)');
+                return true;
+            }
+
+            // 验证预设是否存在
+            const presets = settings_ACU.apiPresets || [];
+            const exists = presets.some(p => p.name === presetName);
+            if (!exists) {
+                logError_ACU(`setPlotApiPreset: Preset "${presetName}" not found`);
+                return false;
+            }
+
+            settings_ACU.plotApiPreset = presetName;
+            saveSettings_ACU();
+            logDebug_ACU(`Plot API preset set to: ${presetName}`);
+            return true;
+        } catch (e) {
+            logError_ACU('setPlotApiPreset failed:', e);
+            return false;
+        }
+    },
+
+    /**
+     * 保存或更新 API 预设
+     * @param {Object} presetData - 预设数据
+     * @param {string} presetData.name - 预设名称（必填）
+     * @param {string} presetData.apiMode - API 模式（如 'custom', 'proxy' 等）
+     * @param {Object} presetData.apiConfig - API 配置对象
+     * @param {string} [presetData.tavernProfile] - Tavern Profile 名称
+     * @returns {boolean} 保存是否成功
+     */
+    saveApiPreset: function(presetData) {
+        try {
+            if (!presetData || typeof presetData !== 'object') {
+                logError_ACU('saveApiPreset: Invalid presetData');
+                return false;
+            }
+            if (!presetData.name || typeof presetData.name !== 'string') {
+                logError_ACU('saveApiPreset: preset name is required');
+                return false;
+            }
+
+            const newPreset = {
+                name: presetData.name.trim(),
+                apiMode: presetData.apiMode || 'custom',
+                apiConfig: presetData.apiConfig || {},
+                tavernProfile: presetData.tavernProfile || ''
+            };
+
+            // 调用内部函数保存预设
+            saveApiPreset_ACU(newPreset.name, newPreset);
+            logDebug_ACU(`API preset saved: ${newPreset.name}`);
+            return true;
+        } catch (e) {
+            logError_ACU('saveApiPreset failed:', e);
+            return false;
+        }
+    },
+
+    /**
+     * 加载 API 预设（应用到当前配置）
+     * @param {string} presetName - 预设名称
+     * @returns {boolean} 加载是否成功
+     */
+    loadApiPreset: function(presetName) {
+        try {
+            if (!presetName || typeof presetName !== 'string') {
+                logError_ACU('loadApiPreset: preset name is required');
+                return false;
+            }
+
+            // 调用内部函数加载预设
+            const result = loadApiPreset_ACU(presetName);
+            if (result) {
+                logDebug_ACU(`API preset loaded: ${presetName}`);
+                return true;
+            } else {
+                logError_ACU(`loadApiPreset: Preset "${presetName}" not found`);
+                return false;
+            }
+        } catch (e) {
+            logError_ACU('loadApiPreset failed:', e);
+            return false;
+        }
+    },
+
+    /**
+     * 删除 API 预设
+     * @param {string} presetName - 预设名称
+     * @returns {boolean} 删除是否成功
+     */
+    deleteApiPreset: function(presetName) {
+        try {
+            if (!presetName || typeof presetName !== 'string') {
+                logError_ACU('deleteApiPreset: preset name is required');
+                return false;
+            }
+
+            // 调用内部函数删除预设
+            deleteApiPreset_ACU(presetName);
+            logDebug_ACU(`API preset deleted: ${presetName}`);
+            return true;
+        } catch (e) {
+            logError_ACU('deleteApiPreset failed:', e);
+            return false;
+        }
     }
   };
   // --- [核心改造] 结束 ---
@@ -5041,11 +5372,11 @@
       return result;
   }
 
-  // [新增] 辅助函数：判断表格是否是总结表或总体大纲表
+  // [新增] 辅助函数：判断表格是否是总结表、总体大纲表或纪要表（这些表拥有索引编码锁定功能）
   function isSummaryOrOutlineTable_ACU(tableName) {
       if (!tableName || typeof tableName !== 'string') return false;
       const trimmedName = tableName.trim();
-      return trimmedName === '总结表' || trimmedName === '总体大纲';
+      return trimmedName === '总结表' || trimmedName === '总体大纲' || trimmedName === '纪要表';
   }
 
   // [新增] 辅助函数：判断表格是否是标准表（非总结表和总体大纲表）
