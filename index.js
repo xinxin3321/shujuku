@@ -6369,6 +6369,71 @@
     }
   }
 
+  // [剧情推进专用] $5 从纪要表本地数据读取概要和编码索引两列（不再从世界书纪要索引条目读取）
+  // 只读取纪要表的"概览/概要"列和"编码索引"列，不读取其他内容（时间跨度、地点、纪要等）
+  // 返回格式：{ success: boolean, content: string }，方便调用方判断是否成功
+  function formatSummaryIndexForPlot_ACU(allTablesJson) {
+    try {
+      if (!allTablesJson || typeof allTablesJson !== 'object') {
+        logDebug_ACU('[剧情推进] formatSummaryIndexForPlot_ACU: 未获取到表格数据');
+        return { success: false, content: '纪要索引：未获取到表格数据。' };
+      }
+      const sheets = Object.values(allTablesJson).filter(x => x && typeof x === 'object' && x.name && x.content);
+      // 查找纪要表（兼容旧数据"总结表"）
+      const summaryTable = sheets.find(s => {
+        const name = String(s.name || '').trim();
+        return name === '纪要表' || name === '总结表';
+      });
+      
+      if (!summaryTable) {
+        logDebug_ACU('[剧情推进] formatSummaryIndexForPlot_ACU: 未找到纪要表，可用表格:', sheets.map(s => s.name));
+        return { success: false, content: '纪要索引：未找到纪要表。' };
+      }
+      
+      if (!Array.isArray(summaryTable.content) || summaryTable.content.length <= 1) {
+        logDebug_ACU('[剧情推进] formatSummaryIndexForPlot_ACU: 纪要表为空，content长度:', summaryTable.content?.length);
+        return { success: false, content: '纪要索引：纪要表为空。' };
+      }
+
+      const headerRow = Array.isArray(summaryTable.content[0]) ? summaryTable.content[0] : [];
+      logDebug_ACU('[剧情推进] formatSummaryIndexForPlot_ACU: 纪要表表头:', JSON.stringify(headerRow));
+      
+      // 找到概要列和编码索引列的索引（兼容"概览"和"概要"两种列名）
+      const summaryColIdx = headerRow.findIndex(h => {
+        const name = String(h ?? '').trim();
+        return name === '概览' || name === '概要';
+      });
+      const indexColIdx = headerRow.findIndex(h => String(h ?? '').trim() === '编码索引');
+      
+      if (summaryColIdx === -1 || indexColIdx === -1) {
+        logWarn_ACU('[剧情推进] formatSummaryIndexForPlot_ACU: 未找到概要列或编码索引列，概要列索引=', summaryColIdx, ', 编码索引列索引=', indexColIdx);
+        return { success: false, content: '纪要索引：未找到概要列或编码索引列。' };
+      }
+
+      let out = `## 表格: 纪要索引\n`;
+      out += `Columns: 概要, 编码索引\n`;
+
+      const rows = summaryTable.content.slice(1).filter(r => Array.isArray(r));
+      if (rows.length === 0) {
+        out += '(无数据行)\n';
+        return { success: true, content: out };
+      }
+
+      rows.forEach((row, idx) => {
+        const summary = row[summaryColIdx] ? String(row[summaryColIdx]).trim() : '';
+        const indexCode = row[indexColIdx] ? String(row[indexColIdx]).trim() : '';
+        if (summary || indexCode) {
+          out += `- [${idx}] 概要: ${summary} | 编码索引: ${indexCode}\n`;
+        }
+      });
+      logDebug_ACU('[剧情推进] formatSummaryIndexForPlot_ACU: 成功生成纪要索引，行数=', rows.length);
+      return { success: true, content: out };
+    } catch (e) {
+      logError_ACU('[剧情推进] 格式化纪要索引时出错:', e);
+      return { success: false, content: '纪要索引：格式化时发生错误。' };
+    }
+  }
+
   /**
    * 转义正则表达式特殊字符。
    * @param {string} string - 需要转义的字符串.
@@ -7187,34 +7252,38 @@
       let worldbookContent = await getWorldbookContentForPlot_ACU(plotSettings, userMessage, lastPlotContent);
       logDebug_ACU('[剧情推进] $1 世界书内容(原始):', worldbookContent ? `长度=${worldbookContent.length}` : '(空)');
 
-      // [剧情推进] $5 优先从世界书"纪要索引"条目获取，若不存在则回退到"总体大纲"表
+      // [剧情推进] $5 从纪要表本地数据读取概要和编码索引两列（不再从世界书纪要索引条目读取）
+      // 如果读取不到纪要表，则回退到总体大纲表
       let outlineTableContent = '';
       try {
-        // 优先尝试从世界书获取纪要索引条目
-        const summaryIndexContent = await getSummaryIndexContentForPlot_ACU(plotSettings);
-        if (summaryIndexContent) {
-          outlineTableContent = summaryIndexContent;
-          logDebug_ACU('[剧情推进] $5 使用世界书纪要索引条目内容');
-        } else {
-          // 回退：从数据库读取总体大纲表
-          if (!currentJsonTableData_ACU || typeof currentJsonTableData_ACU !== 'object') {
-            // 兜底：即时从聊天记录合并一次（避免 $5 为空）
-            try {
-              const merged = await mergeAllIndependentTables_ACU();
-              if (merged && typeof merged === 'object') {
-                currentJsonTableData_ACU = merged;
-              }
-            } catch (e) {}
-          }
-          if (currentJsonTableData_ACU && typeof currentJsonTableData_ACU === 'object') {
+        // 确保数据已加载
+        if (!currentJsonTableData_ACU || typeof currentJsonTableData_ACU !== 'object') {
+          // 兜底：即时从聊天记录合并一次（避免 $5 为空）
+          try {
+            const merged = await mergeAllIndependentTables_ACU();
+            if (merged && typeof merged === 'object') {
+              currentJsonTableData_ACU = merged;
+            }
+          } catch (e) {}
+        }
+        if (currentJsonTableData_ACU && typeof currentJsonTableData_ACU === 'object') {
+          // 优先尝试从纪要表读取概要和编码索引列
+          const summaryIndexResult = formatSummaryIndexForPlot_ACU(currentJsonTableData_ACU);
+          // 使用返回对象的 success 字段判断是否成功
+          if (summaryIndexResult.success) {
+            outlineTableContent = summaryIndexResult.content;
+            logDebug_ACU('[剧情推进] $5 使用纪要表的概要和编码索引列');
+          } else {
+            // 回退：从总体大纲表读取
+            logDebug_ACU('[剧情推进] $5 纪要表读取失败，回退使用总体大纲表。原因:', summaryIndexResult.content);
             outlineTableContent = formatOutlineTableForPlot_ACU(currentJsonTableData_ACU);
             logDebug_ACU('[剧情推进] $5 回退使用总体大纲表内容');
-          } else {
-            outlineTableContent = '总体大纲表：当前未加载到数据库数据。';
           }
+        } else {
+          outlineTableContent = '纪要索引：当前未加载到数据库数据。';
         }
       } catch (error) {
-        logError_ACU('[剧情推进] 生成总体大纲表($5)时出错:', error);
+        logError_ACU('[剧情推进] 生成纪要索引($5)时出错:', error);
         outlineTableContent = '{"error": "加载表格数据时发生错误"}';
       }
 
@@ -7472,12 +7541,12 @@
         // 需要重试的情况
         if (i < maxRetries - 1) {
           if (apiError) {
-            showToastr_ACU('warning', `API调用失败，准备重试... (${apiError.message.substring(0, 50)})`, '剧情规划大师', { timeOut: 3000 });
+            showToastr_ACU('warning', `API调用失败，5秒后重试... (${apiError.message.substring(0, 50)})`, '剧情规划大师', { timeOut: 5000 });
           } else if (minLength > 0 && (!tempMessage || tempMessage.length < minLength)) {
-            showToastr_ACU('warning', `回复过短，准备重试...`, '剧情规划大师', { timeOut: 2000 });
+            showToastr_ACU('warning', `回复过短，5秒后重试...`, '剧情规划大师', { timeOut: 5000 });
           }
-          // 递增等待时间：1秒、2秒、3秒
-          await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+          // 固定等待5秒后重试
+          await new Promise(resolve => setTimeout(resolve, 5000));
         }
       }
 
@@ -7644,9 +7713,10 @@
                 // 兼容：外部导入- 或 外部导入-<批次>-（历史/未来版本）
                 normalizedComment = normalizedComment.replace(/^外部导入-(?:[^-]+-)?/, '');
 
-                // 屏蔽 OutlineTable 本体（总结大纲/总体大纲）
+                // 屏蔽 OutlineTable 本体（总结大纲/总体大纲）和纪要索引条目
                 const isOutlineEntry = normalizedComment.startsWith('TavernDB-ACU-OutlineTable');
-                if (isOutlineEntry) {
+                const isSummaryIndexEntry = normalizedComment.startsWith('TavernDB-ACU-CustomExport-纪要索引');
+                if (isOutlineEntry || isSummaryIndexEntry) {
                   return;
                 }
                 // 数据库生成条目：默认全部读取（不受UI勾选影响），并且不受“屏蔽词”过滤影响
@@ -19553,7 +19623,7 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
 
               } catch (e) {
                   logWarn_ACU(`自动合并批次 ${i + 1} 尝试 ${attempt} 失败: ${e.message}`);
-                  if (attempt < maxRetries) await new Promise(resolve => setTimeout(resolve, 2000));
+                  if (attempt < maxRetries) await new Promise(resolve => setTimeout(resolve, 5000));
               }
           }
 
@@ -19787,12 +19857,12 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
                     throw new DOMException('Aborted by user', 'AbortError');
                 }
                 
-                // 如果不是最后一次尝试，等待后重试
+                // 如果不是最后一次尝试，等待5秒后重试
                 if (attempt < maxRetries) {
-                    const waitTime = 1000 * attempt; // 递增等待时间：1秒、2秒、3秒
+                    const waitTime = 5000; // 固定等待5秒
                     logDebug_ACU(`等待 ${waitTime}ms 后重试...`);
                     if (!isSilentMode) {
-                        showToastr_ACU('warning', `第 ${attempt} 次尝试失败，准备重试... (${error.message.substring(0, 50)})`, { timeOut: 2000 });
+                        showToastr_ACU('warning', `第 ${attempt} 次尝试失败，5秒后重试... (${error.message.substring(0, 50)})`, { timeOut: 5000 });
                     }
                     await new Promise(resolve => setTimeout(resolve, waitTime));
                     continue;
@@ -20203,7 +20273,7 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
                   } catch (e) {
                       lastError = e;
                       logWarn_ACU(`批次 ${i + 1} 尝试 ${attempt} 失败: ${e.message}`);
-                      if (attempt < maxRetries) await new Promise(resolve => setTimeout(resolve, 2000));
+                      if (attempt < maxRetries) await new Promise(resolve => setTimeout(resolve, 5000));
                   }
               }
               if (lastError) throw new Error(`批次 ${i + 1} 在 ${maxRetries} 次尝试后均失败: ${lastError.message}`);
