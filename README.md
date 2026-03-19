@@ -13,6 +13,30 @@
 
 ## 更新日志
 
+### 2026-03-19 新对话首楼注入逻辑修复
+
+#### 修复问题
+- **新对话首楼被强制注入空模板**：修复了开启新对话后，首楼会被强制注入一个空模板的问题
+- 根本原因：`initializeJsonTableInChatHistory_ACU()` 函数中错误地调用了 `seedGreetingLocalDataFromTemplate_ACU()`，导致正常新对话也会注入空模板到首楼
+- 设计意图：空模板注入应该只针对通过外部插件触发的API（如 `initGameSession`），正常新对话应该只注入指导表
+
+#### 修改内容
+
+| 文件 | 代码行数区间 | 修改说明 |
+|------|-------------|----------|
+| `index.js` | 14334-14339（已删除） | 移除 `seedGreetingLocalDataFromTemplate_ACU()` 调用，保留指导表注入逻辑 |
+
+#### 技术细节
+- **保留的功能**：
+  - 指导表注入（`ensureChatSheetGuideSeeded_ACU`）正常工作，会保存模板的 `seedRows` 字段
+  - 外部API `initGameSession` 仍可通过 `fillFirstLayerWithTemplateData_ACU()` 注入完整模板数据
+- **数据流程**：
+  - 新对话时：只注入指导表（包含 seedRows），不注入空模板到首楼
+  - 第二楼填表时：通过 `getEffectiveSeedRowsForSheet_ACU()` 函数的多层回退机制（当前数据 → 指导表 → 模板）正确获取种子数据
+- **不影响**：模板自带的数据仍可在填表时正确使用
+
+---
+
 ### 2026-03-15 流式传输开关修复
 
 #### 修复问题

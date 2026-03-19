@@ -14331,13 +14331,6 @@ const DatabaseAPI_ACU = {
         logWarn_ACU('[SheetGuide] Failed to ensure sheet guide during initialization:', e);
     }
 
-    // [新增] 新开对话时，将模板数据写入第一楼的实际表格数据（包含种子数据）
-    try {
-        await seedGreetingLocalDataFromTemplate_ACU();
-    } catch (e) {
-        logWarn_ACU('[GreetingSeed] Failed to seed greeting local data from template:', e);
-    }
-
     // 步骤4：删除所有由本插件生成的旧世界书条目
     try {
         await deleteAllGeneratedEntries_ACU();
