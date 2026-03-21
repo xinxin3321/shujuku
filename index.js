@@ -1980,8 +1980,12 @@
       
       // 2. 调用AI API
       logDebug_ACU('[正文优化] 调用AI API...');
+      // [修复] 传递API预设参数
+      const apiPreset = config.apiPreset || '';
+      logDebug_ACU(`[正文优化] 使用API预设: ${apiPreset || '当前配置'}`);
       const responseContent = await topLevelWindow_ACU.AutoCardUpdaterAPI.callAI(messages, {
-        max_tokens: 4000
+        max_tokens: 4000,
+        presetName: apiPreset
       });
       
       if (!responseContent) {
@@ -5197,9 +5201,10 @@
     // =========================
 
     /**
-     * 调用AI生成内容（使用数据库当前配置的API）
+     * 调用AI生成内容（支持API预设）
      * @param {Array} messages - 消息数组，格式: [{role: 'system'|'user'|'assistant', content: '...'}]
-     * @param {Object} options - 可选配置 { max_tokens: number }
+     * @param {Object} options - 可选配置 { max_tokens: number, presetName: string }
+     * @param {string} options.presetName - API预设名称，为空则使用当前配置
      * @returns {Promise<string|null>} AI返回的文本内容，失败返回null
      */
     callAI: async function(messages, options = {}) {
@@ -5209,15 +5214,21 @@
                 return null;
             }
 
-            logDebug_ACU('[callAI] Calling AI with', messages.length, 'messages');
+            // [修复] 支持API预设参数
+            const presetName = options.presetName || '';
+            const apiPresetConfig = getApiConfigByPreset_ACU(presetName);
+            const effectiveApiMode = apiPresetConfig.apiMode;
+            const effectiveApiConfig = apiPresetConfig.apiConfig || {};
+            const effectiveTavernProfile = apiPresetConfig.tavernProfile;
             
-            const effectiveApiConfig = settings_ACU.apiConfig || {};
-            const maxTokens = options.max_tokens || effectiveApiConfig.max_tokens || 4096;
+            logDebug_ACU(`[callAI] Calling AI with ${messages.length} messages, preset: ${presetName || '当前配置'}, mode: ${effectiveApiMode}`);
             
-            // 使用数据库当前的API配置调用AI
-            if (settings_ACU.apiMode === 'tavern') {
+            const maxTokens = options.max_tokens || effectiveApiConfig.max_tokens || effectiveApiConfig.maxTokens || 4096;
+            
+            // 使用预设或当前配置的API调用AI
+            if (effectiveApiMode === 'tavern') {
                 // 使用酒馆Profile
-                const profileId = settings_ACU.tavernProfile;
+                const profileId = effectiveTavernProfile || settings_ACU.tavernProfile;
                 const response = await SillyTavern_API_ACU.ConnectionManagerRequestService.sendRequest(
                     profileId, messages, maxTokens
                 );
@@ -18229,8 +18240,8 @@ const DatabaseAPI_ACU = {
                                 </div>
                                 <div class="qrf_settings_block" style="margin-bottom: 0;">
                                     <label for="${SCRIPT_ID_PREFIX_ACU}-optimization-max-items" style="font-weight: 500;">最大优化项数</label>
-                                    <input id="${SCRIPT_ID_PREFIX_ACU}-optimization-max-items" type="number" class="text_pole" min="1" max="20" step="1" value="10" style="width: 100%; margin-top: 5px;">
-                                    <small class="notes">单次优化的最大修改项数</small>
+                                    <input id="${SCRIPT_ID_PREFIX_ACU}-optimization-max-items" type="number" class="text_pole" min="1" max="100" step="1" value="10" style="width: 100%; margin-top: 5px;">
+                                    <small class="notes">单次优化的最大修改项数（1-100）</small>
                                 </div>
                             </div>
                         </div>
@@ -20073,7 +20084,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       if ($optimizationMaxItems.length) {
         $optimizationMaxItems.on('input change', function() {
           const val = parseInt($(this).val(), 10);
-          if (!isNaN(val) && val >= 1 && val <= 20) {
+          if (!isNaN(val) && val >= 1 && val <= 100) {
             settings_ACU.contentOptimizationSettings.maxOptimizations = val;
             saveSettings_ACU();
           }
