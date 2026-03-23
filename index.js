@@ -9637,6 +9637,14 @@ const DatabaseAPI_ACU = {
       
       if (pos >= expr.length) return false;
       
+      // 检查是否是取反操作（!）
+      let isNegated = false;
+      if (expr[pos] === '!') {
+        isNegated = true;
+        pos++; // 跳过 '!'
+        skipWhitespace();
+      }
+      
       // 括号表达式
       if (expr[pos] === '(') {
         pos++; // 跳过 '('
@@ -9646,7 +9654,7 @@ const DatabaseAPI_ACU = {
         if (pos < expr.length && expr[pos] === ')') {
           pos++; // 跳过 ')'
         }
-        return result;
+        return isNegated ? !result : result;
       }
       
       // 子条件：提取直到遇到运算符或括号
@@ -9656,7 +9664,8 @@ const DatabaseAPI_ACU = {
         pos++;
       }
       
-      return evaluateSubCondition_ACU(subCond, context);
+      const result = evaluateSubCondition_ACU(subCond, context);
+      return isNegated ? !result : result;
     };
     
     try {
