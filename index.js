@@ -2062,15 +2062,15 @@
      const maxRetries = config.retryCount || 3;
       
      logDebug_ACU(`[正文优化] 开始执行正文优化，循环 ${currentLoop}/${totalLoops}，原始内容长度:`, content.length);
-     
+      
      // 1. 获取占位符内容
      const placeholders = await getOptimizationPlaceholders_ACU(options.userMessage || '');
-     
+      
      // 2. 构建提示词消息
      const promptGroup = config.promptGroup && config.promptGroup.length > 0
        ? config.promptGroup
        : DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU;
-     
+      
      // 替换占位符并转换role为小写（某些API如豆包只接受小写role）
      const messages = JSON.parse(JSON.stringify(promptGroup));
      messages.forEach(item => {
@@ -2084,6 +2084,29 @@
              item.content = item.content.replace(regex, value);
            }
          }
+         
+         // [新增] 条件模板支持：随机数、计算变量、条件判断
+         // 1. 解析随机数标签
+         item.content = parseRandomTags_ACU(item.content);
+         // 2. 替换随机数变量引用
+         item.content = replaceRandomVariables_ACU(item.content);
+         // 3. 解析计算变量标签
+         const contextForCalc = { allTablesJson: currentJsonTableData_ACU };
+         item.content = parseCalcTags_ACU(item.content, contextForCalc);
+         // 4. 解析最大值变量标签
+         item.content = parseMaxTags_ACU(item.content, contextForCalc);
+         // 5. 解析最小值变量标签
+         item.content = parseMinTags_ACU(item.content, contextForCalc);
+         // 6. 替换计算变量引用
+         item.content = replaceCalcVariables_ACU(item.content);
+         // 7. 替换最大值变量引用
+         item.content = replaceMaxVariables_ACU(item.content);
+         // 8. 替换最小值变量引用
+         item.content = replaceMinVariables_ACU(item.content);
+         // 9. 解析条件模板
+         const seedContentForConditional = formatNonSummaryTablesForSeed_ACU(currentJsonTableData_ACU);
+         const contextForIf = { seedContent: seedContentForConditional, allTablesJson: currentJsonTableData_ACU, plotContent: '' };
+         item.content = parseIfBlockRecursive_ACU(item.content, contextForIf, 0);
        }
        // 转换role为小写
        if (item.role && typeof item.role === 'string') {
