@@ -5904,7 +5904,68 @@ $CONTENT
             
             // 保存并通知
             if (targetSheetKey) {
-                await saveCurrentDataForTable_ACU(targetSheetKey);
+                const chat = SillyTavern_API_ACU.chat;
+                const isSummaryTable = isSummaryOrOutlineTable_ACU(targetSheet.name);
+                const isolationKey = getCurrentIsolationKey_ACU();
+                
+                // 查找该表的最新楼层（与 updateRow 保持一致）
+                let tableLatestFloorIndex = -1;
+                if (chat && chat.length > 0) {
+                    for (let i = chat.length - 1; i >= 0; i--) {
+                        const msg = chat[i];
+                        if (msg.is_user) continue;
+                        
+                        let hasTableData = false;
+                        
+                        if (msg.TavernDB_ACU_IsolatedData && msg.TavernDB_ACU_IsolatedData[isolationKey]) {
+                            const tagData = msg.TavernDB_ACU_IsolatedData[isolationKey];
+                            const independentData = tagData.independentData || {};
+                            if (independentData[targetSheetKey]) {
+                                hasTableData = true;
+                            }
+                        }
+                        
+                        if (!hasTableData) {
+                            const msgIdentity = msg.TavernDB_ACU_Identity;
+                            const isLegacyMatch = settings_ACU.dataIsolationEnabled
+                                ? msgIdentity === settings_ACU.dataIsolationCode
+                                : !msgIdentity;
+                            
+                            if (isLegacyMatch) {
+                                const hasLegacyData =
+                                    (msg.TavernDB_ACU_IndependentData && msg.TavernDB_ACU_IndependentData[targetSheetKey]) ||
+                                    (isSummaryTable
+                                        ? (msg.TavernDB_ACU_SummaryData && msg.TavernDB_ACU_SummaryData[targetSheetKey])
+                                        : (msg.TavernDB_ACU_Data && msg.TavernDB_ACU_Data[targetSheetKey]));
+                                hasTableData = !!hasLegacyData;
+                            }
+                        }
+                        
+                        if (hasTableData) {
+                            tableLatestFloorIndex = i;
+                            break;
+                        }
+                    }
+                }
+                
+                if (tableLatestFloorIndex === -1 && chat && chat.length > 0) {
+                    for (let i = chat.length - 1; i >= 0; i--) {
+                        if (!chat[i].is_user) {
+                            tableLatestFloorIndex = i;
+                            break;
+                        }
+                    }
+                }
+                
+                if (tableLatestFloorIndex !== -1) {
+                    logDebug_ACU(`insertRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
+                    await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
+                    await refreshMergedDataAndNotify_ACU();
+                    logDebug_ACU(`insertRow: Worldbook refreshed after saving [${tableName}]`);
+                } else {
+                    logDebug_ACU(`insertRow: No AI floor found, falling back to saveCurrentDataForTable_ACU`);
+                    await saveCurrentDataForTable_ACU(targetSheetKey);
+                }
             }
             topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
             
@@ -5960,7 +6021,68 @@ $CONTENT
             
             // 保存并通知
             if (targetSheetKey) {
-                await saveCurrentDataForTable_ACU(targetSheetKey);
+                const chat = SillyTavern_API_ACU.chat;
+                const isSummaryTable = isSummaryOrOutlineTable_ACU(targetSheet.name);
+                const isolationKey = getCurrentIsolationKey_ACU();
+                
+                // 查找该表的最新楼层（与 updateRow 保持一致）
+                let tableLatestFloorIndex = -1;
+                if (chat && chat.length > 0) {
+                    for (let i = chat.length - 1; i >= 0; i--) {
+                        const msg = chat[i];
+                        if (msg.is_user) continue;
+                        
+                        let hasTableData = false;
+                        
+                        if (msg.TavernDB_ACU_IsolatedData && msg.TavernDB_ACU_IsolatedData[isolationKey]) {
+                            const tagData = msg.TavernDB_ACU_IsolatedData[isolationKey];
+                            const independentData = tagData.independentData || {};
+                            if (independentData[targetSheetKey]) {
+                                hasTableData = true;
+                            }
+                        }
+                        
+                        if (!hasTableData) {
+                            const msgIdentity = msg.TavernDB_ACU_Identity;
+                            const isLegacyMatch = settings_ACU.dataIsolationEnabled
+                                ? msgIdentity === settings_ACU.dataIsolationCode
+                                : !msgIdentity;
+                            
+                            if (isLegacyMatch) {
+                                const hasLegacyData =
+                                    (msg.TavernDB_ACU_IndependentData && msg.TavernDB_ACU_IndependentData[targetSheetKey]) ||
+                                    (isSummaryTable
+                                        ? (msg.TavernDB_ACU_SummaryData && msg.TavernDB_ACU_SummaryData[targetSheetKey])
+                                        : (msg.TavernDB_ACU_Data && msg.TavernDB_ACU_Data[targetSheetKey]));
+                                hasTableData = !!hasLegacyData;
+                            }
+                        }
+                        
+                        if (hasTableData) {
+                            tableLatestFloorIndex = i;
+                            break;
+                        }
+                    }
+                }
+                
+                if (tableLatestFloorIndex === -1 && chat && chat.length > 0) {
+                    for (let i = chat.length - 1; i >= 0; i--) {
+                        if (!chat[i].is_user) {
+                            tableLatestFloorIndex = i;
+                            break;
+                        }
+                    }
+                }
+                
+                if (tableLatestFloorIndex !== -1) {
+                    logDebug_ACU(`deleteRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
+                    await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
+                    await refreshMergedDataAndNotify_ACU();
+                    logDebug_ACU(`deleteRow: Worldbook refreshed after saving [${tableName}]`);
+                } else {
+                    logDebug_ACU(`deleteRow: No AI floor found, falling back to saveCurrentDataForTable_ACU`);
+                    await saveCurrentDataForTable_ACU(targetSheetKey);
+                }
             }
             topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
             
