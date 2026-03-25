@@ -1917,7 +1917,82 @@
     },
     {
       "role": "USER",
-      "content": "---BEGIN PROMPT---\n[System]\n你是文本优化执行AI，专注于正文质量分析与优化建议生成。\n必须按\"分析(analysis) + 优化(optimization)\"双系统架构工作。\n\n[Input]\n- CONTENT: <正文内容>（需要优化的正文）\n- REQUIREMENTS: <优化要求>（用户定义的优化标准）\n\n============================================================\n【核心规则 - HARD GATE】\n============================================================\n\n**一、优化原则**\n1. **保持风格**：优化后的内容必须保持原文的写作风格、语气和人物性格\n2. **最小改动**：只修改确实需要改进的部分，不要过度优化\n3. **逻辑连贯**：确保优化后的内容与上下文逻辑一致\n4. **细节增强**：可以适当增加感官描写、情感描写等细节\n5. **避免冗余**：删除重复、啰嗦的表达\n\n**二、输出格式（JSON）**\n必须输出以下JSON格式：\n```json\n{\n  \"optimizations\": [\n    {\n      \"type\": \"replace\",\n      \"original\": \"原文中需要优化的句子或段落\",\n      \"plan\": \"修改方案说明\",\n      \"optimized\": \"优化后的句子或段落\"\n    }\n  ],\n  \"summary\": \"本次优化的总体说明\"\n}\n```\n\n**三、字段顺序说明**\n- `type`: 优化类型，固定为 \"replace\"\n- `original`: 原文中需要优化的完整句子或段落（用于定位）\n- `plan`: 修改方案说明，简要描述如何修改及原因\n- `optimized`: 优化后的句子或段落\n- 字段顺序必须严格按照上述顺序：original → plan → optimized\n\n**四、数量限制**\n- 优化项数量：1-10个\n- 只输出确实需要优化的部分，不要为了凑数量而强行优化\n- 如果原文已经很好，可以输出空的optimizations数组\n\n============================================================\n【常见错误（绝对禁止）】\n============================================================\n- 输出非JSON格式\n- original与原文不匹配\n- 改变原文风格和语气\n- 过度优化导致内容失真\n- 优化项缺少plan字段\n- 字段顺序错误\n\n---END PROMPT---\n\n以下是需要优化的正文内容：\n<正文内容>\n$CONTENT\n</正文内容>\n\n请按照上述要求分析正文并生成优化建议。",
+      "content": `---BEGIN PROMPT---
+[System]
+你是文本优化执行AI，专注于正文质量分析与优化建议生成。
+必须按"分析(analysis) + 优化(optimization)"双系统架构工作。
+
+[Input]
+- CONTENT: <正文内容>（需要优化的正文）
+- REQUIREMENTS: <优化要求>（用户定义的优化标准）
+
+============================================================
+【核心规则 - HARD GATE】
+============================================================
+
+**一、优化原则**
+1. **保持风格**：优化后的内容必须保持原文的写作风格、语气和人物性格
+2. **最小改动**：只修改确实需要改进的部分，不要过度优化
+3. **逻辑连贯**：确保优化后的内容与上下文逻辑一致
+4. **细节增强**：可以适当增加感官描写、情感描写等细节
+5. **避免冗余**：删除重复、啰嗦的表达
+
+**二、输出格式（JSON）**
+你必须只输出一个合法 JSON 对象，禁止输出 JSON 以外的任何解释、前后缀、思考、注释、标题、Markdown、代码块标记。
+必须输出以下JSON格式：
+{
+  "optimizations": [
+    {
+      "type": "replace",
+      "original": "原文中需要优化的句子或段落",
+      "plan": "修改方案说明",
+      "optimized": "优化后的句子或段落"
+    }
+  ],
+  "summary": "本次优化的总体说明"
+}
+
+**三、字段顺序说明**
+- type：优化类型，固定为 "replace"
+- original：原文中需要优化的完整句子或段落（用于定位）
+- plan：修改方案说明，简要描述如何修改及原因
+- optimized：优化后的句子或段落
+- 字段顺序必须严格按照上述顺序：type → original → plan → optimized
+
+**四、JSON稳定性要求（必须遵守）**
+- 所有字符串内部的双引号必须转义为 \"
+- 换行必须写成 \n，不能直接把未转义换行写进字符串值
+- 禁止尾随逗号
+- 禁止使用单引号包裹字符串
+- 禁止输出省略号、注释、说明文字、示例前缀
+- 如果某段内容包含难以安全表达的字符，请保持原意并改写成可被 JSON 正确编码的文本
+
+**五、数量限制**
+- 优化项数量：1-10个
+- 只输出确实需要优化的部分，不要为了凑数量而强行优化
+- 如果原文已经很好，可以输出空的optimizations数组
+
+============================================================
+【常见错误（绝对禁止）】
+============================================================
+- 输出非JSON格式
+- 不要用三个反引号包裹输出
+- 不要在JSON前后补充解释文本
+- original与原文不匹配
+- 改变原文风格和语气
+- 过度优化导致内容失真
+- 优化项缺少plan字段
+- 字段顺序错误
+- 字符串中出现未转义双引号或非法换行
+
+---END PROMPT---
+
+以下是需要优化的正文内容：
+<正文内容>
+$CONTENT
+</正文内容>
+
+请严格只返回一个可被 JSON.parse 直接解析的 JSON 对象。`,
       "deletable": false,
       "mainSlot": "A",
       "isMain": true
@@ -2159,31 +2234,61 @@
        };
      }
      
-     try {
-       // 4. 解析优化结果
-       const parsed = parseOptimizationResponse_ACU(responseContent, maxLength);
-       
-       if (!parsed.success) {
-         logDebug_ACU('[正文优化] 解析失败或无优化项');
-         return { success: false, error: parsed.error || '解析失败' };
+     let parseRetryResponseContent = responseContent;
+     let parseLastError = null;
+     
+     for (let parseAttempt = 1; parseAttempt <= maxRetries; parseAttempt++) {
+       try {
+         // 4. 解析优化结果
+         const parsed = parseOptimizationResponse_ACU(parseRetryResponseContent, maxLength);
+         
+         if (!parsed.success) {
+           throw new Error(parsed.error || '解析失败');
+         }
+         
+         // 5. 应用优化到正文
+         const optimizedContent = applyOptimizations_ACU(content, parsed.optimizations);
+         
+         logDebug_ACU(`[正文优化] 循环 ${currentLoop}/${totalLoops} 完成，共 ${parsed.optimizations.length} 个优化项`);
+         
+         return {
+           success: true,
+           optimizations: parsed.optimizations,
+           summary: parsed.summary,
+           optimizedContent: optimizedContent
+         };
+         
+       } catch (error) {
+         parseLastError = error;
+         logError_ACU(`[正文优化] 解析/应用失败 (尝试 ${parseAttempt}/${maxRetries}):`, error);
+         
+         if (parseAttempt >= maxRetries) {
+           break;
+         }
+         
+         const delayMs = Math.min(1000 * Math.pow(2, parseAttempt - 1), 10000);
+         logDebug_ACU(`[正文优化] 等待 ${delayMs}ms 后重新请求优化结果...`);
+         await new Promise(resolve => setTimeout(resolve, delayMs));
+         
+         try {
+           logDebug_ACU(`[正文优化] 重新调用AI API以获取更干净的优化结果... (尝试 ${parseAttempt + 1}/${maxRetries})`);
+           parseRetryResponseContent = await topLevelWindow_ACU.AutoCardUpdaterAPI.callAI(messages, {
+             presetName: apiPreset
+           });
+           if (!parseRetryResponseContent) {
+             throw new Error('重试请求未返回有效内容');
+           }
+         } catch (retryError) {
+           parseLastError = retryError;
+           logError_ACU(`[正文优化] 解析失败后的重新请求失败 (尝试 ${parseAttempt + 1}/${maxRetries}):`, retryError);
+           if (parseAttempt >= maxRetries - 1) {
+             break;
+           }
+         }
        }
-       
-       // 5. 应用优化到正文
-       const optimizedContent = applyOptimizations_ACU(content, parsed.optimizations);
-       
-       logDebug_ACU(`[正文优化] 循环 ${currentLoop}/${totalLoops} 完成，共 ${parsed.optimizations.length} 个优化项`);
-       
-       return {
-         success: true,
-         optimizations: parsed.optimizations,
-         summary: parsed.summary,
-         optimizedContent: optimizedContent
-       };
-       
-     } catch (error) {
-       logError_ACU('[正文优化] 解析/应用失败:', error);
-       return { success: false, error: error.message };
      }
+     
+     return { success: false, error: parseLastError?.message || '解析失败' };
    }
   
   /**
@@ -2222,46 +2327,269 @@
    * @returns {object} { success, optimizations, summary, error }
    */
   function parseOptimizationResponse_ACU(responseContent, maxOptimizations = 10) {
+    function extractBalancedJsonObject_ACU(text) {
+      const start = text.indexOf('{');
+      if (start < 0) return '';
+
+      let depth = 0;
+      let inString = false;
+      let escaped = false;
+
+      for (let i = start; i < text.length; i++) {
+        const ch = text[i];
+
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+
+        if (ch === '\\') {
+          escaped = true;
+          continue;
+        }
+
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
+
+        if (inString) continue;
+
+        if (ch === '{') depth++;
+        if (ch === '}') {
+          depth--;
+          if (depth === 0) {
+            return text.slice(start, i + 1);
+          }
+        }
+      }
+
+      return text.slice(start);
+    }
+
+    function sanitizeOptimizationJson_ACU(jsonStr) {
+      if (!jsonStr) return '';
+
+      let sanitized = String(jsonStr)
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .replace(/[\u201C\u201D]/g, '"')
+        .replace(/[\u2018\u2019]/g, "'")
+        .replace(/^[^\{]*?(\{)/s, '$1')
+        .trim();
+
+      sanitized = extractBalancedJsonObject_ACU(sanitized) || sanitized;
+
+      sanitized = sanitized
+        .replace(/,\s*([}\]])/g, '$1')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n');
+
+      return sanitized;
+    }
+
+    function normalizeOptimizationItem_ACU(opt) {
+      if (!opt || typeof opt !== 'object') return null;
+
+      const type = typeof opt.type === 'string' ? opt.type.trim() : 'replace';
+      const original = typeof opt.original === 'string' ? opt.original.trim() : '';
+      const optimized = typeof opt.optimized === 'string' ? opt.optimized.trim() : '';
+      const plan = typeof opt.plan === 'string' ? opt.plan.trim() : '';
+
+      if (type !== 'replace' || !original || !optimized) {
+        return null;
+      }
+
+      return {
+        type: 'replace',
+        original,
+        plan,
+        optimized
+      };
+    }
+
+    function extractStringField_ACU(source, fieldName) {
+      if (typeof source !== 'string' || !fieldName) return '';
+      const fieldPattern = new RegExp(`"${fieldName}"\\s*:\\s*"`);
+      const match = fieldPattern.exec(source);
+      if (!match) return '';
+
+      let i = match.index + match[0].length;
+      let result = '';
+      let escaped = false;
+
+      while (i < source.length) {
+        const ch = source[i];
+
+        if (escaped) {
+          result += ch;
+          escaped = false;
+          i++;
+          continue;
+        }
+
+        if (ch === '\\') {
+          result += ch;
+          escaped = true;
+          i++;
+          continue;
+        }
+
+        if (ch === '"') {
+          break;
+        }
+
+        result += ch;
+        i++;
+      }
+
+      return result
+        .replace(/\\n/g, '\n')
+        .replace(/\\r/g, '\r')
+        .replace(/\\t/g, '\t')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\');
+    }
+
+    function salvageOptimizationResponse_ACU(rawText) {
+      if (typeof rawText !== 'string' || !rawText.trim()) return null;
+
+      const containerText = extractBalancedJsonObject_ACU(rawText) || rawText;
+      const arrayMatch = containerText.match(/"optimizations"\s*:\s*\[/);
+      if (!arrayMatch) return null;
+
+      const arrayStart = containerText.indexOf('[', arrayMatch.index);
+      if (arrayStart < 0) return null;
+
+      let depth = 0;
+      let inString = false;
+      let escaped = false;
+      let arrayEnd = -1;
+
+      for (let i = arrayStart; i < containerText.length; i++) {
+        const ch = containerText[i];
+
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+
+        if (ch === '\\') {
+          escaped = true;
+          continue;
+        }
+
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
+
+        if (inString) continue;
+
+        if (ch === '[') depth++;
+        if (ch === ']') {
+          depth--;
+          if (depth === 0) {
+            arrayEnd = i;
+            break;
+          }
+        }
+      }
+
+      if (arrayEnd < 0) return null;
+
+      const arrayContent = containerText.slice(arrayStart + 1, arrayEnd);
+      const objects = [];
+      let objStart = -1;
+      depth = 0;
+      inString = false;
+      escaped = false;
+
+      for (let i = 0; i < arrayContent.length; i++) {
+        const ch = arrayContent[i];
+
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+
+        if (ch === '\\') {
+          escaped = true;
+          continue;
+        }
+
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
+
+        if (inString) continue;
+
+        if (ch === '{') {
+          if (depth === 0) objStart = i;
+          depth++;
+        } else if (ch === '}') {
+          depth--;
+          if (depth === 0 && objStart >= 0) {
+            objects.push(arrayContent.slice(objStart, i + 1));
+            objStart = -1;
+          }
+        }
+      }
+
+      const optimizations = objects
+        .map(objText => normalizeOptimizationItem_ACU({
+          type: extractStringField_ACU(objText, 'type') || 'replace',
+          original: extractStringField_ACU(objText, 'original'),
+          plan: extractStringField_ACU(objText, 'plan'),
+          optimized: extractStringField_ACU(objText, 'optimized')
+        }))
+        .filter(Boolean)
+        .slice(0, maxOptimizations);
+
+      if (!optimizations.length) return null;
+
+      return {
+        success: true,
+        optimizations,
+        summary: extractStringField_ACU(containerText, 'summary') || ''
+      };
+    }
+
     try {
-      // 尝试提取JSON
       let jsonStr = responseContent;
-      
-      // 如果响应包含 ```json 代码块，提取其中的内容
-      const jsonMatch = responseContent.match(/```json\s*([\s\S]*?)\s*```/);
+      const jsonMatch = responseContent.match(/```json\s*([\s\S]*?)\s*```/i);
       if (jsonMatch) {
         jsonStr = jsonMatch[1];
       } else {
-        // 尝试找到 { } 包裹的内容
-        const braceMatch = responseContent.match(/\{[\s\S]*\}/);
-        if (braceMatch) {
-          jsonStr = braceMatch[0];
-        }
+        jsonStr = extractBalancedJsonObject_ACU(responseContent) || responseContent;
       }
-      
-      const parsed = JSON.parse(jsonStr);
-      
-      if (!parsed.optimizations || !Array.isArray(parsed.optimizations)) {
+
+      const sanitizedJson = sanitizeOptimizationJson_ACU(jsonStr);
+      const parsed = JSON.parse(sanitizedJson);
+
+      if (!parsed || !Array.isArray(parsed.optimizations)) {
         return { success: false, error: '响应格式错误：缺少 optimizations 数组' };
       }
-      
-      // 限制优化项数量
-      const optimizations = parsed.optimizations.slice(0, maxOptimizations);
-      
-      // 验证每个优化项
-      const validOptimizations = optimizations.filter(opt => {
-        return opt.type === 'replace' &&
-               typeof opt.original === 'string' &&
-               typeof opt.optimized === 'string' &&
-               opt.original.trim().length > 0;
-      });
-      
+
+      const optimizations = parsed.optimizations
+        .slice(0, maxOptimizations)
+        .map(normalizeOptimizationItem_ACU)
+        .filter(Boolean);
+
       return {
         success: true,
-        optimizations: validOptimizations,
-        summary: parsed.summary || ''
+        optimizations,
+        summary: typeof parsed.summary === 'string' ? parsed.summary : ''
       };
-      
+
     } catch (error) {
+      const salvaged = salvageOptimizationResponse_ACU(responseContent);
+      if (salvaged) {
+        logDebug_ACU('[正文优化] JSON标准解析失败，已使用容错提取恢复优化结果');
+        return salvaged;
+      }
       logError_ACU('[正文优化] JSON解析失败:', error);
       return { success: false, error: 'JSON解析失败: ' + error.message };
     }
