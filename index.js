@@ -26966,7 +26966,8 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
                   }
               } else {
                   // 关闭隔离：删除所有有数据库数据的内容（无论是否有标识）
-                  if (msg.TavernDB_ACU_Data || msg.TavernDB_ACU_SummaryData || msg.TavernDB_ACU_IndependentData || msg.TavernDB_ACU_IsolatedData) {
+                  // [修复2026-03-28] 增加 qrf_plot 字段检查
+                  if (msg.TavernDB_ACU_Data || msg.TavernDB_ACU_SummaryData || msg.TavernDB_ACU_IndependentData || msg.TavernDB_ACU_IsolatedData || msg.qrf_plot) {
                       shouldDelete = true;
                   }
               }
@@ -27015,9 +27016,25 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
               }
               if (msg.TavernDB_ACU_ModifiedKeys) {
                   delete msg.TavernDB_ACU_ModifiedKeys;
+                  modified = true;
               }
               if (msg.TavernDB_ACU_UpdateGroupKeys) {
                   delete msg.TavernDB_ACU_UpdateGroupKeys;
+                  modified = true;
+              }
+              // [修复2026-03-28] 删除剧情推进数据
+              if (msg.qrf_plot) {
+                  delete msg.qrf_plot;
+                  modified = true;
+              }
+              if (msg.qrf_plot_preset) {
+                  delete msg.qrf_plot_preset;
+                  modified = true;
+              }
+              // [修复2026-03-28] 删除剧情推进临时哈希标记
+              if (msg._qrf_plot_pending_hash) {
+                  delete msg._qrf_plot_pending_hash;
+                  modified = true;
               }
               
               if (modified) {
@@ -27209,19 +27226,44 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
           saveSettings_ACU();
           
           // 2. Reset Template
+          // [修复2026-03-28] 使用 parseTableTemplateJson_ACU 解析默认模板
+          // DEFAULT_TABLE_TEMPLATE_ACU 是双重 JSON 编码格式，直接使用 safeJsonParse_ACU 无法正确解析
+          const previousTemplate = TABLE_TEMPLATE_ACU;
           TABLE_TEMPLATE_ACU = DEFAULT_TABLE_TEMPLATE_ACU;
-          // [Profile] 保存默认模板到当前标识(profile)
-          saveCurrentProfileTemplate_ACU(TABLE_TEMPLATE_ACU);
+          
+          // 使用专门处理双重编码问题的函数解析默认模板
+          const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
+          
+          if (templateObj && typeof templateObj === 'object') {
+              // 补齐顺序编号
+              const sheetKeys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
+              ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: sheetKeys, forceRebuild: false });
+              
+              // 清洗并规范化（与导入模板流程保持一致）
+              const sanitized = sanitizeChatSheetsObject_ACU(templateObj, { ensureMate: true });
+              const normalized = JSON.stringify(sanitized);
+              
+              // 更新内存中的模板
+              TABLE_TEMPLATE_ACU = normalized;
+              // [Profile] 保存默认模板到当前标识(profile)
+              saveCurrentProfileTemplate_ACU(TABLE_TEMPLATE_ACU);
 
-          // [新增] 同步覆盖：更新当前聊天第一层的“空白指导表”（仅表头+参数）
-          try {
-              const obj = safeJsonParse_ACU(TABLE_TEMPLATE_ACU, null);
-              if (obj && typeof obj === 'object') {
-                  await overwriteChatSheetGuideFromTemplate_ACU(obj, { reason: 'reset_all_defaults' });
+              // [新增] 同步覆盖：更新当前聊天第一层的"空白指导表"（仅表头+参数）
+              // 与导入模板流程保持一致，使用 sanitized 对象
+              try {
+                  await overwriteChatSheetGuideFromTemplate_ACU(sanitized, { reason: 'reset_all_defaults' });
+              } catch (e) {
+                  logError_ACU('恢复默认设置时覆盖指导表失败:', e);
               }
-          } catch (e) {}
-
-          logDebug_ACU('Prompt and Table template have been reset to defaults.');
+              
+              logDebug_ACU('Prompt and Table template have been reset to defaults.');
+          } else {
+              // 解析失败，恢复原模板
+              TABLE_TEMPLATE_ACU = previousTemplate;
+              logError_ACU('恢复默认设置失败：无法解析默认模板（parseTableTemplateJson_ACU 返回 null）');
+              showToastr_ACU('error', '恢复默认设置失败：无法解析默认模板。');
+              return;
+          }
 
           // 3. UI Update (Settings & Prompt)
           loadSettings_ACU(); // This re-renders prompt segments
@@ -27332,33 +27374,50 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
 
   async function resetTableTemplate_ACU() {
     try {
-        // Step 1: Set localStorage and the in-memory variable to the default template.
-        // [新机制] 同时补齐顺序编号并回写
-        let obj = null;
-        try { obj = JSON.parse(DEFAULT_TABLE_TEMPLATE_ACU); } catch (e) {}
-        if (obj && typeof obj === 'object') {
-            const sheetKeys = Object.keys(obj).filter(k => k.startsWith('sheet_'));
-            ensureSheetOrderNumbers_ACU(obj, { baseOrderKeys: sheetKeys, forceRebuild: false });
-            const normalized = JSON.stringify(obj);
+        // [修复2026-03-28] 使用 parseTableTemplateJson_ACU 解析默认模板
+        // DEFAULT_TABLE_TEMPLATE_ACU 是双重 JSON 编码格式（`"{...}"`）
+        // 直接使用 JSON.parse() 会返回字符串而不是对象，导致无法正确解析
+        // 解决方案：先临时设置 TABLE_TEMPLATE_ACU 为默认值，再使用专门处理双重编码的函数解析
+        
+        // 保存当前模板以便在解析失败时恢复
+        const previousTemplate = TABLE_TEMPLATE_ACU;
+        
+        // 临时设置 TABLE_TEMPLATE_ACU 为默认值
+        TABLE_TEMPLATE_ACU = DEFAULT_TABLE_TEMPLATE_ACU;
+        
+        // 使用专门处理双重编码问题的函数解析默认模板
+        const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
+        
+        if (templateObj && typeof templateObj === 'object') {
+            // 补齐顺序编号
+            const sheetKeys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
+            ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: sheetKeys, forceRebuild: false });
+            
+            // 清洗并规范化（与导入模板流程保持一致）
+            const sanitized = sanitizeChatSheetsObject_ACU(templateObj, { ensureMate: true });
+            const normalized = JSON.stringify(sanitized);
+            
+            // 更新内存中的模板
             TABLE_TEMPLATE_ACU = normalized;
             // [Profile] 保存到当前标识(profile)
             saveCurrentProfileTemplate_ACU(TABLE_TEMPLATE_ACU);
-        } else {
-            TABLE_TEMPLATE_ACU = DEFAULT_TABLE_TEMPLATE_ACU; // <-- FIX: Update in-memory variable
-            // [Profile] 保存到当前标识(profile)
-            saveCurrentProfileTemplate_ACU(TABLE_TEMPLATE_ACU);
-        }
-
-        // [新增] 同步覆盖：更新当前聊天第一层的“空白指导表”（仅表头+参数）
-        try {
-            const templateObj = obj && typeof obj === 'object' ? obj : safeJsonParse_ACU(TABLE_TEMPLATE_ACU, null);
-            if (templateObj && typeof templateObj === 'object') {
-                await overwriteChatSheetGuideFromTemplate_ACU(templateObj, { reason: 'reset_template' });
+            
+            // [新增] 同步覆盖：更新当前聊天第一层的"空白指导表"（仅表头+参数）
+            // 与导入模板流程保持一致，使用 sanitized 对象
+            try {
+                await overwriteChatSheetGuideFromTemplate_ACU(sanitized, { reason: 'reset_template' });
+            } catch (e) {
+                logError_ACU('恢复默认模板时覆盖指导表失败:', e);
             }
-        } catch (e) {}
-
-        showToastr_ACU('success', '模板已恢复为默认值！模板已更新，但不会影响当前聊天记录的本地数据。');
-        logDebug_ACU('Table template has been reset to default and saved to config storage and memory.');
+            
+            showToastr_ACU('success', '模板已恢复为默认值！模板已更新，但不会影响当前聊天记录的本地数据。');
+            logDebug_ACU('Table template has been reset to default and saved to config storage and memory.');
+        } else {
+            // 解析失败，恢复原模板
+            TABLE_TEMPLATE_ACU = previousTemplate;
+            logError_ACU('恢复默认模板失败：无法解析默认模板（parseTableTemplateJson_ACU 返回 null）');
+            showToastr_ACU('error', '恢复默认模板失败：无法解析默认模板。');
+        }
 
         // [优化] 不再触发表格数据初始化，仅修改当前插件模板
         // 只有在新开卡或之前没有用过插件的聊天记录里才会使用新的通用模板作为基底

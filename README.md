@@ -2,6 +2,52 @@
 
 ## 2026-03-28 更新
 
+### 修复"删除所有本地数据"无法删除剧情推进数据的问题
+
+#### 功能描述
+1. 修复 [`deleteLocalDataInChat_ACU()`](index.js:26925) 函数无法删除 `qrf_plot` 和 `qrf_plot_preset` 字段的问题。
+2. 原代码只删除了表格相关字段（`TavernDB_ACU_Data`、`TavernDB_ACU_SummaryData` 等），但没有删除剧情推进数据字段。
+3. 修复内容：
+   - 增加删除 `qrf_plot` 字段（剧情推进内容）
+   - 增加删除 `qrf_plot_preset` 字段（剧情推进预设名称）
+   - 增加删除 `_qrf_plot_pending_hash` 字段（剧情推进临时哈希标记）
+   - 更新删除条件判断，在关闭隔离模式下也检查 `qrf_plot` 字段
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| [`deleteLocalDataInChat_ACU()`](index.js:26925) | 约26959-26973 | 更新删除条件判断，增加 `qrf_plot` 字段检查 |
+| [`deleteLocalDataInChat_ACU()`](index.js:26925) | 约27016-27045 | 增加删除 `qrf_plot`、`qrf_plot_preset`、`_qrf_plot_pending_hash` 字段 |
+
+---
+
+### 修复"恢复默认模板"无法覆盖当前使用的表格模板问题
+
+#### 功能描述
+1. 修复 [`resetTableTemplate_ACU()`](index.js:27333) 和 [`resetAllToDefaults_ACU()`](index.js:27201) 函数无法正确解析 `DEFAULT_TABLE_TEMPLATE_ACU` 的问题。
+2. `DEFAULT_TABLE_TEMPLATE_ACU` 使用双重 JSON 编码格式（`"{...}"`），直接使用 `JSON.parse()` 或 `safeJsonParse_ACU()` 会返回字符串而不是对象。
+3. 原代码逻辑：
+   - `JSON.parse(DEFAULT_TABLE_TEMPLATE_ACU)` 返回字符串 `"..."`，不是对象
+   - 检查 `obj && typeof obj === 'object'` 条件为 `false`
+   - 进入 `else` 分支，直接使用 `DEFAULT_TABLE_TEMPLATE_ACU` 作为模板
+   - `safeJsonParse_ACU(TABLE_TEMPLATE_ACU, null)` 也无法正确解析双重编码
+   - 最终 `templateObj` 为 `null`，`overwriteChatSheetGuideFromTemplate_ACU()` 不会被调用
+4. 修复方案：使用专门处理双重编码问题的 [`parseTableTemplateJson_ACU()`](index.js:7823) 函数解析默认模板。
+5. 修复后行为与"导入模板"功能保持一致：
+   - 补齐顺序编号
+   - 清洗并规范化模板
+   - 正确调用 `overwriteChatSheetGuideFromTemplate_ACU()` 覆盖当前使用的表格模板
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| [`resetTableTemplate_ACU()`](index.js:27333) | 约27333-27385 | 使用 `parseTableTemplateJson_ACU()` 解析默认模板，与导入模板流程保持一致 |
+| [`resetAllToDefaults_ACU()`](index.js:27201) | 约27201-27256 | 同样使用 `parseTableTemplateJson_ACU()` 解析默认模板 |
+
+---
+
 ### 修复空数据初始化时仍注入表格索引条目与包裹条目
 
 #### 功能描述
