@@ -1,5 +1,248 @@
 # AutoCardUpdater 插件更新日志
 
+## 2026-03-30 更新（世界书条目 uid=0 勾选修复）
+
+### 修复发送世界书条目时 `uid === 0` 被误判为未选择的问题
+
+#### 功能描述
+1. 修复发送世界书条目时，条目 `uid` 为 `0` 时无法被勾选、保存或读取的问题。
+2. **问题根因**：世界书条目勾选事件里使用了 [`if (!bookName || !uid) return;`](index.js:23918) 这类真假值判断；在 JavaScript 中数字 `0` 会被当作 `false`，导致合法的 `uid = 0` 被提前拦截。
+3. **修复方案**：将 `uid` 判定改为仅拦截 `undefined` 和 `null`，保留 `0` 作为有效条目 ID，使 [`$plotEntryList`](index.js:23913) 中的世界书第 0 号条目也能正常参与勾选与配置保存。
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| 世界书条目勾选事件 | 23915-23918 | 将 `uid` 的空值判断从真假值判断改为显式判定 `uid === undefined || uid === null`，修复 `uid = 0` 时无法选中的问题 |
+
+## 2026-03-30 更新（正文提示词随机数修复）
+
+### 修复 AI 描写正文提示词中的 `random` 标签不生效
+
+#### 功能描述
+1. 修复酒馆正文提示词处理链路中，只解析条件模板 `if/else`，但没有执行随机数、计算变量、最大值/最小值变量预处理的问题。
+2. **问题根因**：[`handleChatCompletionReady_ACU()`](index.js:11736) 在处理 `CHAT_COMPLETION_SETTINGS_READY` 事件时，仅调用了 [`parseIfBlockRecursive_ACU()`](index.js:11531)，导致 AI 描写正文使用的提示词消息里，`<random min="1" max="100" />` 和 `$random:id` 不会先被展开。
+3. **修复方案**：在 [`handleChatCompletionReady_ACU()`](index.js:11736) 内新增正文提示词统一处理流程，按“随机数 → 随机变量替换 → 计算变量/最大值/最小值变量 → 条件模板”的顺序处理 `message.content` 与多段文本 `part.text`，确保正文提示词与填表、剧情推进、世界书保持一致。
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| [`handleChatCompletionReady_ACU()`](index.js:11736) | 11764-11809 | 新增 [`processPromptTemplateContent_ACU()`](index.js:11764) 统一处理正文提示词中的随机数、变量替换、计算标签与条件模板 |
+
+## 2026-03-29 更新（晚间第二轮）
+
+### 随机数生成功能全局扩展
+
+#### 功能描述
+1. 将随机数生成功能扩展到世界书内容处理中，使其与条件模板等语法一样在全球范围内可用。
+2. 现在在世界书中也可以使用 `<random min="1" max="100" />` 标签生成随机数。
+3. 支持随机数变量 `<random id="dice" min="1" max="6" />` 并通过 `$random:dice` 引用。
+4. 将随机数处理添加到"最终注入指令"（finalSystemDirective）处理流程中。
+5. 在数据库提示词模板的 EJS 渲染后添加随机数处理，使随机数在填表提示词中也能使用。
+
+#### 使用示例
+```
+<!-- 在世界书条目中使用随机数 -->
+🎲 本轮随机事件判定：<random min="1" max="100" />
+
+<!-- 在世界书中使用随机数变量 -->
+<random id="luck" min="1" max="100" />
+今日运势：$random:luck
+
+<!-- 在最终注入指令中使用随机数 -->
+<random id="mood" min="1" max="10" />
+本轮情绪指数：$random:mood
+
+<!-- 在填表提示词中使用随机数 -->
+<random id="roll" min="1" max="20" />
+🎲 判定结果：$random:roll
+```
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| 剧情推进世界书内容处理 | 约12803-12809 | 添加随机数标签解析和变量替换 |
+| 正文优化世界书内容处理 | 约2157-2160 | 添加随机数标签解析和变量替换 |
+| 最终注入指令处理 | 约12811-12817 | 添加随机数标签解析和变量替换 |
+| 数据库提示词模板渲染 | 约25257-25259 | 在 EJS 渲染后添加随机数处理 |
+
+## 2026-03-29 更新（晚间）
+
+### Toast 提示框和正文优化对话框 UI 美化（古典中国风）
+
+#### 功能描述
+1. 将 Toast 提示框的 UI 风格从现代科技风改为古典中国风。
+2. 将正文优化对话框（showReoptimizationDialog_ACU、showOptimizationLoopDialog_ACU、showOptimizationDiffDialog_ACU）的 UI 风格改为古典中国风。
+3. 统一使用古典设计元素：宋体字体、纸张纹理背景、印章红强调色（#7d4940）、细边框（1px）、小圆角（1-2px）。
+4. 支持墨纸/素纱双主题切换（使用 CSS 变量）。
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| Toast 样式注入 | 7646-7755 | ACU Toast Theme：古典中国风双主题样式（墨纸/素纱），图标改为古风汉字（成/知/警/误） |
+| [`showReoptimizationDialog_ACU()`](index.js:3450) | 3450-3532 | 重新优化对话框：古典中国风样式 |
+| [`showOptimizationLoopDialog_ACU()`](index.js:3876) | 3876-3970 | 正文替换建议对话框：古典中国风样式 |
+| [`showOptimizationDiffDialog_ACU()`](index.js:4040) | 4040-4122 | 优化对比对话框：古典中国风样式 |
+| [`showOptimizationDiff_ACU()`](index.js:4178) | 4178-4180 | 优化结果摘要中的重新优化按钮：古典中国风样式 |
+
+---
+
+### 可视化编辑器 UI 美化（古典中国风）
+
+#### 功能描述
+1. 将可视化编辑器的 UI 风格从现代科技风改为古典中国风，与主面板和独立窗口保持一致。
+2. 支持墨纸/素纱双主题切换。
+3. 采用古典设计元素：宋体字体、纸张纹理背景、印章元素、细边框、竖线装饰。
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| 主面板 HTML 模板 | 20535-20542 | 删除主面板顶部副标题"墨纸 / 素纱双主题 · 古卷样式界面" |
+| [`VISUALIZER_CSS_ACU`](index.js:28020) | 28020-28052 | CSS 变量系统：墨纸/素纱双主题颜色变量定义 |
+| [`VISUALIZER_CSS_ACU`](index.js:28020) | 28060-28093 | 复选框样式：古典风格 |
+| [`VISUALIZER_CSS_ACU`](index.js:28020) | 28097-28256 | 顶部标题栏、侧边栏、表格导航项：古典竖线装饰 |
+| [`VISUALIZER_CSS_ACU`](index.js:28020) | 28257-28297 | 按钮样式：古典印章红强调色 |
+| [`VISUALIZER_CSS_ACU`](index.js:28020) | 28298-28374 | 数据卡片样式：古典风格 |
+| [`VISUALIZER_CSS_ACU`](index.js:28020) | 28375-28487 | 配置面板、模式切换：古典风格 |
+| [`VISUALIZER_CSS_ACU`](index.js:28020) | 28488-28620 | 列编辑器、滚动条、按钮样式 |
+| [`VISUALIZER_CSS_ACU`](index.js:28020) | 29234-29302 | 深色统一覆盖：古典风格覆盖修正 |
+| [`openVisualizerWindow_ACU()`](index.js:29375) | 29375-29394 | 可视化编辑器内容模板：添加印章标题和主题切换按钮 |
+| [`openVisualizerWindow_ACU()`](index.js:29375) | 29432-29447 | 主题切换按钮事件绑定 |
+
+---
+
+## 2026-03-29 更新（下午）
+
+### 修复外部导入模式时数据被错误保存到聊天记录
+
+#### 功能描述
+1. 修复外部导入模式下，AI 生成的 `insertRow`、`updateRow`、`deleteRow` 命令被立即保存到聊天记录的问题。
+2. **问题根因**：[`parseAndApplyTableEdits_ACU()`](index.js:25130) 函数在执行 `insertRow`、`updateRow`、`deleteRow` 命令后会立即调用 `saveIndependentTableToChatHistory_ACU()` 保存到聊天记录，这个行为没有检查 `isImportMode`。
+3. **修复方案**：
+   - 为 `parseAndApplyTableEdits_ACU()` 添加 `isImportMode` 参数
+   - 在 `proceedWithCardUpdate_ACU()` 调用时传递 `isImportMode`
+   - 在 `insertRow`、`updateRow`、`deleteRow` 的保存逻辑中检查 `isImportMode`，如果是导入模式则跳过保存
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| [`parseAndApplyTableEdits_ACU()`](index.js:25130) | 25130 | 新增 `isImportMode` 参数 |
+| [`proceedWithCardUpdate_ACU()`](index.js:26160) | 26290 | 调用时传递 `isImportMode` |
+| [`parseAndApplyTableEdits_ACU()`](index.js:25130) | 5839-5844 | `updateRow` 命令保存检查 |
+| [`parseAndApplyTableEdits_ACU()`](index.js:25130) | 5961-5966 | `insertRow` 命令保存检查 |
+| [`parseAndApplyTableEdits_ACU()`](index.js:25130) | 6079-6084 | `deleteRow` 命令保存检查 |
+
+---
+
+### 修复外部导入完成后清理逻辑扩大范围
+
+#### 功能描述
+1. 修复外部导入功能完成后，清理目标世界书中本插件生成的旧条目时，清理范围不够全面的问题。
+2. **问题根因**：原清理逻辑只根据模板数据中设置的 `entryName` 来识别需要清理的条目，但如果模板没有设置 `entryName`，或者使用了其他命名方式，清理就不会生效。
+3. **修复方案**：
+   - 扩大基础前缀列表，增加 `'TavernDB-ACU-CustomExport-'`、`'TavernDB-ACU-ImportantPersonsIndex'`、`'重要人物条目'`、`'纪要索引'` 等前缀
+   - 同时从模板数据中提取 `entryName` 和表格原始名称作为清理目标
+   - 新增清理完成后的 toast 提示
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| [`processImportedTxtAsUpdates_ACU()`](index.js:18408) | 18605-18667 | 扩大旧条目清理范围，包含更多条目前缀和模板表格名称 |
+
+---
+
+### 修复外部导入的自定义导出条目命名问题
+
+#### 功能描述
+1. 修复外部导入时自定义导出条目的命名格式，确保只使用 `外部导入-` 前缀。
+2. **问题根因**：外部导入时条目前缀包含 `外部导入-TavernDB-ACU-CustomExport-`，导致清理逻辑可能被前缀混淆。
+3. **修复方案**：
+   - 外部导入时只使用 `外部导入-` 前缀，不再包含 `TavernDB-ACU-CustomExport-`
+   - 新增 `getImportEntryName()` 辅助函数统一处理条目命名
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| [`updateCustomTableExports_ACU()`](index.js:16515) | 16520-16526 | 新增 `getImportEntryName()` 辅助函数 |
+| [`updateCustomTableExports_ACU()`](index.js:16515) | 16717 | 索引条目使用 `getImportEntryName()` |
+| [`updateCustomTableExports_ACU()`](index.js:16515) | 16840-16841 | 包裹上条目使用 `getImportEntryName()` |
+| [`updateCustomTableExports_ACU()`](index.js:16515) | 16857-16858 | 表头条目使用 `getImportEntryName()` |
+| [`updateCustomTableExports_ACU()`](index.js:16515) | 16915-16916 | 数据行条目使用 `getImportEntryName()` |
+| [`updateCustomTableExports_ACU()`](index.js:16515) | 16934-16935 | 包裹下条目使用 `getImportEntryName()` |
+| [`updateCustomTableExports_ACU()`](index.js:16515) | 16989-16990 | 整体导出包裹上条目使用 `getImportEntryName()` |
+| [`updateCustomTableExports_ACU()`](index.js:16515) | 17003-17004 | 整体导出表头条目使用 `getImportEntryName()` |
+| [`updateCustomTableExports_ACU()`](index.js:16515) | 17026-17027 | 整体导出条目使用 `getImportEntryName()` |
+| [`updateCustomTableExports_ACU()`](index.js:16515) | 17039-17040 | 整体导出包裹下条目使用 `getImportEntryName()` |
+
+---
+
+## 2026-03-29 更新
+
+### 修复全局条目注入顺序问题
+
+#### 功能描述
+1. 修复当默认 order 值（99980, 99981, 99982）被占用时，全局条目注入顺序错乱的问题。
+2. **问题根因**：三个条目（包裹上、全局内容、包裹下）分别调用 `allocOrder_ACU` 分配 order，当默认值被占用时会分配不连续的值，导致顺序变成"全局内容 → 包裹上 → 包裹下"。
+3. **修复方案**：使用 `allocConsecutiveOrderBlock_ACU` 一次性分配连续的 3 个 order 区块，确保三个条目的 order 值始终连续，顺序正确：
+   - 包裹上：`baseOrder`
+   - 全局内容：`baseOrder + 1`
+   - 包裹下：`baseOrder + 2`
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| [`updateReadableLorebookEntry_ACU()`](index.js:16113) | 16266-16307 | 全局内容条目 order 强制使用 `wrapperPlacement.order + 1` |
+| [`updateReadableLorebookEntry_ACU()`](index.js:16113) | 16309-16341 | 包裹上条目 order 使用 `wrapperPlacement.order` |
+| [`updateReadableLorebookEntry_ACU()`](index.js:16113) | 16470-16502 | 包裹下条目 order 使用 `wrapperPlacement.order + 2` |
+
+---
+
+### 修复世界书条目 position 值映射问题
+
+#### 功能描述
+1. 修复模板设置为"角色定义后"（`after_char`）时，世界书条目实际注入位置仍为"角色定义前"的问题。
+2. **问题根因**：[`normalizeLorebookPosition_ACU()`](index.js:15300) 函数返回的 position 值是内部简写 `'before_char'` / `'after_char'`，但 TavernHelper API 期望的正确值是 `'before_character_definition'` / `'after_character_definition'`（参见 [`@types/function/lorebook_entry.d.ts`](@types/function/lorebook_entry.d.ts:8)）。
+3. **修复方案**：将所有 `'before_char'` / `'after_char'` 替换为 API 期望的正确值 `'before_character_definition'` / `'after_character_definition'`。
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| [`normalizeLorebookPosition_ACU()`](index.js:15300) | 15300-15307 | 返回 API 期望的正确值 `before_character_definition` / `after_character_definition` |
+| [`getFixedPlacementDefaultsForTable_ACU()`](index.js:15337) | 15359-15362 | 全局数据表默认位置改为 `before_character_definition` |
+| [`buildDefaultGlobalInjectionConfig_ACU()`](index.js:15391) | 15393-15396 | 全局注入配置默认位置改为 `before_character_definition` |
+| UI 下拉选项 | 29173-29176, 29190-29193 | 全局条目位置选择器 value 改为 API 正确值 |
+| UI 下拉选项 | 29454-29456, 29471-29473 | 固定条目位置选择器 value 改为 API 正确值 |
+| UI 下拉选项 | 29618-29620, 29661-29663 | 自定义导出条目位置选择器 value 改为 API 正确值 |
+
+---
+
+### 修复外部导入功能无法正确将数据注入目标世界书的问题
+
+#### 功能描述
+1. 修复 [`processImportedTxtAsUpdates_ACU()`](index.js:18408) 函数在最后一步注入世界书时，数据错误地注入到原始绑定世界书而非用户指定的导入目标世界书。
+2. **问题根因**：原代码通过临时修改 `worldbookConfig.injectionTarget` 来设置导入目标，但 [`updateReadableLorebookEntry_ACU()`](index.js:16113) 内部调用 `getCurrentCharSettings_ACU()` 时会触发"兜底补齐逻辑"，重新创建并覆盖整个 `worldbookConfig` 对象，导致临时设置的 `injectionTarget` 丢失。
+3. **修复方案**：为 [`updateReadableLorebookEntry_ACU()`](index.js:16113) 添加 `targetLorebookOverride` 可选参数，外部导入时直接传递目标世界书名称，不再依赖临时修改 `worldbookConfig`。
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| [`updateReadableLorebookEntry_ACU()`](index.js:16113) | 16113 | 函数签名新增 `targetLorebookOverride = null` 参数 |
+| [`updateReadableLorebookEntry_ACU()`](index.js:16113) | 16204 | 获取世界书名称时优先使用 `targetLorebookOverride` 参数 |
+| [`processImportedTxtAsUpdates_ACU()`](index.js:18408) | 18524-18560 | 移除临时修改 `worldbookConfig.injectionTarget` 的逻辑，改用 `targetLorebookOverride` 参数传递导入目标世界书 |
+| [`processImportedTxtAsUpdates_ACU()`](index.js:18408) | 18587-18638 | 新增：在外部导入完成后清理目标世界书中本插件生成的旧条目（不带"外部导入-"前缀的条目），避免出现重复条目；并从模板数据中提取 entryName 以覆盖自定义导出条目 |
+
+---
+
 ## 2026-03-28 更新
 
 ### 优化表格模板数据隔离：读取本地数据时只处理当前模板中的表格

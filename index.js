@@ -107,6 +107,65 @@
 
   // 独立窗口样式（只注入一次）
   const ACU_WINDOW_STYLES_INJECTED_FLAG = `${SCRIPT_ID_PREFIX_ACU}_window_styles_injected`;
+  const ACU_UI_THEME_STORAGE_KEY = `${SCRIPT_ID_PREFIX_ACU}_ui_theme_v1`;
+
+  function getACUTheme_ACU() {
+    try {
+      const store = getConfigStorage_ACU();
+      const savedTheme = String(store?.getItem?.(ACU_UI_THEME_STORAGE_KEY) || '').trim().toLowerCase();
+      return savedTheme === 'silk' ? 'silk' : 'ink';
+    } catch (e) {
+      return 'ink';
+    }
+  }
+
+  function setACUTheme_ACU(theme) {
+    const normalizedTheme = theme === 'silk' ? 'silk' : 'ink';
+    try {
+      const store = getConfigStorage_ACU();
+      store?.setItem?.(ACU_UI_THEME_STORAGE_KEY, normalizedTheme);
+    } catch (e) {
+      console.warn('[ACU] Failed to persist UI theme:', e);
+    }
+    return normalizedTheme;
+  }
+
+  function applyACUThemeToDocument_ACU(targetDoc, theme = null) {
+    const doc = targetDoc || (topLevelWindow_ACU?.document || document);
+    const activeTheme = theme === 'silk' || theme === 'ink' ? theme : getACUTheme_ACU();
+    const body = doc?.body;
+    if (!body || !body.classList) return activeTheme;
+    body.classList.toggle('acu-theme-silk', activeTheme === 'silk');
+    body.setAttribute('data-acu-theme', activeTheme);
+    return activeTheme;
+  }
+
+  function syncACUThemeButtons_ACU(targetDoc) {
+    const doc = targetDoc || (topLevelWindow_ACU?.document || document);
+    const activeTheme = applyACUThemeToDocument_ACU(doc);
+    const nextThemeLabel = activeTheme === 'silk' ? '墨纸' : '素纱';
+    const nextThemeTitle = activeTheme === 'silk' ? '切换为墨纸主题' : '切换为素纱主题';
+    try {
+      doc.querySelectorAll('.acu-window-btn.theme-toggle .acu-theme-toggle-text').forEach((el) => {
+        el.textContent = nextThemeLabel;
+      });
+      doc.querySelectorAll('.acu-window-btn.theme-toggle').forEach((el) => {
+        el.setAttribute('title', nextThemeTitle);
+      });
+    } catch (e) {
+      console.warn('[ACU] Failed to sync theme buttons:', e);
+    }
+    return activeTheme;
+  }
+
+  function toggleACUTheme_ACU(targetDoc) {
+    const nextTheme = getACUTheme_ACU() === 'silk' ? 'ink' : 'silk';
+    setACUTheme_ACU(nextTheme);
+    applyACUThemeToDocument_ACU(targetDoc, nextTheme);
+    syncACUThemeButtons_ACU(targetDoc);
+    return nextTheme;
+  }
+
   function injectACUWindowStyles() {
     // 始终往酒馆主窗口注入样式
     const targetWin = topLevelWindow_ACU || window;
@@ -118,16 +177,20 @@
     const css = `
       /* ═══════════════════════════════════════════════════════════════
          星·数据库 独立窗口系统
+         古卷双主题：墨色 / 素纱
          ═══════════════════════════════════════════════════════════════ */
       
       .acu-window-overlay {
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0, 0, 0, 0.55);
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
+        background: rgba(17, 15, 13, 0.56);
+        backdrop-filter: blur(3px);
+        -webkit-backdrop-filter: blur(3px);
         z-index: 9999;
-        animation: acuOverlayFadeIn 0.2s ease-out;
+        animation: acuOverlayFadeIn 0.24s ease-out;
+      }
+      body.acu-theme-silk .acu-window-overlay {
+        background: rgba(94, 84, 69, 0.16);
       }
       @keyframes acuOverlayFadeIn {
         from { opacity: 0; }
@@ -135,27 +198,44 @@
       }
       
       .acu-window {
+        --acu-panel-bg: #24221f;
+        --acu-panel-border: #36332e;
+        --acu-panel-text: #c1b9ad;
+        --acu-panel-text-dim: #9e978e;
+        --acu-panel-text-mute: #645e55;
+        --acu-panel-accent: #7d4940;
+        --acu-panel-hover: #2a2824;
         position: fixed;
         display: flex;
         flex-direction: column;
-        background:
-          radial-gradient(1200px 600px at 10% -10%, rgba(123, 183, 255, 0.12), transparent 60%),
-          radial-gradient(900px 500px at 100% 0%, rgba(155, 123, 255, 0.10), transparent 55%),
-          linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 22%),
-          #0b0f15;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 16px;
-        box-shadow: 0 25px 80px rgba(0, 0, 0, 0.65), 0 0 1px rgba(255,255,255,0.1);
+        background-color: var(--acu-panel-bg);
+        background-image:
+          url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E"),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 30%);
+        border: 1px solid var(--acu-panel-border);
+        border-radius: 2px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
         overflow: hidden;
         min-width: 400px;
         min-height: 300px;
         animation: acuWindowSlideIn 0.25s ease-out;
         color-scheme: dark;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "HarmonyOS Sans SC", "MiSans", Roboto, Helvetica, Arial, sans-serif;
-        color: rgba(255, 255, 255, 0.92);
+        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
+        color: var(--acu-panel-text);
+      }
+      body.acu-theme-silk .acu-window {
+        --acu-panel-bg: #f4f1eb;
+        --acu-panel-border: #e0dacb;
+        --acu-panel-text: #4a453f;
+        --acu-panel-text-dim: #6e675e;
+        --acu-panel-text-mute: #9e978e;
+        --acu-panel-accent: #8a6b5e;
+        --acu-panel-hover: #ebe7de;
+        color-scheme: light;
+        box-shadow: 0 18px 42px rgba(72, 59, 43, 0.16);
       }
       @keyframes acuWindowSlideIn {
-        from { opacity: 0; transform: scale(0.95) translateY(-20px); }
+        from { opacity: 0; transform: scale(0.97) translateY(-14px); }
         to { opacity: 1; transform: scale(1) translateY(0); }
       }
       
@@ -290,8 +370,8 @@
         align-items: center;
         justify-content: space-between;
         padding: 12px 16px;
-        background: rgba(255, 255, 255, 0.04);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        background: transparent;
+        border-bottom: 1px solid var(--acu-panel-border);
         cursor: move;
         user-select: none;
         flex-shrink: 0;
@@ -299,52 +379,71 @@
       
       .acu-window-title {
         font-size: 14px;
-        font-weight: 700;
-        color: rgba(255, 255, 255, 0.95);
+        font-weight: normal;
+        letter-spacing: 2px;
+        color: var(--acu-panel-text);
         display: flex;
         align-items: center;
         gap: 10px;
-        flex: 1;           /* 允许标题区域伸缩 */
-        min-width: 0;      /* 允许收缩到小于内容宽度 */
-        overflow: hidden;  /* 隐藏溢出内容 */
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
       }
       .acu-window-title i {
-        color: rgba(123, 183, 255, 0.85);
-        flex-shrink: 0;    /* 图标不收缩 */
+        color: var(--acu-panel-accent);
+        flex-shrink: 0;
       }
       .acu-window-title span {
         overflow: hidden;
         text-overflow: ellipsis;
-        white-space: nowrap;  /* 标题过长时显示省略号 */
+        white-space: nowrap;
       }
       
       .acu-window-controls {
         display: flex;
-        gap: 8px;
-        flex-shrink: 0;    /* 按钮区域永不收缩，确保始终可见 */
-        margin-left: 8px;  /* 与标题保持间距 */
+        gap: 6px;
+        flex-shrink: 0;
+        margin-left: 8px;
       }
       
       .acu-window-btn {
-        width: 28px;
-        height: 28px;
-        border: none;
-        border-radius: 8px;
-        background: rgba(255, 255, 255, 0.06);
-        color: rgba(255, 255, 255, 0.7);
+        width: 30px;
+        height: 30px;
+        border: 1px solid transparent;
+        border-radius: 1px;
+        background: transparent;
+        color: var(--acu-panel-text-mute);
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: all 0.15s ease;
+        transition: all 0.18s ease;
+        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
       }
       .acu-window-btn:hover {
-        background: rgba(255, 255, 255, 0.12);
-        color: rgba(255, 255, 255, 0.95);
+        background: var(--acu-panel-hover);
+        border-color: var(--acu-panel-border);
+        color: var(--acu-panel-text);
+      }
+      .acu-window-btn.maximize:hover {
+        color: var(--acu-panel-accent);
       }
       .acu-window-btn.close:hover {
-        background: rgba(255, 107, 107, 0.25);
-        color: #ff6b6b;
+        background: rgba(125, 73, 64, 0.10);
+        border-color: var(--acu-panel-accent);
+        color: var(--acu-panel-accent);
+      }
+      .acu-window-btn.theme-toggle {
+        width: auto;
+        min-width: 58px;
+        padding: 0 10px;
+        font-size: 11px;
+        letter-spacing: 1px;
+      }
+      .acu-theme-toggle-text {
+        display: inline-block;
+        line-height: 1;
+        transform: translateY(-0.5px);
       }
       
       .acu-window-body {
@@ -381,8 +480,9 @@
         position: absolute;
         right: 4px; bottom: 4px;
         width: 10px; height: 10px;
-        border-right: 2px solid rgba(255,255,255,0.25);
-        border-bottom: 2px solid rgba(255,255,255,0.25);
+        border-right: 2px solid var(--acu-panel-border);
+        border-bottom: 2px solid var(--acu-panel-border);
+        opacity: 0.72;
       }
       .acu-window-resize-handle.e {
         right: 0; top: 40px; bottom: 20px;
@@ -570,6 +670,7 @@
             <span>${title}</span>
           </div>
           <div class="acu-window-controls">
+            <button class="acu-window-btn theme-toggle" title="切换主题"><span class="acu-theme-toggle-text">素纱</span></button>
             ${showMaximizeBtn ? '<button class="acu-window-btn maximize" title="最大化/还原"><i class="fa-solid fa-expand"></i></button>' : ''}
             <button class="acu-window-btn close" title="关闭"><i class="fa-solid fa-times"></i></button>
           </div>
@@ -598,12 +699,21 @@
     // 插入窗口 —— 挂载到主窗口 body
     const $window = $(windowHtml);
     $(targetDoc.body).append($window);
+    applyACUThemeToDocument_ACU(targetDoc);
+    syncACUThemeButtons_ACU(targetDoc);
     
     // 注册到窗口管理器
     ACU_WindowManager.register(id, $window);
     
     // 点击窗口置顶
     $window.on('mousedown', () => ACU_WindowManager.bringToFront(id));
+
+    // 主题切换
+    $window.find('.acu-window-btn.theme-toggle').on('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleACUTheme_ACU(targetDoc);
+    });
     
     // 关闭按钮
     $window.find('.acu-window-btn.close').on('click', () => {
@@ -2043,6 +2153,9 @@ $CONTENT
       // $1: 世界书内容（使用剧情推进的世界书读取逻辑）
       const plotSettings = settings_ACU.plotSettings || {};
       placeholders.$1 = await getWorldbookContentForPlot_ACU(plotSettings, userMessage, '');
+      // [新增] 对世界书内容进行随机数处理
+      placeholders.$1 = parseRandomTags_ACU(placeholders.$1);
+      placeholders.$1 = replaceRandomVariables_ACU(placeholders.$1);
       logDebug_ACU('[正文优化] $1 世界书内容:', placeholders.$1 ? `长度=${placeholders.$1.length}` : '(空)');
     } catch (e) {
       logWarn_ACU('[正文优化] 获取世界书内容失败:', e);
@@ -3339,41 +3452,43 @@ $CONTENT
    */
   function showReoptimizationDialog_ACU(messageIndex, result, originalContent) {
     const dialogHtml = `
-      <div class="acu-optimization-dialog" style="
+      <div class="acu-optimization-dialog acu-dialog-classic" style="
         position: fixed;
         top: 10px;
         left: 50%;
         transform: translateX(-50%);
-        background: #1a1d24;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 12px;
+        background: var(--acu-bg-0, #24221f);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+        border: 1px solid var(--acu-border, #36332e);
+        border-radius: 2px;
         padding: 20px;
         max-width: 800px;
         width: calc(100% - 20px);
         max-height: calc(90vh - 20px);
         overflow-y: auto;
         z-index: 100000;
-        color: rgba(255, 255, 255, 0.9);
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: var(--acu-text, #c1b9ad);
+        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
         box-sizing: border-box;
       ">
-        <h3 style="margin: 0 0 8px 0; color: #7bb7ff;">🔄 重新优化结果</h3>
-        <p style="margin: 0 0 12px 0; color: rgba(255, 255, 255, 0.7);">${result.summary}</p>
+        <h3 style="margin: 0 0 8px 0; color: var(--acu-accent, #7d4940); font-size: 1.1em; letter-spacing: 1px;">🔄 重新优化结果</h3>
+        <p style="margin: 0 0 12px 0; color: var(--acu-text-dim, #8a8075);">${result.summary}</p>
         <div class="optimization-list" style="margin-bottom: 16px; max-height: 400px; overflow-y: auto;">
           ${result.optimizations.map((opt, i) => `
             <div class="optimization-item" style="
-              background: rgba(255, 255, 255, 0.05);
-              border-radius: 8px;
+              background: rgba(0, 0, 0, 0.2);
+              border-radius: 1px;
               padding: 12px;
               margin-bottom: 8px;
+              border-left: 2px solid var(--acu-border, #36332e);
             ">
-              <div style="color: #ff6b6b; margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
+              <div style="color: var(--acu-text-dim, #8a8075); margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
                 <strong>原文：</strong>${escapeHtml_ACU(opt.original.substring(0, 200))}${opt.original.length > 200 ? '...' : ''}
               </div>
-              <div style="color: rgba(255, 255, 255, 0.7); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(123, 183, 255, 0.1); border-radius: 4px;">
+              <div style="color: var(--acu-text, #c1b9ad); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(125, 73, 64, 0.1); border-radius: 1px; border-left: 2px solid var(--acu-accent, #7d4940);">
                 <strong>修改方案：</strong>${escapeHtml_ACU(opt.plan || opt.reason || '未说明')}
               </div>
-              <div style="color: #69db7c;">
+              <div style="color: #6a8a6a;">
                 <strong>优化：</strong>${escapeHtml_ACU(opt.optimized.substring(0, 200))}${opt.optimized.length > 200 ? '...' : ''}
               </div>
             </div>
@@ -3381,42 +3496,45 @@ $CONTENT
         </div>
         <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding-bottom: 10px;">
           <button id="acu-opt-cancel" style="
-            padding: 10px 16px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 8px 16px;
+            border: 1px solid var(--acu-border, #36332e);
             background: transparent;
-            color: rgba(255, 255, 255, 0.7);
-            border-radius: 6px;
+            color: var(--acu-text-dim, #8a8075);
+            border-radius: 1px;
             cursor: pointer;
             min-width: 80px;
             flex-shrink: 0;
+            font-family: inherit;
           ">取消</button>
           <button id="acu-opt-reoptimize" style="
-            padding: 10px 16px;
-            border: 1px solid rgba(123, 183, 255, 0.5);
+            padding: 8px 16px;
+            border: 1px solid var(--acu-accent, #7d4940);
             background: transparent;
-            color: #7bb7ff;
-            border-radius: 6px;
+            color: var(--acu-accent, #7d4940);
+            border-radius: 1px;
             cursor: pointer;
             min-width: 100px;
             flex-shrink: 0;
+            font-family: inherit;
           ">🔄 再次优化</button>
           <button id="acu-opt-apply" style="
-            padding: 10px 16px;
+            padding: 8px 16px;
             border: none;
-            background: #7bb7ff;
-            color: #1a1d24;
-            border-radius: 6px;
+            background: var(--acu-accent, #7d4940);
+            color: var(--acu-bg-0, #24221f);
+            border-radius: 1px;
             cursor: pointer;
             font-weight: 600;
             min-width: 100px;
             flex-shrink: 0;
+            font-family: inherit;
           ">应用优化</button>
         </div>
       </div>
       <div id="acu-opt-backdrop" style="
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
+        background: rgba(0, 0, 0, 0.6);
         z-index: 99999;
       "></div>
     `;
@@ -3764,42 +3882,44 @@ $CONTENT
     const applyButtonText = isLastLoop ? '应用并完成' : '应用并继续';
     
     const dialogHtml = `
-      <div class="acu-optimization-dialog" style="
+      <div class="acu-optimization-dialog acu-dialog-classic" style="
         position: fixed;
         top: 10px;
         left: 50%;
         transform: translateX(-50%);
-        background: #1a1d24;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 12px;
+        background: var(--acu-bg-0, #24221f);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+        border: 1px solid var(--acu-border, #36332e);
+        border-radius: 2px;
         padding: 20px;
         max-width: 800px;
         width: calc(100% - 20px);
         max-height: calc(90vh - 20px);
         overflow-y: auto;
         z-index: 100000;
-        color: rgba(255, 255, 255, 0.9);
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: var(--acu-text, #c1b9ad);
+        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
         box-sizing: border-box;
       ">
-        <h3 style="margin: 0 0 8px 0; color: #7bb7ff;">正文替换建议</h3>
-        <p style="margin: 0 0 12px 0; color: rgba(255, 255, 255, 0.7);">${result.summary}</p>
-        ${result.totalLoops > 1 ? `<p style="margin: 0 0 12px 0; color: rgba(255, 255, 255, 0.5); font-size: 12px;">进度: 第 ${result.currentLoop}/${result.totalLoops} 轮</p>` : ''}
+        <h3 style="margin: 0 0 8px 0; color: var(--acu-accent, #7d4940); font-size: 1.1em; letter-spacing: 1px;">正文替换建议</h3>
+        <p style="margin: 0 0 12px 0; color: var(--acu-text-dim, #8a8075);">${result.summary}</p>
+        ${result.totalLoops > 1 ? `<p style="margin: 0 0 12px 0; color: var(--acu-text-mute, #6a6055); font-size: 12px;">进度: 第 ${result.currentLoop}/${result.totalLoops} 轮</p>` : ''}
         <div class="optimization-list" style="margin-bottom: 16px; max-height: 400px; overflow-y: auto;">
           ${result.optimizations.map((opt, i) => `
             <div class="optimization-item" style="
-              background: rgba(255, 255, 255, 0.05);
-              border-radius: 8px;
+              background: rgba(0, 0, 0, 0.2);
+              border-radius: 1px;
               padding: 12px;
               margin-bottom: 8px;
+              border-left: 2px solid var(--acu-border, #36332e);
             ">
-              <div style="color: #ff6b6b; margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
+              <div style="color: var(--acu-text-dim, #8a8075); margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
                 <strong>原文：</strong>${escapeHtml_ACU(opt.original.substring(0, 200))}${opt.original.length > 200 ? '...' : ''}
               </div>
-              <div style="color: rgba(255, 255, 255, 0.7); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(123, 183, 255, 0.1); border-radius: 4px;">
+              <div style="color: var(--acu-text, #c1b9ad); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(125, 73, 64, 0.1); border-radius: 1px; border-left: 2px solid var(--acu-accent, #7d4940);">
                 <strong>修改方案：</strong>${escapeHtml_ACU(opt.plan || opt.reason || '未说明')}
               </div>
-              <div style="color: #69db7c;">
+              <div style="color: #6a8a6a;">
                 <strong>优化：</strong>${escapeHtml_ACU(opt.optimized.substring(0, 200))}${opt.optimized.length > 200 ? '...' : ''}
               </div>
             </div>
@@ -3807,54 +3927,58 @@ $CONTENT
         </div>
         <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding-bottom: 10px;">
           <button id="acu-opt-cancel" style="
-            padding: 10px 16px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 8px 16px;
+            border: 1px solid var(--acu-border, #36332e);
             background: transparent;
-            color: rgba(255, 255, 255, 0.7);
-            border-radius: 6px;
+            color: var(--acu-text-dim, #8a8075);
+            border-radius: 1px;
             cursor: pointer;
             min-width: 80px;
             flex-shrink: 0;
+            font-family: inherit;
           ">取消优化</button>
           ${!isLastLoop ? `
           <button id="acu-opt-skip" style="
-            padding: 10px 16px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 8px 16px;
+            border: 1px solid var(--acu-border, #36332e);
             background: transparent;
-            color: rgba(255, 255, 255, 0.7);
-            border-radius: 6px;
+            color: var(--acu-text-dim, #8a8075);
+            border-radius: 1px;
             cursor: pointer;
             min-width: 80px;
             flex-shrink: 0;
+            font-family: inherit;
           ">跳过本轮</button>
           ` : ''}
           <button id="acu-opt-reoptimize" style="
-            padding: 10px 16px;
-            border: 1px solid rgba(123, 183, 255, 0.5);
+            padding: 8px 16px;
+            border: 1px solid var(--acu-accent, #7d4940);
             background: transparent;
-            color: #7bb7ff;
-            border-radius: 6px;
+            color: var(--acu-accent, #7d4940);
+            border-radius: 1px;
             cursor: pointer;
             min-width: 100px;
             flex-shrink: 0;
+            font-family: inherit;
           ">🔄 重新优化</button>
           <button id="acu-opt-apply" style="
-            padding: 10px 16px;
+            padding: 8px 16px;
             border: none;
-            background: #7bb7ff;
-            color: #1a1d24;
-            border-radius: 6px;
+            background: var(--acu-accent, #7d4940);
+            color: var(--acu-bg-0, #24221f);
+            border-radius: 1px;
             cursor: pointer;
             font-weight: 600;
             min-width: 100px;
             flex-shrink: 0;
+            font-family: inherit;
           ">${applyButtonText}</button>
         </div>
       </div>
       <div id="acu-opt-backdrop" style="
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
+        background: rgba(0, 0, 0, 0.6);
         z-index: 99999;
       "></div>
     `;
@@ -3923,41 +4047,43 @@ $CONTENT
    */
   function showOptimizationDiffDialog_ACU(messageIndex, result) {
     const dialogHtml = `
-      <div class="acu-optimization-dialog" style="
+      <div class="acu-optimization-dialog acu-dialog-classic" style="
         position: fixed;
         top: 10px;
         left: 50%;
         transform: translateX(-50%);
-        background: #1a1d24;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 12px;
+        background: var(--acu-bg-0, #24221f);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+        border: 1px solid var(--acu-border, #36332e);
+        border-radius: 2px;
         padding: 20px;
         max-width: 800px;
         width: calc(100% - 20px);
         max-height: calc(90vh - 20px);
         overflow-y: auto;
         z-index: 100000;
-        color: rgba(255, 255, 255, 0.9);
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: var(--acu-text, #c1b9ad);
+        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
         box-sizing: border-box;
       ">
-        <h3 style="margin: 0 0 16px 0; color: #7bb7ff;">正文替换建议</h3>
-        <p style="margin: 0 0 12px 0; color: rgba(255, 255, 255, 0.7);">${result.summary || `共 ${result.optimizations.length} 处替换建议`}</p>
+        <h3 style="margin: 0 0 16px 0; color: var(--acu-accent, #7d4940); font-size: 1.1em; letter-spacing: 1px;">正文替换建议</h3>
+        <p style="margin: 0 0 12px 0; color: var(--acu-text-dim, #8a8075);">${result.summary || `共 ${result.optimizations.length} 处替换建议`}</p>
         <div class="optimization-list" style="margin-bottom: 16px;">
           ${result.optimizations.map((opt, i) => `
             <div class="optimization-item" style="
-              background: rgba(255, 255, 255, 0.05);
-              border-radius: 8px;
+              background: rgba(0, 0, 0, 0.2);
+              border-radius: 1px;
               padding: 12px;
               margin-bottom: 8px;
+              border-left: 2px solid var(--acu-border, #36332e);
             ">
-              <div style="color: #ff6b6b; margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
+              <div style="color: var(--acu-text-dim, #8a8075); margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
                 <strong>原文：</strong>${escapeHtml_ACU(opt.original.substring(0, 200))}${opt.original.length > 200 ? '...' : ''}
               </div>
-              <div style="color: rgba(255, 255, 255, 0.7); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(123, 183, 255, 0.1); border-radius: 4px;">
+              <div style="color: var(--acu-text, #c1b9ad); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(125, 73, 64, 0.1); border-radius: 1px; border-left: 2px solid var(--acu-accent, #7d4940);">
                 <strong>修改方案：</strong>${escapeHtml_ACU(opt.plan || opt.reason || '未说明')}
               </div>
-              <div style="color: #69db7c;">
+              <div style="color: #6a8a6a;">
                 <strong>优化：</strong>${escapeHtml_ACU(opt.optimized.substring(0, 200))}${opt.optimized.length > 200 ? '...' : ''}
               </div>
             </div>
@@ -3965,42 +4091,45 @@ $CONTENT
         </div>
         <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding-bottom: 10px;">
           <button id="acu-opt-cancel" style="
-            padding: 10px 16px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 8px 16px;
+            border: 1px solid var(--acu-border, #36332e);
             background: transparent;
-            color: rgba(255, 255, 255, 0.7);
-            border-radius: 6px;
+            color: var(--acu-text-dim, #8a8075);
+            border-radius: 1px;
             cursor: pointer;
             min-width: 80px;
             flex-shrink: 0;
+            font-family: inherit;
           ">取消</button>
           <button id="acu-opt-reoptimize" style="
-            padding: 10px 16px;
-            border: 1px solid rgba(123, 183, 255, 0.5);
+            padding: 8px 16px;
+            border: 1px solid var(--acu-accent, #7d4940);
             background: transparent;
-            color: #7bb7ff;
-            border-radius: 6px;
+            color: var(--acu-accent, #7d4940);
+            border-radius: 1px;
             cursor: pointer;
             min-width: 100px;
             flex-shrink: 0;
+            font-family: inherit;
           ">🔄 重新优化</button>
           <button id="acu-opt-apply" style="
-            padding: 10px 16px;
+            padding: 8px 16px;
             border: none;
-            background: #7bb7ff;
-            color: #1a1d24;
-            border-radius: 6px;
+            background: var(--acu-accent, #7d4940);
+            color: var(--acu-bg-0, #24221f);
+            border-radius: 1px;
             cursor: pointer;
             font-weight: 600;
             min-width: 100px;
             flex-shrink: 0;
+            font-family: inherit;
           ">应用优化</button>
         </div>
       </div>
       <div id="acu-opt-backdrop" style="
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
+        background: rgba(0, 0, 0, 0.6);
         z-index: 99999;
       "></div>
     `;
@@ -4056,7 +4185,7 @@ $CONTENT
    */
   function showOptimizationDiff_ACU(messageIndex, result) {
     const message = `正文替换完成，共 ${result.optimizations.length} 处改进`;
-    const reoptButtonHtml = `<button id="acu-opt-toast-reoptimize" style="border: 1px solid rgba(123, 183, 255, 0.5); color: #7bb7ff; background: transparent; padding: 5px 10px; border-radius: 4px; cursor: pointer; float: right; margin-left: 15px; font-size: 0.9em; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='rgba(123, 183, 255, 0.15)'" onmouseout="this.style.backgroundColor='transparent'">🔄 重新优化</button>`;
+    const reoptButtonHtml = `<button id="acu-opt-toast-reoptimize" style="border: 1px solid var(--acu-accent, #7d4940); color: var(--acu-accent, #7d4940); background: transparent; padding: 5px 10px; border-radius: 1px; cursor: pointer; float: right; margin-left: 15px; font-size: 0.85em; font-family: inherit;" onmouseover="this.style.backgroundColor='var(--acu-accent, #7d4940); color: var(--acu-bg-0, #24221f);'" onmouseout="this.style.backgroundColor='transparent'; this.style.color='var(--acu-accent, #7d4940);'">🔄 重新优化</button>`;
     const html = result.summary
       ? `<div>${message}${reoptButtonHtml}<br><small style="opacity:0.7">${result.summary}</small></div>`
       : `<div>${message}${reoptButtonHtml}</div>`;
@@ -5836,8 +5965,11 @@ $CONTENT
                 
                 // 保存到该表的最新楼层
                 if (tableLatestFloorIndex !== -1) {
-                    logDebug_ACU(`updateRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
-                    await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
+                    // [修复] 外部导入模式下不保存到聊天记录
+                    if (!isImportMode) {
+                        logDebug_ACU(`updateRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
+                        await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
+                    }
                     
                     // 触发世界书刷新
                     await refreshMergedDataAndNotify_ACU();
@@ -5958,9 +6090,12 @@ $CONTENT
                 }
                 
                 if (tableLatestFloorIndex !== -1) {
-                    logDebug_ACU(`insertRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
-                    await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
-                    await refreshMergedDataAndNotify_ACU();
+                    // [修复] 外部导入模式下不保存到聊天记录
+                    if (!isImportMode) {
+                        logDebug_ACU(`insertRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
+                        await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
+                        await refreshMergedDataAndNotify_ACU();
+                    }
                     logDebug_ACU(`insertRow: Worldbook refreshed after saving [${tableName}]`);
                 } else {
                     logDebug_ACU(`insertRow: No AI floor found, falling back to saveCurrentDataForTable_ACU`);
@@ -6075,9 +6210,12 @@ $CONTENT
                 }
                 
                 if (tableLatestFloorIndex !== -1) {
-                    logDebug_ACU(`deleteRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
-                    await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
-                    await refreshMergedDataAndNotify_ACU();
+                    // [修复] 外部导入模式下不保存到聊天记录
+                    if (!isImportMode) {
+                        logDebug_ACU(`deleteRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
+                        await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
+                        await refreshMergedDataAndNotify_ACU();
+                    }
                     logDebug_ACU(`deleteRow: Worldbook refreshed after saving [${tableName}]`);
                 } else {
                     logDebug_ACU(`deleteRow: No AI floor found, falling back to saveCurrentDataForTable_ACU`);
@@ -7525,114 +7663,144 @@ const DatabaseAPI_ACU = {
       const style = doc.createElement('style');
       style.id = styleId;
       style.textContent = `
-        /* ACU Toast Theme (scoped to .acu-toast) */
+        /* ACU Toast Theme (古典中国风 - scoped to .acu-toast) */
+        /* 双主题变量 */
+        #toast-container .acu-toast.toast {
+          --toast-accent: #7d4940;
+          --toast-bg: #24221f;
+          --toast-text: #c1b9ad;
+          --toast-border: #36332e;
+          --toast-font: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
+        }
+        body.acu-theme-silk #toast-container .acu-toast.toast {
+          --toast-accent: #8a6b5e;
+          --toast-bg: #f4f1eb;
+          --toast-text: #3d3629;
+          --toast-border: #d4cfc4;
+        }
+        
         .acu-toast.toast {
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "HarmonyOS Sans SC", "MiSans", Roboto, Helvetica, Arial, sans-serif;
-          /* 左侧色条（不靠伪元素，避免与 toastr 默认图标机制冲突） */
-          --acu-toast-accent: #7bb7ff;
-          /* 重要：避免半透明在白底上发灰，看不清 */
-          background: linear-gradient(90deg, var(--acu-toast-accent) 0 4px, #0f1623 4px) !important;
-          color: #f2f6ff !important;
-          border: 1px solid rgba(255,255,255,0.18) !important;
-          border-radius: 12px !important;
-          box-shadow: 0 18px 60px rgba(0,0,0,0.55) !important;
-          padding: 12px 14px 12px 50px !important; /* 给图标徽章留位 */
+          font-family: var(--toast-font) !important;
+          --acu-toast-accent: var(--toast-accent);
+          background: var(--toast-bg) !important;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E") !important;
+          color: var(--toast-text) !important;
+          border: 1px solid var(--toast-border) !important;
+          border-radius: 2px !important;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.35) !important;
+          padding: 12px 14px 12px 50px !important;
           width: min(420px, calc(100vw - 24px)) !important;
-          opacity: 1 !important; /* 覆盖 toastr 可能的淡化 */
+          opacity: 1 !important;
           backdrop-filter: none;
           -webkit-backdrop-filter: none;
           position: relative !important;
           overflow: hidden !important;
+          /* 左侧古典色条 */
+          border-left: 3px solid var(--toast-accent) !important;
         }
-        /* 强制覆盖 Toastr/SillyTavern 更高优先级背景（你反馈“背景没变化”的根因多在这里） */
+        /* 强制覆盖 Toastr/SillyTavern 更高优先级背景 */
         #toast-container .acu-toast.toast,
         #toast-container .acu-toast.toast.toast-success,
         #toast-container .acu-toast.toast.toast-info,
         #toast-container .acu-toast.toast.toast-warning,
         #toast-container .acu-toast.toast.toast-error {
-          background: linear-gradient(90deg, var(--acu-toast-accent) 0 4px, #0f1623 4px) !important;
-          background-color: #0f1623 !important;
-          background-image: none !important;
+          background: var(--toast-bg) !important;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E") !important;
           opacity: 1 !important;
         }
         #toast-container .acu-toast.toast .toast-title,
         #toast-container .acu-toast.toast .toast-message {
           background: transparent !important;
         }
-        /* 清掉 Toastr 默认的“背景图标/纹理”(你截图里的对勾棋盘格) */
+        /* 清掉 Toastr 默认的纹理 */
         .acu-toast.toast,
         .acu-toast.toast.toast-success,
         .acu-toast.toast.toast-info,
         .acu-toast.toast.toast-warning,
         .acu-toast.toast.toast-error {
-          background-image: none !important;
-          background-repeat: no-repeat !important;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E") !important;
+          background-repeat: repeat !important;
           background-position: 0 0 !important;
         }
-        /* 图标徽章：统一位置与样式（解决✓/! 位置难看问题） */
-        .acu-toast.toast::before {
-          content: "i";
+        /* 图标徽章：古典印章风格 */
+        #toast-container .acu-toast.toast::before {
+          content: "i" !important;
           position: absolute;
-          left: 12px;
-          top: 12px;
-          width: 28px;
-          height: 28px;
-          border-radius: 10px;
+          left: 10px;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 26px;
+          height: 26px;
+          border-radius: 2px;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-weight: 900;
+          font-weight: 400;
           font-size: 14px;
-          color: #f2f6ff;
-          background: #182235; /* 完全不透明 */
-          border: 1px solid rgba(255,255,255,0.18);
-          box-shadow: 0 8px 18px rgba(0,0,0,0.28);
+          font-family: var(--toast-font);
+          color: var(--toast-bg);
+          background: var(--toast-accent);
+          border: none;
+          box-shadow: none;
         }
-        .acu-toast.acu-toast--success { --acu-toast-accent: #4ad19f; }
-        .acu-toast.acu-toast--info { --acu-toast-accent: #7bb7ff; }
-        .acu-toast.acu-toast--warning { --acu-toast-accent: #ffb85c; }
-        .acu-toast.acu-toast--error { --acu-toast-accent: #ff6b6b; }
-
-        .acu-toast.acu-toast--success::before { content: "✓"; }
-        .acu-toast.acu-toast--info::before { content: "i"; }
-        .acu-toast.acu-toast--warning::before { content: "!"; }
-        .acu-toast.acu-toast--error::before { content: "×"; }
+        #toast-container .acu-toast.acu-toast--success::before { content: "达" !important; }
+        #toast-container .acu-toast.acu-toast--info::before { content: "知" !important; }
+        #toast-container .acu-toast.acu-toast--warning::before { content: "警" !important; }
+        #toast-container .acu-toast.acu-toast--error::before { content: "误" !important; }
+        
+        .acu-toast.acu-toast--success { --acu-toast-accent: #5a8a5a; }
+        .acu-toast.acu-toast--info { --acu-toast-accent: #8a6b5e; }
+        .acu-toast.acu-toast--warning { --acu-toast-accent: #b08a5a; }
+        .acu-toast.acu-toast--error { --acu-toast-accent: #8a5a5a; }
         .acu-toast.toast .toast-title {
-          font-weight: 750 !important;
-          letter-spacing: 0.2px;
+          font-weight: 600 !important;
+          letter-spacing: 0.5px;
           margin-bottom: 4px !important;
-          opacity: 0.95;
-          text-shadow: 0 1px 2px rgba(0,0,0,0.45);
+          opacity: 1;
+          text-shadow: none;
+          font-family: var(--toast-font);
         }
         .acu-toast.toast .toast-message {
-          line-height: 1.45;
-          color: rgba(242,246,255,0.86) !important;
-          text-shadow: 0 1px 2px rgba(0,0,0,0.45);
+          line-height: 1.5;
+          color: var(--toast-text) !important;
+          text-shadow: none;
+          font-family: var(--toast-font);
         }
         .acu-toast.toast .toast-close-button {
-          color: rgba(255,255,255,0.65) !important;
+          color: var(--toast-text) !important;
           text-shadow: none !important;
-          opacity: 0.85 !important;
+          opacity: 0.6 !important;
+          font-size: 18px;
+          right: 8px;
+          top: 8px;
+        }
+        .acu-toast.toast .toast-close-button:hover {
+          opacity: 1 !important;
         }
         .acu-toast.toast .toast-progress {
-          background: rgba(123,183,255,0.55) !important;
+          background: var(--toast-accent) !important;
         }
-        .acu-toast.acu-toast--success { border-color: rgba(74,209,159,0.35) !important; }
-        .acu-toast.acu-toast--info { border-color: rgba(123,183,255,0.35) !important; }
-        .acu-toast.acu-toast--warning { border-color: rgba(255,184,92,0.35) !important; }
-        .acu-toast.acu-toast--error { border-color: rgba(255,107,107,0.35) !important; }
+        .acu-toast.acu-toast--success { border-color: rgba(90,138,90,0.5) !important; }
+        .acu-toast.acu-toast--info { border-color: rgba(138,107,94,0.5) !important; }
+        .acu-toast.acu-toast--warning { border-color: rgba(176,138,90,0.5) !important; }
+        .acu-toast.acu-toast--error { border-color: rgba(138,90,90,0.5) !important; }
 
         /* Plot abort button inside toast */
         .acu-toast .qrf-abort-btn {
-          padding: 4px 10px !important;
-          border-radius: 999px !important;
-          border: 1px solid rgba(255,107,107,0.35) !important;
-          background: rgba(255,107,107,0.18) !important;
-          color: rgba(255,255,255,0.92) !important;
-          font-weight: 650 !important;
+          padding: 4px 12px !important;
+          border-radius: 1px !important;
+          border: 1px solid var(--toast-accent) !important;
+          background: transparent !important;
+          color: var(--toast-text) !important;
+          font-weight: 400 !important;
+          font-family: var(--toast-font) !important;
           cursor: pointer !important;
+          font-size: 0.85em;
         }
-        .acu-toast .qrf-abort-btn:hover { background: rgba(255,107,107,0.26) !important; }
+        .acu-toast .qrf-abort-btn:hover {
+          background: var(--toast-accent) !important;
+          color: var(--toast-bg) !important;
+        }
       `;
       doc.head.appendChild(style);
       _acuToastStyleInjected_ACU = true;
@@ -11592,13 +11760,38 @@ const DatabaseAPI_ACU = {
       allTablesJson: getTableDataForPrompt_ACU(),
       plotContent: lastPlotContent
     };
+
+    const processPromptTemplateContent_ACU = (content) => {
+      if (typeof content !== 'string' || !content) {
+        return typeof content === 'string' ? content : '';
+      }
+
+      let processedContent = content;
+
+      // [随机函数] 先处理随机数标签与随机变量引用，确保正文提示词中也能生效
+      processedContent = parseRandomTags_ACU(processedContent);
+      processedContent = replaceRandomVariables_ACU(processedContent);
+
+      // [计算变量] 再处理计算/最大值/最小值标签与变量引用
+      const contextForCalc = { allTablesJson: context.allTablesJson };
+      processedContent = parseCalcTags_ACU(processedContent, contextForCalc);
+      processedContent = parseMaxTags_ACU(processedContent, contextForCalc);
+      processedContent = parseMinTags_ACU(processedContent, contextForCalc);
+      processedContent = replaceCalcVariables_ACU(processedContent);
+      processedContent = replaceMaxVariables_ACU(processedContent);
+      processedContent = replaceMinVariables_ACU(processedContent);
+
+      // [条件模板] 最后处理 if/else 逻辑
+      processedContent = parseIfBlockRecursive_ACU(processedContent, context, 0);
+      return processedContent;
+    };
     
     // 遍历处理消息
     let processedCount = 0;
     for (const message of data.messages) {
       if (typeof message.content === 'string') {
         const originalContent = message.content;
-        message.content = parseIfBlockRecursive_ACU(message.content, context, 0);
+        message.content = processPromptTemplateContent_ACU(message.content);
         if (message.content !== originalContent) {
           processedCount++;
         }
@@ -11606,7 +11799,7 @@ const DatabaseAPI_ACU = {
         for (const part of message.content) {
           if (part.type === 'text' && part.text) {
             const originalText = part.text;
-            part.text = parseIfBlockRecursive_ACU(part.text, context, 0);
+            part.text = processPromptTemplateContent_ACU(part.text);
             if (part.text !== originalText) {
               processedCount++;
             }
@@ -12636,11 +12829,18 @@ const DatabaseAPI_ACU = {
       worldbookContent = await tryRenderWithEjs_ACU(worldbookContent);
       logDebug_ACU('[剧情推进] $1 世界书内容(渲染后):', worldbookContent ? `长度=${worldbookContent.length}` : '(空)');
 
-      // 2. 渲染“最终注入指令”（不会发给规划 API，只用于注入给主AI）
+      // [新增] 对世界书内容进行随机数处理（让随机数标签在世界书中也能使用）
+      worldbookContent = parseRandomTags_ACU(worldbookContent);
+      worldbookContent = replaceRandomVariables_ACU(worldbookContent);
+
+      // 2. 渲染"最终注入指令"（不会发给规划 API，只用于注入给主AI）
       rawFinal = await tryRenderWithEjs_ACU(rawFinal);
       const plotFinalDirective = performReplacements(rawFinal);
-      if (plotFinalDirective && plotFinalDirective.trim()) {
-        finalSystemDirectiveContent = plotFinalDirective.trim();
+      // [新增] 对最终注入指令进行随机数处理
+      let finalWithRandom = parseRandomTags_ACU(plotFinalDirective);
+      finalWithRandom = replaceRandomVariables_ACU(finalWithRandom);
+      if (finalWithRandom && finalWithRandom.trim()) {
+        finalSystemDirectiveContent = finalWithRandom.trim();
       }
 
       // 3) 构建"规划请求"的 messages：完全使用剧情推进自己的独立提示词组（promptGroup）
@@ -15300,8 +15500,10 @@ const DatabaseAPI_ACU = {
   function normalizeLorebookPosition_ACU(position, fallback = 'at_depth_as_system') {
       const raw = String(position ?? '').trim().toLowerCase();
       if (raw === 'at_depth_as_system' || raw === 'system') return 'at_depth_as_system';
-      if (raw === 'before_char' || raw === 'before_character' || raw === '0') return 'before_char';
-      if (raw === 'after_char' || raw === 'after_character' || raw === '1') return 'after_char';
+      // [修复] 返回 API 期望的正确值：before_character_definition / after_character_definition
+      // 而不是内部简写 before_char / after_char
+      if (raw === 'before_char' || raw === 'before_character' || raw === 'before_character_definition' || raw === '0') return 'before_character_definition';
+      if (raw === 'after_char' || raw === 'after_character' || raw === 'after_character_definition' || raw === '1') return 'after_character_definition';
       return fallback;
   }
 
@@ -15356,8 +15558,9 @@ const DatabaseAPI_ACU = {
       }
       if (isGlobalDataTableName_ACU(name)) {
           return {
-              entry: { position: 'before_char', depth: 2, order: 99981 },
-              index: { position: 'before_char', depth: 2, order: 99982 },
+              // [修复] 使用 API 期望的正确值 before_character_definition
+              entry: { position: 'before_character_definition', depth: 2, order: 99981 },
+              index: { position: 'before_character_definition', depth: 2, order: 99982 },
           };
       }
       return {
@@ -15390,8 +15593,9 @@ const DatabaseAPI_ACU = {
 
   function buildDefaultGlobalInjectionConfig_ACU() {
       return {
-          readableEntryPlacement: { position: 'before_char', depth: 2, order: 99981 },
-          wrapperPlacement: { position: 'before_char', depth: 2, order: 99980 },
+          // [修复] 使用 API 期望的正确值 before_character_definition
+          readableEntryPlacement: { position: 'before_character_definition', depth: 2, order: 99981 },
+          wrapperPlacement: { position: 'before_character_definition', depth: 2, order: 99980 },
       };
   }
 
@@ -16110,7 +16314,7 @@ const DatabaseAPI_ACU = {
     }
   }
 
-  async function updateReadableLorebookEntry_ACU(createIfNeeded = false, isImport = false) { // [外部导入] 添加 isImport 标志
+  async function updateReadableLorebookEntry_ACU(createIfNeeded = false, isImport = false, targetLorebookOverride = null) { // [外部导入] 添加 targetLorebookOverride 参数，避免临时修改 worldbookConfig 被兜底补齐逻辑覆盖
     // [健全性] 新对话开场白阶段：禁止自动创建/更新世界书条目
     // - 仅影响非导入流程（isImport=false）
     // - 仅在“无任何用户消息”的开场白阶段生效
@@ -16201,7 +16405,8 @@ const DatabaseAPI_ACU = {
         await updateCustomTableExports_ACU(mergedData, isImport);
     }
 
-    const primaryLorebookName = await getInjectionTargetLorebook_ACU();
+    // [修复] 外部导入时优先使用 targetLorebookOverride 参数，避免临时修改 worldbookConfig 被兜底补齐逻辑覆盖
+    const primaryLorebookName = targetLorebookOverride || await getInjectionTargetLorebook_ACU();
     if (primaryLorebookName) {
         try {
             const IMPORT_PREFIX = getImportBatchPrefix_ACU();
@@ -16258,6 +16463,14 @@ const DatabaseAPI_ACU = {
                 return; // 数据库为空时，不再继续创建或更新
             }
 
+            // [修复2026-03-29] 全局条目顺序修正：使用 allocConsecutiveOrderBlock_ACU 分配连续的 3 个 order 区块
+            // 确保顺序始终为：包裹上(baseOrder) → 全局内容(baseOrder+1) → 包裹下(baseOrder+2)
+            // 即使默认 order 值被占用，也能保证三个条目的 order 是连续的
+            const globalWrapperBlockBase = allocConsecutiveOrderBlock_ACU(usedOrders, 3, globalFixedIndexPlacement.order, 1, 99999);
+            const wrapperStartOrder = globalWrapperBlockBase;
+            const globalContentOrder = globalWrapperBlockBase + 1;
+            const wrapperEndOrder = globalWrapperBlockBase + 2;
+            
             if (db2Entry) {
                 const newContent = readableText;
                 const needsUpdate =
@@ -16265,15 +16478,17 @@ const DatabaseAPI_ACU = {
                     (db2Entry.type !== 'constant') ||
                     (db2Entry.enabled !== true) ||
                     (db2Entry.prevent_recursion !== true) ||
-                    !isEntryPlacementMatched_ACU(db2Entry, globalFixedEntryPlacement);
+                    (getEntryOrderNumber_ACU(db2Entry) !== globalContentOrder) ||
+                    !isEntryPlacementMatched_ACU(db2Entry, globalFixedIndexPlacement);
                 if (needsUpdate) {
                     const updatedDb2Entry = applyPlacementToEntry_ACU({
                         uid: db2Entry.uid,
                         content: newContent,
                         enabled: true,
                         type: 'constant',
+                        order: globalContentOrder,
                         prevent_recursion: true,
-                    }, globalFixedEntryPlacement);
+                    }, globalFixedIndexPlacement);
                     await TavernHelper_API_ACU.setLorebookEntries(primaryLorebookName, [updatedDb2Entry]);
                     logDebug_ACU('Successfully updated the global readable lorebook entry.');
                 } else {
@@ -16286,9 +16501,9 @@ const DatabaseAPI_ACU = {
                     keys: ['TavernDB-ACU-ReadableDataTable-Key'],
                     enabled: true,
                     type: 'constant',
-                    order: allocOrder_ACU(usedOrders, globalFixedEntryPlacement.order, 1, 99999),
+                    order: globalContentOrder,
                     prevent_recursion: true,
-                }, globalFixedEntryPlacement);
+                }, globalFixedIndexPlacement);
                 await TavernHelper_API_ACU.createLorebookEntries(primaryLorebookName, [newDb2Entry]);
                 logDebug_ACU('Global readable lorebook entry not found. Created a new one.');
                 showToastr_ACU('success', `已创建全局可读数据库条目。`);
@@ -16304,7 +16519,7 @@ const DatabaseAPI_ACU = {
                     keys: ['TavernDB-ACU-WrapperStart-Key'],
                     enabled: true,
                     type: 'constant',
-                    order: allocOrder_ACU(usedOrders, globalFixedIndexPlacement.order, 1, 99999),
+                    order: wrapperStartOrder,
                     prevent_recursion: true,
                 }, globalFixedIndexPlacement)]);
                 logDebug_ACU('Created wrapper start entry.');
@@ -16314,6 +16529,7 @@ const DatabaseAPI_ACU = {
                     wrapperStartEntry.enabled !== true ||
                     wrapperStartEntry.type !== 'constant' ||
                     wrapperStartEntry.prevent_recursion !== true ||
+                    getEntryOrderNumber_ACU(wrapperStartEntry) !== wrapperStartOrder ||
                     !isEntryPlacementMatched_ACU(wrapperStartEntry, globalFixedIndexPlacement);
                 if (wrapperStartNeedsUpdate) {
                     await TavernHelper_API_ACU.setLorebookEntries(primaryLorebookName, [
@@ -16322,6 +16538,7 @@ const DatabaseAPI_ACU = {
                             content: wrapperStartContent,
                             enabled: true,
                             type: 'constant',
+                            order: wrapperStartOrder,
                             prevent_recursion: true,
                         }, globalFixedIndexPlacement)
                     ]);
@@ -16451,7 +16668,7 @@ const DatabaseAPI_ACU = {
             } // end of hasSummaryData
 
             // [新增] 创建 WrapperEnd 条目
-            // [修复2026-03-08] 包裹条目顺序修正：上包裹(order) → 数据条目(order+1) → 下包裹(order+2)
+            // [修复2026-03-29] 使用 globalWrapperBlockBase + 2 作为 wrapperEndOrder（已在上方通过 allocConsecutiveOrderBlock_ACU 分配）
             const wrapperEndEntry = entries.find(e => e.comment === WRAPPER_END_COMMENT);
             const wrapperEndContent = '</最新数据与记录>';
             if (!wrapperEndEntry) {
@@ -16461,7 +16678,7 @@ const DatabaseAPI_ACU = {
                     keys: ['TavernDB-ACU-WrapperEnd-Key'],
                     enabled: true,
                     type: 'constant',
-                    order: allocOrder_ACU(usedOrders, globalFixedIndexPlacement.order + 2, 1, 99999),
+                    order: wrapperEndOrder,
                     prevent_recursion: true,
                 }, globalFixedIndexPlacement)]);
                 logDebug_ACU('Created wrapper end entry.');
@@ -16471,6 +16688,7 @@ const DatabaseAPI_ACU = {
                     wrapperEndEntry.enabled !== true ||
                     wrapperEndEntry.type !== 'constant' ||
                     wrapperEndEntry.prevent_recursion !== true ||
+                    getEntryOrderNumber_ACU(wrapperEndEntry) !== wrapperEndOrder ||
                     !isEntryPlacementMatched_ACU(wrapperEndEntry, globalFixedIndexPlacement);
                 if (wrapperEndNeedsUpdate) {
                     await TavernHelper_API_ACU.setLorebookEntries(primaryLorebookName, [
@@ -16479,6 +16697,7 @@ const DatabaseAPI_ACU = {
                             content: wrapperEndContent,
                             enabled: true,
                             type: 'constant',
+                            order: wrapperEndOrder,
                             prevent_recursion: true,
                         }, globalFixedIndexPlacement)
                     ]);
@@ -16501,9 +16720,12 @@ const DatabaseAPI_ACU = {
       const IMPORT_PREFIX = getImportBatchPrefix_ACU();
       const isoPrefix = getIsolationPrefix_ACU();
       // [修复] 外部导入的自定义导出条目必须加外部导入前缀，避免被当作普通注入条目/或被清理逻辑误删
+      // [修改] 外部导入时只使用"外部导入-"前缀，不再包含"TavernDB-ACU-CustomExport-"
       const exportPrefix = isoPrefix + (isImport ? IMPORT_PREFIX : '');
-      // [修改] 定义旧版前缀用于清理
-      const baseLegacyPrefix = isImport ? `${IMPORT_PREFIX}TavernDB-ACU-CustomExport` : 'TavernDB-ACU-CustomExport';
+      // [修复] 外部导入时的条目命名辅助函数：只使用"外部导入-"前缀
+      const getImportEntryName = (name) => isImport ? `${exportPrefix}${name}` : `${exportPrefix}TavernDB-ACU-CustomExport-${name}`;
+      // [修改] 定义旧版前缀用于清理（非外部导入模式）
+      const baseLegacyPrefix = 'TavernDB-ACU-CustomExport';
       const LEGACY_EXPORT_PREFIX = isoPrefix + baseLegacyPrefix;
       
       // [新增] 获取0TK占用模式状态，用于控制"纪要索引"条目的enabled
@@ -16694,7 +16916,8 @@ const DatabaseAPI_ACU = {
               const fullTable = buildMarkdownTableFromRows_ACU(extraIndexSpec.indexCols, extraIndexSpec.indexRows);
               const fallbackTemplate = `# ${extraIndexSpec.entryName}\n\n$1`;
               // 自定义表格导出的附加索引条目：在注释名中加入统一标记，便于在世界书 UI 中识别为"数据库生成条目"并默认隐藏
-              const mainComment = `${exportPrefix}TavernDB-ACU-CustomExport-${extraIndexSpec.entryName}`;
+              // [修复] 外部导入时只使用"外部导入-"前缀
+              const mainComment = getImportEntryName(extraIndexSpec.entryName);
               const mainContent = buildEntryContent(
                   extraIndexSpec.entryName,
                   fullTable,
@@ -16817,7 +17040,8 @@ const DatabaseAPI_ACU = {
 
                   // 在拆分模式下，如果存在包裹模板，先追加前置常量条目（包含表头）
                   if (use3DepthWrapperGroup && hasWrapperBefore) {
-                      const wrapperName = `${exportPrefix}TavernDB-ACU-CustomExport-${(config.entryName || tableName)}-包裹-上`;
+                      // [修复] 外部导入时只使用"外部导入-"前缀
+                      const wrapperName = getImportEntryName(`${(config.entryName || tableName)}-包裹-上`);
                       newGeneratedNames.push(wrapperName);
                       postCreateOrderFixPlan.push({ comment: wrapperName, order: orderCursor, placement: entryPlacement });
                       // 将表头添加到上包裹条目的内容中
@@ -16833,7 +17057,8 @@ const DatabaseAPI_ACU = {
                       }, entryPlacement));
                   } else if (!useWrapperEntries && mainHeaders.length > 0) {
                       // 如果没有包裹模板，但需要表头，单独创建一个表头条目
-                      const headerName = `${exportPrefix}TavernDB-ACU-CustomExport-${(config.entryName || tableName)}-表头`;
+                      // [修复] 外部导入时只使用"外部导入-"前缀
+                      const headerName = getImportEntryName(`${(config.entryName || tableName)}-表头`);
                       newGeneratedNames.push(headerName);
                       postCreateOrderFixPlan.push({ comment: headerName, order: orderCursor, placement: entryPlacement });
                       rowEntries.push(applyPlacementToEntry_ACU({
@@ -16890,8 +17115,9 @@ const DatabaseAPI_ACU = {
                           null,
                           true // 拆分模式，不添加条目名称
                       );
-
-                      const fullComment = `${exportPrefix}TavernDB-ACU-CustomExport-${entryName}`;
+                      
+                      // [修复] 外部导入时只使用"外部导入-"前缀
+                      const fullComment = getImportEntryName(entryName);
                       newGeneratedNames.push(fullComment); // 记录名称
                       postCreateOrderFixPlan.push({ comment: fullComment, order: dataOrder, placement: entryPlacement });
 
@@ -16909,7 +17135,8 @@ const DatabaseAPI_ACU = {
 
                   // 添加后置包裹常量条目
                   if (use3DepthWrapperGroup && hasWrapperAfter) {
-                      const wrapperName = `${exportPrefix}TavernDB-ACU-CustomExport-${(config.entryName || tableName)}-包裹-下`;
+                      // [修复] 外部导入时只使用"外部导入-"前缀
+                      const wrapperName = getImportEntryName(`${(config.entryName || tableName)}-包裹-下`);
                       newGeneratedNames.push(wrapperName);
                       postCreateOrderFixPlan.push({ comment: wrapperName, order: orderCursor, placement: entryPlacement });
                       rowEntries.push(applyPlacementToEntry_ACU({
@@ -16964,7 +17191,8 @@ const DatabaseAPI_ACU = {
                           : `# ${tableName}`;
 
                       if (useWrapperBlock && hasWrapperBefore) {
-                          const wrapperName = `${exportPrefix}TavernDB-ACU-CustomExport-${entryName}-包裹-上`;
+                          // [修复] 外部导入时只使用"外部导入-"前缀
+                          const wrapperName = getImportEntryName(`${entryName}-包裹-上`);
                           const wrapperContent = [wrapperParts.before, tableHeader].filter(Boolean).join('\n\n').trim();
                           newGeneratedNames.push(wrapperName);
                           postCreateOrderFixPlan.push({ comment: wrapperName, order: cursor, placement: entryPlacement });
@@ -16978,7 +17206,8 @@ const DatabaseAPI_ACU = {
                               order: cursor++
                           }, entryPlacement));
                       } else if (!useWrapperEntries && mainHeaders.length > 0) {
-                          const headerName = `${exportPrefix}TavernDB-ACU-CustomExport-${entryName}-表头`;
+                          // [修复] 外部导入时只使用"外部导入-"前缀
+                          const headerName = getImportEntryName(`${entryName}-表头`);
                           newGeneratedNames.push(headerName);
                           postCreateOrderFixPlan.push({ comment: headerName, order: cursor, placement: entryPlacement });
                           blockEntries.push(applyPlacementToEntry_ACU({
@@ -17000,7 +17229,8 @@ const DatabaseAPI_ACU = {
                           useWrapperBlock,
                           '$1'
                       );
-                      const fullComment = `${exportPrefix}TavernDB-ACU-CustomExport-${entryName}`;
+                      // [修复] 外部导入时只使用"外部导入-"前缀
+                      const fullComment = getImportEntryName(entryName);
                       newGeneratedNames.push(fullComment);
                       postCreateOrderFixPlan.push({ comment: fullComment, order: cursor, placement: entryPlacement });
                       blockEntries.push(applyPlacementToEntry_ACU({
@@ -17014,7 +17244,8 @@ const DatabaseAPI_ACU = {
                       }, entryPlacement));
 
                       if (useWrapperBlock && hasWrapperAfter) {
-                          const wrapperName = `${exportPrefix}TavernDB-ACU-CustomExport-${entryName}-包裹-下`;
+                          // [修复] 外部导入时只使用"外部导入-"前缀
+                          const wrapperName = getImportEntryName(`${entryName}-包裹-下`);
                           newGeneratedNames.push(wrapperName);
                           postCreateOrderFixPlan.push({ comment: wrapperName, order: cursor, placement: entryPlacement });
                           blockEntries.push(applyPlacementToEntry_ACU({
@@ -18523,21 +18754,16 @@ const DatabaseAPI_ACU = {
       // 2. 将筛选后的数据注入到目标世界书（使用与正文更新相同的逻辑）
       showToastr_ACU('info', `所有文本块已处理完毕，正在生成最终的世界书条目（自选表格注入）...`);
       
-      // 临时保存原始数据和目标世界书，使用筛选后的数据更新世界书
+      // [修复] 外部导入时使用 targetLorebookOverride 参数直接指定目标世界书
+      // 避免临时修改 worldbookConfig.injectionTarget 被 getCurrentCharSettings_ACU() 的兜底补齐逻辑覆盖
       const originalData = currentJsonTableData_ACU;
-      const originalTargetLorebook = await getInjectionTargetLorebook_ACU();
-      
-      // 临时设置目标世界书为导入专用的世界书
-      const worldbookConfig = getCurrentWorldbookConfig_ACU();
-      const originalInjectionTarget = worldbookConfig.injectionTarget;
-      worldbookConfig.injectionTarget = importTargetLorebook === 'character' ? 'character' : importTargetLorebook;
+      const importTarget = importTargetLorebook === 'character' ? await TavernHelper_API_ACU.getCurrentCharPrimaryLorebook() : importTargetLorebook;
       
       currentJsonTableData_ACU = finalDataForInjection;
-      await updateReadableLorebookEntry_ACU(true, true); // [外部导入] 添加 isImport 标志，会自动调用 updateSummaryTableEntries_ACU 和 updateOutlineTableEntry_ACU
+      await updateReadableLorebookEntry_ACU(true, true, importTarget); // [外部导入] 添加 isImport 标志和 targetLorebookOverride 参数
       
-      // 恢复原始数据和目标世界书设置
+      // 恢复原始数据
       currentJsonTableData_ACU = originalData;
-      worldbookConfig.injectionTarget = originalInjectionTarget;
       
       // 3. 创建一个额外的、默认关闭的条目来存储完整的JSON数据
       try {
@@ -18573,7 +18799,7 @@ const DatabaseAPI_ACU = {
           showToastr_ACU('error', '保存最终JSON数据到世界书时出错。');
       }
 
-      // 4. 外部导入完成：删除“本地数据源 JSON 备份条目”，并解除与该世界书的绑定
+      // 4. 外部导入完成：删除"本地数据源 JSON 备份条目"，并解除与该世界书的绑定
       try {
           const IMPORT_PREFIX = '外部导入-';
           const modeSuffix = '-Selected';
@@ -18586,6 +18812,78 @@ const DatabaseAPI_ACU = {
           }
       } catch (e) {
           logWarn_ACU('[外部导入] Failed to delete ImportedJsonData source entry:', e);
+      }
+
+      // [新增] 外部导入完成后：清理目标世界书中本插件生成的旧条目（不带"外部导入-"前缀的条目）
+      // 避免出现重复条目：既有"外部导入-"前缀的新条目，也有不带前缀的旧条目
+      try {
+          const IMPORT_PREFIX = '外部导入-';
+          const isoPrefix = getIsolationPrefix_ACU();
+          const allTargetEntries = await TavernHelper_API_ACU.getLorebookEntries(importTarget);
+          
+          // 从模板数据中提取所有表格的 entryName 和其他标识信息（用于清理自定义导出条目）
+          const templateEntryNames = [];
+          const templateTableNames = []; // 备用：表格原始名称
+          if (finalDataForInjection) {
+              const sheetKeys = getSortedSheetKeys_ACU(finalDataForInjection);
+              sheetKeys.forEach(sheetKey => {
+                  const sheet = finalDataForInjection[sheetKey];
+                  if (sheet?.exportConfig?.enabled) {
+                      if (sheet?.exportConfig?.entryName) {
+                          templateEntryNames.push(sheet.exportConfig.entryName);
+                      }
+                      // 同时记录表格原始名称作为备用清理目标
+                      if (sheet?.name) {
+                          templateTableNames.push(sheet.name);
+                      }
+                  }
+              });
+          }
+          
+          // 找出本插件生成的不带"外部导入-"前缀的条目（这些是旧条目，需要清理）
+          // 基础前缀列表：所有本插件可能生成的条目前缀
+          const oldEntryBasePrefixes = [
+              'TavernDB-ACU-ReadableDataTable',
+              'TavernDB-ACU-WrapperStart',
+              'TavernDB-ACU-WrapperEnd',
+              'TavernDB-ACU-MemoryStart',
+              'TavernDB-ACU-MemoryEnd',
+              'TavernDB-ACU-PersonsHeader',
+              'TavernDB-ACU-OutlineTable',
+              'TavernDB-ACU-CustomExport-',  // 自定义导出条目前缀
+              'TavernDB-ACU-ImportantPersonsIndex',
+              '总结条目',
+              '小总结条目',
+              '故事大纲',
+              '大纲表',
+              '重要人物条目',
+              '纪要索引',
+          ];
+          // 合并模板中的 entryName 和表格名称（用于精确匹配）
+          const allOldPrefixes = [
+              ...oldEntryBasePrefixes,
+              ...templateEntryNames,
+              ...templateTableNames
+          ];
+          
+          const entriesToDelete = allTargetEntries.filter(entry => {
+              const comment = entry.comment || '';
+              // 移除隔离前缀进行判断
+              const normalizedComment = comment.replace(/^ACU-\[[^\]]+\]-/, '');
+              // 保留带"外部导入-"前缀的条目（这些是新的外部导入条目）
+              if (normalizedComment.startsWith(IMPORT_PREFIX)) return false;
+              // 检查是否匹配任何旧前缀
+              return allOldPrefixes.some(prefix => normalizedComment.startsWith(prefix));
+          });
+          
+          if (entriesToDelete.length > 0) {
+              const uidsToDelete = entriesToDelete.map(e => e.uid);
+              await TavernHelper_API_ACU.deleteLorebookEntries(importTarget, uidsToDelete);
+              logDebug_ACU(`[外部导入] Cleaned up ${uidsToDelete.length} old entries (non-import prefixed) from target worldbook.`);
+              showToastr_ACU('info', `外部导入完成：已清理 ${uidsToDelete.length} 个旧数据库条目。`);
+          }
+      } catch (e) {
+          logWarn_ACU('[外部导入] Failed to clean old entries from target worldbook:', e);
       }
 
       // 5. 清理本地缓存（entries + status），并清空导入目标设置（解除联系）
@@ -20042,8 +20340,8 @@ const DatabaseAPI_ACU = {
                     
                     /* 超极小屏幕 (≤320px) */
                     @media screen and (max-width: 320px) {
-                        #${POPUP_ID_ACU} { 
-                            padding: 2px; 
+                        #${POPUP_ID_ACU} {
+                            padding: 2px;
                             padding-bottom: calc(2px + env(safe-area-inset-bottom, 0px));
                         }
                         #${POPUP_ID_ACU} .acu-layout { gap: 2px; margin-top: 2px; min-height: 0; }
@@ -20059,6 +20357,258 @@ const DatabaseAPI_ACU = {
                         #${POPUP_ID_ACU} .button-group.acu-data-mgmt-buttons .button {
                             height: 28px !important;
                             font-size: 0.75em !important;
+                        }
+                    }
+
+                    /* ═══════════════════════════════════════════════════════════════
+                       古典中国风双主题覆盖（墨纸 / 素纱）
+                       仅在插件主面板作用域内覆盖，不影响外部页面
+                       ═══════════════════════════════════════════════════════════════ */
+                    #${POPUP_ID_ACU} {
+                        --acu-bg-0: #24221f;
+                        --acu-bg-1: #211f1c;
+                        --acu-bg-2: #2a2824;
+                        --acu-bg-3: rgba(193, 185, 173, 0.06);
+                        --acu-border: #36332e;
+                        --acu-border-2: rgba(193, 185, 173, 0.16);
+                        --acu-text-1: #c1b9ad;
+                        --acu-text-2: #9e978e;
+                        --acu-text-3: #645e55;
+                        --acu-accent: #7d4940;
+                        --acu-accent-2: #8f5a4e;
+                        --acu-accent-glow: rgba(125, 73, 64, 0.16);
+                        --acu-accent-glow-2: rgba(138, 107, 94, 0.12);
+                        --acu-success: #85725f;
+                        --acu-warning: #9c7e56;
+                        --acu-danger: #8b5a55;
+                        --acu-radius-lg: 2px;
+                        --acu-radius-md: 2px;
+                        --acu-radius-sm: 1px;
+                        --acu-shadow: 0 14px 32px rgba(0, 0, 0, 0.20);
+                        --background_light: rgba(193, 185, 173, 0.04);
+                        --background_default: rgba(193, 185, 173, 0.03);
+                        --background-color-light: rgba(193, 185, 173, 0.04);
+                        --input-background: rgba(26, 24, 22, 0.36);
+                        --button-background: rgba(193, 185, 173, 0.03);
+                        --button-secondary-background: rgba(193, 185, 173, 0.02);
+                        color-scheme: dark;
+                        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
+                        background-color: var(--acu-bg-0);
+                        background-image:
+                            url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+                    }
+                    body.acu-theme-silk #${POPUP_ID_ACU} {
+                        --acu-bg-0: #f4f1eb;
+                        --acu-bg-1: #f9f8f5;
+                        --acu-bg-2: #ebe7de;
+                        --acu-bg-3: rgba(74, 69, 63, 0.05);
+                        --acu-border: #e0dacb;
+                        --acu-border-2: rgba(110, 103, 94, 0.18);
+                        --acu-text-1: #4a453f;
+                        --acu-text-2: #6e675e;
+                        --acu-text-3: #9e978e;
+                        --acu-accent: #8a6b5e;
+                        --acu-accent-2: #9d7c6f;
+                        --acu-accent-glow: rgba(138, 107, 94, 0.14);
+                        --acu-accent-glow-2: rgba(138, 107, 94, 0.10);
+                        --acu-success: #6f7b62;
+                        --acu-warning: #a2835b;
+                        --acu-danger: #a06a65;
+                        --background_light: rgba(255, 255, 255, 0.58);
+                        --background_default: rgba(255, 255, 255, 0.42);
+                        --background-color-light: rgba(255, 255, 255, 0.48);
+                        --input-background: rgba(255, 255, 255, 0.70);
+                        --button-background: rgba(255, 255, 255, 0.50);
+                        --button-secondary-background: rgba(255, 255, 255, 0.36);
+                        color-scheme: light;
+                    }
+                    #${POPUP_ID_ACU} .acu-header {
+                        align-items: center;
+                        justify-content: flex-start;
+                        gap: 12px;
+                        padding: 16px 20px;
+                        border: 1px solid var(--acu-border);
+                        border-radius: 2px;
+                        background: transparent;
+                        box-shadow: none;
+                        backdrop-filter: none;
+                        -webkit-backdrop-filter: none;
+                    }
+                    #${POPUP_ID_ACU} .acu-header::before {
+                        content: '录';
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 22px;
+                        height: 22px;
+                        border: 1px solid var(--acu-accent);
+                        color: var(--acu-accent);
+                        font-size: 12px;
+                        border-radius: 1px;
+                        opacity: 0.85;
+                        letter-spacing: 1px;
+                        flex-shrink: 0;
+                    }
+                    #${POPUP_ID_ACU} .acu-header > div {
+                        text-align: left;
+                    }
+                    #${POPUP_ID_ACU} h2#updater-main-title-acu {
+                        font-size: 14px;
+                        font-weight: normal;
+                        letter-spacing: 2px;
+                        color: var(--acu-text-1);
+                    }
+                    #${POPUP_ID_ACU} .acu-layout {
+                        gap: 12px;
+                        margin-top: 12px;
+                    }
+                    #${POPUP_ID_ACU} .acu-tabs-nav,
+                    #${POPUP_ID_ACU} .acu-card,
+                    #${POPUP_ID_ACU} .acu-template-presets,
+                    #${POPUP_ID_ACU} .qrf_worldbook_list,
+                    #${POPUP_ID_ACU} .qrf_worldbook_entry_list,
+                    #${POPUP_ID_ACU} .checkbox-group,
+                    #${POPUP_ID_ACU} .qrf_radio_group,
+                    #${POPUP_ID_ACU} .prompt-segment,
+                    #${POPUP_ID_ACU} .plot-prompt-segment,
+                    #${POPUP_ID_ACU} #${SCRIPT_ID_PREFIX_ACU}-status-message,
+                    #${POPUP_ID_ACU} #${SCRIPT_ID_PREFIX_ACU}-card-update-status-display {
+                        background: var(--background_light);
+                        border-color: var(--acu-border);
+                        border-radius: 2px;
+                        box-shadow: none;
+                    }
+                    #${POPUP_ID_ACU} .acu-nav-section-title {
+                        color: var(--acu-text-3);
+                        font-size: 11px;
+                        letter-spacing: 2px;
+                    }
+                    #${POPUP_ID_ACU} .acu-tab-button {
+                        border-radius: 1px;
+                        padding: 10px 12px;
+                        color: var(--acu-text-2);
+                        font-weight: normal;
+                        letter-spacing: 1px;
+                    }
+                    #${POPUP_ID_ACU} .acu-tab-button:hover {
+                        background: var(--acu-bg-2);
+                        border-color: var(--acu-border);
+                        color: var(--acu-text-1);
+                    }
+                    #${POPUP_ID_ACU} .acu-tab-button.active {
+                        background: rgba(125, 73, 64, 0.10);
+                        border-color: var(--acu-accent);
+                        color: var(--acu-accent);
+                        box-shadow: none;
+                    }
+                    #${POPUP_ID_ACU} .acu-tab-button::after {
+                        color: var(--acu-text-3);
+                    }
+                    #${POPUP_ID_ACU} .acu-card h3 {
+                        border-bottom-color: var(--acu-border);
+                        font-size: 14px;
+                        font-weight: normal;
+                        letter-spacing: 1px;
+                    }
+                    #${POPUP_ID_ACU} label,
+                    #${POPUP_ID_ACU} .notes,
+                    #${POPUP_ID_ACU} small.notes {
+                        color: var(--acu-text-2);
+                    }
+                    #${POPUP_ID_ACU} input,
+                    #${POPUP_ID_ACU} select,
+                    #${POPUP_ID_ACU} textarea {
+                        border-radius: 1px;
+                        border-color: var(--acu-border);
+                        background: var(--input-background) !important;
+                        color: var(--acu-text-1);
+                    }
+                    #${POPUP_ID_ACU} input:focus,
+                    #${POPUP_ID_ACU} select:focus,
+                    #${POPUP_ID_ACU} textarea:focus {
+                        border-color: var(--acu-accent);
+                        box-shadow: 0 0 0 2px var(--acu-accent-glow);
+                    }
+                    #${POPUP_ID_ACU} input::placeholder,
+                    #${POPUP_ID_ACU} textarea::placeholder {
+                        color: var(--acu-text-3);
+                    }
+                    #${POPUP_ID_ACU} button,
+                    #${POPUP_ID_ACU} .button,
+                    #${POPUP_ID_ACU} .menu_button,
+                    #${POPUP_ID_ACU} .acu-mini-btn {
+                        border-radius: 1px !important;
+                        border-color: var(--acu-border-2) !important;
+                        background: var(--button-background) !important;
+                        color: var(--acu-text-2) !important;
+                        box-shadow: none !important;
+                        font-weight: normal;
+                        letter-spacing: 1px;
+                    }
+                    #${POPUP_ID_ACU} button:hover,
+                    #${POPUP_ID_ACU} .button:hover,
+                    #${POPUP_ID_ACU} .menu_button:hover,
+                    #${POPUP_ID_ACU} .acu-mini-btn:hover {
+                        background: var(--acu-bg-2) !important;
+                        border-color: var(--acu-border) !important;
+                        color: var(--acu-text-1) !important;
+                    }
+                    #${POPUP_ID_ACU} button.primary,
+                    #${POPUP_ID_ACU} .button.primary,
+                    #${POPUP_ID_ACU} .acu-mini-btn.primary {
+                        border-color: var(--acu-accent) !important;
+                        background: rgba(125, 73, 64, 0.12) !important;
+                        color: var(--acu-accent) !important;
+                    }
+                    #${POPUP_ID_ACU} button.primary:hover,
+                    #${POPUP_ID_ACU} .button.primary:hover,
+                    #${POPUP_ID_ACU} .acu-mini-btn.primary:hover {
+                        background: rgba(125, 73, 64, 0.18) !important;
+                    }
+                    #${POPUP_ID_ACU} .btn-warning {
+                        background: rgba(156, 126, 86, 0.14) !important;
+                        border-color: rgba(156, 126, 86, 0.28) !important;
+                        color: var(--acu-text-1) !important;
+                    }
+                    #${POPUP_ID_ACU} .btn-danger,
+                    #${POPUP_ID_ACU} .acu-mini-btn.danger {
+                        background: rgba(139, 90, 85, 0.14) !important;
+                        border-color: rgba(139, 90, 85, 0.26) !important;
+                        color: var(--acu-text-1) !important;
+                    }
+                    #${POPUP_ID_ACU} .button-group.acu-data-mgmt-buttons button,
+                    #${POPUP_ID_ACU} .button-group.acu-data-mgmt-buttons .button {
+                        background: rgba(193, 185, 173, 0.04) !important;
+                        border: 1px solid var(--acu-border) !important;
+                        color: var(--acu-text-1) !important;
+                    }
+                    body.acu-theme-silk #${POPUP_ID_ACU} .acu-tab-button:hover,
+                    body.acu-theme-silk #${POPUP_ID_ACU} button:hover,
+                    body.acu-theme-silk #${POPUP_ID_ACU} .button:hover,
+                    body.acu-theme-silk #${POPUP_ID_ACU} .menu_button:hover,
+                    body.acu-theme-silk #${POPUP_ID_ACU} .acu-mini-btn:hover {
+                        background: var(--acu-bg-2) !important;
+                    }
+                    #${POPUP_ID_ACU} table tr:hover {
+                        background: rgba(125, 73, 64, 0.06);
+                    }
+                    #${POPUP_ID_ACU} ::-webkit-scrollbar { width: 4px; height: 4px; }
+                    #${POPUP_ID_ACU} ::-webkit-scrollbar-track { background: transparent; }
+                    #${POPUP_ID_ACU} ::-webkit-scrollbar-thumb {
+                        background: var(--acu-border);
+                        border-radius: 1px;
+                    }
+                    #${POPUP_ID_ACU} ::-webkit-scrollbar-thumb:hover {
+                        background: var(--acu-text-3);
+                    }
+                    @media screen and (max-width: 768px) {
+                        #${POPUP_ID_ACU} .acu-header {
+                            padding: 12px 14px;
+                            gap: 10px;
+                        }
+                        #${POPUP_ID_ACU} .acu-tabs-nav {
+                            background: var(--background_light);
+                            border-color: var(--acu-border);
                         }
                     }
                 </style>
@@ -23365,7 +23915,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           $plotEntryList.off('change.acu_plot_wb').on('change.acu_plot_wb', 'input[type="checkbox"]', function() {
             const bookName = $(this).data('book');
             const uid = $(this).data('uid');
-            if (!bookName || !uid) return;
+            if (!bookName || uid === undefined || uid === null) return;
             if (!cfg.enabledEntries) cfg.enabledEntries = {};
             if (!Array.isArray(cfg.enabledEntries[bookName])) cfg.enabledEntries[bookName] = [];
             const list = cfg.enabledEntries[bookName];
@@ -24729,6 +25279,10 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
             logWarn_ACU('[填表] st-prompt-template 处理失败，使用原始内容:', e);
           }
         }
+
+        // [新增] 在 EJS 渲染后进行随机数处理
+        finalContent = parseRandomTags_ACU(finalContent);
+        finalContent = replaceRandomVariables_ACU(finalContent);
         
         // [新增] 再让数据库自身的条件模板处理
         if (settings_ACU.promptTemplateSettings?.enabled !== false) {
@@ -25029,7 +25583,7 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
     return { inner: chosen.raw, cleaned, mode: 'comment_fallback', hasOpen, hasClose };
   }
 
-  function parseAndApplyTableEdits_ACU(aiResponse, updateMode = 'standard') {
+  function parseAndApplyTableEdits_ACU(aiResponse, updateMode = 'standard', isImportMode = false) {
     // updateMode: 'standard' 表示更新标准表，'summary' 表示更新总结表和总体大纲
     if (!currentJsonTableData_ACU) {
         logError_ACU('Cannot apply edits, currentJsonTableData_ACU is not loaded.');
@@ -26190,7 +26744,8 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
                 }
                 
                 // 4. 解析并应用更新
-                const parseResult = parseAndApplyTableEdits_ACU(aiResponse, updateMode);
+                // [修复] 外部导入模式下不保存到聊天记录
+                const parseResult = parseAndApplyTableEdits_ACU(aiResponse, updateMode, isImportMode);
                 
                 let parseSuccess = false;
                 modifiedKeys = []; // Reset for this attempt
@@ -27546,7 +28101,7 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
 
   // --- [New Visualizer & Inheritance Module] ---
 
-  // CSS for the Visualizer - 墨韵清雅设计系统
+  // CSS for the Visualizer - 墨韵清雅设计系统（古典中国风）
   const VISUALIZER_CSS_ACU = `
     /* ═══════════════════════════════════════════════════════════════
        墨韵清雅 - 可视化编辑器
@@ -27554,58 +28109,66 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
        ═══════════════════════════════════════════════════════════════ */
     
     /* 仅在可视化编辑器内定义主题变量，避免污染页面其它区域 */
+    /* 墨纸主题（默认暗色） */
     #acu-visualizer-content {
-        --vis-ink-abyss: #0b0f15;
-        --vis-ink-deep: #0f1623;
-        --vis-ink-rich: rgba(255, 255, 255, 0.04);
-        --vis-ink-dark: rgba(255, 255, 255, 0.06);
-        --vis-ink-medium: rgba(255, 255, 255, 0.08);
-        --vis-ink-soft: rgba(255, 255, 255, 0.10);
-        --vis-ink-light: rgba(255, 255, 255, 0.14);
-        --vis-ink-pale: rgba(255, 255, 255, 0.52);
-        --vis-ink-mist: rgba(255, 255, 255, 0.40);
+        --vis-bg-color: #24221f;
+        --vis-border-color: #36332e;
+        --vis-text-main: #c1b9ad;
+        --vis-text-dim: #9e978e;
+        --vis-text-mute: #645e55;
+        --vis-accent: #7d4940;
+        --vis-accent-dim: #8f5a4e;
+        --vis-accent-glow: rgba(125, 73, 64, 0.16);
+        --vis-bg-hover: #2a2824;
+        --vis-bg-stats: #211f1c;
+        --vis-bg-light: rgba(193, 185, 173, 0.04);
         
-        --vis-paper-white: rgba(255, 255, 255, 0.92);
-        --vis-paper-soft: rgba(255, 255, 255, 0.74);
-        --vis-paper-warm: rgba(255, 255, 255, 0.03);
-        --vis-paper-muted: rgba(255, 255, 255, 0.52);
+        --vis-font-serif: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
         
-        --vis-accent: #7bb7ff;
-        --vis-accent-dim: #5aa4ff;
-        --vis-accent-glow: rgba(123, 183, 255, 0.22);
-        
-        --vis-font-title: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "HarmonyOS Sans SC", "MiSans", Roboto, Helvetica, Arial, sans-serif;
-        --vis-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "HarmonyOS Sans SC", "MiSans", Roboto, Helvetica, Arial, sans-serif;
+        background-color: var(--vis-bg-color);
+        background-image:
+          url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+        display: flex;
+        flex-direction: column;
+        font-family: var(--vis-font-serif);
+        color: var(--vis-text-main);
     }
     
-    #acu-visualizer-content {
-        background: var(--vis-ink-deep);
-        display: flex; 
-        flex-direction: column; 
-        font-family: var(--vis-font-body);
-        color: var(--vis-paper-white);
+    /* 素纱主题（浅色） */
+    body.acu-theme-silk #acu-visualizer-content {
+        --vis-bg-color: #f4f1eb;
+        --vis-border-color: #e0dacb;
+        --vis-text-main: #4a453f;
+        --vis-text-dim: #6e675e;
+        --vis-text-mute: #9e978e;
+        --vis-accent: #8a6b5e;
+        --vis-accent-dim: #9d7c6f;
+        --vis-accent-glow: rgba(138, 107, 94, 0.14);
+        --vis-bg-hover: #ebe7de;
+        --vis-bg-stats: #f9f8f5;
+        --vis-bg-light: rgba(255, 255, 255, 0.58);
     }
 
-    /* ✅ 可视化编辑器复选框：黑底白勾（不受浏览器风格影响；仅限 #acu-visualizer-content 作用域） */
+    /* ✅ 可视化编辑器复选框：古典风格（仅限 #acu-visualizer-content 作用域） */
     #acu-visualizer-content input[type="checkbox"] {
         -webkit-appearance: none;
         appearance: none;
         accent-color: initial;
-        width: 18px;
-        height: 18px;
-        min-width: 18px;
-        min-height: 18px;
-        border-radius: 4px;
-        border: 1px solid rgba(255, 255, 255, 0.22);
-        background-color: #000;
+        width: 16px;
+        height: 16px;
+        min-width: 16px;
+        min-height: 16px;
+        border-radius: 1px;
+        border: 1px solid var(--vis-border-color);
+        background-color: var(--vis-bg-color);
         background-image: none;
         background-repeat: no-repeat;
         background-position: center;
-        background-size: 12px 10px;
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+        background-size: 10px 8px;
         margin: 0;
         cursor: pointer;
         vertical-align: middle;
+        transition: all 0.2s ease;
     }
     #acu-visualizer-content input[type="checkbox"]::before,
     #acu-visualizer-content input[type="checkbox"]::after {
@@ -27613,6 +28176,8 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
         display: none;
     }
     #acu-visualizer-content input[type="checkbox"]:checked {
+        background-color: var(--vis-accent);
+        border-color: var(--vis-accent);
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M1 5l3 3 7-7'/%3E%3C/svg%3E");
     }
     #acu-visualizer-content input[type="checkbox"]:disabled {
@@ -27620,31 +28185,31 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
         cursor: not-allowed;
     }
     #acu-visualizer-content input[type="checkbox"]:focus-visible {
-        outline: 2px solid rgba(123, 183, 255, 0.75);
+        outline: 2px solid var(--vis-accent-glow);
         outline-offset: 2px;
     }
     
     /* ═══ 顶部标题栏 ═══ */
     .acu-vis-header {
-        flex: 0 0 56px; 
-        background: var(--vis-ink-rich);
-        border-bottom: 1px solid rgba(255,255,255,0.06);
-        display: flex; 
-        justify-content: space-between; 
-        align-items: center; 
+        flex: 0 0 56px;
+        background: transparent;
+        border-bottom: 1px solid var(--vis-border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
         padding: 0 24px;
     }
     
-    .acu-vis-title { 
-        font-family: var(--vis-font-title);
-        font-size: 18px; 
+    .acu-vis-title {
+        font-family: var(--vis-font-serif);
+        font-size: 16px;
         font-weight: normal;
-        color: var(--vis-paper-white);
-        letter-spacing: 4px;
+        color: var(--vis-text-main);
+        letter-spacing: 3px;
     }
-    .acu-vis-title i { 
-        color: var(--vis-accent); 
-        margin-right: 10px; 
+    .acu-vis-title i {
+        color: var(--vis-accent);
+        margin-right: 12px;
     }
     
     .acu-vis-actions { display: flex; gap: 10px; }
@@ -27655,12 +28220,12 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
         flex: 0 0 340px; /* 增大侧边栏宽度以显示更长的表格名 */
         min-width: 280px;
         max-width: 400px;
-        background: var(--vis-ink-rich);
-        border-right: 1px solid rgba(255,255,255,0.06);
-        overflow-y: auto; 
-        padding: 16px; 
-        display: flex; 
-        flex-direction: column; 
+        background: var(--vis-bg-stats);
+        border-right: 1px solid var(--vis-border-color);
+        overflow-y: auto;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
         gap: 6px;
     }
     
@@ -27668,49 +28233,73 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
         content: '表格列表';
         display: block;
         font-size: 11px;
-        color: var(--vis-ink-mist);
+        color: var(--vis-text-mute);
         letter-spacing: 2px;
-        text-transform: uppercase;
         padding: 8px 12px 16px;
-        border-bottom: 1px solid rgba(255,255,255,0.06);
+        border-bottom: 1px solid var(--vis-border-color);
         margin-bottom: 8px;
     }
     
     /* ═══ 主内容区 ═══ */
-    .acu-vis-main { 
-        flex: 1; 
-        background: var(--vis-paper-warm);
-        color: var(--vis-ink-dark); 
-        overflow-y: auto; 
-        padding: 24px; 
+    .acu-vis-main {
+        flex: 1;
+        background: var(--vis-bg-color);
+        background-image:
+          url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+        color: var(--vis-text-main);
+        overflow-y: auto;
+        padding: 24px;
     }
     
     /* ═══ 表格导航项 ═══ */
     .acu-table-nav-item {
-        padding: 10px 12px; 
-        cursor: pointer; 
-        border-radius: 4px; 
-        color: var(--vis-paper-muted);
+        padding: 10px 12px;
+        cursor: pointer;
+        border-radius: 2px;
+        color: var(--vis-text-dim);
         transition: all 0.2s ease;
-        display: flex; 
-        align-items: center; 
-        /* 移除 space-between，改用 flex-start + margin-left:auto 方案确保内容铺满 */
+        display: flex;
+        align-items: center;
         justify-content: flex-start;
         width: 100%; /* 确保导航项占满侧边栏宽度 */
         box-sizing: border-box;
+        position: relative;
+        padding-left: 20px;
     }
     
-    .acu-table-nav-item:hover { 
-        background: var(--vis-ink-medium);
-        color: var(--vis-paper-white);
+    /* 古典竖线装饰 */
+    .acu-table-nav-item::before {
+        content: '';
+        position: absolute;
+        left: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 1px;
+        height: 60%;
+        background-color: var(--vis-border-color);
+        transition: background-color 0.2s ease;
     }
     
-    .acu-table-nav-item.active { 
-        background: var(--vis-accent-dim);
-        color: var(--vis-paper-white);
+    .acu-table-nav-item:hover {
+        background: var(--vis-bg-hover);
+        color: var(--vis-text-main);
     }
     
-    .acu-table-nav-item i { width: 20px; text-align: center; }
+    .acu-table-nav-item:hover::before {
+        background-color: var(--vis-accent);
+    }
+    
+    .acu-table-nav-item.active {
+        background: rgba(125, 73, 64, 0.10);
+        color: var(--vis-accent);
+    }
+    
+    .acu-table-nav-item.active::before {
+        background-color: var(--vis-accent);
+    }
+    
+    .acu-table-nav-item i { width: 20px; text-align: center; color: var(--vis-text-mute); }
+    .acu-table-nav-item.active i { color: var(--vis-accent); }
 
     .acu-table-nav-content {
         display: flex;
@@ -27727,7 +28316,8 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
         text-align: center;
         font-size: 11px;
         opacity: 0.5;
-        font-family: monospace;
+        font-family: var(--vis-font-serif);
+        letter-spacing: 1px;
     }
     
     .acu-table-name {
@@ -27760,12 +28350,12 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
     }
     
     .acu-table-order-btn {
-        background: rgba(255,255,255,0.08);
-        border: none;
-        color: var(--vis-paper-soft);
+        background: transparent;
+        border: 1px solid var(--vis-border-color);
+        color: var(--vis-text-mute);
         width: 22px;
         height: 22px;
-        border-radius: 3px;
+        border-radius: 1px;
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -27775,8 +28365,9 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
     }
     
     .acu-table-order-btn:hover {
-        background: var(--vis-accent);
-        color: var(--vis-ink-deep);
+        background: rgba(125, 73, 64, 0.12);
+        border-color: var(--vis-accent);
+        color: var(--vis-accent);
     }
     
     .acu-table-order-btn:disabled {
@@ -27786,137 +28377,142 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
 
     /* ═══ 按钮 ═══ */
     .acu-btn-primary {
-        background: var(--vis-accent-dim);
-        color: var(--vis-paper-white); 
-        border: none; 
+        background: rgba(125, 73, 64, 0.12);
+        color: var(--vis-accent);
+        border: 1px solid var(--vis-accent);
         padding: 10px 20px;
-        border-radius: 3px; 
-        cursor: pointer; 
-        font-family: var(--vis-font-body);
-        font-size: 13px;
-        transition: all 0.2s;
+        border-radius: 1px;
+        cursor: pointer;
+        font-family: var(--vis-font-serif);
+        font-size: 12px;
+        letter-spacing: 1px;
+        transition: all 0.2s ease;
     }
-    .acu-btn-primary:hover { 
-        background: var(--vis-accent);
+    .acu-btn-primary:hover {
+        background: rgba(125, 73, 64, 0.18);
+        box-shadow: 0 0 0 2px var(--vis-accent-glow);
     }
 
     /* 小按钮样式优化 */
     #acu-visualizer-content .acu-btn-small {
         padding: 6px 12px;
-        font-size: 12px;
+        font-size: 11px;
         min-width: auto;
         height: 32px;
+        letter-spacing: 1px;
     }
     
     .acu-btn-secondary {
-        background: transparent; 
-        color: var(--vis-paper-muted); 
-        border: 1px solid rgba(255,255,255,0.1);
-        padding: 10px 20px; 
-        border-radius: 3px; 
+        background: transparent;
+        color: var(--vis-text-dim);
+        border: 1px solid var(--vis-border-color);
+        padding: 10px 20px;
+        border-radius: 1px;
         cursor: pointer;
-        font-family: var(--vis-font-body);
-        font-size: 13px;
-        transition: all 0.2s;
+        font-family: var(--vis-font-serif);
+        font-size: 12px;
+        letter-spacing: 1px;
+        transition: all 0.2s ease;
     }
-    .acu-btn-secondary:hover { 
-        color: var(--vis-paper-white); 
-        border-color: rgba(255,255,255,0.2);
-        background: rgba(255,255,255,0.05);
+    .acu-btn-secondary:hover {
+        color: var(--vis-text-main);
+        border-color: var(--vis-text-mute);
+        background: var(--vis-bg-hover);
     }
 
     /* ═══ 数据卡片 ═══ */
-    .acu-card-grid { 
-        display: flex; 
-        flex-wrap: wrap; 
-        gap: 16px; 
-        align-content: flex-start; 
+    .acu-card-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        align-content: flex-start;
     }
     
     .acu-data-card {
-        background: #fff;
-        border-radius: 4px; 
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-        width: 300px; 
-        display: flex; 
-        flex-direction: column; 
+        background: var(--vis-bg-light);
+        border-radius: 2px;
+        box-shadow: none;
+        width: 300px;
+        display: flex;
+        flex-direction: column;
         overflow: hidden;
-        border: 1px solid rgba(0,0,0,0.06);
-        transition: box-shadow 0.2s;
+        border: 1px solid var(--vis-border-color);
+        transition: border-color 0.2s ease;
     }
     
-    .acu-data-card:hover { 
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    .acu-data-card:hover {
+        border-color: var(--vis-accent);
     }
     
     .acu-card-header {
-        padding: 12px 16px; 
-        background: var(--vis-paper-warm);
-        border-bottom: 1px solid rgba(0,0,0,0.06);
-        font-weight: 500;
-        font-size: 14px;
-        display: flex; 
-        justify-content: space-between; 
+        padding: 12px 16px;
+        background: var(--vis-bg-stats);
+        border-bottom: 1px solid var(--vis-border-color);
+        font-weight: normal;
+        font-size: 13px;
+        display: flex;
+        justify-content: space-between;
         align-items: center;
-        color: var(--vis-ink-dark);
+        color: var(--vis-text-main);
+        letter-spacing: 1px;
     }
     
-    .acu-card-body { 
-        padding: 14px 16px; 
-        font-size: 13px; 
-        display: flex; 
-        flex-direction: column; 
+    .acu-card-body {
+        padding: 14px 16px;
+        font-size: 13px;
+        display: flex;
+        flex-direction: column;
         gap: 10px;
-        line-height: 1.5;
+        line-height: 1.8;
+        color: var(--vis-text-dim);
     }
     
     .acu-field-row { display: flex; flex-direction: column; gap: 4px; }
     
-    .acu-field-label { 
-        font-size: 10px; 
-        color: var(--vis-ink-pale); 
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.3px;
+    .acu-field-label {
+        font-size: 10px;
+        color: var(--vis-text-mute);
+        font-weight: normal;
+        letter-spacing: 1px;
     }
     
     .acu-field-value {
-        padding: 6px 8px; 
-        border: 1px solid transparent; 
-        border-radius: 3px;
-        min-height: 20px; 
-        word-break: break-word; 
+        padding: 8px 10px;
+        border: 1px solid transparent;
+        border-radius: 1px;
+        min-height: 20px;
+        word-break: break-word;
         white-space: pre-wrap;
-        background: rgba(0,0,0,0.02);
-        transition: all 0.15s;
+        background: var(--vis-bg-color);
+        transition: all 0.15s ease;
     }
-    .acu-field-value:hover { 
-        background: var(--vis-accent-glow); 
-        border-color: rgba(176,141,87,0.3); 
-        cursor: text; 
+    .acu-field-value:hover {
+        background: var(--vis-bg-hover);
+        border-color: var(--vis-border-color);
+        cursor: text;
     }
     .acu-field-value:focus {
-        background: #fff;
+        background: var(--vis-bg-color);
         border-color: var(--vis-accent);
-        outline: none; 
+        outline: none;
         box-shadow: 0 0 0 2px var(--vis-accent-glow);
     }
 
     /* ═══ 配置面板 ═══ */
-    .acu-config-panel { 
-        background: #fff;
-        padding: 24px; 
-        border-radius: 4px; 
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-        max-width: 800px; 
+    .acu-config-panel {
+        background: var(--vis-bg-light);
+        padding: 24px;
+        border-radius: 2px;
+        box-shadow: none;
+        max-width: 800px;
         margin: 0 auto;
-        border: 1px solid rgba(0,0,0,0.06);
+        border: 1px solid var(--vis-border-color);
     }
     
-    .acu-config-section { 
-        margin-bottom: 24px; 
-        padding-bottom: 24px; 
-        border-bottom: 1px solid rgba(0,0,0,0.06);
+    .acu-config-section {
+        margin-bottom: 24px;
+        padding-bottom: 24px;
+        border-bottom: 1px solid var(--vis-border-color);
     }
     
     .acu-config-section:last-child {
@@ -27925,35 +28521,36 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
         padding-bottom: 0;
     }
     
-    .acu-config-section h4 { 
+    .acu-config-section h4 {
         margin: 0 0 16px 0;
-        color: var(--vis-ink-dark);
-        font-family: var(--vis-font-title);
-        font-size: 15px;
+        color: var(--vis-text-main);
+        font-family: var(--vis-font-serif);
+        font-size: 14px;
         font-weight: normal;
-        letter-spacing: 1px;
+        letter-spacing: 2px;
     }
     
     .acu-form-group { margin-bottom: 16px; }
     
-    .acu-form-group label { 
-        display: block; 
-        margin-bottom: 6px; 
-        font-weight: 500; 
-        color: var(--vis-ink-pale);
+    .acu-form-group label {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: normal;
+        color: var(--vis-text-dim);
         font-size: 12px;
+        letter-spacing: 1px;
     }
     
-    .acu-form-input { 
-        width: 100%; 
-        padding: 10px 12px; 
-        border: 1px solid rgba(0,0,0,0.1);
-        border-radius: 3px; 
+    .acu-form-input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--vis-border-color);
+        border-radius: 1px;
         box-sizing: border-box;
-        font-family: var(--vis-font-body);
+        font-family: var(--vis-font-serif);
         font-size: 14px;
-        background: #fff;
-        color: var(--vis-ink-dark);
+        background: var(--vis-bg-color);
+        color: var(--vis-text-main);
         transition: border-color 0.15s, box-shadow 0.15s;
     }
     
@@ -27963,19 +28560,19 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
         box-shadow: 0 0 0 2px var(--vis-accent-glow);
     }
     
-    .acu-form-textarea { 
-        width: 100%; 
-        padding: 10px 12px; 
-        border: 1px solid rgba(0,0,0,0.1);
-        border-radius: 3px; 
-        box-sizing: border-box; 
-        min-height: 100px; 
+    .acu-form-textarea {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--vis-border-color);
+        border-radius: 1px;
+        box-sizing: border-box;
+        min-height: 100px;
         resize: vertical;
-        font-family: var(--vis-font-body);
+        font-family: var(--vis-font-serif);
         font-size: 14px;
-        background: #fff;
-        color: var(--vis-ink-dark);
-        line-height: 1.5;
+        background: var(--vis-bg-color);
+        color: var(--vis-text-main);
+        line-height: 1.8;
     }
     
     .acu-form-textarea:focus {
@@ -27984,35 +28581,42 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
         box-shadow: 0 0 0 2px var(--vis-accent-glow);
     }
     
-    .acu-hint { 
-        font-size: 11px; 
-        color: var(--vis-ink-mist); 
+    .acu-hint {
+        font-size: 11px;
+        color: var(--vis-text-mute);
         margin-top: 4px;
+        letter-spacing: 0.5px;
     }
     
     /* ═══ 模式切换 ═══ */
-    .acu-mode-switch { 
-        display: flex; 
-        background: var(--vis-ink-medium);
-        border-radius: 4px; 
+    .acu-mode-switch {
+        display: flex;
+        background: var(--vis-bg-stats);
+        border-radius: 2px;
         padding: 3px;
         margin-right: 12px;
+        border: 1px solid var(--vis-border-color);
     }
     
     .acu-mode-btn {
-        padding: 6px 16px; 
-        border-radius: 3px; 
-        cursor: pointer; 
-        color: var(--vis-paper-muted);
-        font-size: 12px; 
-        font-family: var(--vis-font-body);
-        border: none; 
+        padding: 6px 16px;
+        border-radius: 1px;
+        cursor: pointer;
+        color: var(--vis-text-mute);
+        font-size: 12px;
+        font-family: var(--vis-font-serif);
+        border: none;
         background: transparent;
-        transition: all 0.2s;
+        transition: all 0.2s ease;
+        letter-spacing: 1px;
     }
-    .acu-mode-btn.active { 
-        background: var(--vis-accent-dim);
-        color: var(--vis-paper-white);
+    .acu-mode-btn:hover {
+        color: var(--vis-text-main);
+        background: var(--vis-bg-hover);
+    }
+    .acu-mode-btn.active {
+        background: rgba(125, 73, 64, 0.12);
+        color: var(--vis-accent);
     }
 
     /* ═══ 列编辑器 ═══ */
@@ -28020,131 +28624,150 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
 
     /* ═══ 表格锁定（仅 updateRow 生效） ═══ */
     .acu-lock-btn {
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        background: rgba(255, 255, 255, 0.06);
-        color: var(--vis-paper-white);
-        border-radius: 8px;
+        border: 1px solid var(--vis-border-color);
+        background: transparent;
+        color: var(--vis-text-mute);
+        border-radius: 1px;
         padding: 2px 6px;
         font-size: 11px;
         cursor: pointer;
         display: inline-flex;
         align-items: center;
         gap: 4px;
+        transition: all 0.15s ease;
+        font-family: var(--vis-font-serif);
+    }
+    .acu-lock-btn:hover {
+        border-color: var(--vis-accent);
+        color: var(--vis-accent);
     }
     .acu-lock-btn.active {
-        border-color: rgba(255, 180, 0, 0.55);
-        background: rgba(255, 180, 0, 0.16);
-        color: #ffd36a;
+        border-color: var(--vis-accent);
+        background: rgba(125, 73, 64, 0.12);
+        color: var(--vis-accent);
     }
     .acu-lock-btn.special {
-        border-color: rgba(123, 183, 255, 0.6);
-        background: rgba(123, 183, 255, 0.15);
-        color: #a6ccff;
+        border-color: var(--vis-accent);
+        background: rgba(125, 73, 64, 0.08);
+        color: var(--vis-accent-dim);
     }
     .acu-field-value-wrap { display: flex; align-items: center; gap: 6px; }
     .acu-field-value { flex: 1; min-width: 0; }
     .acu-field-row.acu-locked-field .acu-field-value {
-        background: rgba(255, 255, 255, 0.05);
-        border-color: rgba(255, 180, 0, 0.35);
+        background: rgba(125, 73, 64, 0.06);
+        border-color: rgba(125, 73, 64, 0.20);
         opacity: 0.85;
     }
     
-    .acu-col-item { 
-        display: flex; 
-        gap: 8px; 
+    .acu-col-item {
+        display: flex;
+        gap: 8px;
         align-items: center;
-        background: var(--vis-paper-warm);
+        background: var(--vis-bg-stats);
         padding: 8px 10px;
-        border-radius: 3px;
+        border-radius: 1px;
+        border: 1px solid var(--vis-border-color);
     }
     
-    .acu-col-input { 
-        flex: 1; 
+    .acu-col-input {
+        flex: 1;
         padding: 8px 10px;
-        border: 1px solid rgba(0,0,0,0.1);
-        border-radius: 3px;
-        font-family: var(--vis-font-body);
-        background: #fff;
+        border: 1px solid var(--vis-border-color);
+        border-radius: 1px;
+        font-family: var(--vis-font-serif);
+        background: var(--vis-bg-color);
         font-size: 13px;
+        color: var(--vis-text-main);
+        transition: border-color 0.15s ease;
     }
     
-    .acu-col-btn { 
-        padding: 6px 10px; 
+    .acu-col-input:focus {
+        outline: none;
+        border-color: var(--vis-accent);
+        box-shadow: 0 0 0 2px var(--vis-accent-glow);
+    }
+    
+    .acu-col-btn {
+        padding: 6px 10px;
         cursor: pointer;
-        border: none;
-        border-radius: 3px;
-        background: rgba(122,90,90,0.1);
-        color: #7a5a5a;
-        transition: all 0.15s;
-        font-size: 12px;
+        border: 1px solid var(--vis-border-color);
+        border-radius: 1px;
+        background: transparent;
+        color: var(--vis-text-mute);
+        transition: all 0.15s ease;
+        font-size: 11px;
+        font-family: var(--vis-font-serif);
     }
     
     .acu-col-btn:hover {
-        background: #7a5a5a;
-        color: #fff;
+        background: rgba(125, 73, 64, 0.12);
+        border-color: var(--vis-accent);
+        color: var(--vis-accent);
     }
     
     /* ═══ 滚动条 ═══ */
     .acu-vis-sidebar::-webkit-scrollbar,
     .acu-vis-main::-webkit-scrollbar {
-        width: 6px;
+        width: 4px;
     }
     
-    .acu-vis-sidebar::-webkit-scrollbar-track {
-        background: var(--vis-ink-dark);
-    }
-    
-    .acu-vis-sidebar::-webkit-scrollbar-thumb {
-        background: var(--vis-ink-soft);
-        border-radius: 3px;
-    }
-    
+    .acu-vis-sidebar::-webkit-scrollbar-track,
     .acu-vis-main::-webkit-scrollbar-track {
-        background: rgba(0,0,0,0.03);
+        background: transparent;
     }
     
+    .acu-vis-sidebar::-webkit-scrollbar-thumb,
     .acu-vis-main::-webkit-scrollbar-thumb {
-        background: rgba(0,0,0,0.15);
-        border-radius: 3px;
+        background: var(--vis-border-color);
+        border-radius: 1px;
+    }
+    
+    .acu-vis-sidebar::-webkit-scrollbar-thumb:hover,
+    .acu-vis-main::-webkit-scrollbar-thumb:hover {
+        background: var(--vis-text-mute);
     }
     
     /* ═══ 新增表格按钮 ═══ */
     .acu-add-table-btn {
         padding: 10px 12px;
         cursor: pointer;
-        border-radius: 4px;
-        color: var(--vis-paper-muted);
+        border-radius: 1px;
+        color: var(--vis-text-mute);
         background: transparent;
-        border: 1px dashed rgba(255,255,255,0.15);
+        border: 1px dashed var(--vis-border-color);
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 6px;
-        transition: all 0.2s;
-        font-family: var(--vis-font-body);
+        transition: all 0.2s ease;
+        font-family: var(--vis-font-serif);
         font-size: 12px;
         margin-top: 8px;
+        letter-spacing: 1px;
     }
     
     .acu-add-table-btn:hover {
-        background: rgba(255,255,255,0.05);
-        border-color: rgba(255,255,255,0.25);
-        color: var(--vis-paper-white);
+        background: var(--vis-bg-hover);
+        border-color: var(--vis-accent);
+        border-style: solid;
+        color: var(--vis-accent);
     }
     
     /* ═══ 删除表格按钮 ═══ */
     .acu-vis-del-table-btn {
         background: transparent;
         border: none;
-        color: #7a5a5a;
+        color: var(--vis-text-mute);
         opacity: 0.5;
         cursor: pointer;
         padding: 4px;
-        transition: opacity 0.15s;
+        transition: all 0.15s ease;
+        font-size: 12px;
     }
     
     .acu-vis-del-table-btn:hover {
         opacity: 1;
+        color: var(--vis-accent);
     }
     
     /* ═══════════════════════════════════════════════════════════════
@@ -28234,7 +28857,7 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
             box-sizing: border-box;
             max-height: 120px;
             border-right: none;
-            border-bottom: 1px solid rgba(255,255,255,0.06);
+            border-bottom: 1px solid var(--vis-border-color);
             flex-direction: row;
             flex-wrap: nowrap;
             overflow-x: auto;
@@ -28693,71 +29316,77 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
     }
 
     /* ═══════════════════════════════════════════════════════════════
-       深色统一覆盖（修正 CSS 中少量硬编码的浅色背景/文字）
+       古典中国风覆盖（修正深色主题下的一致性）
        仅影响 #acu-visualizer-content 内部
        ═══════════════════════════════════════════════════════════════ */
 
     #acu-visualizer-content .acu-vis-main {
-        background: var(--vis-ink-deep);
-        color: var(--vis-paper-white);
+        background: var(--vis-bg-color);
+        background-image:
+          url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+        color: var(--vis-text-main);
     }
 
     #acu-visualizer-content .acu-data-card,
     #acu-visualizer-content .acu-config-panel {
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.10);
-        border-radius: 14px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+        background: var(--vis-bg-light);
+        border: 1px solid var(--vis-border-color);
+        border-radius: 2px;
+        box-shadow: none;
     }
 
     #acu-visualizer-content .acu-card-header {
-        background: rgba(255, 255, 255, 0.04);
-        color: var(--vis-paper-white);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.10);
-        font-weight: 650;
+        background: var(--vis-bg-stats);
+        color: var(--vis-text-main);
+        border-bottom: 1px solid var(--vis-border-color);
+        font-weight: normal;
     }
 
-    #acu-visualizer-content .acu-card-body { color: var(--vis-paper-soft); }
-    #acu-visualizer-content .acu-field-label { color: var(--vis-paper-muted); }
+    #acu-visualizer-content .acu-card-body { color: var(--vis-text-dim); }
+    #acu-visualizer-content .acu-field-label { color: var(--vis-text-mute); }
 
     #acu-visualizer-content .acu-field-value {
-        background: rgba(0, 0, 0, 0.22);
-        border: 1px solid rgba(255, 255, 255, 0.10);
-        color: var(--vis-paper-white);
+        background: var(--vis-bg-color);
+        border: 1px solid var(--vis-border-color);
+        color: var(--vis-text-main);
     }
     #acu-visualizer-content .acu-field-value:hover {
-        background: rgba(123, 183, 255, 0.08);
-        border-color: rgba(123, 183, 255, 0.28);
+        background: var(--vis-bg-hover);
+        border-color: var(--vis-accent);
     }
     #acu-visualizer-content .acu-field-value:focus {
-        background: rgba(0, 0, 0, 0.26);
-        border-color: rgba(123, 183, 255, 0.45);
+        background: var(--vis-bg-color);
+        border-color: var(--vis-accent);
         box-shadow: 0 0 0 2px var(--vis-accent-glow);
     }
 
-    #acu-visualizer-content .acu-config-section h4 { color: var(--vis-paper-white); }
-    #acu-visualizer-content .acu-form-group label { color: var(--vis-paper-muted); }
+    #acu-visualizer-content .acu-config-section h4 { color: var(--vis-text-main); }
+    #acu-visualizer-content .acu-form-group label { color: var(--vis-text-dim); }
 
     #acu-visualizer-content .acu-form-input,
     #acu-visualizer-content .acu-form-textarea,
     #acu-visualizer-content .acu-col-input {
-        background: rgba(0, 0, 0, 0.22);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: var(--vis-paper-white);
+        background: var(--vis-bg-color);
+        border: 1px solid var(--vis-border-color);
+        color: var(--vis-text-main);
     }
     #acu-visualizer-content .acu-form-input:focus,
     #acu-visualizer-content .acu-form-textarea:focus,
     #acu-visualizer-content .acu-col-input:focus {
-        border-color: rgba(123, 183, 255, 0.55);
+        border-color: var(--vis-accent);
         box-shadow: 0 0 0 2px var(--vis-accent-glow);
     }
 
-    #acu-visualizer-content .acu-col-item { background: rgba(255, 255, 255, 0.03); }
+    #acu-visualizer-content .acu-col-item {
+        background: var(--vis-bg-stats);
+        border: 1px solid var(--vis-border-color);
+    }
 
-    /* “添加新行”卡片：覆盖内联浅色样式，保证深色一致 */
+    /* "添加新行"卡片：古典风格 */
     #acu-visualizer-content #acu-vis-add-row {
-        background: rgba(123, 183, 255, 0.08) !important;
-        border-color: rgba(123, 183, 255, 0.45) !important;
+        background: rgba(125, 73, 64, 0.08) !important;
+        border-color: var(--vis-accent) !important;
+        border-radius: 2px;
     }
     #acu-visualizer-content #acu-vis-add-row i,
     #acu-visualizer-content #acu-vis-add-row div {
@@ -28831,13 +29460,17 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
       const visualizerContent = `
           <div id="acu-visualizer-content" style="display: flex; flex-direction: column; height: 100%;">
               <style>${VISUALIZER_CSS_ACU}</style>
-              <div class="acu-vis-toolbar" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;">
-                  <div class="acu-mode-switch">
-                      <button class="acu-mode-btn active" data-mode="data">数据编辑</button>
-                      <button class="acu-mode-btn" data-mode="config">结构/参数配置</button>
-                      <button class="acu-mode-btn" data-mode="globalConfig">全局注入配置</button>
+              <div class="acu-vis-toolbar" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: transparent; border-bottom: 1px solid var(--vis-border-color); flex-shrink: 0;">
+                  <div style="display: flex; align-items: center; gap: 16px;">
+                      <span class="seal" style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 1px solid var(--vis-accent); color: var(--vis-accent); font-size: 12px; border-radius: 1px; opacity: 0.85; letter-spacing: 1px;">墨</span>
+                      <div class="acu-mode-switch">
+                          <button class="acu-mode-btn active" data-mode="data">数据编辑</button>
+                          <button class="acu-mode-btn" data-mode="config">结构/参数配置</button>
+                          <button class="acu-mode-btn" data-mode="globalConfig">全局注入配置</button>
+                      </div>
                   </div>
                   <div class="acu-vis-actions" style="display: flex; gap: 10px;">
+                      <button id="acu-vis-theme-btn" class="acu-btn-secondary acu-vis-theme-btn" title="切换主题"><span class="acu-theme-toggle-text">素纱</span></button>
                       <button id="acu-vis-save-btn" class="acu-btn-primary"><i class="fa-solid fa-save"></i> 普通保存</button>
                       <button id="acu-vis-save-template-btn" class="acu-btn-secondary"><i class="fa-solid fa-save"></i> 保存至通用模板</button>
                   </div>
@@ -28885,6 +29518,15 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
                   jQuery_API_ACU(this).addClass('active');
                   _acuVisState.mode = jQuery_API_ACU(this).data('mode');
                   renderVisualizerMain_ACU();
+              });
+
+              // 主题切换按钮绑定
+              $window.find('#acu-vis-theme-btn').on('click', function(e) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const nextTheme = toggleACUTheme_ACU();
+                  const nextLabel = nextTheme === 'silk' ? '墨纸' : '素纱';
+                  $window.find('#acu-vis-theme-btn .acu-theme-toggle-text').text(nextLabel);
               });
 
               // [核心重构] 绑定事件以支持旧的触发方式，但实际逻辑委托给全局函数
@@ -29118,8 +29760,8 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
                       <label>全局可读条目位置:</label>
                       <select class="acu-form-input" id="cfg-global-readable-position">
                           <option value="at_depth_as_system" ${readablePlacement.position === 'at_depth_as_system' ? 'selected' : ''}>系统</option>
-                          <option value="before_char" ${readablePlacement.position === 'before_char' ? 'selected' : ''}>角色定义前</option>
-                          <option value="after_char" ${readablePlacement.position === 'after_char' ? 'selected' : ''}>角色定义后</option>
+                          <option value="before_character_definition" ${readablePlacement.position === 'before_character_definition' ? 'selected' : ''}>角色定义前</option>
+                          <option value="after_character_definition" ${readablePlacement.position === 'after_character_definition' ? 'selected' : ''}>角色定义后</option>
                       </select>
                   </div>
                   <div class="acu-form-group">
@@ -29135,8 +29777,8 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
                       <label>全局包裹条目位置:</label>
                       <select class="acu-form-input" id="cfg-global-wrapper-position">
                           <option value="at_depth_as_system" ${wrapperPlacement.position === 'at_depth_as_system' ? 'selected' : ''}>系统</option>
-                          <option value="before_char" ${wrapperPlacement.position === 'before_char' ? 'selected' : ''}>角色定义前</option>
-                          <option value="after_char" ${wrapperPlacement.position === 'after_char' ? 'selected' : ''}>角色定义后</option>
+                          <option value="before_character_definition" ${wrapperPlacement.position === 'before_character_definition' ? 'selected' : ''}>角色定义前</option>
+                          <option value="after_character_definition" ${wrapperPlacement.position === 'after_character_definition' ? 'selected' : ''}>角色定义后</option>
                       </select>
                   </div>
                   <div class="acu-form-group">
@@ -29399,8 +30041,8 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
                       <label>主条目位置:</label>
                       <select class="acu-form-input" id="cfg-fixed-entry-position">
                           <option value="at_depth_as_system" ${fixedEntryPlacement.position === 'at_depth_as_system' ? 'selected' : ''}>系统</option>
-                          <option value="before_char" ${fixedEntryPlacement.position === 'before_char' ? 'selected' : ''}>角色定义前</option>
-                          <option value="after_char" ${fixedEntryPlacement.position === 'after_char' ? 'selected' : ''}>角色定义后</option>
+                          <option value="before_character_definition" ${fixedEntryPlacement.position === 'before_character_definition' ? 'selected' : ''}>角色定义前</option>
+                          <option value="after_character_definition" ${fixedEntryPlacement.position === 'after_character_definition' ? 'selected' : ''}>角色定义后</option>
                       </select>
                   </div>
                   <div class="acu-form-group">
@@ -29416,8 +30058,8 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
                       <label>索引条目位置:</label>
                       <select class="acu-form-input" id="cfg-fixed-index-position">
                           <option value="at_depth_as_system" ${fixedIndexPlacement.position === 'at_depth_as_system' ? 'selected' : ''}>系统</option>
-                          <option value="before_char" ${fixedIndexPlacement.position === 'before_char' ? 'selected' : ''}>角色定义前</option>
-                          <option value="after_char" ${fixedIndexPlacement.position === 'after_char' ? 'selected' : ''}>角色定义后</option>
+                          <option value="before_character_definition" ${fixedIndexPlacement.position === 'before_character_definition' ? 'selected' : ''}>角色定义前</option>
+                          <option value="after_character_definition" ${fixedIndexPlacement.position === 'after_character_definition' ? 'selected' : ''}>角色定义后</option>
                       </select>
                   </div>
                   <div class="acu-form-group">
@@ -29563,8 +30205,8 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
                               <label>主条目位置:</label>
                               <select class="acu-form-input" id="cfg-entry-position">
                                   <option value="at_depth_as_system" ${entryPlacement.position === 'at_depth_as_system' ? 'selected' : ''}>系统</option>
-                                  <option value="before_char" ${entryPlacement.position === 'before_char' ? 'selected' : ''}>角色定义前</option>
-                                  <option value="after_char" ${entryPlacement.position === 'after_char' ? 'selected' : ''}>角色定义后</option>
+                                  <option value="before_character_definition" ${entryPlacement.position === 'before_character_definition' ? 'selected' : ''}>角色定义前</option>
+                                  <option value="after_character_definition" ${entryPlacement.position === 'after_character_definition' ? 'selected' : ''}>角色定义后</option>
                               </select>
                           </div>
                           <div class="acu-form-group">
@@ -29606,8 +30248,8 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
                                   <label>索引条目位置:</label>
                                   <select class="acu-form-input" id="cfg-extra-index-position">
                                       <option value="at_depth_as_system" ${extraIndexPlacement.position === 'at_depth_as_system' ? 'selected' : ''}>系统</option>
-                                      <option value="before_char" ${extraIndexPlacement.position === 'before_char' ? 'selected' : ''}>角色定义前</option>
-                                      <option value="after_char" ${extraIndexPlacement.position === 'after_char' ? 'selected' : ''}>角色定义后</option>
+                                      <option value="before_character_definition" ${extraIndexPlacement.position === 'before_character_definition' ? 'selected' : ''}>角色定义前</option>
+                                      <option value="after_character_definition" ${extraIndexPlacement.position === 'after_character_definition' ? 'selected' : ''}>角色定义后</option>
                                   </select>
                               </div>
                               <div class="acu-form-group">
