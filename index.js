@@ -1847,7 +1847,7 @@
   },
   {
     "role": "USER",
-    "content": "你是【填表AI】，负责根据用户提供的资料对表格数据执行增删改操作。\n\n## 核心任务\n依据三类资料来源执行表格编辑：\n- <背景设定>：故事及人物设定\n- <正文数据>：上轮发生的故事\n- <当前表格数据>：之前的数据作为填表基础\n\n## 输出格式（严格执行）\n\n<thought>\n[分析当前轮次的剧情变化]\n[阅读所有填表相关规则]\n[根据填表规则确定需要修改的表格和字段]\n[逐步推理每个修改操作，说明理由]\n针对纪要表的额外规则：如果<当前表格数据>里存在纪要表，那么本轮就必须对其进行插入一条新的总结记录。\n日志与纪要语气校准：你在思考纪要时，必须区分“正常恋爱互动”与“暗黑主从文风”。你可以使用正常的交流词汇（如：提议、要求、同意、拒绝、引导、配合、安抚），但【绝对禁止】将情侣间的普通调情与互动过度解读为“权力掌控”、“剥夺反抗”、“精神支配”、“屈服”等单向压迫词汇！</thought>\n\n<content>\n<tableEdit>\ninsertRow(表格ID, {\"0\":\"字段0值\",\"1\":\"字段1值\",\"2\":\"字段2值\"})\nupdateRow(表格ID, 行号, {\"0\":\"字段0值\",\"1\":\"字段1值\",\"2\":\"字段2值\"})\ndeleteRow(表格ID, 行号)\n</tableEdit>\n</content>\n\n## 关键规则\n1. 必须逐表阅读每个表格的note部分，严格遵守其中的约束\n2. note的约束优先级最高，高于通用填表经验\n3. 若note要求禁止修改/格式固定/编码规则，必须严格执行\n4.除了note外，可能还存在某些存放特殊填表规则的表格，填表前需先进行阅读，并严格遵守其中的约束。\n5. 使用insertRow添加新行，updateRow更新已有行，deleteRow删除行\n\n## 格式要点\n- 必须使用双引号\n- 逗号后不加空格\n\n现在开始按此格式执行填表任务。",
+    "content": "你是【填表AI】，负责根据用户提供的资料对表格数据执行增删改操作。\n\n## 核心任务\n依据三类资料来源执行表格编辑：\n- <背景设定>：故事及人物设定\n- <正文数据>：上轮发生的故事\n- <当前表格数据>：之前的数据作为填表基础\n\n## 输出格式（严格执行）\n\n<thought>\n[分析当前轮次的剧情变化]\n[阅读所有填表相关规则]\n[根据填表规则确定需要修改的表格和字段]\n[逐步推理每个修改操作，说明理由]\n针对纪要表的额外规则：如果<当前表格数据>里存在纪要表，那么本轮就必须对其进行插入一条新的总结记录。\n日志与纪要语气校准：你在思考纪要时，必须区分“正常恋爱互动”与“暗黑主从文风”。你可以使用正常的交流词汇（如：提议、要求、同意、拒绝、引导、配合、安抚），但【绝对禁止】将情侣间的普通调情与互动过度解读为“权力掌控”、“剥夺反抗”、“精神支配”、“屈服”等单向压迫词汇！</thought>\n\n<content>\n<tableEdit>\ninsertRow(表格ID, {\"0\":\"字段0值\",\"1\":\"字段1值\",\"2\":\"字段2值\"})\nupdateRow(表格ID, 行号, {\"0\":\"字段0值\",\"1\":\"字段1值\",\"2\":\"字段2值\"})\ndeleteRow(表格ID, 行号)\n</tableEdit>\n</content>\n\n## 关键规则\n1. 必须逐表阅读每个表格的note部分，严格遵守其中的约束\n2. note的约束优先级最高，高于通用填表经验\n3. 若note要求禁止修改/格式固定/编码规则，必须严格执行\n4.除了note外，可能还存在某些存放特殊填表规则的表格，填表前需先进行阅读，并严格遵守其中的约束。\n5. 使用insertRow添加新行，updateRow更新已有行，deleteRow删除行\n\n## 格式要点\n- 必须使用双引号\n- 逗号后不加空格\n- `insertRow(表格ID, {...})` 和 `updateRow(表格ID, 行号, {...})` 里的表格ID、行号必须输出纯数字，不要写成字符串\n- 对象里的每一列都必须显式写成 `\"数字键\":\"值\"`，禁止省略键名后只连续输出裸字符串\n- 如果字段值内部需要出现双引号，必须转义为\\\"，例如：\"秉持\\\"谁欺负我就打谁\\\"的信念\"\n- 如果字段值内部需要换行，必须写成\\n，不能直接输出真实换行\n- 如果一句话里含有很多引号，优先改写措辞，尽量避免在JSON值里直接嵌套引号\n\n现在开始按此格式执行填表任务。",
     "deletable": false,
     "mainSlot": "A",
     "isMain": true
@@ -4696,6 +4696,7 @@ $CONTENT
       
       // [新增] 外部导入专用的世界书配置
       importWorldbookTarget: '', // 导入数据注入目标世界书名称
+      importPromptExcludeImportedWorldbookEntries: true, // [新增] 仅外部导入时，填表提示词中的世界书占位符屏蔽所有带“外部导入-”标签的条目
       // [新增] 0TK占用模式全局默认值：新对话会继承这个值
       zeroTkOccupyModeDefault: false,
 
@@ -13486,6 +13487,7 @@ const DatabaseAPI_ACU = {
           tableEditLastPairOnly: true,
           removeTags: '',
           importSplitSize: 10000,
+          importPromptExcludeImportedWorldbookEntries: true, // [新增] 仅外部导入时，填表提示词中的世界书占位符屏蔽所有带“外部导入-”标签的条目
           skipUpdateFloors: 0, // 跳过更新楼层（全局）
           retainRecentLayers: 100, // [新增] 保留最近N层本地数据 (0或空=全部保留)
           manualSelectedTables: [],
@@ -13744,6 +13746,10 @@ const DatabaseAPI_ACU = {
           );
           const $importSplitSizeInput = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-split-size`);
           if ($importSplitSizeInput.length) $importSplitSizeInput.val(settings_ACU.importSplitSize);
+          const $importPromptExcludeImportedEntriesToggle = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-prompt-exclude-imported-worldbook-entries`);
+          if ($importPromptExcludeImportedEntriesToggle.length) {
+              $importPromptExcludeImportedEntriesToggle.prop('checked', settings_ACU.importPromptExcludeImportedWorldbookEntries !== false);
+          }
           if ($autoUpdateEnabledCheckbox_ACU) $autoUpdateEnabledCheckbox_ACU.prop('checked', settings_ACU.autoUpdateEnabled);
           if ($standardizedTableFillEnabledCheckbox_ACU) $standardizedTableFillEnabledCheckbox_ACU.prop('checked', settings_ACU.standardizedTableFillEnabled !== false);
           if ($toastMuteEnabledCheckbox_ACU) $toastMuteEnabledCheckbox_ACU.prop('checked', !!settings_ACU.toastMuteEnabled);
@@ -16388,11 +16394,24 @@ const DatabaseAPI_ACU = {
         return false;
     };
 
+    const hasNonEmptyCellData_ACU = hasAnyNonEmptyCell_ACU(mergedData);
+    const hasReadableContent_ACU = !!(readableText && readableText.trim() !== '' && !readableText.includes('数据库为空。'));
     let isDatabaseEmpty = false;
-    if (!readableText || readableText.trim() === '' || readableText.includes('数据库为空。')) {
-        isDatabaseEmpty = true;
-    } else if (!hasAnyNonEmptyCell_ACU(mergedData)) {
-        isDatabaseEmpty = true;
+    if (isImport) {
+        // [修复] 该判空放宽逻辑仅对“外部导入”生效：
+        // - 外部导入可能只选择“单独导出到世界书”的表格，此时 readableText 会故意为空；
+        // - 重要人物表 / 总结表 / 总体大纲也会被 formatJsonToReadable_ACU 排除在 readableText 之外。
+        // 只要 mergedData 里仍有非空单元格，就必须继续走世界书条目创建链路。
+        isDatabaseEmpty = !hasNonEmptyCellData_ACU;
+        if (!hasReadableContent_ACU && hasNonEmptyCellData_ACU) {
+            logDebug_ACU('[Worldbook][Import] readableText 为空，但 mergedData 仍有有效单元格；按“数据库非空”继续创建世界书条目。');
+        }
+    } else {
+        if (!readableText || readableText.trim() === '' || readableText.includes('数据库为空。')) {
+            isDatabaseEmpty = true;
+        } else if (!hasNonEmptyCellData_ACU) {
+            isDatabaseEmpty = true;
+        }
     }
 
     // Call all the individual entry updaters
@@ -18636,6 +18655,62 @@ const DatabaseAPI_ACU = {
       return null;
   }
 
+  function getImportJsonStorageComment_ACU(modeSuffix = '-Selected') {
+      const IMPORT_PREFIX = '外部导入-';
+      return `${IMPORT_PREFIX}TavernDB-ACU-ImportedJsonData${modeSuffix}`;
+  }
+
+  async function loadImportedJsonDataFromLorebook_ACU(targetLorebook, modeSuffix = '-Selected') {
+      if (!TavernHelper_API_ACU || !targetLorebook) return null;
+      const jsonStorageComment = getImportJsonStorageComment_ACU(modeSuffix);
+      const allEntries = await TavernHelper_API_ACU.getLorebookEntries(targetLorebook);
+      const existingEntry = allEntries.find(entry => entry.comment === jsonStorageComment);
+      if (!existingEntry || !existingEntry.content) return null;
+      try {
+          return JSON.parse(existingEntry.content);
+      } catch (error) {
+          logError_ACU('[外部导入] Failed to parse ImportedJsonData source entry:', error);
+          return null;
+      }
+  }
+
+  async function saveImportedJsonDataToLorebook_ACU(targetLorebook, jsonData, modeSuffix = '-Selected') {
+      if (!TavernHelper_API_ACU || !targetLorebook || !jsonData) return false;
+      const jsonStorageComment = getImportJsonStorageComment_ACU(modeSuffix);
+      const allEntries = await TavernHelper_API_ACU.getLorebookEntries(targetLorebook);
+      const usedOrders = buildUsedOrderSet_ACU(allEntries);
+      const existingEntry = allEntries.find(entry => entry.comment === jsonStorageComment);
+      const finalJsonString = JSON.stringify(jsonData, null, 2);
+      const newEntryData = {
+          comment: jsonStorageComment,
+          content: finalJsonString,
+          keys: [`TavernDB-ACU-ImportedJson-Key${modeSuffix}`],
+          enabled: false,
+          type: 'keyword',
+          order: existingEntry?.order ?? allocOrder_ACU(usedOrders, 10000, 1, 99999),
+          prevent_recursion: true,
+      };
+
+      if (existingEntry) {
+          await TavernHelper_API_ACU.setLorebookEntries(targetLorebook, [{ ...newEntryData, uid: existingEntry.uid }]);
+          logDebug_ACU('[外部导入] Updated ImportedJsonData source entry in target lorebook.');
+      } else {
+          await TavernHelper_API_ACU.createLorebookEntries(targetLorebook, [newEntryData]);
+          logDebug_ACU('[外部导入] Created ImportedJsonData source entry in target lorebook.');
+      }
+      return true;
+  }
+
+  async function deleteImportedJsonDataFromLorebook_ACU(targetLorebook, modeSuffix = '-Selected') {
+      if (!TavernHelper_API_ACU || !targetLorebook) return false;
+      const jsonStorageComment = getImportJsonStorageComment_ACU(modeSuffix);
+      const entriesNow = await TavernHelper_API_ACU.getLorebookEntries(targetLorebook);
+      const jsonEntry = entriesNow.find(e => e.comment === jsonStorageComment);
+      if (!jsonEntry) return false;
+      await TavernHelper_API_ACU.deleteLorebookEntries(targetLorebook, [jsonEntry.uid]);
+      return true;
+  }
+
   async function processImportedTxtAsUpdates_ACU() {
       // 外部导入：按“自选表格”处理与注入（与手动填表一致的表选择体验）
 
@@ -18663,6 +18738,13 @@ const DatabaseAPI_ACU = {
           showToastr_ACU('error', '无法注入：未设置导入数据注入目标世界书。');
           return;
       }
+      const importTarget = importTargetLorebook === 'character'
+          ? await TavernHelper_API_ACU.getCurrentCharPrimaryLorebook()
+          : importTargetLorebook;
+      if (!importTarget) {
+          showToastr_ACU('error', '无法注入：未找到实际导入目标世界书。');
+          return;
+      }
 
       // 读取当前表选择（空且曾选择过 => 不允许执行）
       const selectedSheetKeys = getImportSelectionFromUI_ACU();
@@ -18671,6 +18753,7 @@ const DatabaseAPI_ACU = {
           return;
       }
       const selectionSig = JSON.stringify(selectedSheetKeys || []);
+      const modeSuffix = '-Selected';
 
       // 新机制：只使用一个断点 key（旧的 standard/summary/full 断点仍会被清理，但不再使用）
       const statusStorageKey = STORAGE_KEY_IMPORTED_STATUS_ACU;
@@ -18689,7 +18772,7 @@ const DatabaseAPI_ACU = {
       const $injectButton = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-inject-imported-txt-button`);
       $injectButton.prop('disabled', true);
 
-      // 如果是全新导入，则重置内存中的数据库为模板初始状态
+      // 如果是全新导入，则重置内存中的数据库为模板初始状态，并立即写入目标世界书的临时 JSON 条目
       if (status.currentIndex === 0) {
           logDebug_ACU(`Starting fresh import (selected tables), resetting in-memory database from template.`);
           try {
@@ -18702,6 +18785,32 @@ const DatabaseAPI_ACU = {
           }
           if (!currentJsonTableData_ACU) {
               showToastr_ACU('error', "无法为导入解析数据库模板。");
+              $injectButton.prop('disabled', false);
+              return;
+          }
+          try {
+              await saveImportedJsonDataToLorebook_ACU(importTarget, currentJsonTableData_ACU, modeSuffix);
+          } catch (e) {
+              logError_ACU('[外部导入] Failed to initialize ImportedJsonData source entry from template.', e);
+              showToastr_ACU('error', '无法初始化外部导入的临时数据库条目。');
+              $injectButton.prop('disabled', false);
+              return;
+          }
+      } else {
+          let restoredImportData = null;
+          try {
+              restoredImportData = await loadImportedJsonDataFromLorebook_ACU(importTarget, modeSuffix);
+          } catch (e) {
+              logError_ACU('[外部导入] Failed to load ImportedJsonData source entry for resume.', e);
+          }
+
+          if (restoredImportData && typeof restoredImportData === 'object') {
+              currentJsonTableData_ACU = restoredImportData;
+              logDebug_ACU(`[外部导入] Resumed import from ImportedJsonData source entry. currentIndex=${status.currentIndex}`);
+          } else if (currentJsonTableData_ACU) {
+              logWarn_ACU('[外部导入] ImportedJsonData source entry missing during resume, falling back to in-memory data.');
+          } else {
+              showToastr_ACU('error', '无法继续导入：未找到临时数据库条目，请重新开始导入。');
               $injectButton.prop('disabled', false);
               return;
           }
@@ -18737,13 +18846,36 @@ const DatabaseAPI_ACU = {
               }
           }
           
+          try {
+              await saveImportedJsonDataToLorebook_ACU(importTarget, currentJsonTableData_ACU, modeSuffix);
+          } catch (e) {
+              logError_ACU(`[外部导入] Failed to persist ImportedJsonData after chunk ${i + 1}.`, e);
+              showToastr_ACU('error', `第 ${i + 1} 个分块处理成功，但无法保存临时数据库条目，已停止继续导入。`);
+              $injectButton.prop('disabled', false);
+              return;
+          }
+
           status.currentIndex = i + 1;
           await importTempSet_ACU(statusStorageKey, JSON.stringify(status));
       }
 
       // [新逻辑] 所有分块处理完毕后的操作
       // 1. 按“自选表格”筛选最终数据（每批作为独立流程）
-      let finalDataForInjection = JSON.parse(JSON.stringify(currentJsonTableData_ACU));
+      // [修复] 最终注入前优先从目标世界书里的 ImportedJsonData 临时条目重载一次，
+      // 避免 UI 刷新/回调链把 currentJsonTableData_ACU 覆盖回旧值或空模板。
+      let finalImportSourceData = currentJsonTableData_ACU;
+      try {
+          const persistedFinalData = await loadImportedJsonDataFromLorebook_ACU(importTarget, modeSuffix);
+          if (persistedFinalData && typeof persistedFinalData === 'object') {
+              finalImportSourceData = persistedFinalData;
+              currentJsonTableData_ACU = persistedFinalData;
+              logDebug_ACU('[外部导入] Reloaded final import data from ImportedJsonData source entry before worldbook creation.');
+          }
+      } catch (e) {
+          logWarn_ACU('[外部导入] Failed to reload ImportedJsonData source entry before final worldbook creation, falling back to in-memory data:', e);
+      }
+
+      let finalDataForInjection = JSON.parse(JSON.stringify(finalImportSourceData));
       if (selectedSheetKeys && Array.isArray(selectedSheetKeys) && selectedSheetKeys.length > 0) {
           const tableKeys = getSortedSheetKeys_ACU(finalDataForInjection);
           tableKeys.forEach(sheetKey => {
@@ -18757,57 +18889,18 @@ const DatabaseAPI_ACU = {
       // [修复] 外部导入时使用 targetLorebookOverride 参数直接指定目标世界书
       // 避免临时修改 worldbookConfig.injectionTarget 被 getCurrentCharSettings_ACU() 的兜底补齐逻辑覆盖
       const originalData = currentJsonTableData_ACU;
-      const importTarget = importTargetLorebook === 'character' ? await TavernHelper_API_ACU.getCurrentCharPrimaryLorebook() : importTargetLorebook;
       
       currentJsonTableData_ACU = finalDataForInjection;
       await updateReadableLorebookEntry_ACU(true, true, importTarget); // [外部导入] 添加 isImport 标志和 targetLorebookOverride 参数
       
       // 恢复原始数据
       currentJsonTableData_ACU = originalData;
-      
-      // 3. 创建一个额外的、默认关闭的条目来存储完整的JSON数据
-      try {
-          const IMPORT_PREFIX = '外部导入-';
-          const modeSuffix = '-Selected';
-          const JSON_STORAGE_COMMENT = `${IMPORT_PREFIX}TavernDB-ACU-ImportedJsonData${modeSuffix}`;
-          const allEntries = await TavernHelper_API_ACU.getLorebookEntries(importTargetLorebook);
-          const usedOrders = buildUsedOrderSet_ACU(allEntries);
-          const existingEntry = allEntries.find(entry => entry.comment === JSON_STORAGE_COMMENT);
-          
-          const finalJsonString = JSON.stringify(finalDataForInjection, null, 2);
-          const newEntryData = {
-              comment: JSON_STORAGE_COMMENT,
-              content: finalJsonString,
-              keys: [`TavernDB-ACU-ImportedJson-Key${modeSuffix}`],
-              enabled: false, // 默认关闭
-              type: 'keyword',  // 非常量
-              // [优化] order(插入深度) 避免与任何现有条目重复（即使此条目会被立即删除，也避免短暂冲突）
-              order: allocOrder_ACU(usedOrders, 10000, 1, 99999),
-              prevent_recursion: true,
-          };
+      logDebug_ACU('[外部导入] Final worldbook entries created from ImportedJsonData source entry.');
 
-          if (existingEntry) {
-              await TavernHelper_API_ACU.setLorebookEntries(importTargetLorebook, [{...newEntryData, uid: existingEntry.uid}]);
-              logDebug_ACU(`Updated existing lorebook entry with final imported JSON data (selected tables).`);
-          } else {
-              await TavernHelper_API_ACU.createLorebookEntries(importTargetLorebook, [newEntryData]);
-              logDebug_ACU(`Created new lorebook entry for final imported JSON data (selected tables).`);
-          }
-          showToastr_ACU('success', `最终数据库的JSON备份已保存到世界书（自选表格注入）。`);
-      } catch (error) {
-          logError_ACU('Failed to save final imported JSON to a lorebook entry:', error);
-          showToastr_ACU('error', '保存最终JSON数据到世界书时出错。');
-      }
-
-      // 4. 外部导入完成：删除"本地数据源 JSON 备份条目"，并解除与该世界书的绑定
+      // 3. 外部导入完成：删除“本地数据源 JSON 临时条目”，并解除与该世界书的绑定
       try {
-          const IMPORT_PREFIX = '外部导入-';
-          const modeSuffix = '-Selected';
-          const JSON_STORAGE_COMMENT = `${IMPORT_PREFIX}TavernDB-ACU-ImportedJsonData${modeSuffix}`;
-          const entriesNow = await TavernHelper_API_ACU.getLorebookEntries(importTargetLorebook);
-          const jsonEntry = entriesNow.find(e => e.comment === JSON_STORAGE_COMMENT);
-          if (jsonEntry) {
-              await TavernHelper_API_ACU.deleteLorebookEntries(importTargetLorebook, [jsonEntry.uid]);
+          const deleted = await deleteImportedJsonDataFromLorebook_ACU(importTarget, modeSuffix);
+          if (deleted) {
               logDebug_ACU('[外部导入] Deleted ImportedJsonData source entry to detach from worldbook.');
           }
       } catch (e) {
@@ -19826,7 +19919,7 @@ const DatabaseAPI_ACU = {
                         background: rgba(0, 0, 0, 0.18);
                     }
                     
-                    /* ✅ 复选框（最高优先级：黑底白勾；不受浏览器风格影响；仅限插件弹窗作用域） */
+                    /* ✅ 复选框（最高优先级：按主题切换配色；不受浏览器风格影响；仅限插件弹窗作用域） */
                     #${POPUP_ID_ACU} input[type="checkbox"] {
                         -webkit-appearance: none !important;
                         appearance: none !important;
@@ -19836,16 +19929,17 @@ const DatabaseAPI_ACU = {
                         min-width: 18px !important;
                         min-height: 18px !important;
                         border-radius: 4px !important;
-                        border: 1px solid rgba(255, 255, 255, 0.22) !important;
-                        background-color: #000 !important;
+                        border: 1px solid var(--acu-checkbox-border) !important;
+                        background-color: var(--acu-checkbox-bg) !important;
                         background-image: none !important;
                         background-repeat: no-repeat !important;
                         background-position: center !important;
                         background-size: 12px 10px !important;
-                        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
+                        box-shadow: var(--acu-checkbox-shadow) !important;
                         margin: 0 !important;
                         cursor: pointer !important;
                         vertical-align: middle !important;
+                        transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease !important;
                     }
                     /* 关键：禁用外部/浏览器可能注入的伪元素勾选样式，避免出现“蓝色小勾叠加” */
                     #${POPUP_ID_ACU} input[type="checkbox"]::before,
@@ -19854,7 +19948,8 @@ const DatabaseAPI_ACU = {
                         display: none !important;
                     }
                     #${POPUP_ID_ACU} input[type="checkbox"]:checked {
-                        background-color: #000 !important;
+                        border-color: var(--acu-checkbox-bg-checked) !important;
+                        background-color: var(--acu-checkbox-bg-checked) !important;
                         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M1 5l3 3 7-7'/%3E%3C/svg%3E") !important;
                     }
                     #${POPUP_ID_ACU} input[type="checkbox"]:disabled {
@@ -19862,7 +19957,7 @@ const DatabaseAPI_ACU = {
                         cursor: not-allowed !important;
                     }
                     #${POPUP_ID_ACU} input[type="checkbox"]:focus-visible {
-                        outline: 2px solid rgba(123, 183, 255, 0.75) !important;
+                        outline: 2px solid var(--acu-checkbox-focus) !important;
                         outline-offset: 2px !important;
                     }
                     /* 位置微调（不改变外观规则） */
@@ -20391,6 +20486,11 @@ const DatabaseAPI_ACU = {
                         --input-background: rgba(26, 24, 22, 0.36);
                         --button-background: rgba(193, 185, 173, 0.03);
                         --button-secondary-background: rgba(193, 185, 173, 0.02);
+                        --acu-checkbox-border: rgba(255, 255, 255, 0.22);
+                        --acu-checkbox-bg: #000;
+                        --acu-checkbox-bg-checked: #000;
+                        --acu-checkbox-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+                        --acu-checkbox-focus: rgba(123, 183, 255, 0.75);
                         color-scheme: dark;
                         font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
                         background-color: var(--acu-bg-0);
@@ -20420,6 +20520,11 @@ const DatabaseAPI_ACU = {
                         --input-background: rgba(255, 255, 255, 0.70);
                         --button-background: rgba(255, 255, 255, 0.50);
                         --button-secondary-background: rgba(255, 255, 255, 0.36);
+                        --acu-checkbox-border: rgba(138, 107, 94, 0.42);
+                        --acu-checkbox-bg: rgba(255, 255, 255, 0.92);
+                        --acu-checkbox-bg-checked: #8a6b5e;
+                        --acu-checkbox-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.58);
+                        --acu-checkbox-focus: rgba(138, 107, 94, 0.34);
                         color-scheme: light;
                     }
                     #${POPUP_ID_ACU} .acu-header {
@@ -21130,6 +21235,14 @@ const DatabaseAPI_ACU = {
                                 <button id="${SCRIPT_ID_PREFIX_ACU}-refresh-import-worldbooks" title="刷新世界书列表">刷新</button>
                             </div>
                             <small class="notes">选择导入的数据将被注入到哪个世界书里（独立于常规更新的世界书设置）。<strong>注意：不推荐使用角色卡绑定世界书，建议使用新建的其它世界书。</strong></small>
+                        </div>
+                        <div class="qrf_settings_block" style="margin-top: 12px; margin-bottom: 12px;">
+                            <label for="${SCRIPT_ID_PREFIX_ACU}-import-prompt-exclude-imported-worldbook-entries"><strong>屏蔽外部导入世界书条目占位符</strong></label>
+                            <label class="toggle-switch">
+                                <input id="${SCRIPT_ID_PREFIX_ACU}-import-prompt-exclude-imported-worldbook-entries" type="checkbox" />
+                                <span class="slider"></span>
+                            </label>
+                            <small class="notes">仅对外部导入流程生效。开启后，填表提示词中的世界书条目占位符会自动屏蔽所有带有“外部导入-”标签的世界书条目，避免导入流程反复读取既有导入条目。</small>
                         </div>
                         
                         <div class="acu-grid" style="grid-template-columns: 1fr 1fr; align-items: end; gap: 20px; margin-bottom: 10px;">
@@ -22036,6 +22149,7 @@ const DatabaseAPI_ACU = {
       }
       const $importWorldbookTargetSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-worldbook-injection-target`);
       const $importWorldbookTargetFilter = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-worldbook-injection-target-filter`);
+      const $importPromptExcludeImportedEntriesToggle = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-prompt-exclude-imported-worldbook-entries`);
       if ($importWorldbookTargetFilter.length) {
           $importWorldbookTargetFilter.on('input', function() {
               applyWorldbookSelectFilter_ACU($importWorldbookTargetSelect, $(this).val());
@@ -22046,6 +22160,13 @@ const DatabaseAPI_ACU = {
               settings_ACU.importWorldbookTarget = $(this).val();
               saveSettings_ACU();
               logDebug_ACU(`Import worldbook target changed to: ${settings_ACU.importWorldbookTarget}`);
+          });
+      }
+      if ($importPromptExcludeImportedEntriesToggle.length) {
+          $importPromptExcludeImportedEntriesToggle.off('change.acu_import_prompt_filter').on('change.acu_import_prompt_filter', function() {
+              settings_ACU.importPromptExcludeImportedWorldbookEntries = $(this).is(':checked');
+              saveSettings_ACU();
+              logDebug_ACU(`[外部导入] importPromptExcludeImportedWorldbookEntries=${settings_ACU.importPromptExcludeImportedWorldbookEntries}`);
           });
       }
       if ($worldbookSelect.length) {
@@ -24789,9 +24910,17 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       return [];
   }
 
-  async function getCombinedWorldbookContent_ACU(initialScanTextOverride = '') {
+  function isImportTaggedLorebookEntry_ACU(entry) {
+    const rawComment = String(entry?.comment || entry?.name || '').trim();
+    if (!rawComment) return false;
+    const normalizedComment = rawComment.replace(/^ACU-\[[^\]]+\]-/, '');
+    return normalizedComment.startsWith(getImportStablePrefix_ACU());
+  }
+
+  async function getCombinedWorldbookContent_ACU(initialScanTextOverride = '', options = {}) {
     logDebug_ACU('Starting to get combined worldbook content with advanced logic...');
     const worldbookConfig = getCurrentWorldbookConfig_ACU();
+    const excludeImportTaggedEntries = options?.excludeImportTaggedEntries === true;
 
     if (!TavernHelper_API_ACU || !SillyTavern_API_ACU) {
         logWarn_ACU('[ACU] TavernHelper or SillyTavern API not available, cannot get worldbook content.');
@@ -24852,12 +24981,16 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             if (comment.startsWith('TavernDB-ACU-')) return false;
             if (comment.startsWith('重要人物条目')) return false;
             if (comment.startsWith('总结条目')) return false;
+            if (excludeImportTaggedEntries && isImportTaggedLorebookEntry_ACU(entry)) return false;
             
             // [新增] 过滤屏蔽词条目
             if (isEntryBlocked_ACU(entry)) return false;
 
             return true;
         });
+        if (excludeImportTaggedEntries) {
+            logDebug_ACU(`[Worldbook][Import] Import prompt exclusion enabled. Remaining entries after excluding import-tagged lorebook items: ${allEntries.length}`);
+        }
 
         if (allEntries.length === 0) {
             logDebug_ACU('Selected worldbooks contain no entries after filtering generated ones.');
@@ -24977,7 +25110,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
   }
   // --- [新增] 世界书相关功能结束 ---
 
-  async function prepareAIInput_ACU(messages, updateMode = 'standard', targetSheetKeys = null) {
+  async function prepareAIInput_ACU(messages, updateMode = 'standard', targetSheetKeys = null, options = {}) {
     // updateMode: 'standard' 表示更新标准表，'summary' 表示更新总结表和总体大纲
     // targetSheetKeys: 可选，指定要更新的表格key列表
     // This function is now simplified to only prepare the dynamic content parts.
@@ -25149,7 +25282,10 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
     // [改动] 世界书初始扫描文本使用“本次实际读取的上下文”（与剧情推进一致）
     // 用 messagesText（已应用上下文标签提取/排除规则）作为扫描源，避免误用全聊天记录导致触发漂移
     const worldbookScanText = messagesText;
-    const worldbookContent = await getCombinedWorldbookContent_ACU(worldbookScanText);
+    const excludeImportTaggedWorldbookEntries = options?.excludeImportTaggedWorldbookEntries === true;
+    const worldbookContent = await getCombinedWorldbookContent_ACU(worldbookScanText, {
+        excludeImportTaggedEntries: excludeImportTaggedWorldbookEntries,
+    });
     const manualExtraHintText = manualExtraHint_ACU || '';
 
     // Return the dynamic parts for interpolation.
@@ -25692,6 +25828,487 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
     const sheetKeysForIndexing = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
     const sheets = sheetKeysForIndexing.map(k => currentJsonTableData_ACU[k]).filter(Boolean);
 
+    // [新增] JSON 指令清洗管线：用于修复 AI 输出中的智能引号、未转义双引号、控制字符、尾随逗号等问题
+    const normalizeQuotesLayer_ACU = (jsonStr) => {
+        if (typeof jsonStr !== 'string' || !jsonStr) return jsonStr;
+        return jsonStr.replace(/[“”「」『』＂]/g, '"');
+    };
+
+    const getNextNonWhitespaceMeta_ACU = (text, startIndex) => {
+        for (let i = startIndex; i < text.length; i++) {
+            if (!/\s/.test(text[i])) return { char: text[i], index: i };
+        }
+        return { char: '', index: -1 };
+    };
+
+    const isLikelyJsonValueStart_ACU = (char) => {
+        return !!char && (
+            char === '"' ||
+            char === '{' ||
+            char === '[' ||
+            char === '-' ||
+            /\d/.test(char) ||
+            char === 't' ||
+            char === 'f' ||
+            char === 'n'
+        );
+    };
+
+    const isLikelyStringCloser_ACU = (text, quoteIndex, stringKind, containerType) => {
+        const nextMeta = getNextNonWhitespaceMeta_ACU(text, quoteIndex + 1);
+        const nextChar = nextMeta.char;
+        if (!nextChar) return stringKind !== 'key';
+        if (stringKind === 'key') return nextChar === ':';
+        if (nextChar === '}' || nextChar === ']') return true;
+        if (nextChar !== ',') return false;
+
+        const afterComma = getNextNonWhitespaceMeta_ACU(text, nextMeta.index + 1).char;
+        if (!afterComma) return true;
+        if (containerType === 'object') return afterComma === '"' || afterComma === '}';
+        if (containerType === 'array') return afterComma === ']' || isLikelyJsonValueStart_ACU(afterComma);
+        return isLikelyJsonValueStart_ACU(afterComma) || afterComma === '}' || afterComma === ']';
+    };
+
+    const escapeUnescapedQuotesLayer_ACU = (jsonStr) => {
+        if (typeof jsonStr !== 'string') {
+            return { success: false, result: jsonStr, error: 'Input is not a string' };
+        }
+
+        let result = '';
+        let inString = false;
+        let escapeNext = false;
+        let currentStringKind = null;
+        const containerStack = [];
+
+        const getTopContainer = () => containerStack.length ? containerStack[containerStack.length - 1] : null;
+        const markParentValueCompleted = () => {
+            const parent = getTopContainer();
+            if (!parent) return;
+            if (parent.type === 'object' || parent.type === 'array') {
+                parent.expecting = 'commaOrEnd';
+            }
+        };
+
+        for (let i = 0; i < jsonStr.length; i++) {
+            const char = jsonStr[i];
+
+            if (escapeNext) {
+                result += char;
+                escapeNext = false;
+                continue;
+            }
+
+            if (inString) {
+                if (char === '\\') {
+                    result += char;
+                    escapeNext = true;
+                    continue;
+                }
+
+                if (char === '"') {
+                    const top = getTopContainer();
+                    const containerType = top?.type || null;
+                    if (isLikelyStringCloser_ACU(jsonStr, i, currentStringKind, containerType)) {
+                        result += char;
+                        inString = false;
+                        if (currentStringKind === 'key' && top && top.type === 'object') {
+                            top.expecting = 'colon';
+                        } else {
+                            markParentValueCompleted();
+                        }
+                        currentStringKind = null;
+                    } else {
+                        result += '\\"';
+                    }
+                    continue;
+                }
+
+                result += char;
+                continue;
+            }
+
+            if (char === '"') {
+                result += char;
+                inString = true;
+                const top = getTopContainer();
+                currentStringKind = top && top.type === 'object' && (top.expecting === 'key' || top.expecting === 'keyOrEnd')
+                    ? 'key'
+                    : 'value';
+                continue;
+            }
+
+            if (char === '{') {
+                result += char;
+                containerStack.push({ type: 'object', expecting: 'keyOrEnd' });
+                continue;
+            }
+
+            if (char === '[') {
+                result += char;
+                containerStack.push({ type: 'array', expecting: 'valueOrEnd' });
+                continue;
+            }
+
+            if (char === ':') {
+                result += char;
+                const top = getTopContainer();
+                if (top && top.type === 'object') top.expecting = 'value';
+                continue;
+            }
+
+            if (char === ',') {
+                result += char;
+                const top = getTopContainer();
+                if (top && top.type === 'object') top.expecting = 'key';
+                if (top && top.type === 'array') top.expecting = 'value';
+                continue;
+            }
+
+            if (char === '}' || char === ']') {
+                result += char;
+                containerStack.pop();
+                markParentValueCompleted();
+                continue;
+            }
+
+            result += char;
+        }
+
+        return { success: true, result, error: null };
+    };
+
+    const sanitizeControlCharsLayer_ACU = (jsonStr) => {
+        if (typeof jsonStr !== 'string' || !jsonStr) return jsonStr;
+
+        let result = '';
+        let inString = false;
+        let escapeNext = false;
+
+        for (let i = 0; i < jsonStr.length; i++) {
+            const char = jsonStr[i];
+
+            if (escapeNext) {
+                result += char;
+                escapeNext = false;
+                continue;
+            }
+
+            if (char === '\\') {
+                result += char;
+                if (inString) escapeNext = true;
+                continue;
+            }
+
+            if (char === '"') {
+                result += char;
+                inString = !inString;
+                continue;
+            }
+
+            if (inString && char === '\n') {
+                result += '\\n';
+                continue;
+            }
+            if (inString && char === '\r') {
+                result += '\\r';
+                continue;
+            }
+            if (inString && char === '\t') {
+                result += '\\t';
+                continue;
+            }
+            if (inString && char === '\0') {
+                result += '\\u0000';
+                continue;
+            }
+
+            result += char;
+        }
+
+        return result;
+    };
+
+    const removeTrailingCommasLayer_ACU = (jsonStr) => {
+        if (typeof jsonStr !== 'string' || !jsonStr) return jsonStr;
+
+        let result = '';
+        let inString = false;
+        let escapeNext = false;
+
+        for (let i = 0; i < jsonStr.length; i++) {
+            const char = jsonStr[i];
+
+            if (escapeNext) {
+                result += char;
+                escapeNext = false;
+                continue;
+            }
+
+            if (char === '\\') {
+                result += char;
+                if (inString) escapeNext = true;
+                continue;
+            }
+
+            if (char === '"') {
+                result += char;
+                inString = !inString;
+                continue;
+            }
+
+            if (!inString && char === ',') {
+                const nextChar = getNextNonWhitespaceMeta_ACU(jsonStr, i + 1).char;
+                if (nextChar === '}' || nextChar === ']') continue;
+            }
+
+            result += char;
+        }
+
+        return result;
+    };
+
+    const fixNumericKeysLayer_ACU = (jsonStr) => {
+        if (typeof jsonStr !== 'string' || !jsonStr) return jsonStr;
+        return jsonStr.replace(/([{,]\s*)(-?\d+)(\s*:)/g, '$1"$2"$3');
+    };
+
+    const sanitizeJsonPipeline_ACU = (jsonStr) => {
+        if (typeof jsonStr !== 'string') {
+            return { success: false, result: jsonStr, layersApplied: [], error: 'Input is not a string' };
+        }
+
+        const layersApplied = [];
+        let current = jsonStr;
+
+        const normalizedQuotes = normalizeQuotesLayer_ACU(current);
+        if (normalizedQuotes !== current) layersApplied.push('normalizeQuotes');
+        current = normalizedQuotes;
+
+        const escapedQuotes = escapeUnescapedQuotesLayer_ACU(current);
+        if (!escapedQuotes.success) {
+            return { success: false, result: current, layersApplied, error: escapedQuotes.error };
+        }
+        if (escapedQuotes.result !== current) layersApplied.push('escapeUnescapedQuotes');
+        current = escapedQuotes.result;
+
+        const sanitizedControlChars = sanitizeControlCharsLayer_ACU(current);
+        if (sanitizedControlChars !== current) layersApplied.push('sanitizeControlChars');
+        current = sanitizedControlChars;
+
+        const withoutTrailingCommas = removeTrailingCommasLayer_ACU(current);
+        if (withoutTrailingCommas !== current) layersApplied.push('removeTrailingCommas');
+        current = withoutTrailingCommas;
+
+        const fixedNumericKeys = fixNumericKeysLayer_ACU(current);
+        if (fixedNumericKeys !== current) layersApplied.push('fixNumericKeys');
+        current = fixedNumericKeys;
+
+        return { success: true, result: current, layersApplied, error: null };
+    };
+
+    const splitTopLevelSegments_ACU = (text, delimiterChar = ',') => {
+        if (typeof text !== 'string' || !text) return [];
+
+        const segments = [];
+        let current = '';
+        let inString = false;
+        let escapeNext = false;
+        let braceDepth = 0;
+        let bracketDepth = 0;
+        let parenDepth = 0;
+
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+
+            if (escapeNext) {
+                current += char;
+                escapeNext = false;
+                continue;
+            }
+
+            if (char === '\\') {
+                current += char;
+                if (inString) escapeNext = true;
+                continue;
+            }
+
+            if (char === '"') {
+                current += char;
+                inString = !inString;
+                continue;
+            }
+
+            if (!inString) {
+                if (char === '{') braceDepth++;
+                else if (char === '}') braceDepth = Math.max(0, braceDepth - 1);
+                else if (char === '[') bracketDepth++;
+                else if (char === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+                else if (char === '(') parenDepth++;
+                else if (char === ')') parenDepth = Math.max(0, parenDepth - 1);
+                else if (char === delimiterChar && braceDepth === 0 && bracketDepth === 0 && parenDepth === 0) {
+                    if (current.trim()) segments.push(current.trim());
+                    current = '';
+                    continue;
+                }
+            }
+
+            current += char;
+        }
+
+        if (current.trim()) segments.push(current.trim());
+        return segments;
+    };
+
+    const findTopLevelDelimiterIndex_ACU = (text, delimiterChar = ':') => {
+        if (typeof text !== 'string' || !text) return -1;
+
+        let inString = false;
+        let escapeNext = false;
+        let braceDepth = 0;
+        let bracketDepth = 0;
+        let parenDepth = 0;
+
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+
+            if (escapeNext) {
+                escapeNext = false;
+                continue;
+            }
+
+            if (char === '\\') {
+                if (inString) escapeNext = true;
+                continue;
+            }
+
+            if (char === '"') {
+                inString = !inString;
+                continue;
+            }
+
+            if (!inString) {
+                if (char === '{') braceDepth++;
+                else if (char === '}') braceDepth = Math.max(0, braceDepth - 1);
+                else if (char === '[') bracketDepth++;
+                else if (char === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+                else if (char === '(') parenDepth++;
+                else if (char === ')') parenDepth = Math.max(0, parenDepth - 1);
+                else if (char === delimiterChar && braceDepth === 0 && bracketDepth === 0 && parenDepth === 0) return i;
+            }
+        }
+
+        return -1;
+    };
+
+    const tryParseLooseJsonValue_ACU = (rawValue) => {
+        if (typeof rawValue !== 'string') return { success: true, value: rawValue, error: null };
+
+        const trimmed = rawValue.trim();
+        if (!trimmed) return { success: false, value: null, error: 'Empty value' };
+
+        const normalizedValue = (trimmed.startsWith("'") && trimmed.endsWith("'"))
+            ? `"${trimmed.slice(1, -1)
+                .replace(/\\/g, '\\\\')
+                .replace(/"/g, '\\"')
+                .replace(/\r/g, '\\r')
+                .replace(/\n/g, '\\n')
+                .replace(/\t/g, '\\t')}"`
+            : trimmed;
+
+        const wrappedValue = `[${normalizedValue}]`;
+        try {
+            return { success: true, value: JSON.parse(wrappedValue)[0], error: null };
+        } catch (directError) {
+            const sanitizedWrapped = sanitizeJsonPipeline_ACU(wrappedValue);
+            if (sanitizedWrapped.success) {
+                try {
+                    return { success: true, value: JSON.parse(sanitizedWrapped.result)[0], error: null };
+                } catch (sanitizedError) {}
+            }
+            return { success: false, value: null, error: directError?.message || 'Failed to parse loose value' };
+        }
+    };
+
+    const parseLooseObjectKey_ACU = (rawKey) => {
+        const trimmed = typeof rawKey === 'string' ? rawKey.trim() : '';
+        if (!trimmed) return null;
+        if (/^-?\d+$/.test(trimmed)) return trimmed;
+
+        const parsedKey = tryParseLooseJsonValue_ACU(trimmed);
+        if (parsedKey.success && (typeof parsedKey.value === 'string' || typeof parsedKey.value === 'number')) {
+            return String(parsedKey.value);
+        }
+
+        return trimmed.replace(/^["']|["']$/g, '');
+    };
+
+    const coerceLooseRowObject_ACU = (jsonStr) => {
+        if (typeof jsonStr !== 'string') {
+            return { success: false, result: null, recoveredKeys: [], error: 'Input is not a string' };
+        }
+
+        const trimmed = jsonStr.trim();
+        if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+            return { success: false, result: null, recoveredKeys: [], error: 'Input is not an object literal' };
+        }
+
+        const body = trimmed.slice(1, -1).trim();
+        if (!body) return { success: true, result: {}, recoveredKeys: [], error: null };
+
+        const segments = splitTopLevelSegments_ACU(body, ',').filter(Boolean);
+        if (!segments.length) {
+            return { success: false, result: null, recoveredKeys: [], error: 'No top-level segments detected' };
+        }
+
+        const result = {};
+        let nextAutoKey = 0;
+
+        for (const segment of segments) {
+            const colonIndex = findTopLevelDelimiterIndex_ACU(segment, ':');
+            if (colonIndex !== -1) {
+                const parsedKey = parseLooseObjectKey_ACU(segment.slice(0, colonIndex));
+                const parsedValue = tryParseLooseJsonValue_ACU(segment.slice(colonIndex + 1));
+                if (!parsedKey || !parsedValue.success) {
+                    return {
+                        success: false,
+                        result: null,
+                        recoveredKeys: Object.keys(result),
+                        error: `Failed to parse keyed segment: ${segment}`,
+                    };
+                }
+                result[parsedKey] = parsedValue.value;
+                const numericKey = Number.parseInt(parsedKey, 10);
+                if (!Number.isNaN(numericKey) && String(numericKey) === parsedKey) {
+                    nextAutoKey = Math.max(nextAutoKey, numericKey + 1);
+                }
+                continue;
+            }
+
+            const parsedValue = tryParseLooseJsonValue_ACU(segment);
+            if (!parsedValue.success) {
+                return {
+                    success: false,
+                    result: null,
+                    recoveredKeys: Object.keys(result),
+                    error: `Failed to parse value-only segment: ${segment}`,
+                };
+            }
+
+            while (Object.prototype.hasOwnProperty.call(result, String(nextAutoKey))) {
+                nextAutoKey++;
+            }
+            result[String(nextAutoKey)] = parsedValue.value;
+            nextAutoKey++;
+        }
+
+        const recoveredKeys = Object.keys(result).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+        if (!recoveredKeys.length) {
+            return { success: false, result: null, recoveredKeys: [], error: 'No recoverable columns found' };
+        }
+
+        return { success: true, result, recoveredKeys, error: null };
+    };
+
     // [新增] 统一解析指令（供预检查与正式应用复用）
     const parseTableEditCommandLine_ACU = (rawLine) => {
         try {
@@ -25716,16 +26333,40 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
                     const jsonData = JSON.parse(jsonPart);
                     args = [...initialArgs, jsonData];
                 } catch (jsonError) {
-                    logError_ACU(`Primary JSON parse failed for: "${jsonPart}". Attempting sanitization...`, jsonError);
-                    let sanitizedJson = jsonPart;
-                    sanitizedJson = sanitizedJson.replace(/,\s*([}\]])/g, '$1');
-                    sanitizedJson = sanitizedJson.replace(/,\s*("[^"]*"\s*)}/g, '}');
-                    sanitizedJson = sanitizedJson.replace(/(:\s*)"((?:\\.|[^"\\])*)"/g, (match, prefix, content) => {
-                        return `${prefix}"${content.replace(/(?<!\\)"/g, '\\"')}"`;
-                    });
-                    sanitizedJson = sanitizedJson.replace(/([,{]\s*)"(\d+):"\s*"/g, '$1"$2":"');
-                    const jsonData = JSON.parse(sanitizedJson);
-                    args = [...initialArgs, jsonData];
+                    logError_ACU(`Primary JSON parse failed for: "${jsonPart}". Attempting sanitization pipeline...`, jsonError);
+
+                    const originalLooseObjectResult = coerceLooseRowObject_ACU(jsonPart);
+                    if (originalLooseObjectResult.success) {
+                        args = [...initialArgs, originalLooseObjectResult.result];
+                        logWarn_ACU(`[JSON Sanitization] Recovered malformed row object from original payload via loose parsing. Keys: ${originalLooseObjectResult.recoveredKeys.join(', ')}`);
+                    } else {
+                        const sanitizeResult = sanitizeJsonPipeline_ACU(jsonPart);
+                        if (!sanitizeResult.success) {
+                            logError_ACU(`JSON sanitization pipeline failed for: "${jsonPart}"`, new Error(sanitizeResult.error || 'Unknown sanitization error'));
+                            throw jsonError;
+                        }
+
+                        try {
+                            const jsonData = JSON.parse(sanitizeResult.result);
+                            args = [...initialArgs, jsonData];
+                            if (sanitizeResult.layersApplied.length > 0) {
+                                logWarn_ACU(`[JSON Sanitization] Applied layers: ${sanitizeResult.layersApplied.join(', ')}`);
+                            }
+                        } catch (sanitizedJsonError) {
+                            const looseObjectResult = coerceLooseRowObject_ACU(sanitizeResult.result);
+                            if (looseObjectResult.success) {
+                                args = [...initialArgs, looseObjectResult.result];
+                                logWarn_ACU(`[JSON Sanitization] Recovered malformed row object from sanitized payload via loose parsing. Keys: ${looseObjectResult.recoveredKeys.join(', ')}`);
+                            } else {
+                                const sanitizedPreview = sanitizeResult.result.length > 400
+                                    ? `${sanitizeResult.result.slice(0, 400)}...`
+                                    : sanitizeResult.result;
+                                logError_ACU(`Sanitized JSON parse failed after layers [${sanitizeResult.layersApplied.join(', ') || 'none'}]: "${sanitizedPreview}"`, sanitizedJsonError);
+                                logError_ACU(`[JSON Sanitization] Loose row object recovery failed. Original: ${originalLooseObjectResult.error || 'Unknown'}; Sanitized: ${looseObjectResult.error || 'Unknown'}`);
+                                throw sanitizedJsonError;
+                            }
+                        }
+                    }
                 }
             }
             return { command, args, line: commandLineWithoutComment };
@@ -26701,7 +27342,9 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
             statusUpdate('准备AI输入...');
         }
         // [修复] 传递 targetSheetKeys
-        const dynamicContent = await prepareAIInput_ACU(messagesToUse, updateMode, targetSheetKeys);
+        const dynamicContent = await prepareAIInput_ACU(messagesToUse, updateMode, targetSheetKeys, {
+            excludeImportTaggedWorldbookEntries: isImportMode && settings_ACU.importPromptExcludeImportedWorldbookEntries !== false,
+        });
         if (!dynamicContent) throw new Error('无法准备AI输入，数据库未加载。');
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {

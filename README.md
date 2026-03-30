@@ -1,5 +1,97 @@
 # AutoCardUpdater 插件更新日志
 
+## 2026-03-30 更新（填表 JSON 脏数据容错增强）
+
+### 修复填表指令中字符串包含未转义引号、控制字符或尾随逗号时容易整条解析失败的问题
+
+#### 功能描述
+1. 修复填表 AI 输出的 [`insertRow()`](index.js:1850)、[`updateRow()`](index.js:1850) 指令里，JSON 值中包含未转义双引号时，[`parseTableEditCommandLine_ACU()`](index.js:26110) 会直接解析失败并跳过整条指令的问题。
+2. **问题根因**：旧逻辑仅在 [`parseTableEditCommandLine_ACU()`](index.js:26313) 内通过几条正则做轻量清洗，无法稳定处理两类高频脏数据：一是类似 `秉持"谁欺负我就打谁"的信念` 这类“字符串内部再次出现未转义引号”；二是 AI 把对象后半段写成 `"2":"描述","裸字符串","裸字符串"` 这种“前半有键、后半缺失数字键”的半结构化对象。后者会让标准 [`JSON.parse()`](index.js:26344) 和单纯转义清洗都失效。
+3. **修复方案**：
+   - 在 [`index.js`](index.js:25831) 新增多层 JSON sanitization pipeline，按“智能引号归一化 → 未转义引号修复 → 控制字符转义 → 尾随逗号清理 → 数字键修复”的顺序处理脏数据；
+   - 新增宽松对象恢复工具 [`splitTopLevelSegments_ACU()`](index.js:26109)、[`findTopLevelDelimiterIndex_ACU()`](index.js:26162)、[`tryParseLooseJsonValue_ACU()`](index.js:26203)、[`parseLooseObjectKey_ACU()`](index.js:26232)、[`coerceLooseRowObject_ACU()`](index.js:26245)，用于把缺失键名的裸字符串段自动补成递增数字键；
+   - 在 [`parseTableEditCommandLine_ACU()`](index.js:26313) 的 JSON 解析失败分支中，优先尝试对原始对象做宽松恢复；若失败，再走 pipeline + 二次 [`JSON.parse()`](index.js:26350) + 清洗后宽松恢复的三级兜底链路；
+   - 在填表提示词 [`DEFAULT_CHAR_CARD_PROMPT_ACU`](index.js:1822) 中补充显式格式要求，提前约束 AI 输出纯数字表格 ID、完整数字键和值的成对结构，降低脏数据产生概率。
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| 填表提示词格式约束增强 | 1850-1850 | 在 [`DEFAULT_CHAR_CARD_PROMPT_ACU`](index.js:1822) 中新增“表格 ID / 行号必须是纯数字、字段值内部双引号必须写成 `\\\"`、换行必须写成 `\\n`、禁止省略数字键后连续输出裸字符串”说明 |
+| JSON 清洗与宽松恢复辅助函数 | 25831-26310 | 新增智能引号归一化、未转义引号修复、控制字符清洗、尾随逗号移除、数字键修复，以及 [`splitTopLevelSegments_ACU()`](index.js:26109) / [`coerceLooseRowObject_ACU()`](index.js:26245) 等宽松对象恢复工具 |
+| 指令解析三级兜底链路 | 26329-26360 | 在 [`parseTableEditCommandLine_ACU()`](index.js:26313) 中改为“原始对象宽松恢复 → sanitization pipeline → 清洗后宽松恢复”的三级解析链路，并补充恢复日志 |
+
+## 2026-03-30 更新（外部导入提示词世界书过滤设置）
+
+### 新增仅对外部导入生效的世界书占位符过滤开关
+
+#### 功能描述
+1. 新增设置 [`importPromptExcludeImportedWorldbookEntries`](index.js:4699)，默认开启，仅用于外部导入流程。
+2. **问题根因**：外部导入在构造填表提示词的世界书占位符时，仍会通过 [`getCombinedWorldbookContent_ACU()`](index.js:24920) 读取带有 `外部导入-` 标签的世界书条目；这些历史导入条目会被再次送回当前导入轮次，干扰本轮表格增量更新与世界书条目生成判断。
+3. **修复方案**：
+   - 在默认设置与运行时设置中新增外部导入专用开关；
+   - 在外部导入页新增 UI 复选框，并在设置加载与事件绑定时进行回填和保存；
+   - 新增 [`isImportTaggedLorebookEntry_ACU()`](index.js:24913) 用于识别 `外部导入-` 和 `ACU-[隔离码]-外部导入-` 条目；
+   - 通过 [`proceedWithCardUpdate_ACU()`](index.js:26840) → [`prepareAIInput_ACU()`](index.js:25113) → [`getCombinedWorldbookContent_ACU()`](index.js:24920) 只在 `isImportMode === true` 时透传过滤参数；
+   - 普通填表流程不传该参数，因此不影响其它填表模式。
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| 外部导入设置默认值 | 4697-4699, 13489-13490 | 新增 [`importPromptExcludeImportedWorldbookEntries`](index.js:4699) 默认值，确保新旧设置都能获得该开关 |
+| 外部导入设置回填 | 13747-13752 | 在设置加载阶段回填“屏蔽外部导入世界书条目占位符”开关状态 |
+| 外部导入页 UI | 21230-21246 | 在外部导入页新增仅对导入流程生效的过滤开关说明与复选框 |
+| 外部导入页事件绑定 | 22145-22170 | 保存 UI 开关状态到 [`settings_ACU`](index.js:22167)，并输出导入专用日志 |
+| 外部导入世界书条目标记识别 | 24913-24923 | 新增 [`isImportTaggedLorebookEntry_ACU()`](index.js:24913)，兼容普通前缀与隔离前缀条目识别 |
+| 世界书占位符过滤 | 24977-24993 | 在 [`getCombinedWorldbookContent_ACU()`](index.js:24920) 中按需屏蔽导入标签条目，并记录仅外部导入生效的过滤日志 |
+| AI 输入准备链路 | 25113-25113, 25282-25288 | 为 [`prepareAIInput_ACU()`](index.js:25113) 增加外部导入专用选项，并在生成世界书占位符时透传过滤参数 |
+| 外部导入调用链入口 | 26836-26842 | 仅在 [`proceedWithCardUpdate_ACU()`](index.js:26715) 的 `isImportMode` 分支中启用该过滤选项 |
+
+## 2026-03-30 更新（外部导入临时 JSON 条目恢复）
+
+### 修复外部导入时累计表格数据未按正常流程暂存到目标世界书，导致最终条目生成阶段读取为空
+
+#### 功能描述
+1. 修复外部导入流程中，累计表格数据没有在每个分块处理后写回目标世界书临时 JSON 条目，导致继续导入或最终注入阶段缺少基础数据的问题。
+2. **问题根因**：[`processImportedTxtAsUpdates_ACU()`](index.js:18695) 只在全部分块完成后才创建一次外部导入 JSON 备份条目，没有在处理中持续维护这个“本地数据源”条目；同时继续导入时也没有优先从该条目恢复累计数据库，导致最终阶段可能出现 `mergedData 为空`、`No important persons to create entries for.`、`No summary rows to create entries for.` 和 `[CustomExport] mergedData 为空，已清理旧条目，跳过创建。`。
+3. **第二轮补充根因**：[`updateReadableLorebookEntry_ACU()`](index.js:16317) 之前把 [`readableText`](index.js:16362) 为空直接当成“数据库为空”，但外部导入在只选“单独导出到世界书”的表、或只涉及 [`重要人物表`](index.js:9460) / [`总结表`](index.js:9463) / [`总体大纲`](index.js:9466) 时，`readableText` 本来就可能为空，实际 [`mergedData`](index.js:16338) 仍然有有效数据，结果把自定义导出错误地走到了“清理并跳过创建”分支。
+4. **修复方案**：
+   - 新增 [`getImportJsonStorageComment_ACU()`](index.js:18639)、[`loadImportedJsonDataFromLorebook_ACU()`](index.js:18644)、[`saveImportedJsonDataToLorebook_ACU()`](index.js:18658)、[`deleteImportedJsonDataFromLorebook_ACU()`](index.js:18685) 统一管理外部导入临时 JSON 条目；
+   - 在 [`processImportedTxtAsUpdates_ACU()`](index.js:18756) 首次导入时，先用模板初始化内存数据库，并立即写入目标世界书的临时 JSON 条目；
+   - 在 [`processImportedTxtAsUpdates_ACU()`](index.js:18780) 继续导入时，优先从临时 JSON 条目恢复累计数据库；
+   - 在 [`processImportedTxtAsUpdates_ACU()`](index.js:18830) 每个分块成功后，立刻把累计数据库刷新回目标世界书临时条目；
+   - 在 [`processImportedTxtAsUpdates_ACU()`](index.js:18849) 最终世界书条目生成前，再从临时 JSON 条目重载一次累计数据，避免 UI 刷新链覆盖内存；
+   - 在 [`updateReadableLorebookEntry_ACU()`](index.js:16391) 仅对外部导入启用放宽判空：改为以 `mergedData` 是否存在有效单元格作为主判据，不影响其它普通填表流程；
+   - 在 [`processImportedTxtAsUpdates_ACU()`](index.js:18867) 最终世界书条目生成完成后，再删除临时 JSON 条目；
+   - 临时 JSON 条目统一写入实际目标世界书 [`importTarget`](index.js:18722)，避免“character”占位目标导致临时条目写错位置。
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| 外部导入临时 JSON 条目辅助函数 | 18639-18693 | 新增临时条目 comment 生成、读取、写入、删除辅助函数，统一管理 `ImportedJsonData` 数据源条目 |
+| 外部导入初始化与续跑恢复 | 18716-18798 | 新增实际目标世界书解析；首次导入时立即写入临时 JSON 条目，继续导入时优先从临时条目恢复累计数据库 |
+| 外部导入分块持久化 | 18830-18840 | 每个分块成功后立刻把累计数据库刷新到目标世界书的临时 JSON 条目 |
+| 外部导入最终重载与注入 | 18847-18874 | 最终生成世界书条目前，优先从临时 JSON 条目重载累计数据，再执行最终注入与删除临时条目 |
+| 世界书空数据库判定修复（仅外部导入） | 16391-16414 | 仅对外部导入放宽判空，避免 `readableText` 为空时误判数据库为空，同时不影响其它普通填表流程 |
+
+## 2026-03-30 更新（浅色主题勾选框配色优化）
+
+### 优化插件主面板在素纱主题下的勾选框视觉风格
+
+#### 功能描述
+1. 优化插件主面板在浅色“素纱”主题下的复选框配色，避免继续沿用深色主题的纯黑底色。
+2. **问题根因**：[`index.js`](index.js:19829) 中插件弹窗作用域下的 `input[type="checkbox"]` 固定使用黑底白勾，虽然在深色“墨纸”主题中对比清晰，但切换到浅色“素纱”主题后会产生过强反差，破坏整体古典浅色界面的协调感。
+3. **优化方案**：将勾选框样式改为基于主题变量驱动，在默认深色主题下继续保持原有黑底白勾效果，同时为浅色“素纱”主题新增独立的边框、底色、选中底色、阴影与焦点高亮变量，使未选中和已选中状态都与浅色 UI 保持统一。
+
+#### 修改位置
+
+| 函数 / 场景 | 行号区间 | 说明 |
+|------|------|------|
+| 插件主面板复选框样式 | 19829-19868 | 将固定黑底复选框改为使用 `--acu-checkbox-*` 主题变量控制边框、背景、选中态与焦点态 |
+| 素纱/墨纸主题变量 | 20396-20400, 20430-20434 | 为双主题分别补充复选框颜色变量；浅色主题下使用更柔和的纸面底色与印章色选中态 |
+
 ## 2026-03-30 更新（世界书条目 uid=0 勾选修复）
 
 ### 修复发送世界书条目时 `uid === 0` 被误判为未选择的问题
