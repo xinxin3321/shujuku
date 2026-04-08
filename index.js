@@ -22920,6 +22920,7 @@ const DatabaseAPI_ACU = {
                         align-items: stretch;
                         justify-items: stretch;
                         margin-top: 0;
+                        min-width: 0;
                     }
                     #${POPUP_ID_ACU} .button-group.acu-data-mgmt-buttons.acu-cols-2 {
                         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -23238,8 +23239,8 @@ const DatabaseAPI_ACU = {
 
                     /* 响应式：移动端优先解决"超窄 + 两侧空白" -> 让内容尽量占满可用宽度 */
                     @media screen and (max-width: 1100px) {
-                        #${POPUP_ID_ACU} .acu-layout { 
-                            grid-template-columns: 1fr; 
+                        #${POPUP_ID_ACU} .acu-layout {
+                            grid-template-columns: 1fr;
                             min-height: 0; /* 允许收缩 */
                         }
                         #${POPUP_ID_ACU} .acu-tabs-nav {
@@ -23262,6 +23263,42 @@ const DatabaseAPI_ACU = {
                         #${POPUP_ID_ACU} .acu-nav-section-title { display: none; }
                         #${POPUP_ID_ACU} .acu-tab-button { width: auto; white-space: nowrap; }
                         #${POPUP_ID_ACU} .acu-main { min-height: 0; }
+                        #${POPUP_ID_ACU} #acu-tab-data .acu-data-template-grid {
+                            grid-template-columns: 1fr !important;
+                            gap: 12px !important;
+                        }
+                        #${POPUP_ID_ACU} #acu-tab-data .acu-data-template-grid > * {
+                            min-width: 0;
+                        }
+                        #${POPUP_ID_ACU} #acu-tab-data .acu-template-preset-left,
+                        #${POPUP_ID_ACU} #acu-tab-data .acu-template-preset-actions {
+                            width: 100%;
+                            flex-wrap: wrap;
+                        }
+                        #${POPUP_ID_ACU} #acu-tab-data .acu-template-preset-left .acu-mini-btn,
+                        #${POPUP_ID_ACU} #acu-tab-data .acu-template-preset-actions .acu-mini-btn {
+                            flex: 1 1 140px;
+                            min-width: 0;
+                            justify-content: center;
+                        }
+                        #${POPUP_ID_ACU} #acu-tab-data .acu-data-isolation-row {
+                            flex-direction: column;
+                            align-items: stretch !important;
+                        }
+                        #${POPUP_ID_ACU} #acu-tab-data .acu-data-isolation-row > button {
+                            width: 100%;
+                        }
+                        #${POPUP_ID_ACU} #acu-tab-data .button-group.acu-data-mgmt-buttons.acu-cols-3 {
+                            grid-template-columns: repeat(2, minmax(0, 1fr));
+                        }
+                        #${POPUP_ID_ACU} #acu-tab-data .button-group.acu-data-mgmt-buttons button,
+                        #${POPUP_ID_ACU} #acu-tab-data .button-group.acu-data-mgmt-buttons .button {
+                            height: auto !important;
+                            min-height: 42px !important;
+                            padding: 8px 10px !important;
+                            white-space: normal !important;
+                            line-height: 1.35 !important;
+                        }
                     }
                     
                     /* 手机横屏/小平板 (≤768px) */
@@ -24165,7 +24202,7 @@ const DatabaseAPI_ACU = {
                         <div class="setting-item" style="margin-bottom: 15px; border-bottom: 1px dashed var(--border-normal); padding-bottom: 15px;">
                             <div id="${SCRIPT_ID_PREFIX_ACU}-data-isolation-input-area" style="margin-top: 10px;">
                                 <label for="${SCRIPT_ID_PREFIX_ACU}-data-isolation-code">标识代码:</label>
-                                <div style="display: flex; gap: 10px; margin-top: 5px; align-items: flex-start;">
+                                <div class="acu-data-isolation-row" style="display: flex; gap: 10px; margin-top: 5px; align-items: flex-start;">
                                     <div id="${SCRIPT_ID_PREFIX_ACU}-data-isolation-combo" style="position: relative; flex-grow: 1; display: flex; align-items: center;">
                                         <input type="text" id="${SCRIPT_ID_PREFIX_ACU}-data-isolation-code" placeholder="输入标识代码 (留空则不隔离)" style="flex-grow: 1; padding-right: 36px;">
                                         <button type="button" id="${SCRIPT_ID_PREFIX_ACU}-data-isolation-history-toggle" title="历史标识代码" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 1px solid var(--border-normal); background: var(--bg-secondary); color: var(--text-main); padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 12px; line-height: 1;">▼</button>
@@ -24195,7 +24232,7 @@ const DatabaseAPI_ACU = {
                         <hr style="border-color: var(--border-normal); margin: 15px 0;">
                         <div class="acu-template-presets" style="background: var(--background-color-light); padding: 12px; border-radius: 8px;">
                             <h4 style="margin: 0 0 10px 0; font-size: 0.95em; font-weight: 600;">表格模板预设（全局 / 当前聊天）</h4>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; align-items: start;">
+                            <div class="acu-data-template-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; align-items: start;">
                                 <div style="padding: 16px; background: var(--background_default); border-radius: 8px; border: 1px solid var(--border_color_light); display: flex; flex-direction: column; gap: 12px;">
                                     <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
                                         <div>
