@@ -21256,7 +21256,7 @@ const DatabaseAPI_ACU = {
     $menuItemContainer = jQuery_API_ACU(
       `<div class="extension_container interactable" id="${MENU_ITEM_CONTAINER_ID_ACU}" tabindex="0"></div>`,
     );
-    const menuItemHTML = `<div class="list-group-item flex-container flexGap5 interactable" id="${MENU_ITEM_ID_ACU}" title="打开数据库自动更新工具"><div class="fa-fw fa-solid fa-database extensionsMenuExtensionButton"></div><span>星·数据库 II</span></div>`;
+    const menuItemHTML = `<div class="list-group-item flex-container flexGap5 interactable" id="${MENU_ITEM_ID_ACU}" title="打开数据库自动更新工具"><div class="fa-fw fa-solid fa-database extensionsMenuExtensionButton"></div><span>星·数据库 III</span></div>`;
     const $menuItem = jQuery_API_ACU(menuItemHTML);
     $menuItem.on(`click.${SCRIPT_ID_PREFIX_ACU}`, async function (e) {
       e.stopPropagation();
@@ -23102,8 +23102,8 @@ const DatabaseAPI_ACU = {
                         color: var(--acu-text-1) !important;
                     }
                     /* 剧情推进独立提示词组编辑器（避免与“数据库更新预设”事件冲突，使用独立 class） */
-                    #${POPUP_ID_ACU} .plot-prompt-segment { 
-                        margin-bottom: 12px; 
+                    #${POPUP_ID_ACU} .plot-prompt-segment {
+                        margin-bottom: 12px;
                         border: 1px solid rgba(255, 255, 255, 0.10);
                         background: rgba(0, 0, 0, 0.18);
                         padding: 12px;
@@ -23111,7 +23111,16 @@ const DatabaseAPI_ACU = {
                     }
                     #${POPUP_ID_ACU} .plot-prompt-segment-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
                     #${POPUP_ID_ACU} .plot-prompt-segment-role { width: 120px !important; flex-grow: 0; }
-                    #${POPUP_ID_ACU} .plot-prompt-segment-delete-btn { 
+                    #${POPUP_ID_ACU} #acu-tab-plot .acu-plot-header-row,
+                    #${POPUP_ID_ACU} #acu-tab-plot .acu-plot-scope-grid,
+                    #${POPUP_ID_ACU} #acu-tab-plot .acu-plot-task-layout {
+                        min-width: 0;
+                    }
+                    #${POPUP_ID_ACU} #acu-tab-plot .acu-plot-scope-grid > *,
+                    #${POPUP_ID_ACU} #acu-tab-plot .acu-plot-task-layout > * {
+                        min-width: 0;
+                    }
+                    #${POPUP_ID_ACU} .plot-prompt-segment-delete-btn {
                         width: 28px; height: 28px; padding: 0;
                         border-radius: 999px;
                         border: 1px solid rgba(255, 107, 107, 0.35);
@@ -23257,19 +23266,19 @@ const DatabaseAPI_ACU = {
                     
                     /* 手机横屏/小平板 (≤768px) */
                     @media screen and (max-width: 768px) {
-                        #${POPUP_ID_ACU} { 
-                            padding: 10px; 
+                        #${POPUP_ID_ACU} {
+                            padding: 10px;
                             padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-                            max-width: 100vw; 
+                            max-width: 100vw;
                             overflow-x: hidden;
                             overflow-y: auto;
                             box-sizing: border-box;
                             /* 确保高度不超过容器 */
                             max-height: 100%;
                         }
-                        #${POPUP_ID_ACU} .acu-layout { 
-                            gap: 10px; 
-                            margin-top: 10px; 
+                        #${POPUP_ID_ACU} .acu-layout {
+                            gap: 10px;
+                            margin-top: 10px;
                             /* 防止内容溢出 */
                             min-height: 0;
                         }
@@ -23277,21 +23286,30 @@ const DatabaseAPI_ACU = {
                         #${POPUP_ID_ACU} h2#updater-main-title-acu { font-size: 14px; }
                         #${POPUP_ID_ACU} .acu-card { padding: 12px; margin-bottom: 10px; }
                         #${POPUP_ID_ACU} .acu-card h3 { font-size: 13px; margin-bottom: 10px; padding-bottom: 8px; }
-                        #${POPUP_ID_ACU} .acu-tabs-nav { 
-                            padding: 8px; 
-                            gap: 6px; 
-                            flex-shrink: 0; 
+                        #${POPUP_ID_ACU} .acu-tabs-nav {
+                            padding: 8px;
+                            gap: 6px;
+                            flex-shrink: 0;
                             /* 导航条不应该溢出 */
                             max-height: none;
                             /* 窄屏模式下使用不透明背景 */
                             background: #0d1117;
                             border-color: rgba(255, 255, 255, 0.12);
                         }
+                        #${POPUP_ID_ACU} #acu-tab-plot .acu-plot-header-row {
+                            flex-wrap: wrap;
+                            align-items: flex-start !important;
+                            gap: 10px !important;
+                        }
+                        #${POPUP_ID_ACU} #acu-tab-plot .acu-plot-header-row > div:last-child {
+                            width: 100%;
+                            justify-content: flex-start !important;
+                        }
                     }
                     
                     @media screen and (max-width: 520px) {
-                        #${POPUP_ID_ACU} { 
-                            padding: 8px; 
+                        #${POPUP_ID_ACU} {
+                            padding: 8px;
                             padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
                         }
                         #${POPUP_ID_ACU} .acu-layout { gap: 8px; margin-top: 8px; min-height: 0; }
@@ -23305,9 +23323,27 @@ const DatabaseAPI_ACU = {
                         #${POPUP_ID_ACU} table { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; font-size: 12px; }
                         #${POPUP_ID_ACU} table th, #${POPUP_ID_ACU} table td { padding: 4px 6px !important; }
                         #${POPUP_ID_ACU} .checkbox-group { padding: 10px; gap: 8px; }
+                        #${POPUP_ID_ACU} #acu-tab-plot .acu-plot-scope-grid,
+                        #${POPUP_ID_ACU} #acu-tab-plot .acu-plot-task-layout {
+                            grid-template-columns: 1fr !important;
+                            gap: 10px !important;
+                        }
+                        #${POPUP_ID_ACU} #acu-tab-plot .plot-prompt-segment-toolbar {
+                            flex-direction: column;
+                            align-items: stretch;
+                        }
+                        #${POPUP_ID_ACU} #acu-tab-plot .plot-prompt-segment-toolbar > div {
+                            width: 100%;
+                            justify-content: space-between;
+                            flex-wrap: wrap;
+                        }
+                        #${POPUP_ID_ACU} #acu-tab-plot .plot-prompt-segment-role {
+                            width: 100% !important;
+                        }
 
                         /* 剧情推进：预设下拉框单独占一行（更适合窄屏） */
                         #${POPUP_ID_ACU} #acu-tab-plot .acu-plot-preset-wrapper {
+                            width: 100%;
                             flex-wrap: wrap;
                             align-items: stretch !important;
                         }
@@ -24405,7 +24441,7 @@ const DatabaseAPI_ACU = {
                 <div id="acu-tab-plot" class="acu-tab-content">
                     <div class="acu-card">
                         <!-- 顶部标题和开关区域 -->
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border_color);">
+                        <div class="acu-plot-header-row" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border_color);">
                             <div>
                                 <h3 style="margin: 0; color: var(--text_primary);">剧情推进设置</h3>
                                 <p class="notes" style="margin: 5px 0 0 0;">通过AI预处理用户输入，增强故事叙述质量和剧情连贯性</p>
@@ -24424,7 +24460,7 @@ const DatabaseAPI_ACU = {
                             <h4 style="margin: 0 0 15px 0; color: var(--text_primary); display: flex; align-items: center; gap: 8px;">
                                 <i class="fa-solid fa-bookmark"></i> 预设管理
                             </h4>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; align-items: start;">
+                            <div class="acu-plot-scope-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; align-items: start;">
                                 <div style="padding: 16px; background: var(--background_default); border-radius: 8px; border: 1px solid var(--border_color_light); display: flex; flex-direction: column; gap: 12px;">
                                     <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
                                         <div>
@@ -24494,7 +24530,7 @@ const DatabaseAPI_ACU = {
                                     <code>zhaohui</code> - 记忆召回数量
                                 </small>
                             </div>
-                            <div style="display:grid; grid-template-columns: minmax(240px, 280px) minmax(0, 1fr); gap:16px; align-items:start; margin-bottom:15px;">
+                            <div class="acu-plot-task-layout" style="display:grid; grid-template-columns: minmax(240px, 280px) minmax(0, 1fr); gap:16px; align-items:start; margin-bottom:15px;">
                                 <div style="padding:12px; background:var(--background_default); border-radius:8px; border:1px solid var(--border_color_light);">
                                     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:10px;">
                                         <label style="font-weight:600; margin:0;">剧情任务列表</label>
@@ -24936,7 +24972,7 @@ const DatabaseAPI_ACU = {
     
     createACUWindow({
       id: windowId,
-      title: '星·数据库 II',
+      title: '星·数据库 III',
       content: popupHtml,
       width: 1400,  // 基础宽度
       height: 900,  // 基础高度
