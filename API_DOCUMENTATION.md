@@ -540,25 +540,43 @@ await window.AutoCardUpdaterAPI.refreshDataAndWorldbook();
 
 ## 模板管理 API
 
-### `importTemplate()`
+### `importTemplate(options)`
 
 导入模板（会弹出文件选择对话框）。
 
+**参数**:
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| options | Object | 否 | 可选配置 |
+| options.scope | `'global' \| 'chat'` | 否 | 导入作用域，默认 `global`。传入 `chat` 时会将模板仅注入到当前聊天 |
+
 **返回值**: `Promise<boolean>`
 
 ---
 
-### `exportTemplate()`
+### `exportTemplate(options)`
 
 导出模板到文件。
 
+**参数**:
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| options | Object | 否 | 可选配置 |
+| options.scope | `'global' \| 'chat'` | 否 | 导出作用域，默认 `global`。传入 `chat` 时导出当前聊天模板快照 |
+
 **返回值**: `Promise<boolean>`
 
 ---
 
-### `resetTemplate()`
+### `resetTemplate(options)`
 
 重置模板为默认值。
+
+**参数**:
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| options | Object | 否 | 可选配置 |
+| options.scope | `'global' \| 'chat'` | 否 | 重置作用域，默认 `global`。传入 `chat` 时仅重置当前聊天模板为默认模板 |
 
 **返回值**: `Promise<boolean>`
 
@@ -582,7 +600,10 @@ await window.AutoCardUpdaterAPI.refreshDataAndWorldbook();
 
 ### `getTableTemplate()`
 
-获取当前使用的表格模板。
+获取当前运行态实际使用的表格模板。
+
+- 如果当前聊天存在聊天级模板覆写，则返回当前聊天模板
+- 否则返回当前 profile 的全局模板
 
 **返回值**: `Object | null` - 模板对象的深拷贝，如果未设置则返回 `null`
 
@@ -596,7 +617,51 @@ if (template) {
 
 ---
 
-### `importTemplateFromData(templateData)`
+### `getTemplatePresetNames()`
+
+获取全局模板预设名称列表。
+
+**返回值**: `Array<string>` - 全局模板预设名称数组
+
+---
+
+### `switchTemplatePreset(presetName, options)`
+
+切换模板预设，可作用于全局或仅当前聊天。
+
+**参数**:
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| presetName | string | 是 | 要切换到的模板预设名称。传空字符串时表示切换到默认模板 |
+| options | Object | 否 | 可选配置 |
+| options.scope | `'global' \| 'chat'` | 否 | 切换作用域，默认 `global`。传入 `chat` 时仅影响当前聊天 |
+
+**返回值**: `Promise<{success: boolean, scope: string, message: string}>`
+
+**示例**:
+```javascript
+const api = window.AutoCardUpdaterAPI;
+
+await api.switchTemplatePreset('标准模板', { scope: 'global' });
+await api.switchTemplatePreset('任务模板', { scope: 'chat' });
+```
+
+---
+
+### `injectTemplatePresetToCurrentChat(presetName)`
+
+仅将模板预设注入到当前聊天，不修改全局当前模板预设。
+
+**参数**:
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| presetName | string | 是 | 要注入到当前聊天的模板预设名称。传空字符串时表示当前聊天恢复到默认模板快照 |
+
+**返回值**: `Promise<{success: boolean, scope: string, message: string}>`
+
+---
+
+### `importTemplateFromData(templateData, options)`
 
 通过前端直接导入表格模板（无需文件选择器）。
 
@@ -604,8 +669,18 @@ if (template) {
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
 | templateData | Object \| string | 是 | 模板数据，可以是 JSON 对象或 JSON 字符串 |
+| options | Object | 否 | 可选配置 |
+| options.scope | `'global' \| 'chat'` | 否 | 导入作用域，默认 `global`。传入 `chat` 时仅写入当前聊天模板快照 |
+| options.presetName | string | 否 | 模板名。优先级最高；`scope='global'` 时会尝试保存到全局模板预设库；`scope='chat'` 时作为当前聊天模板快照的标记名 |
 
-**返回值**: `Promise<{success: boolean, message: string}>` - 导入结果
+**返回值**: `Promise<{success: boolean, message: string, scope?: string, presetName?: string}>` - 导入结果
+
+**命名补充说明**:
+- 如果调用方没有显式传入 `options.presetName`：
+  - 文件导入场景会优先使用文件名作为模板预设名；
+  - 如果连文件名也没有，则会回退使用当前角色卡卡名作为模板预设名；
+  - 仅当 `scope='global'` 且前两者都拿不到时，才会继续使用系统生成的兜底名称。
+- 通过 [`initGameSession()`](index.js:7774) 并配合 `options.injectTemplate = true` 注入模板时，也会复用同一套命名回退逻辑；如果调用方未提供 `options.templatePresetName`，则会优先尝试角色卡名称。
 
 **模板数据结构要求**:
 - 必须包含 `mate` 对象且 `mate.type` 为 `"chatSheets"`
@@ -623,12 +698,18 @@ const template = {
     }
 };
 
-const result = await window.AutoCardUpdaterAPI.importTemplateFromData(template);
-if (result.success) {
-    console.log("模板导入成功:", result.message);
-} else {
-    console.error("模板导入失败:", result.message);
-}
+const globalResult = await window.AutoCardUpdaterAPI.importTemplateFromData(template, {
+    scope: 'global',
+    presetName: '标准模板'
+});
+
+const chatResult = await window.AutoCardUpdaterAPI.importTemplateFromData(template, {
+    scope: 'chat',
+    presetName: '任务专用模板'
+});
+
+console.log(globalResult.message);
+console.log(chatResult.message);
 ```
 
 ---
@@ -984,13 +1065,24 @@ const api = window.AutoCardUpdaterAPI;
 
 // 假设从服务器获取了模板和预设数据
 async function loadFromServer() {
-    // 导入模板
+    // 将模板注入到当前聊天，不改动全局模板库
     const templateResponse = await fetch('/api/template.json');
     const templateData = await templateResponse.json();
-    const templateResult = await api.importTemplateFromData(templateData);
-    console.log("模板导入:", templateResult.message);
+    const templateResult = await api.importTemplateFromData(templateData, {
+        scope: 'chat',
+        presetName: '服务器下发模板'
+    });
+    console.log("模板注入当前聊天:", templateResult.message);
+
+    // 如果你走的是角色卡开场页初始化链路，也可以这样显式指定模板预设名
+    await api.initGameSession({ name: '示例角色' }, {
+        injectTemplate: true,
+        loadPreset: false,
+        templateData,
+        templatePresetName: '示例角色'
+    });
     
-    // 导入预设
+    // 导入剧情推进预设库
     const presetResponse = await fetch('/api/presets.json');
     const presetsData = await presetResponse.json();
     const presetsResult = await api.importPlotPresetsFromData(presetsData);
@@ -1409,13 +1501,15 @@ const analysis = await window.AutoCardUpdaterAPI.callAI(messages);
 
 3. **数据安全**: `getPlotPresets()` 和 `getPlotPresetDetails()` 返回的是深拷贝，修改返回值不会影响原始数据。
 
-4. **UI 同步**: `switchPlotPreset()` 会自动同步设置面板的 UI（如果已打开）。
+4. **UI 同步**: `switchPlotPreset()` 与 `switchTemplatePreset()` 会自动同步设置面板的 UI（如果已打开）。
 
 5. **错误处理**: 所有 API 方法都有内置错误处理，失败时会返回 `false` 或空值，不会抛出异常。
 
 6. **前端导入 API**: `importTemplateFromData()` 和 `importPlotPresetFromData()` 返回包含 `success` 和 `message` 的对象，便于前端展示导入结果。
 
 7. **数据隔离**: 切换预设后，`$6` 占位符会自动回溯查找匹配当前预设名称标签的历史数据，实现不同预设间的剧情规划隔离。
+
+8. **模板作用域**: `importTemplate()`、`exportTemplate()`、`resetTemplate()`、`switchTemplatePreset()`、`importTemplateFromData()` 都支持 `options.scope`。`global` 作用于当前 profile 的全局模板；`chat` 仅作用于当前聊天模板快照，不会改动全局模板库。
 
 ---
 
@@ -1428,3 +1522,4 @@ const analysis = await window.AutoCardUpdaterAPI.callAI(messages);
 | 1.2 | 新增前端导入 API：`importTemplateFromData()`, `importPlotPresetFromData()`, `importPlotPresetsFromData()`, `getTableTemplate()`, `exportAllPlotPresets()` |
 | 1.3 | 新增更新配置参数 API：`getUpdateConfigParams()`, `setUpdateConfigParams()`；新增手动更新表选择 API：`getManualSelectedTables()`, `setManualSelectedTables()`, `clearManualSelectedTables()`；新增 API 预设管理 API：`getApiPresets()`, `getTableApiPreset()`, `setTableApiPreset()`, `getPlotApiPreset()`, `setPlotApiPreset()`, `saveApiPreset()`, `loadApiPreset()`, `deleteApiPreset()` |
 | 1.4 | 新增 AI 调用 API：`callAI(messages, options)` 使用数据库配置的 API 调用 AI；`getStoryContext(maxTurns)` 获取最近剧情上下文 |
+| 1.5 | 补充模板双作用域相关文档：`importTemplate(options)`、`exportTemplate(options)`、`resetTemplate(options)`、`getTemplatePresetNames()`、`switchTemplatePreset()`、`injectTemplatePresetToCurrentChat()`、`importTemplateFromData(templateData, options)` |
