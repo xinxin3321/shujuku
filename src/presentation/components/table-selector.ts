@@ -1,6 +1,13 @@
 // table-selector.ts
 // 从 04_table_selectors.js 整体迁入
 
+import { currentJsonTableData_ACU, settings_ACU } from '../../service/runtime/state-manager';
+import { saveSettings_ACU } from '../../service/settings/settings-service';
+import { escapeHtml_ACU } from '../../shared/html-helpers';
+import { parseTableTemplateJson_ACU } from '../../shared/utils';
+import { getSelectedManualSheetKeys_ACU } from '../triggers/settings-ui-sync';
+import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
+
   export function renderManualTableSelector_ACU() {
       if (!$manualTableSelector_ACU || !$manualTableSelector_ACU.length || !currentJsonTableData_ACU) return;
       const availableKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU);

@@ -1,6 +1,12 @@
 // window-system.ts
 // 从 01_window_system.js 整体迁入
 
+import { getConfigStorage_ACU, persistTavernSettings_ACU } from '../../data/storage/tavern-storage';
+import { applyACUThemeToDocument_ACU, syncACUThemeButtons_ACU, toggleACUTheme_ACU } from './window-styles';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { topLevelWindow_ACU } from '../../shared/env';
+import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-helpers';
+
   const ACU_WindowManager = {
     windows: new Map(), // id -> { $el, zIndex, ... }
     baseZIndex: 10000,
@@ -106,7 +112,7 @@
    * @param {function} [options.onReady] - 窗口就绪回调（DOM已插入）
    * @returns {jQuery} 窗口jQuery对象
    */
-  function createACUWindow(options) {
+  export function createACUWindow(options) {
     const {
       id,
       title = '窗口',

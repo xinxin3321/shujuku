@@ -1,10 +1,18 @@
+import { STORAGE_KEY_IMPORTED_ENTRIES_ACU, STORAGE_KEY_IMPORTED_STATUS_ACU, STORAGE_KEY_IMPORTED_STATUS_FULL_ACU, STORAGE_KEY_IMPORTED_STATUS_STANDARD_ACU, STORAGE_KEY_IMPORTED_STATUS_SUMMARY_ACU } from '../../data/constants';
+import { importTempGet_ACU, importTempRemove_ACU, importTempSet_ACU } from '../../data/storage/idb-import-temp';
+import { getImportSelectionFromUI_ACU, renderImportTableSelector_ACU } from './table-selector';
+import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../theme/toast';
+import { handleInjectImportedTxtSelected_ACU } from '../../service/import/import-process';
+import { settings_ACU } from '../../service/runtime/state-manager';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { logDebug_ACU } from '../../shared/utils';
 /**
  * presentation/components/import-status-ui.ts — 导入状态 UI
  * 从 features/import/01~03 迁移而来
  */
   // --- [新增] 外部导入功能 ---
 
-  const IMPORTED_ENTRY_PREFIX_ACU = 'TavernDB-ACU-ImportedTxt-';
+  export const IMPORTED_ENTRY_PREFIX_ACU = 'TavernDB-ACU-ImportedTxt-';
   // [外部导入] 本次注入的批次ID（用于“每批独立注入，不覆盖上一批”）
   let importBatchId_ACU = null;
 
@@ -17,9 +25,9 @@
 
   // 外部导入前缀：
   // - stable: 用于 UI 识别/手动删除
-  function getImportStablePrefix_ACU() { return '外部导入-'; }
+  export function getImportStablePrefix_ACU() { return '外部导入-'; }
   // 当前按用户要求：外部导入不自动清理，因此无需批次隔离；统一使用稳定前缀即可
-  function getImportBatchPrefix_ACU() { return getImportStablePrefix_ACU(); }
+  export function getImportBatchPrefix_ACU() { return getImportStablePrefix_ACU(); }
 
   // [新增] 只清除本地存储中的导入缓存
 
@@ -28,7 +36,7 @@
 
   // --- [新增] 外部导入功能 ---
   
-  async function updateImportStatusUI_ACU() {
+  export async function updateImportStatusUI_ACU() {
       if (!$popupInstance_ACU) return;
       const $statusDisplay = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-status`);
       const $injectButton = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-inject-imported-txt-button`);
@@ -86,7 +94,7 @@
 
   // [新增] 获取导入专用的世界书目标
 
-  function getImportJsonStorageComment_ACU(modeSuffix = '-Selected') {
+  export function getImportJsonStorageComment_ACU(modeSuffix = '-Selected') {
       const IMPORT_PREFIX = '外部导入-';
       return `${IMPORT_PREFIX}TavernDB-ACU-ImportedJsonData${modeSuffix}`;
   }
@@ -98,9 +106,9 @@
   // [外部导入] 自选表格注入（取代旧的 标准/总结/整体 模式）
 
   // 兼容旧API/旧按钮调用（仍会走自选表格逻辑）
-  async function handleInjectSplitEntriesStandard_ACU() { return await handleInjectImportedTxtSelected_ACU(); }
-  async function handleInjectSplitEntriesSummary_ACU() { return await handleInjectImportedTxtSelected_ACU(); }
-  async function handleInjectSplitEntriesFull_ACU() { return await handleInjectImportedTxtSelected_ACU(); }  async function handleTxtImportAndSplit_ACU() {
+  export async function handleInjectSplitEntriesStandard_ACU() { return await handleInjectImportedTxtSelected_ACU(); }
+  export async function handleInjectSplitEntriesSummary_ACU() { return await handleInjectImportedTxtSelected_ACU(); }
+  export async function handleInjectSplitEntriesFull_ACU() { return await handleInjectImportedTxtSelected_ACU(); }  export async function handleTxtImportAndSplit_ACU() {
       const $splitSizeInput = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-split-size`);
       const $encodingSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-encoding`); // 新增
       const $statusDisplay = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-status`);
@@ -181,7 +189,7 @@ export   async function getImportWorldbookTarget_ACU() {
   }
 
   // [T176] 控制注入按钮启用/禁用
-  function setImportInjectButtonEnabled_ACU(enabled) {
+  export function setImportInjectButtonEnabled_ACU(enabled) {
     if (!$popupInstance_ACU) return;
     const $btn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-inject-imported-txt-button`);
     if ($btn.length) $btn.prop('disabled', !enabled);

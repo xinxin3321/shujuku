@@ -1,6 +1,23 @@
 // init.ts — 初始化编排
 // 从 05_core_tail.js 迁入
 
+import { DEFAULT_PLOT_SETTINGS_ACU } from '../../data/models/defaults-json.js';
+import { addAutoCardMenuItem_ACU } from '../../presentation/bootstrap/startup';
+import { newMessageDebounceTimer_ACU, _set_newMessageDebounceTimer_ACU} from '../../presentation/components/plot-editors';
+import { showToastr_ACU } from '../../presentation/theme/toast';
+import { attemptToLoadCoreApis_ACU } from '../../presentation/triggers/settings-ui-sync';
+import { handleChatCompletionReady_ACU, loadPresetAndCleanCharacterData_ACU, stopAutoLoop_ACU } from './helpers-remaining';
+import { SillyTavern_API_ACU, currentChatFileIdentifier_ACU, generationGate_ACU, installSendIntentCaptureHooks_ACU, isProcessing_Plot_ACU, isQuietLikeGeneration_ACU, isRecentUserSendIntent_ACU, loopState_ACU, recordGenerationContext_ACU, recordLastUserSend_ACU, settings_ACU, shouldProcessAutoTableUpdateForGenerationEnded_ACU, shouldProcessPlotForGeneration_ACU, _set_isProcessing_Plot_ACU} from './state-manager';
+import { applyTemplateScopeForCurrentChat_ACU, loadSettings_ACU } from '../settings/settings-service';
+import { resetScriptStateForNewChat_ACU } from '../worldbook/injection-engine';
+import { loadAllChatMessages_ACU, refreshMergedDataAndNotify_ACU } from '../worldbook/pipeline';
+import { cleanChatName_ACU, hashUserInput_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
+import { markPlotIntercept_ACU, shouldSkipPlotIntercept_ACU } from '../../presentation/components/optimization-ui';
+import { getSendTextareaValue_ACU, setSendTextareaValue_ACU } from '../../presentation/components/status-display';
+import { updateCardUpdateStatusDisplay_ACU } from '../../presentation/components/update-status-display';
+import { handleNewMessageDebounced_ACU } from '../../presentation/triggers/settings-ui-sync';
+import { enterLoopRetryFlow_ACU, onLoopGenerationEnded_ACU, runOptimizationLogic_ACU } from './helpers-remaining';
+
 export   function mainInitialize_ACU() {
     console.log('ACU_INIT_DEBUG: mainInitialize_ACU called.');
     if (attemptToLoadCoreApis_ACU()) {
@@ -59,19 +76,19 @@ export   function mainInitialize_ACU() {
           await loadPresetAndCleanCharacterData_ACU();
 
           // [剧情推进] TavernHelper钩子：拦截直接的JS调用
-          if (!window.original_TavernHelper_generate_ACU) {
-            if (window.TavernHelper && typeof window.TavernHelper.generate === 'function') {
-              window.original_TavernHelper_generate_ACU = window.TavernHelper.generate;
-              window.TavernHelper.generate = async function (...args) {
+          if (!(window as any).original_TavernHelper_generate_ACU) {
+            if ((window as any).TavernHelper && typeof (window as any).TavernHelper.generate === 'function') {
+              (window as any).original_TavernHelper_generate_ACU = (window as any).TavernHelper.generate;
+              (window as any).TavernHelper.generate = async function (...args) {
                 const options = args[0] || {};
 
                 // 注意：TavernHelper.generate 常用于脚本/插件直接触发，这里不依赖“发送意图”，只过滤 quiet/automatic_trigger。
                 if (isQuietLikeGeneration_ACU('tavernhelper', { quiet_prompt: options.quiet_prompt }) || options.automatic_trigger) {
-                  return window.original_TavernHelper_generate_ACU.apply(this, args);
+                  return (window as any).original_TavernHelper_generate_ACU.apply(this, args);
                 }
 
                 if (!settings_ACU.plotSettings.enabled || isProcessing_Plot_ACU || loopState_ACU.isRetrying || options.should_stream) {
-                  return window.original_TavernHelper_generate_ACU.apply(this, args);
+                  return (window as any).original_TavernHelper_generate_ACU.apply(this, args);
                 }
 
                 let userMessage = options.user_input || options.prompt;
@@ -83,7 +100,7 @@ export   function mainInitialize_ACU() {
 
                 try {
                   if (userMessage) {
-                    isProcessing_Plot_ACU = true;
+                    _set_isProcessing_Plot_ACU(true);
                     try {
                       // [优化] 传递原始用户输入用于哈希匹配
                       // 注意：在 TavernHelper.generate 钩子中，userMessage 就是原始用户输入
@@ -95,16 +112,16 @@ export   function mainInitialize_ACU() {
                       // 去重互斥：若本次被判定为重复触发，则不改写 prompt，继续走原始生成
                       if (finalMessage && finalMessage.skipped) {
                         logDebug_ACU('[剧情推进] Planning skipped in TavernHelper.generate hook (duplicate).');
-                        isProcessing_Plot_ACU = false;
-                        return await window.original_TavernHelper_generate_ACU.apply(this, args);
+                        _set_isProcessing_Plot_ACU(false);
+                        return await (window as any).original_TavernHelper_generate_ACU.apply(this, args);
                       }
 
                       // 检查是否被中止
                       if (finalMessage && finalMessage.aborted) {
                         logDebug_ACU('[剧情推进] Generation aborted by user.');
                         // 中止剧情规划不应中断酒馆的正常生成流程：直接走原始生成（不改写prompt）
-                        isProcessing_Plot_ACU = false;
-                        return await window.original_TavernHelper_generate_ACU.apply(this, args);
+                        _set_isProcessing_Plot_ACU(false);
+                        return await (window as any).original_TavernHelper_generate_ACU.apply(this, args);
                       }
 
                       // 如果是在循环模式下且规划未返回有效字符串，视为规划失败，按循环重试次数重试
@@ -135,15 +152,15 @@ export   function mainInitialize_ACU() {
                     } catch (error) {
                       logError_ACU('[剧情推进] Error in TavernHelper.generate hook:', error);
                     } finally {
-                      isProcessing_Plot_ACU = false;
+                      _set_isProcessing_Plot_ACU(false);
                     }
                   }
 
                   // 关键：等待原始生成完成后再恢复 AI 指令预设
-                  return await window.original_TavernHelper_generate_ACU.apply(this, args);
+                  return await (window as any).original_TavernHelper_generate_ACU.apply(this, args);
                 } catch (error) {
                   logError_ACU('[剧情推进] Error in TavernHelper.generate hook:', error);
-                  return window.original_TavernHelper_generate_ACU.apply(this, args);
+                  return (window as any).original_TavernHelper_generate_ACU.apply(this, args);
                 }
               };
               logDebug_ACU('[剧情推进] TavernHelper.generate hook registered.');
@@ -253,7 +270,7 @@ export   function mainInitialize_ACU() {
 
               const messageToProcess = lastMessage.mes;
               if (messageToProcess && messageToProcess.trim().length > 0) {
-                isProcessing_Plot_ACU = true;
+                _set_isProcessing_Plot_ACU(true);
                 try {
                   // 如果是在循环模式下，给消息打上规划标记
                   const isLoopTriggered = loopState_ACU.isLooping && loopState_ACU.awaitingReply;
@@ -287,8 +304,8 @@ export   function mainInitialize_ACU() {
                       try {
                         if (SillyTavern_API_ACU && typeof SillyTavern_API_ACU.stopGeneration === 'function') {
                           SillyTavern_API_ACU.stopGeneration();
-                        } else if (window.SillyTavern?.stopGeneration) {
-                          window.SillyTavern.stopGeneration();
+                        } else if ((window as any).SillyTavern?.stopGeneration) {
+                          (window as any).SillyTavern.stopGeneration();
                         }
                       } catch (e) {}
                       try {
@@ -297,8 +314,8 @@ export   function mainInitialize_ACU() {
                         if (lastNow && lastNow.is_user && String(lastNow.mes || '') === String(messageToProcess || '')) {
                           if (typeof SillyTavern_API_ACU.deleteLastMessage === 'function') {
                             await SillyTavern_API_ACU.deleteLastMessage();
-                          } else if (window.SillyTavern?.deleteLastMessage) {
-                            await window.SillyTavern.deleteLastMessage();
+                          } else if ((window as any).SillyTavern?.deleteLastMessage) {
+                            await (window as any).SillyTavern.deleteLastMessage();
                           }
                         }
                       } catch (e) {}
@@ -328,7 +345,7 @@ export   function mainInitialize_ACU() {
                   logError_ACU('[剧情推进] Error processing last chat message:', error);
                   delete lastMessage._plot_processed; // 允许重试
                 } finally {
-                  isProcessing_Plot_ACU = false;
+                  _set_isProcessing_Plot_ACU(false);
                 }
                 return; // 策略1成功，直接返回，不再执行策略2
               }
@@ -340,7 +357,7 @@ export   function mainInitialize_ACU() {
             const textInBox = getSendTextareaValue_ACU();
             if (!textInBox || !String(textInBox).trim()) return;
 
-            isProcessing_Plot_ACU = true;
+            _set_isProcessing_Plot_ACU(true);
             try {
               // [优化] 传递原始用户输入用于哈希匹配
               // 注意：在策略2中，textInBox 就是原始用户输入（还未被规划结果替换）
@@ -362,8 +379,8 @@ export   function mainInitialize_ACU() {
                   try {
                     if (SillyTavern_API_ACU && typeof SillyTavern_API_ACU.stopGeneration === 'function') {
                       SillyTavern_API_ACU.stopGeneration();
-                    } else if (window.SillyTavern?.stopGeneration) {
-                      window.SillyTavern.stopGeneration();
+                    } else if ((window as any).SillyTavern?.stopGeneration) {
+                      (window as any).SillyTavern.stopGeneration();
                     }
                   } catch (e) {}
                 }
@@ -379,7 +396,7 @@ export   function mainInitialize_ACU() {
             } catch (error) {
               logError_ACU('[剧情推进] Error processing textarea input (Strategy 2):', error);
             } finally {
-              isProcessing_Plot_ACU = false;
+              _set_isProcessing_Plot_ACU(false);
               // 消费掉本次发送意图，避免同一次生成链路重复触发
               generationGate_ACU.lastUserSendIntentAt = 0;
             }
@@ -391,10 +408,10 @@ export   function mainInitialize_ACU() {
                 SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes[evName], async (data) => {
                     logDebug_ACU(`ACU ${evName} event detected. Triggering data reload and merge from chat history.`);
                     clearTimeout(newMessageDebounceTimer_ACU);
-                    newMessageDebounceTimer_ACU = setTimeout(async () => {
+                    _set_newMessageDebounceTimer_ACU(setTimeout(async () => {
                         // [修复] 重新合并数据并更新UI和世界书
                         await refreshMergedDataAndNotify_ACU();
-                    }, 500); // 使用防抖处理快速滑动
+                    }, 500)); // 使用防抖处理快速滑动
                 });
             }
         });

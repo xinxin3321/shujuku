@@ -1,3 +1,19 @@
+import { DEFAULT_CHAR_CARD_PROMPT_ACU, TABLE_TEMPLATE_ACU } from '../../data/models/defaults-json.js';
+import { deriveTemplatePresetNameForImport_ACU, getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU, sanitizeFilenameComponent_ACU } from '../../data/repositories/template-preset-repo';
+import { renderPromptSegments_ACU } from '../components/plot-editors';
+import { getDefaultTemplateSnapshot_ACU, getTemplatePreset_ACU } from '../components/template-preset-ui';
+import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../theme/toast';
+import { SillyTavern_API_ACU, TavernHelper_API_ACU, $popupInstance_ACU, currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../../service/runtime/state-manager';
+import { loadSettingsAndRefreshUI_ACU, saveSettings_ACU } from '../../service/settings/settings-service';
+import { getCurrentChatTemplateScopeState_ACU, getGlobalTemplateSnapshotForCurrentProfile_ACU, migrateLegacyTemplateScopeForCurrentChat_ACU, sanitizeChatSheetsObject_ACU, sanitizeTemplateSnapshotForChat_ACU } from '../../service/template/chat-scope';
+import { refreshMergedDataAndNotify_ACU } from '../../service/worldbook/pipeline';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { safeJsonParse_ACU } from '../../shared/json-helpers';
+import { ensureSheetOrderNumbers_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
+import { loadOrCreateJsonTableFromChatHistory_ACU } from '../../data/repositories/table-repo';
+import { applyTemplateSnapshotToScope_ACU, getTemplatePresetSelectJQ_ACU, normalizeTemplateOperationScope_ACU, parseImportedTemplateData_ACU, refreshTemplatePresetSelectInUI_ACU, resolveActiveTemplatePresetName_ACU, upsertTemplatePreset_ACU } from '../components/template-preset-ui';
+import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-display';
+import { buildDefaultExportConfig_ACU, ensureExportConfigDefaults_ACU, getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from '../../service/worldbook/injection-engine';
 /**
  * presentation/triggers/data-admin-ui.ts — 导入/导出/重置 UI
  * 从 features/data/01_data_admin.js 迁移而来
@@ -8,7 +24,7 @@
     input.type = 'file';
     input.accept = '.json';
     input.onchange = e => {
-        const file = e.target.files[0];
+        const file = (e.target as any).files[0];
         if (!file) return;
 
         const reader = new FileReader();
@@ -17,7 +33,7 @@
             let combinedData;
 
             try {
-                combinedData = JSON.parse(content);
+                combinedData = JSON.parse(content as string);
             } catch (error) {
                 logError_ACU('导入合并配置失败：JSON解析错误。', error);
                 showToastr_ACU('error', '文件不是有效的JSON格式。', { timeOut: 5000 });
@@ -147,7 +163,7 @@
   // [重要] 此函数只删除各楼层的表格数据（TavernDB_ACU_Data/IsolatedData等），
   //        不会删除聊天第一层的"空白指导表"（TavernDB_ACU_InternalSheetGuide），
   //        指导表用于保存表头结构和填表参数，作为该聊天的总指导。
-  async function deleteLocalDataInChat_ACU(mode = 'current', startFloor = null, endFloor = null) {
+  export async function deleteLocalDataInChat_ACU(mode = 'current', startFloor = null, endFloor = null) {
       // mode: 'current' (删除当前标识的数据) | 'all' (删除所有数据)
       // startFloor/endFloor: 楼层范围 (1-based, null表示不限制)
       const chat = SillyTavern_API_ACU.chat;
@@ -329,7 +345,7 @@
       }
   }
 
-  function exportCurrentJsonData_ACU() {
+  export function exportCurrentJsonData_ACU() {
     if (!currentJsonTableData_ACU) {
         showToastr_ACU('warning', '没有可导出的数据库。请先开始一个对话。');
         return;
@@ -356,7 +372,7 @@
     }
   }
 
-  function exportTableTemplate_ACU({ scope = 'global' } = {}) {
+  export function exportTableTemplate_ACU({ scope = 'global' } = {}) {
     const normalizedScope = normalizeTemplateOperationScope_ACU(scope);
     try {
         let fromPresetName = '';
@@ -455,7 +471,7 @@
     }
   }
 
-  async function resetAllToDefaults_ACU() {
+  export async function resetAllToDefaults_ACU() {
       if (!confirm('确定要同时恢复【默认AI指令预设】和【默认表格模板】吗？\n\n这将覆盖您当前的自定义设置。此操作不可撤销。')) {
           return false;
       }
@@ -489,7 +505,7 @@
   }
 
   // [新增] 使用通用模板覆盖最新层所有表格数据的函数
-  async function overrideLatestLayerWithTemplate_ACU() {
+  export async function overrideLatestLayerWithTemplate_ACU() {
       if (!confirm('⚠️ 警告：此操作将使用当前通用模板覆盖聊天记录中最新一层的所有表格数据！\n\n' +
                   '• 模板中有的表格会被覆盖（只保留表头，数据清空）\n' +
                   '• 模板中没有的表格会被忽略（本地数据保持不变）\n' +
@@ -583,7 +599,7 @@
       }
   }
 
-  async function resetTableTemplate_ACU({ showToast = true, updatePresetSelection = true, refreshUi = true, overwriteReason = 'reset_template', scope = 'global', source = '' } = {}) {
+  export async function resetTableTemplate_ACU({ showToast = true, updatePresetSelection = true, refreshUi = true, overwriteReason = 'reset_template', scope = 'global', source = '' } = {}) {
     const normalizedScope = normalizeTemplateOperationScope_ACU(scope);
     try {
         const snapshot = getDefaultTemplateSnapshot_ACU();
@@ -621,13 +637,13 @@
     }
   }
 
-  function importTableTemplate_ACU({ scope = 'global' } = {}) {
+  export function importTableTemplate_ACU({ scope = 'global' } = {}) {
     const normalizedScope = normalizeTemplateOperationScope_ACU(scope);
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
     input.onchange = e => {
-        const file = e.target.files[0];
+        const file = (e.target as any).files[0];
         if (!file) return;
 
         const reader = new FileReader();

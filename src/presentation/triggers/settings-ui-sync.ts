@@ -1,3 +1,18 @@
+import { DEFAULT_CHAR_CARD_PROMPT_ACU } from '../../data/models/defaults-json.js';
+import { AUTO_UPDATE_FLOOR_INCREASE_DELAY_ACU } from '../../data/models/defaults';
+import { getCharCardPromptFromUI_ACU, isAutoUpdatingCard_ACU, manualExtraHint_ACU, newMessageDebounceTimer_ACU, renderPromptSegments_ACU, wasStoppedByUser_ACU , _set_isAutoUpdatingCard_ACU, _set_manualExtraHint_ACU, _set_newMessageDebounceTimer_ACU} from '../components/plot-editors';
+import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../theme/toast';
+import { NEW_MESSAGE_DEBOUNCE_DELAY_ACU, SillyTavern_API_ACU, TavernHelper_API_ACU, jQuery_API_ACU, toastr_API_ACU, $popupInstance_ACU, $customApiUrlInput_ACU, $customApiKeyInput_ACU, $customApiModelInput_ACU, $customApiModelSelect_ACU, $maxTokensInput_ACU, $temperatureInput_ACU, $apiStatusDisplay_ACU, $charCardPromptSegmentsContainer_ACU, $autoUpdateThresholdInput_ACU, $autoUpdateTokenThresholdInput_ACU, $autoUpdateFrequencyInput_ACU, $updateBatchSizeInput_ACU, $maxConcurrentGroupsInput_ACU, $skipUpdateFloorsInput_ACU, $retainRecentLayersInput_ACU, $tableMaxRetriesInput_ACU, $manualExtraHintCheckbox_ACU, allChatMessages_ACU, coreApisAreReady_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, lastTotalAiMessages_ACU, settings_ACU , _set_coreApisAreReady_ACU, _set_SillyTavern_API_ACU, _set_TavernHelper_API_ACU, _set_jQuery_API_ACU, _set_toastr_API_ACU, _set_lastTotalAiMessages_ACU} from '../../service/runtime/state-manager';
+import { loadSettingsAndRefreshUI_ACU, saveSettings_ACU } from '../../service/settings/settings-service';
+import { checkAndTriggerAutoMergeSummary_ACU } from '../../service/summary/merge-logic';
+import { processUpdates_ACU } from '../../service/table/update-process';
+import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
+import { loadAllChatMessages_ACU, refreshMergedDataAndNotify_ACU } from '../../service/worldbook/pipeline';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { escapeHtml_ACU } from '../../shared/html-helpers';
+import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
+import { executeContentOptimization_ACU } from '../components/optimization-ui';
+import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers-remaining';
 /**
  * presentation/triggers/settings-ui-sync.ts — UI读写/保存/刷新函数
  * 从 service/runtime/helpers-remaining.ts 提取的纯 UI 函数
@@ -8,7 +23,7 @@
   /**
    * 更新循环UI状态
    */
-  function updateLoopUIStatus_ACU(isRunning) {
+  export function updateLoopUIStatus_ACU(isRunning) {
     if (!$popupInstance_ACU) return;
     const $startBtn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-start-loop-btn`);
     const $stopBtn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-stop-loop-btn`);
@@ -31,14 +46,14 @@
   /**
    * 更新循环倒计时显示
    */
-  function updateLoopTimerDisplay_ACU(timeLeftFormatted) {
+  export function updateLoopTimerDisplay_ACU(timeLeftFormatted) {
     if (!$popupInstance_ACU) return;
     $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-timer-display`).text(`(剩余: ${timeLeftFormatted})`);
   }
 
 
   // --- API / 设置 UI ---
-  function updateApiModeView_ACU(apiMode) {
+  export function updateApiModeView_ACU(apiMode) {
     if (!$popupInstance_ACU) return;
     const $customApiBlock = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-custom-api-settings-block`);
     const $tavernApiBlock = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-tavern-api-profile-block`);
@@ -53,7 +68,7 @@
     }
   }
 
-  function updateCustomApiInputsState_ACU() {
+  export function updateCustomApiInputsState_ACU() {
     if (!$popupInstance_ACU) return;
     const useMainApi = settings_ACU.apiConfig.useMainApi;
     const $customApiFields = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-custom-api-fields`);
@@ -66,7 +81,7 @@
     }
   }
 
-  async function loadTavernApiProfiles_ACU() {
+  export async function loadTavernApiProfiles_ACU() {
     if (!$popupInstance_ACU) return;
     const $select = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-tavern-api-profile-select`);
     const currentProfileId = settings_ACU.tavernProfile;
@@ -76,14 +91,14 @@
     try {
         const tavernProfiles = SillyTavern_API_ACU.extensionSettings?.connectionManager?.profiles || [];
         if (!tavernProfiles || tavernProfiles.length === 0) {
-            $select.append($('<option>', { value: '', text: '未找到酒馆预设', disabled: true }));
+            $select.append(jQuery_API_ACU('<option>', { value: '', text: '未找到酒馆预设', disabled: true }));
             return;
         }
 
         let foundCurrentProfile = false;
         tavernProfiles.forEach(profile => {
             if (profile.api && profile.preset) { // Ensure it's a valid API profile
-                const option = $('<option>', {
+                const option = jQuery_API_ACU('<option>', {
                     value: profile.id,
                     text: profile.name || profile.id,
                     selected: profile.id === currentProfileId
@@ -105,7 +120,7 @@
     }
   }
 
-  function saveApiConfig_ACU() {
+  export function saveApiConfig_ACU() {
     if (!$popupInstance_ACU || !$customApiUrlInput_ACU || !$customApiKeyInput_ACU || !$customApiModelInput_ACU) {
       logError_ACU('保存API配置失败：UI元素未初始化。');
       return;
@@ -142,7 +157,7 @@
     loadSettingsAndRefreshUI_ACU();
   }
 
-  function clearApiConfig_ACU() {
+  export function clearApiConfig_ACU() {
     Object.assign(settings_ACU.apiConfig, { url: '', apiKey: '', model: '', max_tokens: 120000, temperature: 0.9 });
     saveSettings_ACU();
     showToastr_ACU('info', 'API配置已清除！');
@@ -150,7 +165,7 @@
   }
 
   // --- [新增] API预设管理函数 ---
-  function saveApiPreset_ACU(presetName) {
+  export function saveApiPreset_ACU(presetName) {
     if (!presetName || !presetName.trim()) {
       showToastr_ACU('warning', '请输入预设名称。');
       return false;
@@ -179,7 +194,7 @@
     return true;
   }
 
-  function loadApiPreset_ACU(presetName) {
+  export function loadApiPreset_ACU(presetName) {
     const preset = settings_ACU.apiPresets.find(p => p.name === presetName);
     if (!preset) {
       showToastr_ACU('error', `未找到预设 "${presetName}"。`);
@@ -196,7 +211,7 @@
     return true;
   }
 
-  function deleteApiPreset_ACU(presetName) {
+  export function deleteApiPreset_ACU(presetName) {
     const index = settings_ACU.apiPresets.findIndex(p => p.name === presetName);
     if (index < 0) {
       showToastr_ACU('error', `未找到预设 "${presetName}"。`);
@@ -219,7 +234,7 @@
     return true;
   }
 
-  function refreshApiPresetSelectors_ACU() {
+  export function refreshApiPresetSelectors_ACU() {
     if (!$popupInstance_ACU) return;
     
     const presets = settings_ACU.apiPresets || [];
@@ -270,7 +285,7 @@
    * @returns {object} - 包含 apiMode, apiConfig, tavernProfile 的配置对象
    */
 
-  function saveCustomCharCardPrompt_ACU() {
+  export function saveCustomCharCardPrompt_ACU() {
     if (!$popupInstance_ACU || !$charCardPromptSegmentsContainer_ACU) {
       logError_ACU('保存更新预设失败：UI元素未初始化。');
       return;
@@ -308,7 +323,7 @@
     loadSettingsAndRefreshUI_ACU(); // This will re-render from the saved data.
   }
 
-  function resetDefaultCharCardPrompt_ACU() {
+  export function resetDefaultCharCardPrompt_ACU() {
     settings_ACU.charCardPrompt = DEFAULT_CHAR_CARD_PROMPT_ACU;
     saveSettings_ACU();
     showToastr_ACU('info', '更新预设已恢复为默认值！');
@@ -316,12 +331,12 @@
     loadSettingsAndRefreshUI_ACU();
   }
 
-  function loadCharCardPromptFromJson_ACU() {
+  export function loadCharCardPromptFromJson_ACU() {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
     input.onchange = e => {
-        const file = e.target.files[0];
+        const file = (e.target as any).files[0];
         if (!file) return;
 
         const reader = new FileReader();
@@ -330,7 +345,7 @@
             let jsonData;
 
             try {
-                jsonData = JSON.parse(content);
+                jsonData = JSON.parse(content as string);
             } catch (error) {
                 logError_ACU('导入提示词模板失败：JSON解析错误。', error);
                 showToastr_ACU('error', '文件不是有效的JSON格式。', { timeOut: 5000 });
@@ -381,7 +396,7 @@
   }
 
   // [新增] 导出"填表提示词组(更新预设/AI指令预设)"为 JSON（与 loadCharCardPromptFromJson_ACU 联动）
-  function exportCharCardPromptToJson_ACU() {
+  export function exportCharCardPromptToJson_ACU() {
     try {
       const segments = getCharCardPromptFromUI_ACU();
       if (!Array.isArray(segments) || segments.length === 0) {
@@ -412,7 +427,7 @@
       showToastr_ACU('error', '导出提示词模板失败，请检查控制台获取详情。', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.ERROR });
     }
   }
-  function saveAutoUpdateThreshold_ACU({ silent = false, skipReload = false } = {}) {
+  export function saveAutoUpdateThreshold_ACU({ silent = false, skipReload = false } = {}) {
     if (!$popupInstance_ACU || !$autoUpdateThresholdInput_ACU) {
       logError_ACU('保存阈值失败：UI元素未初始化。');
       return;
@@ -434,7 +449,7 @@
     }
   }
 
-  function saveAutoUpdateTokenThreshold_ACU({ silent = false, skipReload = false } = {}) {
+  export function saveAutoUpdateTokenThreshold_ACU({ silent = false, skipReload = false } = {}) {
     if (!$popupInstance_ACU || !$autoUpdateTokenThresholdInput_ACU) {
       logError_ACU('保存Token阈值失败：UI元素未初始化。');
       return;
@@ -454,7 +469,7 @@
   }
 
   // [新增] 保存填表自动重试次数的函数
-  function saveTableMaxRetries_ACU({ silent = false, skipReload = false } = {}) {
+  export function saveTableMaxRetries_ACU({ silent = false, skipReload = false } = {}) {
     if (!$popupInstance_ACU || !$tableMaxRetriesInput_ACU) {
       logError_ACU('保存填表重试次数失败：UI元素未初始化。');
       return;
@@ -473,7 +488,7 @@
     }
   }
 
-  function saveAutoUpdateFrequency_ACU({ silent = false, skipReload = false } = {}) {
+  export function saveAutoUpdateFrequency_ACU({ silent = false, skipReload = false } = {}) {
     if (!$popupInstance_ACU || !$autoUpdateFrequencyInput_ACU) {
       logError_ACU('保存更新频率失败：UI元素未初始化。');
       return;
@@ -494,7 +509,7 @@
 
 
   // [新增] 保存批处理大小的函数
-  function saveUpdateBatchSize_ACU({ silent = false, skipReload = false } = {}) {
+  export function saveUpdateBatchSize_ACU({ silent = false, skipReload = false } = {}) {
       if (!$popupInstance_ACU || !$updateBatchSizeInput_ACU) {
           logError_ACU('保存批处理大小失败：UI元素未初始化。');
           return;
@@ -514,7 +529,7 @@
   }
 
   // [新增] 保存最大并发组数
-  function saveMaxConcurrentGroups_ACU({ silent = false, skipReload = false } = {}) {
+  export function saveMaxConcurrentGroups_ACU({ silent = false, skipReload = false } = {}) {
       if (!$popupInstance_ACU || !$maxConcurrentGroupsInput_ACU) {
           logError_ACU('保存最大并发数失败：UI元素未初始化。');
           return;
@@ -534,7 +549,7 @@
   }
 
    // [新增] 保存跳过更新楼层（全局）
-   function saveSkipUpdateFloors_ACU({ silent = false, skipReload = false } = {}) {
+   export function saveSkipUpdateFloors_ACU({ silent = false, skipReload = false } = {}) {
        if (!$popupInstance_ACU || !$skipUpdateFloorsInput_ACU) {
            logError_ACU('保存跳过更新楼层失败：UI元素未初始化。');
            return;
@@ -554,7 +569,7 @@
    }
 
    // [新增] 保存"保留最近N层数据"（全局）
-   function saveRetainRecentLayers_ACU({ silent = false, skipReload = false } = {}) {
+   export function saveRetainRecentLayers_ACU({ silent = false, skipReload = false } = {}) {
        if (!$popupInstance_ACU || !$retainRecentLayersInput_ACU) {
            logError_ACU('保存保留层数失败：UI元素未初始化。');
            return;
@@ -672,7 +687,7 @@
        }
    }
  
-   function saveImportSplitSize_ACU() {
+   export function saveImportSplitSize_ACU() {
        if (!$popupInstance_ACU) return;
       const $input = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-split-size`);
       if (!$input.length) {
@@ -693,7 +708,7 @@
       }
   }
 
-  async function fetchModelsAndConnect_ACU() {
+  export async function fetchModelsAndConnect_ACU() {
     if (
       !$popupInstance_ACU ||
       !$customApiUrlInput_ACU ||
@@ -790,7 +805,7 @@
     }
     updateApiStatusDisplay_ACU();
   }
-  function updateApiStatusDisplay_ACU() {
+  export function updateApiStatusDisplay_ACU() {
     if (!$popupInstance_ACU || !$apiStatusDisplay_ACU) return;
     if (settings_ACU.apiConfig.url && settings_ACU.apiConfig.model)
       $apiStatusDisplay_ACU.html(
@@ -804,13 +819,13 @@
       );
     else $apiStatusDisplay_ACU.html(`<span style="color:#ffcc80;">未配置自定义API。数据库更新功能可能不可用。</span>`);
   }
-  function attemptToLoadCoreApis_ACU() {
-    const parentWin = typeof window.parent !== 'undefined' ? window.parent : window;
-    SillyTavern_API_ACU = typeof SillyTavern !== 'undefined' ? SillyTavern : parentWin.SillyTavern;
-    TavernHelper_API_ACU = typeof TavernHelper !== 'undefined' ? TavernHelper : parentWin.TavernHelper;
-    jQuery_API_ACU = typeof $ !== 'undefined' ? $ : parentWin.jQuery;
-    toastr_API_ACU = parentWin.toastr || (typeof toastr !== 'undefined' ? toastr : null);
-    coreApisAreReady_ACU = !!(
+  export function attemptToLoadCoreApis_ACU() {
+    const parentWin: any = typeof window.parent !== 'undefined' ? window.parent : window;
+    _set_SillyTavern_API_ACU(typeof parentWin.SillyTavern !== 'undefined' ? parentWin.SillyTavern : (window as any).SillyTavern);
+    _set_TavernHelper_API_ACU(typeof parentWin.TavernHelper !== 'undefined' ? parentWin.TavernHelper : (window as any).TavernHelper);
+    _set_jQuery_API_ACU(typeof parentWin.$ !== 'undefined' ? parentWin.$ : (window as any).jQuery);
+    _set_toastr_API_ACU(parentWin.toastr || (typeof (window as any).toastr !== 'undefined' ? (window as any).toastr : null));
+    _set_coreApisAreReady_ACU(!!(
       SillyTavern_API_ACU &&
       TavernHelper_API_ACU &&
       jQuery_API_ACU &&
@@ -819,19 +834,19 @@
       TavernHelper_API_ACU.getCurrentCharPrimaryLorebook &&
       TavernHelper_API_ACU.getLorebookEntries &&
       typeof TavernHelper_API_ACU.triggerSlash === 'function'
-    );
+    ));
     if (!toastr_API_ACU) logWarn_ACU('toastr_API_ACU is MISSING.');
     if (coreApisAreReady_ACU) logDebug_ACU('Core APIs successfully loaded/verified for AutoCardUpdater.');
     else logError_ACU('Failed to load one or more critical APIs for AutoCardUpdater.');
     return coreApisAreReady_ACU;
   }
 
-  async function handleNewMessageDebounced_ACU(eventType = 'unknown_acu') {
+  export async function handleNewMessageDebounced_ACU(eventType = 'unknown_acu') {
     logDebug_ACU(
       `New message event (${eventType}) detected for ACU, debouncing for ${NEW_MESSAGE_DEBOUNCE_DELAY_ACU}ms...`,
     );
     clearTimeout(newMessageDebounceTimer_ACU);
-    newMessageDebounceTimer_ACU = setTimeout(async () => {
+    _set_newMessageDebounceTimer_ACU(setTimeout(async () => {
       // [健全性] 如果用户已经开始对话，则解除"开场白阶段世界书注入抑制"
       try { maybeLiftWorldbookSuppression_ACU(); } catch (e) {}
 
@@ -903,11 +918,11 @@
       } else {
         await triggerAutomaticUpdateIfNeeded_ACU();
       }
-    }, NEW_MESSAGE_DEBOUNCE_DELAY_ACU);
+    }, NEW_MESSAGE_DEBOUNCE_DELAY_ACU));
   }
 
   // [重构] 核心触发逻辑：基于独立表格参数的触发检查
-  async function triggerAutomaticUpdateIfNeeded_ACU() {
+  export async function triggerAutomaticUpdateIfNeeded_ACU() {
     logDebug_ACU('ACU Auto-Trigger: Starting independent check...');
 
     if (!settings_ACU.autoUpdateEnabled) {
@@ -942,9 +957,9 @@
         if (!liveChat || liveChat.length === 0) return;
         totalAiMessages = liveChat.filter(m => !m.is_user).length;
         
-        lastTotalAiMessages_ACU = totalAiMessages;
+        _set_lastTotalAiMessages_ACU(totalAiMessages);
     } else if (totalAiMessages < lastTotalAiMessages_ACU) {
-         lastTotalAiMessages_ACU = totalAiMessages;
+         _set_lastTotalAiMessages_ACU(totalAiMessages);
     }
 
     // 独立表格检查
@@ -1186,7 +1201,7 @@
             showToastr_ACU('info', `检测到 ${tablesToUpdate.length} 个表格需要更新，将并发处理 ${totalGroups} 组。`);
         }
         
-        isAutoUpdatingCard_ACU = true;
+        _set_isAutoUpdatingCard_ACU(true);
         
         const failedGroupKeys = [];
         for (let start = 0; start < groupKeys.length; start += maxConcurrentGroups) {
@@ -1227,7 +1242,7 @@
         await refreshMergedDataAndNotify_ACU();
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        isAutoUpdatingCard_ACU = false;
+        _set_isAutoUpdatingCard_ACU(false);
         // 最后再刷新一次，确保 UI 状态最新
         await refreshMergedDataAndNotify_ACU();
 
@@ -1248,8 +1263,8 @@
   }
 
   // [新增] 手动更新时采集一次性额外提示词
-  function collectManualExtraHint_ACU() {
-      manualExtraHint_ACU = '';
+  export function collectManualExtraHint_ACU() {
+      _set_manualExtraHint_ACU('');
       if (!$manualExtraHintCheckbox_ACU || !$manualExtraHintCheckbox_ACU.length) return;
       if (!$manualExtraHintCheckbox_ACU.is(':checked')) return;
 
@@ -1257,11 +1272,11 @@
       const trimmed = (userInput || '').trim();
       if (!trimmed) return;
 
-      manualExtraHint_ACU = `以下为用户的额外填表要求，请严格遵守：${trimmed}`;
+      _set_manualExtraHint_ACU(`以下为用户的额外填表要求，请严格遵守：${trimmed}`);
   }
 
   // [新增] 获取当前选中的手动更新表格列表（无效或为空则回退为全部表）
-  function getSelectedManualSheetKeys_ACU() {
+  export function getSelectedManualSheetKeys_ACU() {
       if (!currentJsonTableData_ACU) return [];
       const availableKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
       const saved = Array.isArray(settings_ACU.manualSelectedTables) ? settings_ACU.manualSelectedTables : [];

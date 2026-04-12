@@ -1,65 +1,120 @@
+import { DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_PLOT_SETTINGS_ACU, TABLE_TEMPLATE_ACU } from '../../data/models/defaults-json.js';
+import { getCurrentWorldbookConfig_ACU } from '../../data/repositories/character-settings-repo';
+import { getDataIsolationHistory_ACU, removeDataIsolationHistory_ACU } from '../../data/repositories/isolation-repo';
+import { globalMeta_ACU, saveGlobalMeta_ACU } from '../../data/repositories/profile-repo';
+import { deriveTemplatePresetNameForImport_ACU, getCurrentTemplatePresetName_ACU, isDefaultTemplatePresetSelection_ACU, normalizeTemplatePresetSelectionValue_ACU, persistCurrentTemplatePresetName_ACU } from '../../data/repositories/template-preset-repo';
+import { updateImportStatusUI_ACU, handleTxtImportAndSplit_ACU } from '../components/import-status-ui';
+import { addPlotTaskFromUI_ACU, buildDefaultPlotPromptGroup_ACU, deleteCurrentPlotTaskFromUI_ACU, getCharCardPromptFromUI_ACU, getPlotPromptGroupFromUI_ACU, loadCurrentPlotTaskToUI_ACU, moveCurrentPlotTask_ACU, renderPlotPromptSegments_ACU, renderPlotTaskList_ACU, renderPromptSegments_ACU, saveCurrentPlotTaskFromUI_ACU, schedulePlotTaskAutoSave_ACU, selectPlotTaskForEditing_ACU } from '../components/plot-editors';
+import { getTemplatePreset_ACU } from '../components/template-preset-ui';
+import { openNewVisualizer_ACU } from './visualizer';
+import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../theme/toast';
+import { importCombinedSettings_ACU } from '../../service/data-admin/admin';
+import { clearImportLocalStorage_ACU, clearImportedEntries_ACU, deleteImportedEntries_ACU, handleInjectImportedTxtSelected_ACU } from '../../service/import/import-process';
+import { buildDefaultContentOptimizationPromptGroup_ACU } from '../../service/optimization/content-optimization';
+import { stopAutoLoop_ACU } from '../../service/runtime/helpers-remaining';
+import {
+  currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU,
+  jQuery_API_ACU, toastr_API_ACU, TavernHelper_API_ACU, $popupInstance_ACU,
+  $apiConfigSectionToggle_ACU, $apiConfigAreaDiv_ACU, $customApiUrlInput_ACU, $customApiKeyInput_ACU,
+  $customApiModelInput_ACU, $customApiModelSelect_ACU, $maxTokensInput_ACU, $temperatureInput_ACU,
+  $loadModelsButton_ACU, $saveApiConfigButton_ACU, $clearApiConfigButton_ACU, $apiStatusDisplay_ACU,
+  $charCardPromptToggle_ACU, $charCardPromptAreaDiv_ACU, $charCardPromptSegmentsContainer_ACU,
+  $saveCharCardPromptButton_ACU, $resetCharCardPromptButton_ACU, $plotPromptSegmentsContainer_ACU,
+  $plotTaskListContainer_ACU, $autoUpdateThresholdInput_ACU,
+  $saveAutoUpdateThresholdButton_ACU, $autoUpdateTokenThresholdInput_ACU, $saveAutoUpdateTokenThresholdButton_ACU,
+  $autoUpdateFrequencyInput_ACU, $saveAutoUpdateFrequencyButton_ACU, $updateBatchSizeInput_ACU,
+  $saveUpdateBatchSizeButton_ACU, $maxConcurrentGroupsInput_ACU, $autoUpdateEnabledCheckbox_ACU,
+  $standardizedTableFillEnabledCheckbox_ACU, $toastMuteEnabledCheckbox_ACU, $promptTemplateEnabledCheckbox_ACU,
+  $tableEditLastPairOnlyCheckbox_ACU, $tableMaxRetriesInput_ACU, $manualUpdateCardButton_ACU,
+  $statusMessageSpan_ACU, $cardUpdateStatusDisplay_ACU, $useMainApiCheckbox_ACU, $streamingEnabledCheckbox_ACU,
+  $manualExtraHintCheckbox_ACU, $skipUpdateFloorsInput_ACU, $saveSkipUpdateFloorsButton_ACU,
+  $retainRecentLayersInput_ACU, $saveRetainRecentLayersButton_ACU, $manualTableSelector_ACU,
+  $manualTableSelectAll_ACU, $manualTableSelectNone_ACU, $importTableSelector_ACU,
+  $importTableSelectAll_ACU, $importTableSelectNone_ACU,
+  _assignUIPlaceholders_ACU
+} from '../../service/runtime/state-manager';
+import { applyTemplateScopeForCurrentChat_ACU, loadSettingsAndRefreshUI_ACU, saveSettings_ACU, switchIsolationProfile_ACU } from '../../service/settings/settings-service';
+import { handleManualUpdate_ACU } from '../../service/table/update-process';
+import { getChatSheetGuideDataForIsolationKey_ACU, getCurrentChatPlotScopeState_ACU, getCurrentChatTemplateScopeState_ACU, sanitizeTemplateSnapshotForChat_ACU } from '../../service/template/chat-scope';
+import { deleteAllGeneratedEntries_ACU, getLorebookEntriesByNames_ACU, getWorldBooks_ACU, refreshMergedDataAndNotify_ACU, updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { topLevelWindow_ACU } from '../../shared/env';
+import { escapeHtml_ACU } from '../../shared/html-helpers';
+import { logDebug_ACU, logError_ACU, logWarn_ACU, normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shared/utils';
+import { loadOrCreateJsonTableFromChatHistory_ACU } from '../../data/repositories/table-repo';
+import { appendExcludeRuleRow_ACU, applyGlobalPlotPresetSelectionForEditor_ACU, applyPlotPresetToSettings_ACU, clearPlotPresetBindingForChat_ACU, ensureLoopPromptsArray_ACU, ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getCurrentRuntimePlotPresetName_ACU, getLastOptimizedMessageIndex_ACU, getPlotPresetBindingForChat_ACU, isDefaultPlotPresetSelection_ACU, normalizePlotPresetExcludeRules_ACU, normalizePlotPresetSelectionValue_ACU, persistPlotPresetSelectionState_ACU, readExcludeRulesFromRows_ACU, renderLoopPromptsList_ACU, reoptimizeMessage_ACU, saveLoopPromptsFromUI_ACU, setActivePlotEditorSettings_ACU, setCurrentEditablePlotPresetState_ACU, setPlotPromptContentByIdForSettings_ACU, stripPlotPresetWorldbookEntrySelectionForExport_ACU, switchCurrentChatPlotPreset_ACU } from '../components/optimization-ui';
+import { applyTemplatePresetToCurrent_ACU, applyTemplateSnapshotToScope_ACU, deleteTemplatePreset_ACU, ensureUniqueTemplatePresetName_ACU, loadTemplatePresetSelect_ACU, normalizeTemplateForPresetSave_ACU, parseImportedTemplateData_ACU, persistTemplateScopeSelectionState_ACU, resolveActiveTemplatePresetName_ACU, upsertTemplatePreset_ACU } from '../components/template-preset-ui';
+import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-display';
+import { applyWorldbookEntryFilter_ACU, applyWorldbookListFilter_ACU, applyWorldbookSelectFilter_ACU, getPlotWorldbookConfig_ACU, isEntryBlocked_ACU, populateImportWorldbookTargetSelector_ACU, populateInjectionTargetSelector_ACU, populatePlotWorldbookEntryList_ACU, populateWorldbookEntryList_ACU, populateWorldbookList_ACU, renderLazyWorldbookEntryItems_ACU, toggleLazyWorldbookEntryGroup_ACU, updateLazyWorldbookEntryCheckedState_ACU, updatePlotWorldbookSourceView_ACU, updateWorldbookSourceView_ACU } from '../components/worldbook-selector';
+import { getCurrentPlotSettingsFromUI_ACU, getOptimizationPromptGroupFromUI_ACU, loadOptimizationPresetSelect_ACU, loadOptimizationSettingsToUI_ACU, loadPlotPresetSelect_ACU, loadPlotSettingsToUI_ACU, renderOptimizationPromptSegments_ACU, saveOptimizationPresetAsNew_ACU, savePlotPresetAsNew_ACU } from './popup-helpers';
+import { deleteLocalDataInChat_ACU, exportCurrentJsonData_ACU, exportTableTemplate_ACU, importTableTemplate_ACU, overrideLatestLayerWithTemplate_ACU, resetAllToDefaults_ACU, resetTableTemplate_ACU } from '../triggers/data-admin-ui';
+import { clearApiConfig_ACU, deleteApiPreset_ACU, exportCharCardPromptToJson_ACU, fetchModelsAndConnect_ACU, loadApiPreset_ACU, loadCharCardPromptFromJson_ACU, loadTavernApiProfiles_ACU, refreshApiPresetSelectors_ACU, resetDefaultCharCardPrompt_ACU, saveApiConfig_ACU, saveApiPreset_ACU, saveAutoUpdateFrequency_ACU, saveAutoUpdateThreshold_ACU, saveAutoUpdateTokenThreshold_ACU, saveCustomCharCardPrompt_ACU, saveImportSplitSize_ACU, saveMaxConcurrentGroups_ACU, saveRetainRecentLayers_ACU, saveSkipUpdateFloors_ACU, saveTableMaxRetries_ACU, saveUpdateBatchSize_ACU, updateApiModeView_ACU, updateCustomApiInputsState_ACU } from '../triggers/settings-ui-sync';
+import { exportCombinedSettings_ACU, handleManualMergeSummary_ACU } from '../triggers/update-trigger';
+import { performContentOptimization_ACU } from '../../service/optimization/content-optimization';
+import { formatJsonToReadable_ACU, startAutoLoop_ACU } from '../../service/runtime/helpers-remaining';
+import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-engine';
 /**
  * presentation/pages/popup-bindings.ts — 主弹窗事件绑定
  * 从 main-popup.ts 拆出（原 onReady 回调中的事件绑定部分）
  */
 
-  async function bindPopupEvents_ACU() {
+  export async function bindPopupEvents_ACU() {
  
-      // Assign jQuery objects for UI elements
-      $apiConfigSectionToggle_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-config-toggle`);
-      $apiConfigAreaDiv_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-config-area-div`);
-      $customApiUrlInput_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-url`);
-      $customApiKeyInput_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-key`);
-      $customApiModelInput_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-model-input`);
-      $customApiModelSelect_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-model-select`);
-      $maxTokensInput_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-max-tokens`);
-      $temperatureInput_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-temperature`);
-      $loadModelsButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-load-models`);
-      $saveApiConfigButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-config`);
-      $clearApiConfigButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-clear-config`);
-      $apiStatusDisplay_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-status`);
-      $charCardPromptToggle_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-char-card-prompt-toggle`);
-      $charCardPromptAreaDiv_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-char-card-prompt-area-div`);
-      $charCardPromptSegmentsContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-prompt-segments-container`);
-      $saveCharCardPromptButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-char-card-prompt`);
-      $resetCharCardPromptButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-reset-char-card-prompt`);
+      // Assign jQuery objects for UI elements (via batch setter to avoid ESM reassignment)
+      _assignUIPlaceholders_ACU({
+        $apiConfigSectionToggle_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-config-toggle`),
+        $apiConfigAreaDiv_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-config-area-div`),
+        $customApiUrlInput_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-url`),
+        $customApiKeyInput_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-key`),
+        $customApiModelInput_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-model-input`),
+        $customApiModelSelect_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-model-select`),
+        $maxTokensInput_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-max-tokens`),
+        $temperatureInput_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-temperature`),
+        $loadModelsButton_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-load-models`),
+        $saveApiConfigButton_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-config`),
+        $clearApiConfigButton_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-clear-config`),
+        $apiStatusDisplay_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-status`),
+        $charCardPromptToggle_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-char-card-prompt-toggle`),
+        $charCardPromptAreaDiv_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-char-card-prompt-area-div`),
+        $charCardPromptSegmentsContainer_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-prompt-segments-container`),
+        $saveCharCardPromptButton_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-char-card-prompt`),
+        $resetCharCardPromptButton_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-reset-char-card-prompt`),
+        $autoUpdateThresholdInput_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-update-threshold`),
+        $saveAutoUpdateThresholdButton_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-auto-update-threshold`),
+        $autoUpdateTokenThresholdInput_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-update-token-threshold`),
+        $saveAutoUpdateTokenThresholdButton_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-auto-update-token-threshold`),
+        $autoUpdateFrequencyInput_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-update-frequency`),
+        $saveAutoUpdateFrequencyButton_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-auto-update-frequency`),
+        $updateBatchSizeInput_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-update-batch-size`),
+        $saveUpdateBatchSizeButton_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-update-batch-size`),
+        $maxConcurrentGroupsInput_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-max-concurrent-groups`),
+        $skipUpdateFloorsInput_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-skip-update-floors`),
+        $saveSkipUpdateFloorsButton_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-skip-update-floors`),
+        $retainRecentLayersInput_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-retain-recent-layers`),
+        $saveRetainRecentLayersButton_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-retain-recent-layers`),
+        $autoUpdateEnabledCheckbox_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-update-enabled-checkbox`),
+        $standardizedTableFillEnabledCheckbox_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-standardized-table-fill-enabled-checkbox`),
+        $toastMuteEnabledCheckbox_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-toast-mute-enabled-checkbox`),
+        $promptTemplateEnabledCheckbox_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-prompt-template-enabled-checkbox`),
+        $tableEditLastPairOnlyCheckbox_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-tableedit-last-pair-only-checkbox`),
+        $tableMaxRetriesInput_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-table-max-retries`),
+        $manualExtraHintCheckbox_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-manual-extra-hint-checkbox`),
+        $manualUpdateCardButton_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-manual-update-card`),
+        $manualTableSelectAll_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-manual-table-select-all`),
+        $manualTableSelectNone_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-manual-table-select-none`),
+        $manualTableSelector_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-manual-table-selector`),
+        $importTableSelectAll_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-table-select-all`),
+        $importTableSelectNone_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-table-select-none`),
+        $importTableSelector_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-table-selector`),
+        $statusMessageSpan_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-status-message`),
+        $cardUpdateStatusDisplay_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-card-update-status-display`),
+        $useMainApiCheckbox_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-use-main-api-checkbox`),
+        $streamingEnabledCheckbox_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-streaming-enabled-checkbox`),
+      });
       const $loadCharCardPromptFromJsonButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-load-char-card-prompt-from-json`);
       const $exportCharCardPromptToJsonButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-export-char-card-prompt-to-json`);
       const $advancedConfigToggle_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-advanced-config-toggle`);
       const $advancedConfigArea_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-advanced-config-area-div`);
-      $autoUpdateThresholdInput_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-update-threshold`);
-      $saveAutoUpdateThresholdButton_ACU = $popupInstance_ACU.find(
-        `#${SCRIPT_ID_PREFIX_ACU}-save-auto-update-threshold`,
-      );
-      $autoUpdateTokenThresholdInput_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-update-token-threshold`);
-      $saveAutoUpdateTokenThresholdButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-auto-update-token-threshold`);
-      $autoUpdateFrequencyInput_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-update-frequency`);
-      $saveAutoUpdateFrequencyButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-auto-update-frequency`);
-      $updateBatchSizeInput_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-update-batch-size`); // [新增]
-      $saveUpdateBatchSizeButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-update-batch-size`); // [新增]
-      $maxConcurrentGroupsInput_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-max-concurrent-groups`); // [新增]
-      $skipUpdateFloorsInput_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-skip-update-floors`);
-      $saveSkipUpdateFloorsButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-skip-update-floors`);
-      $retainRecentLayersInput_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-retain-recent-layers`);
-      $saveRetainRecentLayersButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-retain-recent-layers`);
-      $autoUpdateEnabledCheckbox_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-update-enabled-checkbox`); // 获取复选框
-      $standardizedTableFillEnabledCheckbox_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-standardized-table-fill-enabled-checkbox`);
-      $toastMuteEnabledCheckbox_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-toast-mute-enabled-checkbox`);
-      $promptTemplateEnabledCheckbox_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-prompt-template-enabled-checkbox`);
-      $tableEditLastPairOnlyCheckbox_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-tableedit-last-pair-only-checkbox`);
-      $tableMaxRetriesInput_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-table-max-retries`); // [新增] 填表重试次数
-      $manualExtraHintCheckbox_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-manual-extra-hint-checkbox`);
-      $manualUpdateCardButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-manual-update-card`);
-      $manualTableSelectAll_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-manual-table-select-all`);
-      $manualTableSelectNone_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-manual-table-select-none`);
-      $manualTableSelector_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-manual-table-selector`);
-      $importTableSelectAll_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-table-select-all`);
-      $importTableSelectNone_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-table-select-none`);
-      $importTableSelector_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-table-selector`);
-      $statusMessageSpan_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-status-message`);
-      $cardUpdateStatusDisplay_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-card-update-status-display`); // Assign new UI element
-      $useMainApiCheckbox_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-use-main-api-checkbox`);
-      $streamingEnabledCheckbox_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-streaming-enabled-checkbox`);
       const $importTemplateButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-template`);
       const $exportTemplateButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-export-template`);
       const $resetTemplateButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-reset-template`);
@@ -111,7 +166,7 @@
           $injectionTargetSelect.on('change', async function() {
               const worldbookConfig = getCurrentWorldbookConfig_ACU();
               const oldTargetSetting = worldbookConfig.injectionTarget;
-              const newTargetSetting = $(this).val();
+              const newTargetSetting = jQuery_API_ACU(this).val();
 
               if (oldTargetSetting === newTargetSetting) return;
 
@@ -172,9 +227,9 @@
         const $tabButtons = $popupInstance_ACU.find('.acu-tab-button');
         const $tabContents = $popupInstance_ACU.find('.acu-tab-content');
         $tabButtons.on('click', function() {
-            const tabId = $(this).data('tab');
+            const tabId = jQuery_API_ACU(this).data('tab');
             $tabButtons.removeClass('active');
-            $(this).addClass('active');
+            jQuery_API_ACU(this).addClass('active');
             $tabContents.removeClass('active');
             $popupInstance_ACU.find(`#acu-tab-${tabId}`).addClass('active');
         });
@@ -182,7 +237,7 @@
         // API Mode switching logic
         if ($apiModeRadios.length) {
             $apiModeRadios.on('change', function() {
-                const selectedMode = $(this).val();
+                const selectedMode = jQuery_API_ACU(this).val();
                 settings_ACU.apiMode = selectedMode;
                 saveSettings_ACU();
                 updateApiModeView_ACU(selectedMode);
@@ -193,7 +248,7 @@
         }
         if ($tavernProfileSelect.length) {
             $tavernProfileSelect.on('change', function() {
-                settings_ACU.tavernProfile = $(this).val();
+                settings_ACU.tavernProfile = jQuery_API_ACU(this).val();
                 saveSettings_ACU();
             });
         }
@@ -272,13 +327,13 @@
                 
                 // 触发UI刷新
                 // 1. 刷新可视化编辑器（如果打开）
-                if ($('#acu-visualizer-content').length || ACU_WindowManager.isOpen(`${SCRIPT_ID_PREFIX_ACU}-visualizer-window`)) {
+                if (jQuery_API_ACU('#acu-visualizer-content').length || (typeof (window as any).ACU_WindowManager !== 'undefined' && (window as any).ACU_WindowManager.isOpen(`${SCRIPT_ID_PREFIX_ACU}-visualizer-window`))) {
                      jQuery_API_ACU(document).trigger('acu-visualizer-refresh-data');
                 }
                 
                 // 2. [新增] 强制刷新前端UI显示的表格 (如果前端有监听 update 事件)
-                if (topLevelWindow_ACU.AutoCardUpdaterAPI) {
-                     topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
+                if ((topLevelWindow_ACU as any).AutoCardUpdaterAPI) {
+                     (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
                 }
 
                 // 3. [新增] 强制刷新状态显示 (消息计数)
@@ -314,8 +369,8 @@
 
         if ($dataIsolationHistoryList.length) {
             $dataIsolationHistoryList.on('click', '.acu-history-item', function(e) {
-                if ($(e.target).hasClass('acu-remove-code')) return;
-                const chosen = $(this).data('code');
+                if (jQuery_API_ACU(e.target).hasClass('acu-remove-code')) return;
+                const chosen = jQuery_API_ACU(this).data('code');
                 if (chosen && $dataIsolationCodeInput.length) {
                     $dataIsolationCodeInput.val(chosen);
                 }
@@ -324,7 +379,7 @@
 
             $dataIsolationHistoryList.on('click', '.acu-remove-code', function(e) {
                 e.stopPropagation();
-                const targetCode = $(this).data('code');
+                const targetCode = jQuery_API_ACU(this).data('code');
                 removeDataIsolationHistory_ACU(targetCode);
                 renderDataIsolationHistoryDropdown_ACU();
             });
@@ -333,7 +388,7 @@
         if ($dataIsolationCombo.length) {
             jQuery_API_ACU(document).on('click', function(e) {
                 if (!$dataIsolationCombo.hasClass('open')) return;
-                if ($(e.target).closest($dataIsolationCombo).length === 0) {
+                if (jQuery_API_ACU(e.target).closest($dataIsolationCombo).length === 0) {
                     closeDataIsolationHistoryDropdown_ACU();
                 }
             });
@@ -343,7 +398,7 @@
       if ($worldbookSourceRadios.length) {
           $worldbookSourceRadios.on('change', async function() {
               const worldbookConfig = getCurrentWorldbookConfig_ACU();
-              worldbookConfig.source = $(this).val();
+              worldbookConfig.source = jQuery_API_ACU(this).val();
               saveSettings_ACU();
               await updateWorldbookSourceView_ACU();
           });
@@ -355,17 +410,17 @@
       if ($wbTargetFilter.length) {
           $wbTargetFilter.on('input', function() {
               const $sel = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-injection-target`);
-              applyWorldbookSelectFilter_ACU($sel, $(this).val());
+              applyWorldbookSelectFilter_ACU($sel, jQuery_API_ACU(this).val());
           });
       }
       if ($wbListFilter.length) {
           $wbListFilter.on('input', function() {
-              applyWorldbookListFilter_ACU($worldbookSelect, $(this).val());
+              applyWorldbookListFilter_ACU($worldbookSelect, jQuery_API_ACU(this).val());
           });
       }
       if ($wbEntryFilter.length) {
           $wbEntryFilter.on('input', function() {
-              applyWorldbookEntryFilter_ACU($worldbookEntryList, $(this).val());
+              applyWorldbookEntryFilter_ACU($worldbookEntryList, jQuery_API_ACU(this).val());
           });
       }
       if ($refreshWorldbooksButton.length) {
@@ -381,19 +436,19 @@
       const $importPromptExcludeImportedEntriesToggle = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-prompt-exclude-imported-worldbook-entries`);
       if ($importWorldbookTargetFilter.length) {
           $importWorldbookTargetFilter.on('input', function() {
-              applyWorldbookSelectFilter_ACU($importWorldbookTargetSelect, $(this).val());
+              applyWorldbookSelectFilter_ACU($importWorldbookTargetSelect, jQuery_API_ACU(this).val());
           });
       }
       if ($importWorldbookTargetSelect.length) {
           $importWorldbookTargetSelect.on('change', function() {
-              settings_ACU.importWorldbookTarget = $(this).val();
+              settings_ACU.importWorldbookTarget = jQuery_API_ACU(this).val();
               saveSettings_ACU();
               logDebug_ACU(`Import worldbook target changed to: ${settings_ACU.importWorldbookTarget}`);
           });
       }
       if ($importPromptExcludeImportedEntriesToggle.length) {
           $importPromptExcludeImportedEntriesToggle.off('change.acu_import_prompt_filter').on('change.acu_import_prompt_filter', function() {
-              settings_ACU.importPromptExcludeImportedWorldbookEntries = $(this).is(':checked');
+              settings_ACU.importPromptExcludeImportedWorldbookEntries = jQuery_API_ACU(this).is(':checked');
               saveSettings_ACU();
               logDebug_ACU(`[外部导入] importPromptExcludeImportedWorldbookEntries=${settings_ACU.importPromptExcludeImportedWorldbookEntries}`);
           });
@@ -440,7 +495,7 @@
       if ($worldbookSelect.length) {
           // New click handler for the custom list
           $worldbookSelect.on('click', '.qrf_worldbook_list_item', async function() {
-              const $item = $(this);
+              const $item = jQuery_API_ACU(this);
               const bookName = $item.data('book-name');
               const worldbookConfig = getCurrentWorldbookConfig_ACU();
               let selection = worldbookConfig.manualSelection || [];
@@ -462,7 +517,7 @@
       }
       if ($worldbookEntryList.length) {
           $worldbookEntryList.off('change.acu_wb_list').on('change.acu_wb_list', 'input[type="checkbox"]', function() {
-              const $checkbox = $(this);
+              const $checkbox = jQuery_API_ACU(this);
               const bookName = $checkbox.data('book');
               const entryUid = $checkbox.data('uid');
               const worldbookConfig = getCurrentWorldbookConfig_ACU();
@@ -483,12 +538,12 @@
               saveSettings_ACU();
           });
           $worldbookEntryList.off('click.acu_wb_toggle').on('click.acu_wb_toggle', '.qrf_worldbook_entry_toggle', function() {
-              const bookName = $(this).closest('.qrf_worldbook_entry_group').data('book-name');
+              const bookName = jQuery_API_ACU(this).closest('.qrf_worldbook_entry_group').data('book-name');
               if (!bookName) return;
               toggleLazyWorldbookEntryGroup_ACU($worldbookEntryList, bookName);
           });
           $worldbookEntryList.off('click.acu_wb_more').on('click.acu_wb_more', '.qrf_worldbook_entry_load_more', function() {
-              const bookName = $(this).closest('.qrf_worldbook_entry_group').data('book-name');
+              const bookName = jQuery_API_ACU(this).closest('.qrf_worldbook_entry_group').data('book-name');
               if (!bookName) return;
               renderLazyWorldbookEntryItems_ACU($worldbookEntryList, bookName);
           });
@@ -499,7 +554,7 @@
       if ($outlineEnabledToggle.length) {
           $outlineEnabledToggle.off('change.acu_outline_toggle').on('change.acu_outline_toggle', async function() {
               // UI 是“0TK占用模式”
-              const modeEnabled = $(this).is(':checked');
+              const modeEnabled = jQuery_API_ACU(this).is(':checked');
               const worldbookConfig = getCurrentWorldbookConfig_ACU();
               worldbookConfig.zeroTkOccupyMode = !!modeEnabled;
               // 兼容：同步旧字段（旧语义：true=条目启用）
@@ -663,7 +718,7 @@
 
       if ($useMainApiCheckbox_ACU.length) {
         $useMainApiCheckbox_ACU.on('change', function () {
-            settings_ACU.apiConfig.useMainApi = $(this).is(':checked');
+            settings_ACU.apiConfig.useMainApi = jQuery_API_ACU(this).is(':checked');
             saveSettings_ACU();
             updateCustomApiInputsState_ACU();
             showToastr_ACU('info', `自定义API已切换为 ${settings_ACU.apiConfig.useMainApi ? '使用主API' : '使用独立配置'}`);
@@ -672,7 +727,7 @@
       // [新增] 流式传输开关事件监听
       if ($streamingEnabledCheckbox_ACU.length) {
         $streamingEnabledCheckbox_ACU.on('change', function () {
-            settings_ACU.streamingEnabled = $(this).is(':checked');
+            settings_ACU.streamingEnabled = jQuery_API_ACU(this).is(':checked');
             saveSettings_ACU();
             showToastr_ACU('info', `流式传输已${settings_ACU.streamingEnabled ? '启用' : '关闭'}`);
         });
@@ -684,7 +739,7 @@
       // [新增] 下拉选择改变时自动覆盖到输入框
       if ($customApiModelSelect_ACU.length) {
           $customApiModelSelect_ACU.on('change', function() {
-              const selectedModel = $(this).val();
+              const selectedModel = jQuery_API_ACU(this).val();
               if (selectedModel && $customApiModelInput_ACU.length) {
                   $customApiModelInput_ACU.val(selectedModel);
               }
@@ -721,7 +776,7 @@
 
       // 填表API预设选择器
       $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-table-api-preset-select`).on('change', function() {
-        settings_ACU.tableApiPreset = $(this).val();
+        settings_ACU.tableApiPreset = jQuery_API_ACU(this).val();
         saveSettings_ACU();
         logDebug_ACU(`填表API预设已切换为: ${settings_ACU.tableApiPreset || '当前配置'}`);
       });
@@ -738,7 +793,7 @@
         saveSettings_ACU();
       });
       $popupInstance_ACU.on('click', `#${SCRIPT_ID_PREFIX_ACU}-table-context-extract-rules .acu-exclude-rule-delete`, function() {
-        const $row = $(this).closest('.acu-exclude-rule-row');
+        const $row = jQuery_API_ACU(this).closest('.acu-exclude-rule-row');
         if ($row.length) $row.remove();
         settings_ACU.tableContextExtractRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-table-context-extract-rules`);
         saveSettings_ACU();
@@ -756,7 +811,7 @@
         saveSettings_ACU();
       });
       $popupInstance_ACU.on('click', `#${SCRIPT_ID_PREFIX_ACU}-table-context-exclude-rules .acu-exclude-rule-delete`, function() {
-        const $row = $(this).closest('.acu-exclude-rule-row');
+        const $row = jQuery_API_ACU(this).closest('.acu-exclude-rule-row');
         if ($row.length) $row.remove();
         settings_ACU.tableContextExcludeRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-table-context-exclude-rules`);
         saveSettings_ACU();
@@ -764,7 +819,7 @@
 
       // 剧情推进API预设选择器
       $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-api-preset-select`).on('change', function() {
-        settings_ACU.plotApiPreset = $(this).val();
+        settings_ACU.plotApiPreset = jQuery_API_ACU(this).val();
         saveSettings_ACU();
         logDebug_ACU(`剧情推进API预设已切换为: ${settings_ACU.plotApiPreset || '当前配置'}`);
       });
@@ -779,7 +834,7 @@
       
       // --- [新增] 对话编辑器事件绑定 ---
       $popupInstance_ACU.on('click', `.${SCRIPT_ID_PREFIX_ACU}-add-prompt-segment-btn`, function() {
-          const position = $(this).data('position');
+          const position = jQuery_API_ACU(this).data('position');
           const newSegment = { role: 'USER', content: '', deletable: true };
           let segments = getCharCardPromptFromUI_ACU();
           if (position === 'top') {
@@ -791,7 +846,7 @@
       });
 
       $popupInstance_ACU.on('click', '.prompt-segment-delete-btn', function() {
-          const indexToDelete = $(this).data('index');
+          const indexToDelete = jQuery_API_ACU(this).data('index');
           let segments = getCharCardPromptFromUI_ACU();
           segments.splice(indexToDelete, 1);
           renderPromptSegments_ACU(segments);
@@ -799,8 +854,8 @@
 
       // [新增] 主提示词槽位切换事件（A/B 两个槽位，各自保持唯一）
       $popupInstance_ACU.on('change', '.prompt-segment-main-slot', function() {
-          const $currentSegment = $(this).closest('.prompt-segment');
-          const selected = String($(this).val() || '').toUpperCase();
+          const $currentSegment = jQuery_API_ACU(this).closest('.prompt-segment');
+          const selected = String(jQuery_API_ACU(this).val() || '').toUpperCase();
 
           // 1) A/B 槽位唯一：同槽位的其他段落自动改为“普通”
           if (selected === 'A' || selected === 'B') {
@@ -808,7 +863,7 @@
               .find('.prompt-segment')
               .not($currentSegment)
               .each(function() {
-                const $seg = $(this);
+                const $seg = jQuery_API_ACU(this);
                 const v = String($seg.find('.prompt-segment-main-slot').val() || '').toUpperCase();
                 if (v === selected) {
                   $seg.find('.prompt-segment-main-slot').val('');
@@ -818,7 +873,7 @@
 
           // 2) 统一刷新样式与删除按钮可见性
           $charCardPromptSegmentsContainer_ACU.find('.prompt-segment').each(function() {
-            const $seg = $(this);
+            const $seg = jQuery_API_ACU(this);
             const slot = String($seg.find('.prompt-segment-main-slot').val() || '').toUpperCase();
             const isA = slot === 'A';
             const isB = slot === 'B';
@@ -1028,7 +1083,7 @@
                 });
                 if (result) {
                     refreshTemplatePresetUiState_ACU({ keepGlobalValue: true });
-                    if (result.mode === 'chat_override') {
+                    if ((result as any).mode === 'chat_override') {
                         showToastr_ACU('success', `当前聊天已切换到本地模板预设：${displayName}`, { acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT });
                     } else {
                         showToastr_ACU('success', `当前聊天已切换到引用预设：${displayName}；当前聊天尚未生成本地快照。`, { acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT });
@@ -1330,8 +1385,8 @@
         if ($exportCombinedSettingsButton.length) $exportCombinedSettingsButton.on('click', exportCombinedSettings_ACU);
         if ($openNewVisualizerButton_ACU.length) {
             $openNewVisualizerButton_ACU.on('click', function() {
-                if (topLevelWindow_ACU.AutoCardUpdaterAPI && topLevelWindow_ACU.AutoCardUpdaterAPI.openVisualizer) {
-                    topLevelWindow_ACU.AutoCardUpdaterAPI.openVisualizer();
+                if ((topLevelWindow_ACU as any).AutoCardUpdaterAPI && (topLevelWindow_ACU as any).AutoCardUpdaterAPI.openVisualizer) {
+                    (topLevelWindow_ACU as any).AutoCardUpdaterAPI.openVisualizer();
                 } else {
                      openNewVisualizer_ACU(); // Fallback direct call
                 }
@@ -1414,7 +1469,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       const $plotEnabledCheckbox = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-enabled`);
       if ($plotEnabledCheckbox.length) {
         $plotEnabledCheckbox.on('change', function() {
-          settings_ACU.plotSettings.enabled = $(this).is(':checked');
+          settings_ACU.plotSettings.enabled = jQuery_API_ACU(this).is(':checked');
           saveSettings_ACU();
         });
       }
@@ -1425,7 +1480,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       const $plotFinalDirective = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-final-directive`);
       if ($plotFinalDirective.length) {
         $plotFinalDirective.on('input change', function() {
-          const value = $(this).val() || '';
+          const value = jQuery_API_ACU(this).val() || '';
           const plotSettings = getActivePlotEditorSettings_ACU();
           if (!plotSettings) return;
           plotSettings.finalSystemDirective = value;
@@ -1435,8 +1490,10 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       }
 
       // 2) 独立提示词组编辑器（段落）
-      $plotPromptSegmentsContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompt-segments-container`);
-      $plotTaskListContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-list`);
+      _assignUIPlaceholders_ACU({
+        $plotPromptSegmentsContainer_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompt-segments-container`),
+        $plotTaskListContainer_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-list`),
+      });
 
       // 初次载入：若缺失 plotTasks / promptGroup，则从旧结构迁移生成
       try {
@@ -1450,7 +1507,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
 
       // 任务切换/新增/删除/排序
       $popupInstance_ACU.on('click', '.acu-plot-task-item', function() {
-        const taskId = $(this).data('task-id');
+        const taskId = jQuery_API_ACU(this).data('task-id');
         if (!taskId) return;
         selectPlotTaskForEditing_ACU(taskId, { saveCurrent: true });
       });
@@ -1469,7 +1526,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
 
       // 添加段落
       $popupInstance_ACU.on('click', `.${SCRIPT_ID_PREFIX_ACU}-plot-add-prompt-segment-btn`, function() {
-        const position = $(this).data('position');
+        const position = jQuery_API_ACU(this).data('position');
         const newSegment = { role: 'USER', content: '', deletable: true };
         let segments = getPlotPromptGroupFromUI_ACU();
         if (position === 'top') segments.unshift(newSegment);
@@ -1480,7 +1537,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
 
       // 删除段落
       $popupInstance_ACU.on('click', '.plot-prompt-segment-delete-btn', function() {
-        const indexToDelete = $(this).data('index');
+        const indexToDelete = jQuery_API_ACU(this).data('index');
         let segments = getPlotPromptGroupFromUI_ACU();
         segments.splice(indexToDelete, 1);
         renderPlotPromptSegments_ACU(segments);
@@ -1489,15 +1546,15 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
 
       // A/B 槽位唯一
       $popupInstance_ACU.on('change', '.plot-prompt-segment-main-slot', function() {
-        const $currentSegment = $(this).closest('.plot-prompt-segment');
-        const selected = String($(this).val() || '').toUpperCase();
+        const $currentSegment = jQuery_API_ACU(this).closest('.plot-prompt-segment');
+        const selected = String(jQuery_API_ACU(this).val() || '').toUpperCase();
 
         if (selected === 'A' || selected === 'B') {
           $plotPromptSegmentsContainer_ACU
             .find('.plot-prompt-segment')
             .not($currentSegment)
             .each(function() {
-              const $seg = $(this);
+              const $seg = jQuery_API_ACU(this);
               const v = String($seg.find('.plot-prompt-segment-main-slot').val() || '').toUpperCase();
               if (v === selected) {
                 $seg.find('.plot-prompt-segment-main-slot').val('');
@@ -1507,7 +1564,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
 
         // 刷新样式/删除按钮
         $plotPromptSegmentsContainer_ACU.find('.plot-prompt-segment').each(function() {
-          const $seg = $(this);
+          const $seg = jQuery_API_ACU(this);
           const slot = String($seg.find('.plot-prompt-segment-main-slot').val() || '').toUpperCase();
           const isA = slot === 'A';
           const isB = slot === 'B';
@@ -1560,7 +1617,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           $input.on('input change', function() {
             const plotSettings = getActivePlotEditorSettings_ACU();
             if (!plotSettings) return;
-            plotSettings[key] = parseFloat($(this).val()) || defaultValue;
+            plotSettings[key] = parseFloat(jQuery_API_ACU(this).val()) || defaultValue;
             saveSettings_ACU();
           });
         }
@@ -1583,7 +1640,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             const plotSettings = getActivePlotEditorSettings_ACU();
             if (!plotSettings) return;
 
-            let value = $(this).val();
+            let value = jQuery_API_ACU(this).val();
             if (type === 'number') {
               value = parseFloat(value) || 0;
             }
@@ -1619,7 +1676,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       $popupInstance_ACU.on('click', `#${SCRIPT_ID_PREFIX_ACU}-plot-context-extract-rules .acu-exclude-rule-delete`, function() {
         const plotSettings = getActivePlotEditorSettings_ACU();
         if (!plotSettings) return;
-        const $row = $(this).closest('.acu-exclude-rule-row');
+        const $row = jQuery_API_ACU(this).closest('.acu-exclude-rule-row');
         if ($row.length) $row.remove();
         plotSettings.contextExtractRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-extract-rules`);
         saveSettings_ACU();
@@ -1641,7 +1698,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       $popupInstance_ACU.on('click', `#${SCRIPT_ID_PREFIX_ACU}-plot-context-exclude-rules .acu-exclude-rule-delete`, function() {
         const plotSettings = getActivePlotEditorSettings_ACU();
         if (!plotSettings) return;
-        const $row = $(this).closest('.acu-exclude-rule-row');
+        const $row = jQuery_API_ACU(this).closest('.acu-exclude-rule-row');
         if ($row.length) $row.remove();
         plotSettings.contextExcludeRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-exclude-rules`);
         saveSettings_ACU();
@@ -1671,7 +1728,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
 
       // 删除提示词按钮
       $popupInstance_ACU.on('click', '.loop-prompt-delete-btn', function() {
-        const index = parseInt($(this).data('index'), 10);
+        const index = parseInt(jQuery_API_ACU(this).data('index'), 10);
         if (isNaN(index)) return;
 
         const plotSettings = getActivePlotEditorSettings_ACU();
@@ -1713,7 +1770,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       // 第一步：全局预设选择事件
       if ($plotPresetSelect.length) {
         $plotPresetSelect.on('change', function() {
-          const selectedName = normalizePlotPresetSelectionValue_ACU($(this).val());
+          const selectedName = normalizePlotPresetSelectionValue_ACU(jQuery_API_ACU(this).val());
           const result = applyGlobalPlotPresetSelectionForEditor_ACU(selectedName, {
             source: 'ui_global_select',
             refreshUi: true,
@@ -1730,7 +1787,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       // 第二步：当前聊天预设选择事件（这里只负责切换当前聊天使用的预设）
       if ($plotChatPresetSelect.length) {
         $plotChatPresetSelect.on('change', function() {
-          const selectedName = normalizePlotPresetSelectionValue_ACU($(this).val());
+          const selectedName = normalizePlotPresetSelectionValue_ACU(jQuery_API_ACU(this).val());
           const result = switchCurrentChatPlotPreset_ACU(selectedName, {
             source: 'ui',
             refreshUi: true,
@@ -1922,7 +1979,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           const reader = new FileReader();
           reader.onload = function(e) {
             try {
-              const importedPresets = JSON.parse(e.target.result);
+              const importedPresets = JSON.parse(e.target.result as string);
 
               if (!Array.isArray(importedPresets)) {
                 throw new Error('JSON文件格式不正确，根节点必须是一个数组。');
@@ -2039,7 +2096,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           }
 
           startAutoLoop_ACU();
-          $(this).hide();
+          jQuery_API_ACU(this).hide();
           $stopLoopBtn.css('display', 'inline-flex').show();
           showToastr_ACU('success', '自动化循环已启动。');
         });
@@ -2048,7 +2105,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       if ($stopLoopBtn.length) {
         $stopLoopBtn.on('click', function() {
           stopAutoLoop_ACU();
-          $(this).hide();
+          jQuery_API_ACU(this).hide();
           $startLoopBtn.css('display', 'inline-flex').show();
           showToastr_ACU('info', '自动化循环已停止。');
         });
@@ -2064,7 +2121,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       const $optimizationEnabledCheckbox = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-enabled`);
       if ($optimizationEnabledCheckbox.length) {
         $optimizationEnabledCheckbox.on('change', function() {
-          settings_ACU.contentOptimizationSettings.enabled = $(this).is(':checked');
+          settings_ACU.contentOptimizationSettings.enabled = jQuery_API_ACU(this).is(':checked');
           saveSettings_ACU();
         });
       }
@@ -2073,7 +2130,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       const $optimizationApiPreset = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-api-preset`);
       if ($optimizationApiPreset.length) {
         $optimizationApiPreset.on('change', function() {
-          settings_ACU.contentOptimizationSettings.apiPreset = $(this).val();
+          settings_ACU.contentOptimizationSettings.apiPreset = jQuery_API_ACU(this).val();
           saveSettings_ACU();
         });
       }
@@ -2082,7 +2139,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       const $optimizationMinLength = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-min-length`);
       if ($optimizationMinLength.length) {
         $optimizationMinLength.on('input change', function() {
-          const val = parseInt($(this).val(), 10);
+          const val = parseInt(jQuery_API_ACU(this).val(), 10);
           if (!isNaN(val) && val >= 0) {
             settings_ACU.contentOptimizationSettings.minLength = val;
             saveSettings_ACU();
@@ -2094,7 +2151,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       const $optimizationMaxItems = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-max-items`);
       if ($optimizationMaxItems.length) {
         $optimizationMaxItems.on('input change', function() {
-          const val = parseInt($(this).val(), 10);
+          const val = parseInt(jQuery_API_ACU(this).val(), 10);
           if (!isNaN(val) && val >= 1 && val <= 100) {
             settings_ACU.contentOptimizationSettings.maxOptimizations = val;
             saveSettings_ACU();
@@ -2106,7 +2163,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       const $optimizationLoopCount = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-loop-count`);
       if ($optimizationLoopCount.length) {
         $optimizationLoopCount.on('input change', function() {
-          const val = parseInt($(this).val(), 10);
+          const val = parseInt(jQuery_API_ACU(this).val(), 10);
           if (!isNaN(val) && val >= 1 && val <= 10) {
             settings_ACU.contentOptimizationSettings.loopCount = val;
             saveSettings_ACU();
@@ -2118,7 +2175,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       const $optimizationRetryCount = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-retry-count`);
       if ($optimizationRetryCount.length) {
         $optimizationRetryCount.on('input change', function() {
-          const val = parseInt($(this).val(), 10);
+          const val = parseInt(jQuery_API_ACU(this).val(), 10);
           if (!isNaN(val) && val >= 1 && val <= 10) {
             settings_ACU.contentOptimizationSettings.retryCount = val;
             saveSettings_ACU();
@@ -2130,7 +2187,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       const $optimizationSeamlessMode = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-seamless-mode`);
       if ($optimizationSeamlessMode.length) {
         $optimizationSeamlessMode.on('change', function() {
-          settings_ACU.contentOptimizationSettings.seamlessMode = $(this).is(':checked');
+          settings_ACU.contentOptimizationSettings.seamlessMode = jQuery_API_ACU(this).is(':checked');
           saveSettings_ACU();
         });
       }
@@ -2139,7 +2196,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       const $optimizationAutoApply = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-auto-apply`);
       if ($optimizationAutoApply.length) {
         $optimizationAutoApply.on('change', function() {
-          settings_ACU.contentOptimizationSettings.autoApply = $(this).is(':checked');
+          settings_ACU.contentOptimizationSettings.autoApply = jQuery_API_ACU(this).is(':checked');
           saveSettings_ACU();
         });
       }
@@ -2148,7 +2205,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       const $optimizationShowDiff = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-show-diff`);
       if ($optimizationShowDiff.length) {
         $optimizationShowDiff.on('change', function() {
-          settings_ACU.contentOptimizationSettings.showDiff = $(this).is(':checked');
+          settings_ACU.contentOptimizationSettings.showDiff = jQuery_API_ACU(this).is(':checked');
           saveSettings_ACU();
         });
       }
@@ -2157,7 +2214,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       const $optimizationParallelMode = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-parallel-mode`);
       if ($optimizationParallelMode.length) {
         $optimizationParallelMode.on('change', function() {
-          settings_ACU.contentOptimizationSettings.parallelMode = $(this).is(':checked');
+          settings_ACU.contentOptimizationSettings.parallelMode = jQuery_API_ACU(this).is(':checked');
           saveSettings_ACU();
         });
       }
@@ -2188,7 +2245,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       const $optimizationExtractTags = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-extract-tags`);
       if ($optimizationExtractTags.length) {
         $optimizationExtractTags.on('input', function() {
-          settings_ACU.contentOptimizationSettings.extractTags = $(this).val();
+          settings_ACU.contentOptimizationSettings.extractTags = jQuery_API_ACU(this).val();
           saveSettings_ACU();
         });
       }
@@ -2205,7 +2262,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         saveSettings_ACU();
       });
       $popupInstance_ACU.on('click', `#${SCRIPT_ID_PREFIX_ACU}-optimization-extract-rules .acu-exclude-rule-delete`, function() {
-        const $row = $(this).closest('.acu-exclude-rule-row');
+        const $row = jQuery_API_ACU(this).closest('.acu-exclude-rule-row');
         if ($row.length) $row.remove();
         settings_ACU.contentOptimizationSettings.extractRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-optimization-extract-rules`);
         saveSettings_ACU();
@@ -2223,7 +2280,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         saveSettings_ACU();
       });
       $popupInstance_ACU.on('click', `#${SCRIPT_ID_PREFIX_ACU}-optimization-exclude-rules .acu-exclude-rule-delete`, function() {
-        const $row = $(this).closest('.acu-exclude-rule-row');
+        const $row = jQuery_API_ACU(this).closest('.acu-exclude-rule-row');
         if ($row.length) $row.remove();
         settings_ACU.contentOptimizationSettings.excludeRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-optimization-exclude-rules`);
         saveSettings_ACU();
@@ -2242,7 +2299,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       // 预设选择事件
       if ($optimizationPresetSelect.length) {
         $optimizationPresetSelect.on('change', function() {
-          const selectedName = $(this).val();
+          const selectedName = jQuery_API_ACU(this).val();
           if (!selectedName) {
             $optimizationDeletePreset.hide();
             return;
@@ -2393,7 +2450,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           const reader = new FileReader();
           reader.onload = function(e) {
             try {
-              const importedPresets = JSON.parse(e.target.result);
+              const importedPresets = JSON.parse(e.target.result as string);
 
               if (!Array.isArray(importedPresets)) {
                 throw new Error('JSON文件格式不正确，根节点必须是一个数组。');
@@ -2479,7 +2536,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
 
       // 添加提示词段落
       $popupInstance_ACU.on('click', `.${SCRIPT_ID_PREFIX_ACU}-optimization-add-prompt-segment-btn`, function() {
-        const position = $(this).data('position');
+        const position = jQuery_API_ACU(this).data('position');
         const newSegment = { role: 'USER', content: '', deletable: true };
         let segments = getOptimizationPromptGroupFromUI_ACU();
         if (position === 'top') segments.unshift(newSegment);
@@ -2489,7 +2546,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
 
       // 删除提示词段落
       $popupInstance_ACU.on('click', '.optimization-prompt-segment-delete-btn', function() {
-        const indexToDelete = $(this).data('index');
+        const indexToDelete = jQuery_API_ACU(this).data('index');
         let segments = getOptimizationPromptGroupFromUI_ACU();
         segments.splice(indexToDelete, 1);
         renderOptimizationPromptSegments_ACU(segments);
@@ -2505,7 +2562,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             return;
           }
 
-          $(this).prop('disabled', true).text('优化中...');
+          jQuery_API_ACU(this).prop('disabled', true).text('优化中...');
           const $resultDiv = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-test-result`);
           const $outputDiv = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-test-output`);
           $resultDiv.show();
@@ -2531,7 +2588,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             $outputDiv.text(`优化出错：${e.message}`);
           }
 
-          $(this).prop('disabled', false).text('执行优化测试');
+          jQuery_API_ACU(this).prop('disabled', false).text('执行优化测试');
         });
       }
 
@@ -2548,7 +2605,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         if ($plotWbRadios.length) {
           $plotWbRadios.filter(`[value="${cfg.source || 'character'}"]`).prop('checked', true);
           $plotWbRadios.off('change.acu_plot_wb').on('change.acu_plot_wb', async function() {
-            const v = $(this).val();
+            const v = jQuery_API_ACU(this).val();
             cfg.source = (v === 'manual') ? 'manual' : 'character';
             saveSettings_ACU();
             await updatePlotWorldbookSourceView_ACU();
@@ -2561,7 +2618,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         const $plotEntryFilter = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-worldbook-entry-filter`);
         if ($plotWbList.length) {
           $plotWbList.off('click.acu_plot_wb').on('click.acu_plot_wb', '.qrf_worldbook_list_item', async function() {
-            const bookName = $(this).data('book-name');
+            const bookName = jQuery_API_ACU(this).data('book-name');
             if (!bookName) return;
             let selection = Array.isArray(cfg.manualSelection) ? cfg.manualSelection : [];
             if (selection.includes(bookName)) selection = selection.filter(x => x !== bookName);
@@ -2573,7 +2630,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         }
         if ($plotWbListFilter.length) {
           $plotWbListFilter.off('input.acu_plot_wb').on('input.acu_plot_wb', function() {
-            applyWorldbookListFilter_ACU($plotWbList, $(this).val());
+            applyWorldbookListFilter_ACU($plotWbList, jQuery_API_ACU(this).val());
           });
         }
 
@@ -2662,32 +2719,32 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         const $plotEntryList = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-worldbook-entry-list`);
         if ($plotEntryList.length) {
           $plotEntryList.off('change.acu_plot_wb').on('change.acu_plot_wb', 'input[type="checkbox"]', function() {
-            const bookName = $(this).data('book');
-            const uid = $(this).data('uid');
+            const bookName = jQuery_API_ACU(this).data('book');
+            const uid = jQuery_API_ACU(this).data('uid');
             if (!bookName || uid === undefined || uid === null) return;
             if (!cfg.enabledEntries) cfg.enabledEntries = {};
             if (!Array.isArray(cfg.enabledEntries[bookName])) cfg.enabledEntries[bookName] = [];
             const list = cfg.enabledEntries[bookName];
-            const checked = $(this).is(':checked');
+            const checked = jQuery_API_ACU(this).is(':checked');
             if (checked && !list.includes(uid)) list.push(uid);
             if (!checked && list.includes(uid)) cfg.enabledEntries[bookName] = list.filter(x => x !== uid);
             updateLazyWorldbookEntryCheckedState_ACU($plotEntryList, bookName, uid, checked);
             saveSettings_ACU();
           });
           $plotEntryList.off('click.acu_plot_wb_toggle').on('click.acu_plot_wb_toggle', '.qrf_worldbook_entry_toggle', function() {
-            const bookName = $(this).closest('.qrf_worldbook_entry_group').data('book-name');
+            const bookName = jQuery_API_ACU(this).closest('.qrf_worldbook_entry_group').data('book-name');
             if (!bookName) return;
             toggleLazyWorldbookEntryGroup_ACU($plotEntryList, bookName);
           });
           $plotEntryList.off('click.acu_plot_wb_more').on('click.acu_plot_wb_more', '.qrf_worldbook_entry_load_more', function() {
-            const bookName = $(this).closest('.qrf_worldbook_entry_group').data('book-name');
+            const bookName = jQuery_API_ACU(this).closest('.qrf_worldbook_entry_group').data('book-name');
             if (!bookName) return;
             renderLazyWorldbookEntryItems_ACU($plotEntryList, bookName);
           });
         }
         if ($plotEntryFilter.length) {
           $plotEntryFilter.off('input.acu_plot_wb').on('input.acu_plot_wb', function() {
-            applyWorldbookEntryFilter_ACU($plotEntryList, $(this).val());
+            applyWorldbookEntryFilter_ACU($plotEntryList, jQuery_API_ACU(this).val());
           });
         }
 
@@ -2697,5 +2754,4 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       }
 
       showToastr_ACU('success', '数据库更新工具已加载。');
-      }
   }

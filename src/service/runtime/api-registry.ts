@@ -1,3 +1,33 @@
+import { TABLE_TEMPLATE_ACU } from '../../data/models/defaults-json.js';
+import { getCurrentWorldbookConfig_ACU } from '../../data/repositories/character-settings-repo';
+import { globalMeta_ACU, saveGlobalMeta_ACU } from '../../data/repositories/profile-repo';
+import { deriveTemplatePresetNameForImport_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../data/repositories/template-preset-repo';
+import { openAutoCardPopup_ACU } from '../../presentation/pages/main-popup';
+import { openNewVisualizer_ACU } from '../../presentation/pages/visualizer';
+import { handleTxtImportAndSplit_ACU } from '../../presentation/components/import-status-ui';
+import { isAutoUpdatingCard_ACU, _set_isAutoUpdatingCard_ACU } from '../../presentation/components/plot-editors';
+import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../../presentation/theme/toast';
+import { getApiConfigByPreset_ACU } from '../ai/api-call';
+import { handleApiResponse_ACU } from '../ai/prompt-builder';
+import { importCombinedSettings_ACU } from '../data-admin/admin';
+import { clearImportLocalStorage_ACU, clearImportedEntries_ACU, deleteImportedEntries_ACU, handleInjectImportedTxtSelected_ACU } from '../import/import-process';
+import { SillyTavern_API_ACU, TavernHelper_API_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU } from './state-manager';
+import { saveSettings_ACU } from '../settings/settings-service';
+import { handleManualUpdate_ACU, proceedWithCardUpdate_ACU, saveCurrentDataForTable_ACU } from '../table/update-process';
+import { getSortedSheetKeys_ACU, overwriteChatSheetGuideFromTemplate_ACU, sanitizeChatSheetsObject_ACU, sanitizeSheetForStorage_ACU } from '../template/chat-scope';
+import { deleteAllGeneratedEntries_ACU, loadAllChatMessages_ACU, refreshMergedDataAndNotify_ACU, updateReadableLorebookEntry_ACU } from '../worldbook/pipeline';
+import { topLevelWindow_ACU } from '../../shared/env';
+import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
+import { saveIndependentTableToChatHistory_ACU } from '../../data/repositories/table-repo';
+import { handleInjectSplitEntriesFull_ACU, handleInjectSplitEntriesStandard_ACU, handleInjectSplitEntriesSummary_ACU } from '../../presentation/components/import-status-ui';
+import { getCurrentRuntimePlotPresetName_ACU, normalizePlotPresetExcludeRules_ACU, reoptimizeMessage_ACU, switchCurrentChatPlotPreset_ACU } from '../../presentation/components/optimization-ui';
+import { applyTemplatePresetToCurrent_ACU, applyTemplateSnapshotToScope_ACU, listTemplatePresetNames_ACU, normalizeTemplateOperationScope_ACU, parseImportedTemplateData_ACU, refreshTemplatePresetSelectInUI_ACU, upsertTemplatePreset_ACU } from '../../presentation/components/template-preset-ui';
+import { exportCurrentJsonData_ACU, exportTableTemplate_ACU, importTableTemplate_ACU, overrideLatestLayerWithTemplate_ACU, resetAllToDefaults_ACU, resetTableTemplate_ACU } from '../../presentation/triggers/data-admin-ui';
+import { deleteApiPreset_ACU, loadApiPreset_ACU, saveApiPreset_ACU } from '../../presentation/triggers/settings-ui-sync';
+import { exportCombinedSettings_ACU, handleManualMergeSummary_ACU } from '../../presentation/triggers/update-trigger';
+import { cancelContentOptimization_ACU } from '../optimization/content-optimization';
+import { fillFirstLayerWithTemplateData_ACU, formatJsonToReadable_ACU, getEffectiveAutoUpdateThreshold_ACU, getTableLocksForSheet_ACU, isSpecialIndexLockEnabled_ACU, saveTableLocksForSheet_ACU, setSpecialIndexLockEnabled_ACU, toggleCellLock_ACU, toggleColLock_ACU, toggleRowLock_ACU } from './helpers-remaining';
+import { updateOutlineTableEntry_ACU } from '../worldbook/injection-engine';
 /**
  * service/runtime/api-registry.ts — DatabaseAPI_ACU 对外 API 注册
  * 从 src/core/03_runtime_api.js 整体迁移。
@@ -7,7 +37,7 @@
   const tableUpdateCallbacks_ACU = [];
   const tableFillStartCallbacks_ACU = [];
   // 修复：确保API对象被附加到最顶层的窗口对象上，以便iframe等外部脚本可以访问
-  topLevelWindow_ACU.AutoCardUpdaterAPI = {
+  (topLevelWindow_ACU as any).AutoCardUpdaterAPI = {
     // [新增] 打开可视化编辑器的 API
     openVisualizer: function() {
         if (typeof openNewVisualizer_ACU === 'function') {
@@ -35,7 +65,7 @@
             // 基本验证
             if (newData && newData.mate && Object.keys(newData).some(k => k.startsWith('sheet_'))) {
                 // [瘦身] 导入 JSON 后立即清洗并规范化（兼容旧格式；新存储不再带冗余字段）
-                currentJsonTableData_ACU = sanitizeChatSheetsObject_ACU(newData, { ensureMate: true });
+                _set_currentJsonTableData_ACU(sanitizeChatSheetsObject_ACU(newData, { ensureMate: true }));
                 logDebug_ACU('Successfully imported new table data into memory.');
                 
                 // [新增] 导入后，分别保存标准表和总结表到对应的源文件中
@@ -163,7 +193,7 @@
             showToastr_ACU('info', '已有更新任务在后台进行中。', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.MANUAL_TABLE });
             return false;
         }
-        isAutoUpdatingCard_ACU = true;
+        _set_isAutoUpdatingCard_ACU(true);
         // 使用与手动更新相同的逻辑
         await loadAllChatMessages_ACU(); // Keep for worldbook context
         const chatHistory = SillyTavern_API_ACU.chat || []; // Use the live chat data for slicing
@@ -197,7 +227,7 @@
 
         const messagesToProcess = chatHistory.slice(sliceStartIndex);
         const success = await proceedWithCardUpdate_ACU(messagesToProcess);
-        isAutoUpdatingCard_ACU = false;
+        _set_isAutoUpdatingCard_ACU(false);
         return success;
     },
 
@@ -325,9 +355,9 @@
     },
 
     // 模板/数据管理（等价于对应按钮）
-    importTemplate: async function(options = {}) { try { return await importTableTemplate_ACU(options); } catch (e) { logError_ACU('importTemplate failed:', e); return false; } },
-    exportTemplate: async function(options = {}) { try { return await exportTableTemplate_ACU(options); } catch (e) { logError_ACU('exportTemplate failed:', e); return false; } },
-    resetTemplate: async function(options = {}) { try { return await resetTableTemplate_ACU(options); } catch (e) { logError_ACU('resetTemplate failed:', e); return false; } },
+    importTemplate: async function(options: any = {}) { try { return await importTableTemplate_ACU(options); } catch (e) { logError_ACU('importTemplate failed:', e); return false; } },
+    exportTemplate: async function(options: any = {}) { try { return await exportTableTemplate_ACU(options); } catch (e) { logError_ACU('exportTemplate failed:', e); return false; } },
+    resetTemplate: async function(options: any = {}) { try { return await resetTableTemplate_ACU(options); } catch (e) { logError_ACU('resetTemplate failed:', e); return false; } },
     resetAllDefaults: async function() { try { return await resetAllToDefaults_ACU(); } catch (e) { logError_ACU('resetAllDefaults failed:', e); return false; } },
     exportJsonData: async function() { try { return await exportCurrentJsonData_ACU(); } catch (e) { logError_ACU('exportJsonData failed:', e); return false; } },
     importCombinedSettings: async function() { try { return await importCombinedSettings_ACU(); } catch (e) { logError_ACU('importCombinedSettings failed:', e); return false; } },
@@ -345,7 +375,7 @@
             return [];
         }
     },
-    switchTemplatePreset: async function(presetName, options = {}) {
+    switchTemplatePreset: async function(presetName, options: any = {}) {
         try {
             const { scope = 'global' } = options || {};
             const normalizedScope = normalizeTemplateOperationScope_ACU(scope);
@@ -418,7 +448,7 @@
             return null;
         }
     },
-    setTableLockState: function(sheetKey, lockState = {}, { merge = false } = {}) {
+    setTableLockState: function(sheetKey, lockState: any = {}, { merge = false } = {}) {
         try {
             if (!sheetKey) return false;
             const base = merge ? getTableLocksForSheet_ACU(sheetKey) : { rows: new Set(), cols: new Set(), cells: new Set() };
@@ -656,7 +686,7 @@
             
             // 保存并通知
             await saveCurrentDataForTable_ACU(targetSheetKey);
-            topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
+            (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
             
             return true;
         } catch (e) {
@@ -785,7 +815,7 @@
                 // 保存到该表的最新楼层
                 if (tableLatestFloorIndex !== -1) {
                     // [修复] 外部导入模式下不保存到聊天记录
-                    if (!isImportMode) {
+                    if (!data?.isImportMode) {
                         logDebug_ACU(`updateRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
                         await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
                     }
@@ -799,7 +829,7 @@
                     await saveCurrentDataForTable_ACU(targetSheetKey);
                 }
             }
-            topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
+            (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
             
             return true;
         } catch (e) {
@@ -910,7 +940,7 @@
                 
                 if (tableLatestFloorIndex !== -1) {
                     // [修复] 外部导入模式下不保存到聊天记录
-                    if (!isImportMode) {
+                    if (true) {
                         logDebug_ACU(`insertRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
                         await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
                         await refreshMergedDataAndNotify_ACU();
@@ -921,7 +951,7 @@
                     await saveCurrentDataForTable_ACU(targetSheetKey);
                 }
             }
-            topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
+            (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
             
             return newIndex;
         } catch (e) {
@@ -1030,7 +1060,7 @@
                 
                 if (tableLatestFloorIndex !== -1) {
                     // [修复] 外部导入模式下不保存到聊天记录
-                    if (!isImportMode) {
+                    if (true) {
                         logDebug_ACU(`deleteRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
                         await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
                         await refreshMergedDataAndNotify_ACU();
@@ -1041,7 +1071,7 @@
                     await saveCurrentDataForTable_ACU(targetSheetKey);
                 }
             }
-            topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
+            (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
             
             return true;
         } catch (e) {
@@ -1189,7 +1219,7 @@
      * @param {string} options.presetName - 仅当 scope=global 时可选保存到预设库；scope=chat 时仅写入聊天快照元信息
      * @returns {Promise<{success: boolean, message: string, scope?: string, presetName?: string}>} 导入结果
      */
-    importTemplateFromData: async function(templateData, options = {}) {
+    importTemplateFromData: async function(templateData, options: any = {}) {
         try {
             const { scope = 'global', presetName = '' } = options || {};
             const normalizedScope = normalizeTemplateOperationScope_ACU(scope);
@@ -1254,7 +1284,7 @@
      * @param {boolean} options.switchTo - 导入后是否立即切换到该预设（默认 false）
      * @returns {Promise<{success: boolean, message: string, presetName?: string}>} 导入结果
      */
-    importPlotPresetFromData: async function(presetData, options = {}) {
+    importPlotPresetFromData: async function(presetData, options: any = {}) {
         try {
             const { overwrite = false, switchTo = false } = options;
             let preset;
@@ -1339,7 +1369,7 @@
      * @param {boolean} options.overwrite - 如果预设已存在，是否覆盖（默认 false）
      * @returns {Promise<{success: boolean, message: string, imported: number, failed: number, details: Array}>} 导入结果
      */
-    importPlotPresetsFromData: async function(presetsArray, options = {}) {
+    importPlotPresetsFromData: async function(presetsArray, options: any = {}) {
         try {
             if (!Array.isArray(presetsArray)) {
                 return { success: false, message: '输入必须是数组', imported: 0, failed: 0, details: [] };
@@ -1413,7 +1443,7 @@
      * @param {Object} options - 配置选项
      * @returns {Promise<Object>} 初始化结果
      */
-    initGameSession: async function(characterData, options = {}) {
+    initGameSession: async function(characterData, options: any = {}) {
         const result = {
             success: false,
             templateInjected: false,
@@ -1517,8 +1547,8 @@
             // 步骤3: 保存设置并刷新
             try {
                 saveSettings_ACU();
-                if (topLevelWindow_ACU.AutoCardUpdaterAPI && topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate) {
-                    topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
+                if ((topLevelWindow_ACU as any).AutoCardUpdaterAPI && (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate) {
+                    (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
                 }
             } catch (saveError) {
                 logWarn_ACU('[游戏初始化] 保存设置时出错:', saveError);
@@ -1809,7 +1839,7 @@
             };
 
             // 调用内部函数保存预设
-            saveApiPreset_ACU(newPreset.name, newPreset);
+            saveApiPreset_ACU(newPreset.name);
             logDebug_ACU(`API preset saved: ${newPreset.name}`);
             return true;
         } catch (e) {
@@ -1878,7 +1908,7 @@
      * @param {string} options.presetName - API预设名称，为空则使用当前配置
      * @returns {Promise<string|null>} AI返回的文本内容，失败返回null
      */
-    callAI: async function(messages, options = {}) {
+    callAI: async function(messages, options: any = {}) {
         try {
             if (!Array.isArray(messages) || messages.length === 0) {
                 logError_ACU('callAI: messages must be a non-empty array');
@@ -2024,7 +2054,7 @@ const DatabaseAPI_ACU = {
      * @param {Object} options - 可选配置 { max_tokens: number }
      * @returns {Promise<string|null>} AI返回的文本内容，失败返回null
      */
-    callAI: async function(messages, options = {}) {
+    callAI: async function(messages, options: any = {}) {
         try {
             if (!Array.isArray(messages) || messages.length === 0) {
                 logError_ACU('callAI: messages must be a non-empty array');
@@ -2161,7 +2191,8 @@ const DatabaseAPI_ACU = {
      * @param {Object} options - 可选配置 { max_tokens: number }
      * @returns {Promise<string|null>} AI返回的文本内容，失败返回null
      */
-    callAI: async function(messages, options = {}) {
+    // @ts-ignore — 旧代码重复属性
+    callAI: async function(messages, options: any = {}) {
         try {
             if (!Array.isArray(messages) || messages.length === 0) {
                 logError_ACU('callAI: messages must be a non-empty array');
@@ -2301,6 +2332,8 @@ const DatabaseAPI_ACU = {
 
 
   // --- Toast / 通知（仅影响本插件的提示外观，不改变业务逻辑） ---
-  const ACU_TOAST_TITLE_ACU = '星·数据库';
-  const _acuToastDedup_ACU = new Map(); // key -> ts
-  let _acuToastStyleInjected_ACU = false;
+  export const ACU_TOAST_TITLE_ACU = '星·数据库';
+  export const _acuToastDedup_ACU = new Map(); // key -> ts
+  export let _acuToastStyleInjected_ACU = false;
+
+export function _set__acuToastStyleInjected_ACU(v: any) { _acuToastStyleInjected_ACU = v; }

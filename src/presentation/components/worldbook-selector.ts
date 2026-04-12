@@ -1,8 +1,17 @@
+import { DEFAULT_PLOT_SETTINGS_ACU } from '../../data/models/defaults-json.js';
+import { buildDefaultPlotWorldbookConfig_ACU } from '../../data/models/defaults';
+import { getCurrentWorldbookConfig_ACU } from '../../data/repositories/character-settings-repo';
+import { settings_ACU } from '../../service/runtime/state-manager';
+import { saveSettings_ACU } from '../../service/settings/settings-service';
+import { getLorebookEntriesByNames_ACU, getWorldbookNames_ACU } from '../../service/worldbook/pipeline';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { escapeHtml_ACU } from '../../shared/html-helpers';
+import { logError_ACU } from '../../shared/utils';
 /**
  * presentation/components/worldbook-selector.ts — 世界书选择 UI
  * 从 features/worldbook/01~03 + 04 迁移而来
  */
-  async function updateWorldbookSourceView_ACU() {
+  export async function updateWorldbookSourceView_ACU() {
       if (!$popupInstance_ACU) return;
       const worldbookConfig = getCurrentWorldbookConfig_ACU();
       const source = worldbookConfig.source;
@@ -20,7 +29,7 @@
   // [剧情推进] 世界书选择 UI（独立于填表 worldbookConfig）
   // 复用现有加载逻辑，但使用不同的 DOM id 与不同的配置对象
   // =========================
-  function getPlotWorldbookConfig_ACU() {
+  export function getPlotWorldbookConfig_ACU() {
       if (!settings_ACU.plotSettings) settings_ACU.plotSettings = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
       if (!settings_ACU.plotSettings.plotWorldbookConfig) {
           settings_ACU.plotSettings.plotWorldbookConfig = buildDefaultPlotWorldbookConfig_ACU();
@@ -28,7 +37,7 @@
       return settings_ACU.plotSettings.plotWorldbookConfig;
   }
 
-  async function updatePlotWorldbookSourceView_ACU() {
+  export async function updatePlotWorldbookSourceView_ACU() {
       if (!$popupInstance_ACU) return;
       const cfg = getPlotWorldbookConfig_ACU();
       const source = cfg.source;
@@ -74,7 +83,7 @@
       }
   }
 
-  async function populatePlotWorldbookEntryList_ACU() {
+  export async function populatePlotWorldbookEntryList_ACU() {
       if (!$popupInstance_ACU) return;
       const $list = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-worldbook-entry-list`);
       if (!$list.length) return;
@@ -188,7 +197,7 @@
   }
 
   // [新增] 填充注入目标选择器
-  async function populateInjectionTargetSelector_ACU() {
+  export async function populateInjectionTargetSelector_ACU() {
       if (!$popupInstance_ACU) return;
       const $select = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-injection-target`);
       $select.empty();
@@ -214,7 +223,7 @@
   }
 
   // [新增] 辅助函数：检查条目是否包含屏蔽词
-  function isEntryBlocked_ACU(entry) {
+  export function isEntryBlocked_ACU(entry) {
       if (!entry) return false;
       const blockedKeywords = ["规则", "思维链", "cot", "MVU", "mvu", "变量", "状态", "Status", "Rule", "rule", "检定", "判断", "叙事", "文风", "InitVar", "格式"];
       const name = entry.comment || entry.name || ''; // In ST, 'comment' is often the display name
@@ -292,7 +301,7 @@
       $group.find('.qrf_worldbook_entry_load_more').toggle(group.expanded && loadedCount < sourceEntries.length);
   }
 
-  function renderLazyWorldbookEntryItems_ACU($list, bookName, options = {}) {
+  export function renderLazyWorldbookEntryItems_ACU($list, bookName, options = {}) {
       if (!$list || !$list.length) return;
       const state = $list.data('acuLazyWorldbookState');
       const group = findLazyWorldbookEntryGroupState_ACU($list, bookName);
@@ -360,7 +369,7 @@
       });
   }
 
-  function toggleLazyWorldbookEntryGroup_ACU($list, bookName, expanded = null) {
+  export function toggleLazyWorldbookEntryGroup_ACU($list, bookName, expanded = null) {
       if (!$list || !$list.length) return;
       const group = findLazyWorldbookEntryGroupState_ACU($list, bookName);
       if (!group) return;
@@ -373,7 +382,7 @@
       }
   }
 
-  function updateLazyWorldbookEntryCheckedState_ACU($list, bookName, uid, checked) {
+  export function updateLazyWorldbookEntryCheckedState_ACU($list, bookName, uid, checked) {
       const group = findLazyWorldbookEntryGroupState_ACU($list, bookName);
       if (!group) return;
       const syncCheckedState = entries => {
@@ -455,7 +464,7 @@
       return String(v ?? '').trim().toLowerCase();
   }
 
-  function applyWorldbookSelectFilter_ACU($select, rawQuery) {
+  export function applyWorldbookSelectFilter_ACU($select, rawQuery) {
       if (!$select || !$select.length) return;
       const q = normalizeFilterText_ACU(rawQuery);
       const currentVal = String($select.val() ?? '');
@@ -469,7 +478,7 @@
       });
   }
 
-  function applyWorldbookListFilter_ACU($listContainer, rawQuery) {
+  export function applyWorldbookListFilter_ACU($listContainer, rawQuery) {
       if (!$listContainer || !$listContainer.length) return;
       const q = normalizeFilterText_ACU(rawQuery);
       $listContainer.find('.qrf_worldbook_list_item').each(function() {
@@ -479,7 +488,7 @@
       });
   }
 
-  function applyWorldbookEntryFilter_ACU($entryList, rawQuery) {
+  export function applyWorldbookEntryFilter_ACU($entryList, rawQuery) {
       if (!$entryList || !$entryList.length) return;
       if (applyLazyWorldbookEntryFilter_ACU($entryList, rawQuery)) return;
 
@@ -515,7 +524,7 @@
   }
 
   // [新增] 填充外部导入专用的世界书选择器
-  async function populateImportWorldbookTargetSelector_ACU() {
+  export async function populateImportWorldbookTargetSelector_ACU() {
       if (!$popupInstance_ACU) return;
       const $select = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-worldbook-injection-target`);
       if (!$select.length) return;
@@ -538,7 +547,7 @@
       }
   }
 
-  async function populateWorldbookList_ACU() {
+  export async function populateWorldbookList_ACU() {
       if (!$popupInstance_ACU) return;
       const $listContainer = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-select`);
       $listContainer.empty().html('<em>正在加载...</em>');
@@ -569,7 +578,7 @@
       }
   }
 
-  async function populateWorldbookEntryList_ACU() {
+  export async function populateWorldbookEntryList_ACU() {
       if (!$popupInstance_ACU) return;
       const $list = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-entry-list`);
       $list.empty().html('<em>正在加载条目...</em>');

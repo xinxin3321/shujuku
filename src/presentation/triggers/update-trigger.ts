@@ -1,3 +1,19 @@
+import { DEFAULT_CHAR_CARD_PROMPT_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_ACU } from '../../data/models/defaults-json.js';
+import { abortAllActiveRequests_ACU, getCharCardPromptFromUI_ACU, isAutoUpdatingCard_ACU, wasStoppedByUser_ACU , _set_isAutoUpdatingCard_ACU, _set_wasStoppedByUser_ACU} from '../components/plot-editors';
+import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../theme/toast';
+import { callCustomOpenAI_ACU, handleApiResponse_ACU } from '../../service/ai/prompt-builder';
+import { SillyTavern_API_ACU, jQuery_API_ACU, TavernHelper_API_ACU, toastr_API_ACU, $popupInstance_ACU, $statusMessageSpan_ACU, $manualUpdateCardButton_ACU, $apiConfigAreaDiv_ACU, $apiConfigSectionToggle_ACU, currentJsonTableData_ACU, settings_ACU, _assignUIPlaceholders_ACU } from '../../service/runtime/state-manager';
+import { checkAndTriggerAutoMergeSummary_ACU } from '../../service/summary/merge-logic';
+import { processUpdates_ACU } from '../../service/table/update-process';
+import { getSortedSheetKeys_ACU, sanitizeChatSheetsObject_ACU } from '../../service/template/chat-scope';
+import { loadAllChatMessages_ACU, refreshMergedDataAndNotify_ACU, updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { topLevelWindow_ACU } from '../../shared/env';
+import { ensureSheetOrderNumbers_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
+import { checkIfFirstTimeInit_ACU, loadOrCreateJsonTableFromChatHistory_ACU, saveIndependentTableToChatHistory_ACU } from '../../data/repositories/table-repo';
+import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-display';
+import { extractTableEditInner_ACU, parseAndApplyTableEdits_ACU, prepareAIInput_ACU } from '../../service/ai/prompt-builder';
+import { getEffectiveAutoUpdateThreshold_ACU } from '../../service/runtime/helpers-remaining';
 /**
  * presentation/triggers/update-trigger.ts — 手动更新触发 UI
  * 从 features/ui/01_update_trigger.js 迁移而来
@@ -5,7 +21,7 @@
 
   async function proceedWithCardUpdate_ACU(messagesToUse, batchToastMessage = '正在填表，请稍候...', saveTargetIndex = -1, isImportMode = false, updateMode = 'standard', isSilentMode = false, targetSheetKeys = null, requestOptions = null) {
     if (!$statusMessageSpan_ACU && $popupInstance_ACU)
-        $statusMessageSpan_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-status-message`);
+        _assignUIPlaceholders_ACU({ $statusMessageSpan_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-status-message`) });
 
     const statusUpdate = (text) => {
         // [新增] 静默模式下不更新状态消息
@@ -21,7 +37,7 @@
     try {
         // [新增] 静默模式下不通知填表开始
         if (!isSilentMode) {
-            topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableFillStart();
+            (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableFillStart();
         }
         
         // [新增] 静默模式下不显示toast提示
@@ -49,7 +65,7 @@
 
                             // [修复] 设置标志，告知事件监听器跳过因终止操作而触发的下一次更新检查
                             // 但只跳过一次，之后自动恢复正常
-                            wasStoppedByUser_ACU = true;
+                            _set_wasStoppedByUser_ACU(true);
 
                             // 1. Abort network requests
                             abortAllActiveRequests_ACU();
@@ -61,7 +77,7 @@
                             // }
                             
                             // 2. Immediately reset UI state
-                            isAutoUpdatingCard_ACU = false;
+                            _set_isAutoUpdatingCard_ACU(false);
                             if ($manualUpdateCardButton_ACU) {
                                 $manualUpdateCardButton_ACU.prop('disabled', false).text('立即手动更新');
                             }
@@ -76,7 +92,7 @@
                             // [修复] 延迟重置标志，确保只跳过因本次终止操作触发的事件
                             // 而不会影响后续正常的自动更新
                             setTimeout(() => {
-                                wasStoppedByUser_ACU = false;
+                                _set_wasStoppedByUser_ACU(false);
                                 logDebug_ACU('ACU: wasStoppedByUser_ACU reset after abort timeout.');
                             }, 3000);
                         });
@@ -257,7 +273,7 @@
             // 这里保留是为了兼容性，但主要通知在 saveJsonTableToChatHistory_ACU 中
             if (!isSilentMode) {
             setTimeout(() => {
-                topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
+                (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
                 logDebug_ACU('Delayed notification sent after saving.');
             }, 250);
             }
@@ -295,7 +311,7 @@
         }
         // currentAbortController_ACU 由 callCustomOpenAI_ACU 内部管理
         // [修改] 不在此处重置 isAutoUpdatingCard_ACU 和按钮状态，交由上层调用函数管理
-        // isAutoUpdatingCard_ACU = false; 
+        // _set_isAutoUpdatingCard_ACU(false;);
         // if ($manualUpdateCardButton_ACU) {
         //     $manualUpdateCardButton_ACU.prop('disabled', false).text('立即手动更新');
         // }
@@ -307,13 +323,13 @@
   // 1. 所有批次必须全部成功完成后，才会统一写入数据库并触发世界书注入；任意一批失败都会终止并不落盘。
   // 2. AI 请求与 <tableEdit> 解析一体化放入同一重试循环，解析失败同样会触发重试而不是被视为成功。
   // 3. 明确的批次完成计数与进度文案，避免"首批成功即整体成功"的误判。
-  async function handleManualMergeSummary_ACU() {
+  export async function handleManualMergeSummary_ACU() {
       if (isAutoUpdatingCard_ACU) {
           showToastr_ACU('info', '后台已有任务在运行，请稍候。', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.MERGE_TABLE });
           return;
       }
       
-      wasStoppedByUser_ACU = false;
+      _set_wasStoppedByUser_ACU(false);
 
       // [关键修复] 手动合并纪要在开始前强制刷新一次内存数据库。
       // 目的：避免 UI 已显示有数据，但 currentJsonTableData_ACU 仍停留在旧状态，导致合并时读取到空表。
@@ -401,7 +417,7 @@
           return;
       }
 
-      isAutoUpdatingCard_ACU = true;
+      _set_isAutoUpdatingCard_ACU(true);
       $btn.prop('disabled', true).text('正在合并 (0%)...');
 
       const stopButtonHtml = `<button id="acu-merge-stop-btn" style="border: 1px solid #ffc107; color: #ffc107; background: transparent; padding: 5px 10px; border-radius: 4px; cursor: pointer; float: right; margin-left: 15px; font-size: 0.9em; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#ffc107'; this.style.color='#1a1d24';" onmouseout="this.style.backgroundColor='transparent'; this.style.color='#ffc107';">终止</button>`;
@@ -412,12 +428,12 @@
               jQuery_API_ACU('#acu-merge-stop-btn').off('click.acu_stop').on('click.acu_stop', function(e) {
                   e.stopPropagation();
                   e.preventDefault();
-                  wasStoppedByUser_ACU = true;
+                  _set_wasStoppedByUser_ACU(true);
                   abortAllActiveRequests_ACU();
                   if (SillyTavern_API_ACU && typeof SillyTavern_API_ACU.stopGeneration === 'function') SillyTavern_API_ACU.stopGeneration();
                   jQuery_API_ACU(this).closest('.toast').remove();
                   showToastr_ACU('warning', '合并操作已由用户终止。');
-                  isAutoUpdatingCard_ACU = false;
+                  _set_isAutoUpdatingCard_ACU(false);
                   $btn.prop('disabled', false).text('开始合并总结');
               });
           }
@@ -498,12 +514,12 @@
                       jQuery_API_ACU('#acu-merge-stop-btn').off('click.acu_stop').on('click.acu_stop', function(e) {
                           e.stopPropagation();
                           e.preventDefault();
-                          wasStoppedByUser_ACU = true;
+                          _set_wasStoppedByUser_ACU(true);
                           abortAllActiveRequests_ACU();
                           if (SillyTavern_API_ACU && typeof SillyTavern_API_ACU.stopGeneration === 'function') SillyTavern_API_ACU.stopGeneration();
                           jQuery_API_ACU(this).closest('.toast').remove();
                           showToastr_ACU('warning', '合并操作已由用户终止。');
-                          isAutoUpdatingCard_ACU = false;
+                          _set_isAutoUpdatingCard_ACU(false);
                           $btn.prop('disabled', false).text('开始合并纪要');
                       });
                   }
@@ -607,7 +623,7 @@
           await saveIndependentTableToChatHistory_ACU(SillyTavern_API_ACU.chat.length - 1, keysToSave, keysToSave);
           await updateReadableLorebookEntry_ACU(true);
           
-          topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
+          (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
           if (typeof updateCardUpdateStatusDisplay_ACU === 'function') updateCardUpdateStatusDisplay_ACU();
           
           showToastr_ACU('success', '所有批次处理完毕，数据库已更新！', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.MERGE_TABLE });
@@ -616,9 +632,9 @@
           logError_ACU('合并过程出错:', e);
           showToastr_ACU('error', '合并过程出错: ' + e.message, { acuToastCategory: ACU_TOAST_CATEGORY_ACU.ERROR });
       } finally {
-          isAutoUpdatingCard_ACU = false;
+          _set_isAutoUpdatingCard_ACU(false);
           $btn.prop('disabled', false).text('开始合并总结');
-          wasStoppedByUser_ACU = false;
+          _set_wasStoppedByUser_ACU(false);
           if (progressToast && toastr_API_ACU) toastr_API_ACU.clear(progressToast);
       }
   }
@@ -639,7 +655,7 @@
       return;
     }
 
-    isAutoUpdatingCard_ACU = true;
+    _set_isAutoUpdatingCard_ACU(true);
     if ($manualUpdateCardButton_ACU) $manualUpdateCardButton_ACU.prop('disabled', true).text('更新中...');
     
     await loadAllChatMessages_ACU();
@@ -670,7 +686,7 @@
     
     if (messagesToProcessIndices.length === 0) {
         showToastr_ACU('info', '在指定的上下文层数内没有找到AI消息可供处理。');
-        isAutoUpdatingCard_ACU = false;
+        _set_isAutoUpdatingCard_ACU(false);
         if ($manualUpdateCardButton_ACU) $manualUpdateCardButton_ACU.prop('disabled', false).text('立即手动更新');
         return;
     }
@@ -694,7 +710,7 @@
         batchSize: batchSize
     });
 
-    isAutoUpdatingCard_ACU = false;
+    _set_isAutoUpdatingCard_ACU(false);
     if ($manualUpdateCardButton_ACU) $manualUpdateCardButton_ACU.prop('disabled', false).text('立即手动更新');
     
     if (success) {
@@ -713,7 +729,7 @@
     }
   }
 
-  function exportCombinedSettings_ACU() {
+  export function exportCombinedSettings_ACU() {
     const promptSegments = getCharCardPromptFromUI_ACU();
     if (!promptSegments || promptSegments.length === 0) {
       showToastr_ACU('warning', '没有可导出的提示词。');

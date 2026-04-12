@@ -1,6 +1,19 @@
 // main-popup.ts
 // 从 05_main_popup.js 整体迁入
 
+import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU } from '../../data/models/defaults';
+import { DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU } from '../../data/repositories/template-preset-repo';
+import { showToastr_ACU } from '../theme/toast';
+import { coreApisAreReady_ACU, currentChatFileIdentifier_ACU, $popupInstance_ACU, _set_$popupInstance_ACU} from '../../service/runtime/state-manager';
+import { loadSettingsAndRefreshUI_ACU } from '../../service/settings/settings-service';
+import { POPUP_ID_ACU, SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { escapeHtml_ACU } from '../../shared/html-helpers';
+import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
+import { DEFAULT_PRESET_OPTION_VALUE_ACU } from '../components/optimization-ui';
+import { bindPopupEvents_ACU } from './popup-bindings';
+import { loadPlotSettingsToUI_ACU } from './popup-helpers';
+import { createACUWindow } from '../window/window-system';
+
   export async function openAutoCardPopup_ACU() {
     if (!coreApisAreReady_ACU) {
       showToastr_ACU('error', '核心API未就绪。');
@@ -2457,7 +2470,7 @@
       startMaximized: false, // 由 rememberState 自动管理，首次打开时不全屏
       onClose: () => {
         logDebug_ACU('ACU Window closed');
-        $popupInstance_ACU = null;
+        _set_$popupInstance_ACU(null);
       },
       onReady: async ($window) => {
         // 从窗口body中找到实际内容
@@ -2469,7 +2482,7 @@
           showToastr_ACU('error', 'UI初始化失败');
           return;
         }
-        $popupInstance_ACU = curDlgCnt;
+        _set_$popupInstance_ACU(curDlgCnt);
         $popupInstance_ACU.off('acu_plot_settings_refresh').on('acu_plot_settings_refresh', function(_event, plotSettingsOverride = null) {
           try {
             loadPlotSettingsToUI_ACU(plotSettingsOverride);

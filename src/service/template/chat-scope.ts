@@ -3,6 +3,22 @@
  * 从 src/core/04_shared_helpers.js:37~1382 迁移而来。
  * 合并 T114~T120: chat-scope + template-archive + sheet-guide + sheet-helpers(部分)
  */
+import { normalizeIsolationCode_ACU } from '../../data/constants';
+import { DEFAULT_TABLE_TEMPLATE_ACU, TABLE_TEMPLATE_ACU, _set_TABLE_TEMPLATE_ACU} from '../../data/models/defaults-json.js';
+import { readProfileTemplateFromStorage_ACU } from '../../data/repositories/profile-repo';
+import { DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU, deriveTemplatePresetNameForImport_ACU, getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../data/repositories/template-preset-repo';
+import { CHAT_SCOPED_CONFIG_FIELD_ACU, CHAT_SHEET_GUIDE_FIELD_ACU, CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU, CHAT_SHEET_GUIDE_VERSION_ACU, CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU, LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU, MAX_CHAT_TEMPLATE_ARCHIVES_PER_TAG_ACU, getChatScopedConfigContainer_ACU, getChatSheetGuideContainer_ACU, normalizeChatScopedConfigContainer_ACU } from '../../data/storage/chat-history';
+import { getDefaultTemplateSnapshot_ACU, getTemplatePreset_ACU } from '../../presentation/components/template-preset-ui';
+import { SillyTavern_API_ACU, TABLE_ORDER_FIELD_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../runtime/state-manager';
+import { applyTemplateScopeForCurrentChat_ACU } from '../settings/settings-service';
+import { refreshMergedDataAndNotify_ACU } from '../worldbook/pipeline';
+import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-helpers';
+import { applySheetOrderNumbers_ACU, cloneScopedConfigData_ACU, ensureSheetOrderNumbers_ACU, getChatFirstLayerMessage_ACU, hashUserInput_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
+import { ensureLoopPromptsArray_ACU, ensurePlotPromptsArray_ACU, ensurePlotTasksCompat_ACU, getPlotFinalDirectiveFromSource_ACU, normalizePlotPresetSelectionValue_ACU, setPlotPromptContentByIdForSettings_ACU } from '../../presentation/components/optimization-ui';
+import { getTemplatePresetDisplayName_ACU, persistTemplateScopeSelectionState_ACU, upsertTemplatePreset_ACU } from '../../presentation/components/template-preset-ui';
+import { formatPlotScopeUpdatedAt_ACU } from '../../presentation/pages/popup-helpers';
+import { ensureExportConfigDefaults_ACU, ensureGlobalInjectionConfigDefaults_ACU } from '../worldbook/injection-engine';
+
   function normalizePlotScopeMode_ACU(mode) {
       return mode === 'chat_override' ? 'chat_override' : 'inherit_global';
   }
@@ -13,7 +29,7 @@
       return normalized || fallback;
   }
 
-  function sanitizePlotSettingsSnapshotForChat_ACU(plotSettings) {
+  export function sanitizePlotSettingsSnapshotForChat_ACU(plotSettings) {
       if (!plotSettings || typeof plotSettings !== 'object') return null;
       const snapshot = cloneScopedConfigData_ACU(plotSettings, null);
       if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
@@ -44,7 +60,7 @@
       };
   }
 
-  function getCurrentChatPlotScopeState_ACU(chat = SillyTavern_API_ACU?.chat) {
+  export function getCurrentChatPlotScopeState_ACU(chat = SillyTavern_API_ACU?.chat) {
       const container = getChatScopedConfigContainer_ACU(chat);
       const rawState = container?.plot;
       if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState)) return null;
@@ -56,7 +72,7 @@
       return normalizedState;
   }
 
-  function buildChatPlotScopeStateFromSettings_ACU(plotSettings, { presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now() } = {}) {
+  export function buildChatPlotScopeStateFromSettings_ACU(plotSettings, { presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now() } = {}) {
       const snapshot = sanitizePlotSettingsSnapshotForChat_ACU(plotSettings);
       if (!snapshot) return null;
 
@@ -71,7 +87,7 @@
       });
   }
 
-  function setCurrentChatPlotScopeState_ACU(plotState, { reason = '' } = {}) {
+  export function setCurrentChatPlotScopeState_ACU(plotState, { reason = '' } = {}) {
       const chat = SillyTavern_API_ACU?.chat;
       const first = getChatFirstLayerMessage_ACU(chat);
       if (!first) return null;
@@ -98,21 +114,21 @@
       return getCurrentChatPlotScopeState_ACU(chat);
   }
 
-  function clearCurrentChatPlotScopeState_ACU() {
+  export function clearCurrentChatPlotScopeState_ACU() {
       return setCurrentChatPlotScopeState_ACU({ mode: 'inherit_global' }, { reason: 'clear_plot_override' });
   }
 
-  function normalizeTemplateScopeMode_ACU(mode) {
+  export function normalizeTemplateScopeMode_ACU(mode) {
       if (mode === 'chat_override') return 'chat_override';
       if (mode === 'preset_link') return 'preset_link';
       return 'inherit_global';
   }
 
-  function normalizeTemplateScopeIsolationKey_ACU(isolationKey = getCurrentIsolationKey_ACU()) {
+  export function normalizeTemplateScopeIsolationKey_ACU(isolationKey = getCurrentIsolationKey_ACU()) {
       return String(isolationKey ?? '');
   }
 
-  function sanitizeTemplateSnapshotForChat_ACU(templateSource) {
+  export function sanitizeTemplateSnapshotForChat_ACU(templateSource) {
       let templateObj = null;
       if (typeof templateSource === 'string') {
           templateObj = safeJsonParse_ACU(templateSource, null);
@@ -158,7 +174,7 @@
       return normalizeTemplatePresetSelectionValue_ACU(presetName) || DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU;
   }
 
-  function listChatTemplatePresetEntries_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+  export function listChatTemplatePresetEntries_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       const entryMap = new Map();
       getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).forEach(entry => {
@@ -182,7 +198,7 @@
       return listChatTemplatePresetEntries_ACU({ chat, isolationKey }).find(entry => buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '') === slotKey) || null;
   }
 
-  function upsertChatTemplatePresetEntry_ACU(templateState, { chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+  export function upsertChatTemplatePresetEntry_ACU(templateState, { chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
       if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr) return null;
@@ -217,7 +233,7 @@
       return upsertChatTemplatePresetEntry_ACU(normalizedState, { chat, isolationKey: normalizedKey });
   }
 
-  function buildChatTemplatePresetLinkState_ACU({ isolationKey = getCurrentIsolationKey_ACU(), presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now() } = {}) {
+  export function buildChatTemplatePresetLinkState_ACU({ isolationKey = getCurrentIsolationKey_ACU(), presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now() } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       return normalizeChatTemplateScopeState_ACU({
           mode: 'preset_link',
@@ -230,7 +246,7 @@
       }, { isolationKey: normalizedKey });
   }
 
-  async function activateChatTemplatePresetSelection_ACU(presetName, { source = 'ui_chat_select', refreshUi = false, save = true } = {}) {
+  export async function activateChatTemplatePresetSelection_ACU(presetName, { source = 'ui_chat_select', refreshUi = false, save = true } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(getCurrentIsolationKey_ACU());
       const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
       const localEntry = findChatTemplatePresetEntry_ACU(normalizedPresetName, { isolationKey: normalizedKey });
@@ -454,7 +470,7 @@
       };
   }
 
-  function getCurrentChatTemplateScopeState_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+  export function getCurrentChatTemplateScopeState_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const container = getChatScopedConfigContainer_ACU(chat);
       const rawSlots = container?.template;
       if (!rawSlots || typeof rawSlots !== 'object' || Array.isArray(rawSlots)) return null;
@@ -473,7 +489,7 @@
       return normalizedState;
   }
 
-  function buildChatTemplateScopeStateFromCurrent_ACU({ isolationKey = getCurrentIsolationKey_ACU(), presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now(), templateSource = TABLE_TEMPLATE_ACU, guideData = null } = {}) {
+  export function buildChatTemplateScopeStateFromCurrent_ACU({ isolationKey = getCurrentIsolationKey_ACU(), presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now(), templateSource = TABLE_TEMPLATE_ACU as any, guideData = null }: any = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateSource);
       if (!templateSnapshot?.templateStr) return null;
@@ -492,7 +508,7 @@
       }, { isolationKey: normalizedKey });
   }
 
-  function setCurrentChatTemplateScopeState_ACU(templateState, { isolationKey = getCurrentIsolationKey_ACU(), reason = '' } = {}) {
+  export function setCurrentChatTemplateScopeState_ACU(templateState, { isolationKey = getCurrentIsolationKey_ACU(), reason = '' } = {}) {
       const chat = SillyTavern_API_ACU?.chat;
       const first = getChatFirstLayerMessage_ACU(chat);
       if (!first) return null;
@@ -553,7 +569,7 @@
       return result;
   }
 
-  function getGlobalTemplateSnapshotForCurrentProfile_ACU() {
+  export function getGlobalTemplateSnapshotForCurrentProfile_ACU() {
       const code = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || '');
       const previousTemplate = TABLE_TEMPLATE_ACU;
       const savedTemplate = readProfileTemplateFromStorage_ACU(code);
@@ -563,13 +579,13 @@
       }
 
       try {
-          TABLE_TEMPLATE_ACU = savedTemplate || DEFAULT_TABLE_TEMPLATE_ACU;
+          _set_TABLE_TEMPLATE_ACU(savedTemplate || DEFAULT_TABLE_TEMPLATE_ACU);
           const parsedTemplate = parseTableTemplateJson_ACU({ stripSeedRows: false });
           snapshot = sanitizeTemplateSnapshotForChat_ACU(parsedTemplate);
       } catch (e) {
           snapshot = null;
       } finally {
-          TABLE_TEMPLATE_ACU = previousTemplate;
+          _set_TABLE_TEMPLATE_ACU(previousTemplate);
       }
 
       return snapshot || sanitizeTemplateSnapshotForChat_ACU(previousTemplate);
@@ -579,7 +595,7 @@
 
   function normalizeGuideData_ACU(dataObj) {
       if (!dataObj || typeof dataObj !== 'object') return null;
-      const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
+      const out: any = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
       // mate 允许覆盖
       if (dataObj.mate && typeof dataObj.mate === 'object') {
           out.mate = dataObj.mate;
@@ -616,7 +632,7 @@
       return out;
   }
 
-  function materializeDataFromSheetGuide_ACU(guideData, { includeSeedRows = true } = {}) {
+  export function materializeDataFromSheetGuide_ACU(guideData, { includeSeedRows = true } = {}) {
       const normalized = normalizeGuideData_ACU(guideData);
       if (!normalized) return { mate: { type: 'chatSheets', version: 1 } };
       const out = { mate: normalized.mate || { type: 'chatSheets', version: 1 } };
@@ -653,7 +669,7 @@
           if (orderedUids.length === 0) return null;
 
           const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
-          const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
+          const out: any = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
           orderedUids.forEach((uid, idx) => {
               const base = (templateObj && templateObj[uid])
                   ? JSON.parse(JSON.stringify(templateObj[uid]))
@@ -763,7 +779,7 @@
       });
   }
 
-  function migrateLegacyTemplateScopeForCurrentChat_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+  export function migrateLegacyTemplateScopeForCurrentChat_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       const existingScopeState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
       if (existingScopeState) return existingScopeState;
@@ -818,7 +834,7 @@
       return null;
   }
 
-  function clearChatSheetGuideDataForIsolationKey_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+  export function clearChatSheetGuideDataForIsolationKey_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const first = getChatFirstLayerMessage_ACU(chat);
       if (!first) return false;
 
@@ -841,7 +857,7 @@
       return true;
   }
 
-  function getChatSheetGuideDataForIsolationKey_ACU(isolationKey) {
+  export function getChatSheetGuideDataForIsolationKey_ACU(isolationKey) {
       const chat = SillyTavern_API_ACU?.chat;
       const normalizedKey = String(isolationKey ?? '');
       const scopedTemplateState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey })
@@ -889,7 +905,7 @@
       return null;
   }
 
-  function setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, { reason = '', syncTemplateScope = false, templateSource = null, presetName = '', source = '', updatedAt = Date.now() } = {}) {
+  export function setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, { reason = '', syncTemplateScope = false, templateSource = null, presetName = '', source = '', updatedAt = Date.now() } = {}) {
       const chat = SillyTavern_API_ACU?.chat;
       const first = getChatFirstLayerMessage_ACU(chat);
       if (!first) return false;
@@ -971,7 +987,7 @@
       }
   }
 
-  async function ensureChatSheetGuideSeeded_ACU({ reason = 'auto_seed_seedRows', force = false } = {}) {
+  export async function ensureChatSheetGuideSeeded_ACU({ reason = 'auto_seed_seedRows', force = false } = {}) {
       try {
           const isolationKey = getCurrentIsolationKey_ACU();
           const existing = getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
@@ -1038,7 +1054,7 @@
       }
   }
 
-  function getEffectiveSeedRowsForSheet_ACU(sheetKey, { guideData = null, allowTemplateFallback = true } = {}) {
+  export function getEffectiveSeedRowsForSheet_ACU(sheetKey, { guideData = null, allowTemplateFallback = true } = {}) {
       try {
           if (!sheetKey || !String(sheetKey).startsWith('sheet_')) return [];
           const direct = currentJsonTableData_ACU?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
@@ -1064,7 +1080,7 @@
       }
   }
 
-  function attachSeedRowsToCurrentDataFromGuide_ACU(guideData) {
+  export function attachSeedRowsToCurrentDataFromGuide_ACU(guideData) {
       try {
           if (!currentJsonTableData_ACU || typeof currentJsonTableData_ACU !== 'object') return false;
           const g = normalizeGuideData_ACU(guideData);
@@ -1089,12 +1105,12 @@
   }
 
   // [新增] 用"当前数据"构建空白指导表：只保留表头行 + 参数（顺序由 getSortedSheetKeys_ACU 的旧逻辑决定，避免递归）
-  function buildChatSheetGuideDataFromData_ACU(dataObj, { preserveSeedRowsFromGuideData = null, seedRowsFromTemplateObj = null, orderedKeys = null } = {}) {
+  export function buildChatSheetGuideDataFromData_ACU(dataObj, { preserveSeedRowsFromGuideData = null, seedRowsFromTemplateObj = null, orderedKeys = null } = {}) {
       if (!dataObj || typeof dataObj !== 'object') return null;
       const keys = Array.isArray(orderedKeys) && orderedKeys.length
           ? orderedKeys.filter(k => typeof k === 'string' && k.startsWith('sheet_') && dataObj[k])
           : getSortedSheetKeys_ACU(dataObj, { ignoreChatGuide: true });
-      const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
+      const out: any = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
       if (dataObj.mate && typeof dataObj.mate === 'object') {
           out.mate = JSON.parse(JSON.stringify(dataObj.mate));
       }
@@ -1132,7 +1148,7 @@
   }
 
   // [新增] 用"模板对象"构建空白指导表：只保留表头行 + 参数（模板已有顺序编号）
-  function buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows = true } = {}) {
+  export function buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows = true } = {}) {
       if (!templateObj || typeof templateObj !== 'object') return null;
       const keys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
       if (keys.length === 0) return null;
@@ -1144,7 +1160,7 @@
           if (ao !== bo) return ao - bo;
           return String(a).localeCompare(String(b));
       });
-      const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
+      const out: any = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
       if (templateObj.mate && typeof templateObj.mate === 'object') {
           out.mate = JSON.parse(JSON.stringify(templateObj.mate));
       }
@@ -1166,7 +1182,7 @@
   }
 
   // [新增] 覆盖式更新：用模板写入当前聊天第一层"空白指导表"
-  async function overwriteChatSheetGuideFromTemplate_ACU(templateObj, { reason = 'template_changed', stripSeedRows = true, presetName = '', source = 'ui', syncTemplateScope = false, registerPreset = false } = {}) {
+  export async function overwriteChatSheetGuideFromTemplate_ACU(templateObj, { reason = 'template_changed', stripSeedRows = true, presetName = '', source = 'ui', syncTemplateScope = false, registerPreset = false } = {}) {
       const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows });
       if (!guideData) return false;
       const isolationKey = getCurrentIsolationKey_ACU();
@@ -1201,7 +1217,7 @@
   // [表格顺序新机制] 获取表格 keys：
   // - 若当前聊天已存在"空白指导表"：优先按指导表的 orderNo 顺序（可过滤不在指导表里的表）
   // - 否则：按"编号(orderNo)从小到大"排序；缺编号则回退到模板编号/模板顺序
-  function getSortedSheetKeys_ACU(dataObj, { ignoreChatGuide = false, includeMissingFromGuide = false } = {}) {
+  export function getSortedSheetKeys_ACU(dataObj, { ignoreChatGuide = false, includeMissingFromGuide = false } = {}) {
       if (!dataObj || typeof dataObj !== 'object') return [];
       const existingKeys = Object.keys(dataObj).filter(k => k.startsWith('sheet_'));
       if (existingKeys.length === 0) return [];
@@ -1263,16 +1279,16 @@
   }
 
   // [新增] 基于"空白指导表"构建可合并的骨架数据（深拷贝，避免后续修改污染原对象）
-  function buildGuidedBaseDataFromSheetGuide_ACU(guideData) {
+  export function buildGuidedBaseDataFromSheetGuide_ACU(guideData) {
       const normalized = normalizeGuideData_ACU(guideData);
       if (!normalized) return { mate: { type: 'chatSheets', version: 1 } };
       try { return JSON.parse(JSON.stringify(normalized)); } catch (e) { return normalized; }
   }
 
   // [修复] 按指定顺序重建对象键，避免 Object.keys()/合并/深拷贝导致的顺序漂移
-  function reorderDataBySheetKeys_ACU(dataObj, orderedSheetKeys) {
+  export function reorderDataBySheetKeys_ACU(dataObj, orderedSheetKeys) {
       if (!dataObj || typeof dataObj !== 'object') return dataObj;
-      const out = {};
+      const out: any = {};
       // 先保留非 sheet_ 键（mate 等）
       Object.keys(dataObj).forEach(k => {
           if (!k.startsWith('sheet_')) out[k] = dataObj[k];
@@ -1302,9 +1318,9 @@
       TABLE_ORDER_FIELD_ACU, // orderNo
   ]);
 
-  function sanitizeSheetForStorage_ACU(sheet) {
+  export function sanitizeSheetForStorage_ACU(sheet) {
       if (!sheet || typeof sheet !== 'object') return sheet;
-      const out = {};
+      const out: any = {};
       SHEET_KEEP_KEYS_ACU.forEach(k => {
           if (sheet[k] !== undefined) out[k] = sheet[k];
       });
@@ -1316,9 +1332,9 @@
       return out;
   }
 
-  function sanitizeChatSheetsObject_ACU(dataObj, { ensureMate = false } = {}) {
+  export function sanitizeChatSheetsObject_ACU(dataObj, { ensureMate = false } = {}) {
       if (!dataObj || typeof dataObj !== 'object') return dataObj;
-      const out = {};
+      const out: any = {};
       Object.keys(dataObj).forEach(k => {
           if (k.startsWith('sheet_')) {
               out[k] = sanitizeSheetForStorage_ACU(dataObj[k]);

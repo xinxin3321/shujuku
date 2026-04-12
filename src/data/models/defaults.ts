@@ -8,6 +8,8 @@
 // ═══════════════════════════════════════════════════════════════
 
 // [剧情推进] 默认世界书选择
+
+
 export function buildDefaultPlotWorldbookConfig_ACU() {
   return {
     source: 'character' as const,

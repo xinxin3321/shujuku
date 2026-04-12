@@ -1,6 +1,16 @@
 // plot-editors.ts
 // 从 02_shared_editors_and_selectors.js 整体迁入
 
+import { DEFAULT_CHAR_CARD_PROMPT_ACU, DEFAULT_PLOT_PROMPT_GROUP_ACU, DEFAULT_PLOT_SETTINGS_ACU } from '../../data/models/defaults-json.js';
+import { showToastr_ACU } from '../theme/toast';
+
+import { settings_ACU } from '../../service/runtime/state-manager';
+import { saveSettings_ACU } from '../../service/settings/settings-service';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { escapeHtml_ACU } from '../../shared/html-helpers';
+import { logWarn_ACU, normalizePositiveInteger_ACU } from '../../shared/utils';
+import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotPromptGroupFromSource_ACU, normalizePlotTask_ACU, normalizePlotTasks_ACU, syncLegacyPlotSettingsFromTask_ACU } from './optimization-ui';
+
   export function renderPromptSegments_ACU(segments) {
       if (!$charCardPromptSegmentsContainer_ACU) return;
       $charCardPromptSegmentsContainer_ACU.empty();
@@ -553,3 +563,12 @@
   }
 
   // --- [新增] 内部保存函数：保存单个表格的数据到聊天历史 ---
+export function _set_currentAbortController_ACU(v: any) { currentAbortController_ACU = v; }
+
+export function _set_isAutoUpdatingCard_ACU(v: any) { isAutoUpdatingCard_ACU = v; }
+export function _set_manualExtraHint_ACU(v: any) { manualExtraHint_ACU = v; }
+export function _set_wasStoppedByUser_ACU(v: any) { wasStoppedByUser_ACU = v; }
+export function _set_currentEditablePlotPresetState_ACU(v: any) { currentEditablePlotPresetState_ACU = v; }
+export function _set_activePlotEditorSettings_ACU(v: any) { activePlotEditorSettings_ACU = v; }
+export function _set_currentPlotTaskEditorId_ACU(v: any) { currentPlotTaskEditorId_ACU = v; }
+export function _set_newMessageDebounceTimer_ACU(v: any) { newMessageDebounceTimer_ACU = v; }

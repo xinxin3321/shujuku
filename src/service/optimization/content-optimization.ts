@@ -1,8 +1,16 @@
+import { DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU } from '../../data/models/defaults-json.js';
+import { showToastr_ACU } from '../../presentation/theme/toast';
+import { SillyTavern_API_ACU, currentJsonTableData_ACU, settings_ACU } from '../runtime/state-manager';
+import { topLevelWindow_ACU } from '../../shared/env';
+import { applyOptimizations_ACU } from '../../shared/text-optimization';
+import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
+import { hideOptimizationOverlay_ACU, hideOptimizationProgressToast_ACU } from '../../presentation/components/optimization-ui';
+import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatestAIMessageContent_ACU, getPlotFromHistory_ACU, getWorldbookContentForPlot_ACU, parseCalcTags_ACU, parseIfBlockRecursive_ACU, parseMaxTags_ACU, parseMinTags_ACU, parseRandomTags_ACU, replaceCalcVariables_ACU, replaceMaxVariables_ACU, replaceMinVariables_ACU, replaceRandomVariables_ACU } from '../runtime/helpers-remaining';
 /**
  * service/optimization/content-optimization.ts — 正文优化服务逻辑
  * 从 src/core/02_storage_and_profile.js:630~1325 迁移而来。
  */
-  function buildDefaultContentOptimizationPromptGroup_ACU({ mainContent = '' } = {}) {
+  export function buildDefaultContentOptimizationPromptGroup_ACU({ mainContent = '' } = {}) {
     const src = DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU;
     const base = Array.isArray(src) ? JSON.parse(JSON.stringify(src)) : [];
     
@@ -129,7 +137,7 @@
    * @param {string} options.userMessage - 用户消息（用于占位符）
    * @returns {Promise<object>} 优化结果 { success, optimizations, summary, optimizedContent }
    */
-   async function performContentOptimization_ACU(content, options = {}) {
+   export async function performContentOptimization_ACU(content, options = {}) {
      const config = settings_ACU.contentOptimizationSettings || {};
      const maxLength = config.maxOptimizations || 10;
      const currentLoop = options.currentLoop || 1;
@@ -609,11 +617,11 @@
   }
   
  
-  let contentOptimizationAbortRequested_ACU = false;
-  let optimizationProgressToast_ACU = null;
+  export let contentOptimizationAbortRequested_ACU = false;
+  export let optimizationProgressToast_ACU = null;
   let lastOptimizedMessageMeta_ACU = null;
 
-  function setLastOptimizationBase_ACU(payload = {}) {
+  export function setLastOptimizationBase_ACU(payload = {}) {
     const cache = {
       messageIndex: Number.isInteger(payload.messageIndex) ? payload.messageIndex : -1,
       messageId: payload.messageId ?? null,
@@ -639,7 +647,7 @@
     return cache;
   }
 
-  function getLastOptimizationBase_ACU() {
+  export function getLastOptimizationBase_ACU() {
     if (lastOptimizedMessageMeta_ACU?.baseContent) {
       return lastOptimizedMessageMeta_ACU;
     }
@@ -676,7 +684,7 @@
    * @param {string} reason - 取消原因
    * @returns {boolean} 是否执行了取消
    */
-  function cancelContentOptimization_ACU(reason = '正文优化已由用户终止。') {
+  export function cancelContentOptimization_ACU(reason = '正文优化已由用户终止。') {
     contentOptimizationAbortRequested_ACU = true;
     hideOptimizationOverlay_ACU();
     hideOptimizationProgressToast_ACU();
@@ -687,7 +695,7 @@
   /**
    * 检查正文优化是否已被取消
    */
-  function ensureOptimizationNotCancelled_ACU() {
+  export function ensureOptimizationNotCancelled_ACU() {
     if (contentOptimizationAbortRequested_ACU) {
       throw new Error('用户终止正文优化');
     }
@@ -697,3 +705,6 @@
    * 显示无感替换遮罩
    * @param {string} message - 显示的消息
    */
+
+export function _set_optimizationProgressToast_ACU(v: any) { optimizationProgressToast_ACU = v; }
+export function _set_contentOptimizationAbortRequested_ACU(v: any) { contentOptimizationAbortRequested_ACU = v; }

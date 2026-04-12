@@ -1,12 +1,22 @@
 // admin.ts
 // 从 01_data_admin.js 迁入
 
+import { getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../data/repositories/template-preset-repo';
+import { renderPromptSegments_ACU } from '../../presentation/components/plot-editors';
+import { showToastr_ACU } from '../../presentation/theme/toast';
+import { settings_ACU } from '../runtime/state-manager';
+import { saveSettings_ACU } from '../settings/settings-service';
+import { sanitizeChatSheetsObject_ACU } from '../template/chat-scope';
+import { ensureSheetOrderNumbers_ACU, logDebug_ACU, logError_ACU } from '../../shared/utils';
+import { syncMergeSettingsToUI_ACU } from '../../presentation/components/status-display';
+import { applyTemplateSnapshotToScope_ACU } from '../../presentation/components/template-preset-ui';
+
 export   function importCombinedSettings_ACU() {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
     input.onchange = e => {
-        const file = e.target.files[0];
+        const file = (e.target as any).files[0];
         if (!file) return;
 
         const reader = new FileReader();
@@ -15,7 +25,7 @@ export   function importCombinedSettings_ACU() {
             let combinedData;
 
             try {
-                combinedData = JSON.parse(content);
+                combinedData = JSON.parse(content as string);
             } catch (error) {
                 logError_ACU('导入合并配置失败：JSON解析错误。', error);
                 showToastr_ACU('error', '文件不是有效的JSON格式。', { timeOut: 5000 });

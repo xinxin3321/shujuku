@@ -1,6 +1,10 @@
 // service/ai/api-call.ts — AI 调用编排（剧情推进用）
 // 从 04_shared_helpers.js 迁入
 
+import { handleApiResponse_ACU } from './prompt-builder';
+import { SillyTavern_API_ACU, settings_ACU } from '../runtime/state-manager';
+import { logDebug_ACU, logWarn_ACU } from '../../shared/utils';
+
 export   async function callApi_ACU(messages, apiSettings, abortSignal = null) {
     // [新增] 获取剧情推进使用的API配置（支持API预设）
     const apiPresetConfig = getApiConfigByPreset_ACU(settings_ACU.plotApiPreset);

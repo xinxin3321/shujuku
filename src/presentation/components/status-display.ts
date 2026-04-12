@@ -1,3 +1,13 @@
+import { DEFAULT_MERGE_SUMMARY_PROMPT_ACU } from '../../data/models/defaults-json.js';
+import { getCurrentWorldbookConfig_ACU } from '../../data/repositories/character-settings-repo';
+import { renderPromptSegments_ACU } from './plot-editors';
+import { renderImportTableSelector_ACU, renderManualTableSelector_ACU } from './table-selector';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { escapeHtml_ACU } from '../../shared/html-helpers';
+import { normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shared/utils';
+import { renderExcludeRuleRows_ACU } from './optimization-ui';
+import { populateInjectionTargetSelector_ACU, updateWorldbookSourceView_ACU } from './worldbook-selector';
+import { updateApiModeView_ACU, updateApiStatusDisplay_ACU, updateCustomApiInputsState_ACU } from '../triggers/settings-ui-sync';
 // status-display.ts — 对应源文件有跨文件依赖，保留在原位
 
   // [T172] 可视化编辑器刷新通知（从 service/worldbook/pipeline.ts 提取）
@@ -13,7 +23,7 @@
   }
 
   // [T173] 填表停止按钮绑定
-  function bindTableFillStopButton_ACU(localAbortController, onStop) {
+  export function bindTableFillStopButton_ACU(localAbortController, onStop) {
     const $stopButton = jQuery_API_ACU('#acu-stop-update-btn');
     if ($stopButton.length) {
         $stopButton.off('click.acu_stop').on('click.acu_stop', function(e) {
@@ -29,7 +39,7 @@
   }
 
   // [T173] 重置手动更新按钮状态
-  function resetManualUpdateButton_ACU() {
+  export function resetManualUpdateButton_ACU() {
     if ($manualUpdateCardButton_ACU) {
         $manualUpdateCardButton_ACU.prop('disabled', false).text('立即手动更新');
     }
@@ -49,12 +59,12 @@
   }
 
   // [T177] 读取酒馆发送输入框的值
-  function getSendTextareaValue_ACU() {
+  export function getSendTextareaValue_ACU() {
     try { return jQuery_API_ACU('#send_textarea').val() || ''; } catch(e) { return ''; }
   }
 
   // [T177] 设置酒馆发送输入框的值并触发 input 事件
-  function setSendTextareaValue_ACU(text) {
+  export function setSendTextareaValue_ACU(text) {
     try {
       jQuery_API_ACU('#send_textarea').val(text);
       jQuery_API_ACU('#send_textarea').trigger('input');
@@ -62,7 +72,7 @@
   }
 
   // [T178] 将合并/删除设置同步到 UI
-  function syncMergeSettingsToUI_ACU(s) {
+  export function syncMergeSettingsToUI_ACU(s) {
     if (!$popupInstance_ACU) return;
     const find = (id) => $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-${id}`);
     const setVal = (id, v) => { const $el = find(id); if ($el.length) $el.val(v); };
@@ -80,7 +90,7 @@
   }
 
   // [T179] 将全部设置同步到 UI（从 service/settings/settings-service.ts 提取）
-  function syncAllSettingsToUI_ACU(s) {
+  export function syncAllSettingsToUI_ACU(s) {
       if (!$popupInstance_ACU) return;
       if ($customApiUrlInput_ACU) $customApiUrlInput_ACU.val(s.apiConfig.url);
       if ($customApiKeyInput_ACU) $customApiKeyInput_ACU.val(s.apiConfig.apiKey);
@@ -137,6 +147,6 @@
   }
 
   // [T180] 模拟点击酒馆发送按钮
-  function clickSendButton_ACU() {
+  export function clickSendButton_ACU() {
     try { jQuery_API_ACU('#send_but').click(); } catch(e) {}
   }

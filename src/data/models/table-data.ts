@@ -1,3 +1,4 @@
+import { currentJsonTableData_ACU } from '../../service/runtime/state-manager';
 /**
  * data/models/table-data.ts — 表格数据结构定义
  *
@@ -6,6 +7,7 @@
  */
 
 /** 单个表格的更新配置 */
+
 export interface SheetUpdateConfig_ACU {
   uiSentinel: number;
   contextDepth: number;

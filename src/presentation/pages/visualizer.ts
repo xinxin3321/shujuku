@@ -1,3 +1,15 @@
+import { renderVisualizerMain_ACU, saveVisualizerChanges_ACU } from './visualizer-main';
+import { renderVisualizerSidebar_ACU } from './visualizer-sidebar';
+import { showToastr_ACU } from '../theme/toast';
+import { toggleACUTheme_ACU } from '../window/window-styles';
+import { currentJsonTableData_ACU , _set_currentJsonTableData_ACU} from '../../service/runtime/state-manager';
+import { getSortedSheetKeys_ACU, reorderDataBySheetKeys_ACU } from '../../service/template/chat-scope';
+import { loadAllChatMessages_ACU } from '../../service/worldbook/pipeline';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { escapeHtml_ACU } from '../../shared/html-helpers';
+import { logDebug_ACU, logWarn_ACU } from '../../shared/utils';
+import { getActiveTemplatePresetMeta_ACU } from '../components/template-preset-ui';
+import { mergeAllIndependentTables_ACU } from '../../service/runtime/helpers-remaining';
 // visualizer.ts
 // 从 06_visualizer.js 整体迁入
 
@@ -1325,7 +1337,7 @@
       } else {
           // 如果成功，更新内存数据和编辑器数据
           const stableKeys = getSortedSheetKeys_ACU(freshData);
-          currentJsonTableData_ACU = reorderDataBySheetKeys_ACU(freshData, stableKeys);
+          _set_currentJsonTableData_ACU(reorderDataBySheetKeys_ACU(freshData, stableKeys));
           _acuVisState.tempData = JSON.parse(JSON.stringify(currentJsonTableData_ACU));
       }
       

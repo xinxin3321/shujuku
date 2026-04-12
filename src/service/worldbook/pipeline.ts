@@ -1,3 +1,17 @@
+import { getCurrentWorldbookConfig_ACU } from '../../data/repositories/character-settings-repo';
+import { renderImportTableSelector_ACU, renderManualTableSelector_ACU } from '../../presentation/components/table-selector';
+import { showToastr_ACU } from '../../presentation/theme/toast';
+import { SillyTavern_API_ACU, TavernHelper_API_ACU, allChatMessages_ACU, coreApisAreReady_ACU, currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, $manualTableSelector_ACU, $importTableSelector_ACU, _set_currentJsonTableData_ACU, _set_allChatMessages_ACU} from '../runtime/state-manager';
+import { saveSettings_ACU } from '../settings/settings-service';
+import { getChatSheetGuideDataForIsolationKey_ACU, getSortedSheetKeys_ACU, materializeDataFromSheetGuide_ACU, reorderDataBySheetKeys_ACU } from '../template/chat-scope';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { topLevelWindow_ACU } from '../../shared/env';
+import { logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
+import { getImportBatchPrefix_ACU, getImportStablePrefix_ACU } from '../../presentation/components/import-status-ui';
+import { updateCardUpdateStatusDisplay_ACU } from '../../presentation/components/update-status-display';
+import { isEntryBlocked_ACU } from '../../presentation/components/worldbook-selector';
+import { formatJsonToReadable_ACU, maybeLiftWorldbookSuppression_ACU, mergeAllIndependentTables_ACU, shouldSuppressWorldbookInjection_ACU } from '../runtime/helpers-remaining';
+import { allocConsecutiveOrderBlock_ACU, applyPlacementToEntry_ACU, buildDefaultGlobalInjectionConfig_ACU, buildUsedOrderSet_ACU, ensureExportConfigDefaults_ACU, ensureGlobalInjectionConfigDefaults_ACU, getEntryOrderNumber_ACU, getFixedPlacementDefaultsForTable_ACU, getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, isEntryPlacementMatched_ACU, normalizeLorebookPosition_ACU, normalizePlacementConfig_ACU, updateCustomTableExports_ACU, updateImportantPersonsRelatedEntries_ACU, updateOutlineTableEntry_ACU, updateSummaryTableEntries_ACU } from './injection-engine';
 // pipeline.ts
 // 从 05_core_tail.js 迁入
 
@@ -34,7 +48,7 @@ export   async function updateReadableLorebookEntry_ACU(createIfNeeded = false, 
         if (mergedFromHistory) {
             mergedData = mergedFromHistory;
             // 同步内存中的全局数据，确保后续调用保持一致
-            currentJsonTableData_ACU = mergedFromHistory;
+            _set_currentJsonTableData_ACU(mergedFromHistory);
         } else {
             // 如果合并失败，退回到当前内存数据避免中断
             mergedData = currentJsonTableData_ACU;
@@ -546,16 +560,16 @@ export   async function refreshMergedDataAndNotify_ACU() {
         if (guide && typeof guide === 'object' && Object.keys(guide).some(k => k.startsWith('sheet_'))) {
             logDebug_ACU('[回溯空数据] 无历史表格数据：使用已保存指导表物化结构（不展开 seedRows）作为基底。');
             mergedData = materializeDataFromSheetGuide_ACU(guide, { includeSeedRows: false });
-            currentJsonTableData_ACU = mergedData;
+            _set_currentJsonTableData_ACU(mergedData);
         } else {
             logDebug_ACU('[回溯空数据] 无历史表格数据且无指导表：使用模板结构（不展开预置数据）。');
             const templateData = parseTableTemplateJson_ACU({ stripSeedRows: true }); // 仅结构，不携带模板预置数据行
             if (templateData) {
                 mergedData = templateData;
-                currentJsonTableData_ACU = templateData;
+                _set_currentJsonTableData_ACU(templateData);
             } else {
                 // 极端兜底：模板也解析失败，设为空对象
-                currentJsonTableData_ACU = { mate: { type: 'chatSheets', version: 1 } };
+                _set_currentJsonTableData_ACU({ mate: { type: 'chatSheets', version: 1 } });
                 logWarn_ACU('[回溯空数据] 模板解析失败，currentJsonTableData_ACU 设为最小空结构。');
             }
         }
@@ -590,7 +604,7 @@ export   async function refreshMergedDataAndNotify_ACU() {
 
         // [修复] 强制稳定顺序（用户手动顺序优先，否则模板顺序）
         const stableKeys = getSortedSheetKeys_ACU(mergedData);
-        currentJsonTableData_ACU = reorderDataBySheetKeys_ACU(mergedData, stableKeys);
+        _set_currentJsonTableData_ACU(reorderDataBySheetKeys_ACU(mergedData, stableKeys));
         logDebug_ACU('Updated currentJsonTableData_ACU with independently merged data.');
         if ($manualTableSelector_ACU) {
             renderManualTableSelector_ACU();
@@ -607,17 +621,17 @@ export   async function refreshMergedDataAndNotify_ACU() {
     // 通知前端进行UI刷新，并等待前端完成数据读取
     return new Promise((resolve) => {
         // 1. 通知前端 (iframe context)
-        if (topLevelWindow_ACU.AutoCardUpdaterAPI) {
-            topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
+        if ((topLevelWindow_ACU as any).AutoCardUpdaterAPI) {
+            (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
             logDebug_ACU('Notified frontend to refresh UI after data merge.');
         }
         
         // 2. 刷新可视化编辑器（UI层负责）
         setTimeout(() => {
-             if (typeof window.ACU_Visualizer_Refresh === 'function') {
-                 window.ACU_Visualizer_Refresh();
+             if (typeof (window as any).ACU_Visualizer_Refresh === 'function') {
+                 (window as any).ACU_Visualizer_Refresh();
                  logDebug_ACU('Triggered global visualizer refresh.');
-             } else if (typeof ACU_WindowManager !== 'undefined' && ACU_WindowManager.isOpen(`${SCRIPT_ID_PREFIX_ACU}-visualizer-window`)) {
+             } else if (typeof (window as any).ACU_WindowManager !== 'undefined' && (window as any).ACU_WindowManager.isOpen(`${SCRIPT_ID_PREFIX_ACU}-visualizer-window`)) {
              }
         }, 200);
 
@@ -630,7 +644,7 @@ export   async function refreshMergedDataAndNotify_ACU() {
         // 使用较长的延迟，确保前端有足够时间处理数据
         setTimeout(() => {
             logDebug_ACU('UI refresh wait period completed. Frontend should have finished reading data.');
-            resolve();
+            resolve(undefined);
         }, 800); // 增加到 800ms，确保前端有足够时间读取数据
     });
   }
@@ -645,7 +659,7 @@ export   async function loadAllChatMessages_ACU() {
         ? SillyTavern_API_ACU.chat.length - 1
         : -1;
       if (lastMessageId < 0) {
-        allChatMessages_ACU = [];
+        _set_allChatMessages_ACU([]);
         logDebug_ACU('No chat messages (ACU).');
         return;
       }
@@ -653,14 +667,14 @@ export   async function loadAllChatMessages_ACU() {
         include_swipes: false,
       });
       if (messagesFromApi && messagesFromApi.length > 0) {
-        allChatMessages_ACU = messagesFromApi.map((msg, idx) => ({ ...msg, id: idx })); // Add simple index for now
+        _set_allChatMessages_ACU(messagesFromApi.map((msg, idx) => ({ ...msg, id: idx }))); // Add simple index for now
         logDebug_ACU(`ACU Loaded ${allChatMessages_ACU.length} messages for: ${currentChatFileIdentifier_ACU}.`);
       } else {
-        allChatMessages_ACU = [];
+        _set_allChatMessages_ACU([]);
       }
     } catch (error) {
       logError_ACU('ACU获取聊天记录失败: ' + error.message);
-      allChatMessages_ACU = [];
+      _set_allChatMessages_ACU([]);
     }
   }
 
@@ -786,9 +800,9 @@ export   function compareWorldbookEntriesForPlaceholder_ACU(a, b) {
   }
 
 
-export   async function buildCombinedWorldbookContentByStrategy_ACU(options = {}) {
+export   async function buildCombinedWorldbookContentByStrategy_ACU(options: any = {}) {
       const logPrefix = String(options?.logPrefix || '[Worldbook]');
-      const bookNames = [...new Set((Array.isArray(options?.bookNames) ? options.bookNames : []).map(name => String(name || '').trim()).filter(Boolean))];
+      const bookNames: string[] = [...new Set<string>((Array.isArray(options?.bookNames) ? options.bookNames : []).map((name: any) => String(name || '').trim()).filter(Boolean))];
       const includeEntry = typeof options?.includeEntry === 'function' ? options.includeEntry : () => true;
       const isSelected = typeof options?.isSelected === 'function' ? options.isSelected : () => true;
       const excludeDisabledEntries = options?.excludeDisabledEntries !== false;
@@ -803,7 +817,7 @@ export   async function buildCombinedWorldbookContentByStrategy_ACU(options = {}
           return '';
       }
 
-      const entriesMap = await getLorebookEntriesByNames_ACU(bookNames);
+      const entriesMap: any = await getLorebookEntriesByNames_ACU(bookNames);
       let allEntries = [];
       let placeholderOriginalIndex = 0;
       for (const bookName of bookNames) {
@@ -925,7 +939,7 @@ export   async function buildCombinedWorldbookContentByStrategy_ACU(options = {}
   }
 
 
-export   async function getCombinedWorldbookContent_ACU(initialScanTextOverride = '', options = {}) {
+export   async function getCombinedWorldbookContent_ACU(initialScanTextOverride = '', options: any = {}) {
     logDebug_ACU('Starting to get combined worldbook content with advanced logic...');
     const worldbookConfig = getCurrentWorldbookConfig_ACU();
     const excludeImportTaggedEntries = options?.excludeImportTaggedEntries === true;

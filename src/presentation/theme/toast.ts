@@ -1,13 +1,20 @@
 // toast.ts
 // 从 03_theme_and_toast.js 整体迁入
 
+import { _acuToastStyleInjected_ACU, _set__acuToastStyleInjected_ACU} from '../../service/runtime/api-registry';
+import { settings_ACU } from '../../service/runtime/state-manager';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { topLevelWindow_ACU } from '../../shared/env';
+import { logDebug_ACU } from '../../shared/utils';
+import { ACU_TOAST_TITLE_ACU, _acuToastDedup_ACU } from '../../service/runtime/api-registry';
+
   export function ensureAcuToastStylesInjected_ACU() {
     if (_acuToastStyleInjected_ACU) return;
     try {
       const doc = topLevelWindow_ACU?.document || document;
       const styleId = `${SCRIPT_ID_PREFIX_ACU}-acu-toast-style`;
       if (doc.getElementById(styleId)) {
-        _acuToastStyleInjected_ACU = true;
+        _set__acuToastStyleInjected_ACU(true);
         return;
       }
       const style = doc.createElement('style');
@@ -187,10 +194,10 @@
         }
       `;
       doc.head.appendChild(style);
-      _acuToastStyleInjected_ACU = true;
+      _set__acuToastStyleInjected_ACU(true);
     } catch (e) {
       // 不影响功能
-      _acuToastStyleInjected_ACU = true;
+      _set__acuToastStyleInjected_ACU(true);
     }
   }
 

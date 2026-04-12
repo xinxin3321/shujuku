@@ -2,23 +2,27 @@
  * service/runtime/state-manager.ts — ACU_State 全局状态管理 + 生成门控
  * 从 src/core/02_storage_and_profile.js:624~793 迁移而来。
  */
-  const NEW_MESSAGE_DEBOUNCE_DELAY_ACU = 500; // 0.5秒防抖延迟 (可调整)
+import { DEFAULT_CHAR_CARD_PROMPT_ACU, DEFAULT_PLOT_SETTINGS_ACU } from '../../data/models/defaults-json.js';
+import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU } from '../../data/models/defaults';
+
+
+  export const NEW_MESSAGE_DEBOUNCE_DELAY_ACU = 500; // 0.5秒防抖延迟 (可调整)
   
   // --- [表格顺序新机制] ---
   // 旧机制使用 settings_ACU.tableKeyOrder 强制固定对象键顺序；新机制改为：每张表自带编号并按编号排序。
   // 编号会随模板导出/导入，且在可视化编辑器调整顺序时同步更新。
-  const TABLE_ORDER_FIELD_ACU = 'orderNo'; // 每张表的顺序编号字段名（越小越靠前）
+  export const TABLE_ORDER_FIELD_ACU = 'orderNo'; // 每张表的顺序编号字段名（越小越靠前）
   // [新机制] 新建对话时，将"当前模板基础状态"注入到开场白（角色第一条AI消息）中，仅用于前端显示刷新
   // 注意：此动作不应触发世界书注入/数据更新链路
-  let pendingBaseStatePlacement_ACU = false;
+  export let pendingBaseStatePlacement_ACU = false;
   // [健全性] 新对话开场白阶段抑制世界书注入（防止自动创建全局可见世界书条目）
   // 该抑制仅在"开场白阶段（无任何用户消息）"生效；一旦用户开始对话（出现用户消息）自动解除。
-  let suppressWorldbookInjectionInGreeting_ACU = false;
+  export let suppressWorldbookInjectionInGreeting_ACU = false;
 
   // --- [剧情推进] 相关常量 ---
 
   // [剧情推进] 循环状态管理
-  const loopState_ACU = {
+  export const loopState_ACU = {
     isLooping: false,
     isRetrying: false, // 标记当前是否处于重试流程
     timerId: null,
@@ -30,28 +34,28 @@
   };
 
   // [剧情推进] 规划阶段防护
-  const planningGuard_ACU = {
+  export const planningGuard_ACU = {
     inProgress: false,
     // 规划阶段如果使用 useMainApi(generateRaw)，通常会触发一次 GENERATION_ENDED。用计数精确忽略。
     ignoreNextGenerationEndedCount: 0,
   };
 
   // [剧情推进] 规划任务中止控制器
-  let abortController_ACU = null;
+  export let abortController_ACU: any = null;
 
   // [剧情推进] 防重入锁
-  let isProcessing_Plot_ACU = false;
+  export let isProcessing_Plot_ACU = false;
 
   // [剧情推进] 临时存储plot
   // 结构: { content: string, userInputHash: string, userInputText: string }
-  let tempPlotToSave_ACU = null;
+  export let tempPlotToSave_ACU: any = null;
 
   // --- [触发门控] 防止其它插件/后台请求误触发"剧情推进/自动填表" ---
   // 目标：
   // 1) 剧情推进：仅在"用户真正发送了一条用户楼层"时触发（MESSAGE_SENT -> GENERATION_AFTER_COMMANDS）
   // 2) 自动填表：仅在"本次生成不是 quiet/后台生成"时触发（GENERATION_STARTED/AFTER -> GENERATION_ENDED）
-  const USER_SEND_TRIGGER_TTL_MS_ACU = 12000; // 用户发送与生成之间的合理窗口
-  const generationGate_ACU = {
+  export const USER_SEND_TRIGGER_TTL_MS_ACU = 12000; // 用户发送与生成之间的合理窗口
+  export const generationGate_ACU = {
     lastUserMessageId: null,
     lastUserMessageText: '',
     lastUserMessageAt: 0,
@@ -60,33 +64,33 @@
     lastGeneration: null, // { type, params, dryRun, at }
   };
 
-  function markUserSendIntent_ACU() {
+  export function markUserSendIntent_ACU() {
     generationGate_ACU.lastUserSendIntentAt = Date.now();
   }
 
   // 使用原生 capture 监听，确保在酒馆自身的 click/keydown 处理器之前记录"发送意图"
-  function installSendIntentCaptureHooks_ACU() {
+  export function installSendIntentCaptureHooks_ACU() {
     try {
       const parentDoc = SillyTavern_API_ACU?.Chat?.document
         ? SillyTavern_API_ACU.Chat.document
         : (window.parent || window).document;
       const doc = parentDoc || document;
 
-      if (!window.__ACU_sendIntentHooksInstalled) {
-        window.__ACU_sendIntentHooksInstalled = { send: false, enter: false };
+      if (!(window as any).__ACU_sendIntentHooksInstalled) {
+        (window as any).__ACU_sendIntentHooksInstalled = { send: false, enter: false };
       }
 
       const sendBtn = doc.getElementById('send_but');
-      if (sendBtn && !window.__ACU_sendIntentHooksInstalled.send) {
+      if (sendBtn && !(window as any).__ACU_sendIntentHooksInstalled.send) {
         sendBtn.addEventListener('click', () => markUserSendIntent_ACU(), true); // capture
         // 兼容：部分环境可能走 pointerup/touchend
         sendBtn.addEventListener('pointerup', () => markUserSendIntent_ACU(), true);
         sendBtn.addEventListener('touchend', () => markUserSendIntent_ACU(), true);
-        window.__ACU_sendIntentHooksInstalled.send = true;
+        (window as any).__ACU_sendIntentHooksInstalled.send = true;
       }
 
       const ta = doc.getElementById('send_textarea');
-      if (ta && !window.__ACU_sendIntentHooksInstalled.enter) {
+      if (ta && !(window as any).__ACU_sendIntentHooksInstalled.enter) {
         ta.addEventListener('keydown', (e) => {
           try {
             const key = e.key || e.code;
@@ -95,14 +99,14 @@
             }
           } catch (err) {}
         }, true); // capture
-        window.__ACU_sendIntentHooksInstalled.enter = true;
+        (window as any).__ACU_sendIntentHooksInstalled.enter = true;
       }
 
       // 元素可能尚未渲染：延迟重试一次
-      if ((!sendBtn || !ta) && !window.__ACU_sendIntentHooksRetryScheduled) {
-        window.__ACU_sendIntentHooksRetryScheduled = true;
+      if ((!sendBtn || !ta) && !(window as any).__ACU_sendIntentHooksRetryScheduled) {
+        (window as any).__ACU_sendIntentHooksRetryScheduled = true;
         setTimeout(() => {
-          window.__ACU_sendIntentHooksRetryScheduled = false;
+          (window as any).__ACU_sendIntentHooksRetryScheduled = false;
           installSendIntentCaptureHooks_ACU();
         }, 1200);
       }
@@ -111,12 +115,12 @@
     }
   }
 
-  function isRecentUserSendIntent_ACU() {
+  export function isRecentUserSendIntent_ACU() {
     if (!generationGate_ACU.lastUserSendIntentAt) return false;
     return (Date.now() - generationGate_ACU.lastUserSendIntentAt) <= USER_SEND_TRIGGER_TTL_MS_ACU;
   }
 
-  function recordLastUserSend_ACU(messageId) {
+  export function recordLastUserSend_ACU(messageId) {
     try {
       const chat = SillyTavern_API_ACU?.chat;
       const msg = (chat && typeof messageId === 'number') ? chat[messageId] : null;
@@ -129,11 +133,11 @@
     }
   }
 
-  function recordGenerationContext_ACU(type, params, dryRun) {
+  export function recordGenerationContext_ACU(type, params, dryRun) {
     generationGate_ACU.lastGeneration = { type, params, dryRun, at: Date.now() };
   }
 
-  function isQuietLikeGeneration_ACU(type, params) {
+  export function isQuietLikeGeneration_ACU(type, params) {
     // SillyTavern: quiet prompt 会带 quiet_prompt；type 也可能为 'quiet'
     if (type === 'quiet') return true;
     if (params && typeof params.quiet_prompt === 'string' && params.quiet_prompt.trim().length > 0) return true;
@@ -141,12 +145,12 @@
     return false;
   }
 
-  function isRecentUserSend_ACU() {
+  export function isRecentUserSend_ACU() {
     if (!generationGate_ACU.lastUserMessageAt) return false;
     return (Date.now() - generationGate_ACU.lastUserMessageAt) <= USER_SEND_TRIGGER_TTL_MS_ACU;
   }
 
-  function shouldProcessPlotForGeneration_ACU(type, params, dryRun) {
+  export function shouldProcessPlotForGeneration_ACU(type, params, dryRun) {
     if (dryRun) return false;
     if (!settings_ACU?.plotSettings?.enabled) return false;
     if (isQuietLikeGeneration_ACU(type, params)) return false;
@@ -163,7 +167,7 @@
     return hasFreshUserMessage || hasFreshIntent;
   }
 
-  function shouldProcessAutoTableUpdateForGenerationEnded_ACU() {
+  export function shouldProcessAutoTableUpdateForGenerationEnded_ACU() {
     // 自动填表：只过滤 quiet/后台生成；允许 regenerate/swipe/automatic_trigger（只要确实影响聊天楼层）
     const g = generationGate_ACU.lastGeneration;
     if (!g) return true; // 兼容老行为：无上下文时不强行阻断
@@ -173,20 +177,20 @@
   }
 
 // [从 02_storage_and_profile.js:2777~2938 迁移] 核心全局变量 + settings 对象
-  let SillyTavern_API_ACU, TavernHelper_API_ACU, jQuery_API_ACU, toastr_API_ACU;
-  let coreApisAreReady_ACU = false;
-  let allChatMessages_ACU = [];
-  let lastTotalAiMessages_ACU = 0; // 记录上次检查时的AI消息总数
-  let currentChatFileIdentifier_ACU = 'unknown_chat_init';
-  let currentJsonTableData_ACU = null; // Holds the parsed JSON table for the current chat
-  let $popupInstance_ACU = null;
+  export let SillyTavern_API_ACU: any, TavernHelper_API_ACU: any, jQuery_API_ACU: any, toastr_API_ACU: any;
+  export let coreApisAreReady_ACU = false;
+  export let allChatMessages_ACU: any[] = [];
+  export let lastTotalAiMessages_ACU = 0; // 记录上次检查时的AI消息总数
+  export let currentChatFileIdentifier_ACU: any = 'unknown_chat_init';
+  export let currentJsonTableData_ACU: any = null; // Holds the parsed JSON table for the current chat
+  export let $popupInstance_ACU: any = null;
 
   // [新增] 独立表格更新状态追踪
-  let independentTableStates_ACU = {};
+  export let independentTableStates_ACU: any = {};
   // 结构: { [sheetKey]: { lastUpdatedAiFloor: 0 } }
 
   // UI jQuery Object Placeholders
-  let $apiConfigSectionToggle_ACU,
+  export let $apiConfigSectionToggle_ACU: any,
     $apiConfigAreaDiv_ACU,
     $customApiUrlInput_ACU,
     $customApiKeyInput_ACU,
@@ -205,7 +209,6 @@
     $resetCharCardPromptButton_ACU,
     $plotPromptSegmentsContainer_ACU,
     $plotTaskListContainer_ACU,
-    $themeColorButtonsContainer_ACU,
     $autoUpdateThresholdInput_ACU,
     $saveAutoUpdateThresholdButton_ACU, // Replaces chunk size inputs
     $autoUpdateTokenThresholdInput_ACU, // Token threshold input
@@ -240,7 +243,7 @@
 
   // --- 全局设置对象 ---
 
-  let settings_ACU = {
+  export let settings_ACU: any = {
       // 全局设置
       apiConfig: { url: '', apiKey: '', model: '', useMainApi: true, max_tokens: 60000, temperature: 1.0 },
       apiMode: 'custom', // 'custom' or 'tavern'
@@ -280,7 +283,6 @@
       // [新增] 表格顺序（用户手动调整后持久化）。为空时使用模板顺序。
       tableKeyOrder: [], // ['sheet_xxx', 'sheet_yyy', ...]
       manualSelectedTables: [], // 手动更新时使用UI参数的表格key列表
-      hasManualSelection: false, // 是否用户显式选择过（全选/全不选/自选）
       hasManualSelection: false, // 是否用户显式选择过（全选/全不选/自选）
       
       // [外部导入] 注入时自选表格（与手动填表一致的交互，但独立存储）
@@ -334,6 +336,82 @@
 
 
   // [从 05_core_tail.js:124 迁移] 隔离键辅助函数
-  function getCurrentIsolationKey_ACU() {
+  export function getCurrentIsolationKey_ACU() {
       return settings_ACU.dataIsolationEnabled ? (settings_ACU.dataIsolationCode || '') : '';
   }
+
+// ═══════════════════════════════════════════════════════════════
+// Setter 函数：ESM import 绑定不可直接赋值，
+// 外部模块通过这些 setter 修改可变状态
+// ═══════════════════════════════════════════════════════════════
+export function _set_settings_ACU(v: any) { settings_ACU = v; }
+export function _set_currentJsonTableData_ACU(v: any) { currentJsonTableData_ACU = v; }
+export function _set_currentChatFileIdentifier_ACU(v: any) { currentChatFileIdentifier_ACU = v; }
+export function _set_coreApisAreReady_ACU(v: any) { coreApisAreReady_ACU = v; }
+export function _set_SillyTavern_API_ACU(v: any) { SillyTavern_API_ACU = v; }
+export function _set_TavernHelper_API_ACU(v: any) { TavernHelper_API_ACU = v; }
+export function _set_jQuery_API_ACU(v: any) { jQuery_API_ACU = v; }
+export function _set_toastr_API_ACU(v: any) { toastr_API_ACU = v; }
+export function _set_allChatMessages_ACU(v: any) { allChatMessages_ACU = v; }
+export function _set_lastTotalAiMessages_ACU(v: any) { lastTotalAiMessages_ACU = v; }
+export function _set_isProcessing_Plot_ACU(v: any) { isProcessing_Plot_ACU = v; }
+export function _set_abortController_ACU(v: any) { abortController_ACU = v; }
+export function _set_tempPlotToSave_ACU(v: any) { tempPlotToSave_ACU = v; }
+export function _set_pendingBaseStatePlacement_ACU(v: any) { pendingBaseStatePlacement_ACU = v; }
+export function _set_suppressWorldbookInjectionInGreeting_ACU(v: any) { suppressWorldbookInjectionInGreeting_ACU = v; }
+export function _set_independentTableStates_ACU(v: any) { independentTableStates_ACU = v; }
+export function _set_$popupInstance_ACU(v: any) { $popupInstance_ACU = v; }
+
+// 批量赋值 UI placeholder 变量（popup-bindings 初始化时一次性调用）
+export function _assignUIPlaceholders_ACU(map: Record<string, any>) {
+  if (map.$apiConfigSectionToggle_ACU !== undefined) $apiConfigSectionToggle_ACU = map.$apiConfigSectionToggle_ACU;
+  if (map.$apiConfigAreaDiv_ACU !== undefined) $apiConfigAreaDiv_ACU = map.$apiConfigAreaDiv_ACU;
+  if (map.$customApiUrlInput_ACU !== undefined) $customApiUrlInput_ACU = map.$customApiUrlInput_ACU;
+  if (map.$customApiKeyInput_ACU !== undefined) $customApiKeyInput_ACU = map.$customApiKeyInput_ACU;
+  if (map.$customApiModelInput_ACU !== undefined) $customApiModelInput_ACU = map.$customApiModelInput_ACU;
+  if (map.$customApiModelSelect_ACU !== undefined) $customApiModelSelect_ACU = map.$customApiModelSelect_ACU;
+  if (map.$maxTokensInput_ACU !== undefined) $maxTokensInput_ACU = map.$maxTokensInput_ACU;
+  if (map.$temperatureInput_ACU !== undefined) $temperatureInput_ACU = map.$temperatureInput_ACU;
+  if (map.$loadModelsButton_ACU !== undefined) $loadModelsButton_ACU = map.$loadModelsButton_ACU;
+  if (map.$saveApiConfigButton_ACU !== undefined) $saveApiConfigButton_ACU = map.$saveApiConfigButton_ACU;
+  if (map.$clearApiConfigButton_ACU !== undefined) $clearApiConfigButton_ACU = map.$clearApiConfigButton_ACU;
+  if (map.$apiStatusDisplay_ACU !== undefined) $apiStatusDisplay_ACU = map.$apiStatusDisplay_ACU;
+  if (map.$charCardPromptToggle_ACU !== undefined) $charCardPromptToggle_ACU = map.$charCardPromptToggle_ACU;
+  if (map.$charCardPromptAreaDiv_ACU !== undefined) $charCardPromptAreaDiv_ACU = map.$charCardPromptAreaDiv_ACU;
+  if (map.$charCardPromptSegmentsContainer_ACU !== undefined) $charCardPromptSegmentsContainer_ACU = map.$charCardPromptSegmentsContainer_ACU;
+  if (map.$saveCharCardPromptButton_ACU !== undefined) $saveCharCardPromptButton_ACU = map.$saveCharCardPromptButton_ACU;
+  if (map.$resetCharCardPromptButton_ACU !== undefined) $resetCharCardPromptButton_ACU = map.$resetCharCardPromptButton_ACU;
+  if (map.$plotPromptSegmentsContainer_ACU !== undefined) $plotPromptSegmentsContainer_ACU = map.$plotPromptSegmentsContainer_ACU;
+  if (map.$plotTaskListContainer_ACU !== undefined) $plotTaskListContainer_ACU = map.$plotTaskListContainer_ACU;
+  if (map.$autoUpdateThresholdInput_ACU !== undefined) $autoUpdateThresholdInput_ACU = map.$autoUpdateThresholdInput_ACU;
+  if (map.$saveAutoUpdateThresholdButton_ACU !== undefined) $saveAutoUpdateThresholdButton_ACU = map.$saveAutoUpdateThresholdButton_ACU;
+  if (map.$autoUpdateTokenThresholdInput_ACU !== undefined) $autoUpdateTokenThresholdInput_ACU = map.$autoUpdateTokenThresholdInput_ACU;
+  if (map.$saveAutoUpdateTokenThresholdButton_ACU !== undefined) $saveAutoUpdateTokenThresholdButton_ACU = map.$saveAutoUpdateTokenThresholdButton_ACU;
+  if (map.$autoUpdateFrequencyInput_ACU !== undefined) $autoUpdateFrequencyInput_ACU = map.$autoUpdateFrequencyInput_ACU;
+  if (map.$saveAutoUpdateFrequencyButton_ACU !== undefined) $saveAutoUpdateFrequencyButton_ACU = map.$saveAutoUpdateFrequencyButton_ACU;
+  if (map.$updateBatchSizeInput_ACU !== undefined) $updateBatchSizeInput_ACU = map.$updateBatchSizeInput_ACU;
+  if (map.$saveUpdateBatchSizeButton_ACU !== undefined) $saveUpdateBatchSizeButton_ACU = map.$saveUpdateBatchSizeButton_ACU;
+  if (map.$maxConcurrentGroupsInput_ACU !== undefined) $maxConcurrentGroupsInput_ACU = map.$maxConcurrentGroupsInput_ACU;
+  if (map.$autoUpdateEnabledCheckbox_ACU !== undefined) $autoUpdateEnabledCheckbox_ACU = map.$autoUpdateEnabledCheckbox_ACU;
+  if (map.$standardizedTableFillEnabledCheckbox_ACU !== undefined) $standardizedTableFillEnabledCheckbox_ACU = map.$standardizedTableFillEnabledCheckbox_ACU;
+  if (map.$toastMuteEnabledCheckbox_ACU !== undefined) $toastMuteEnabledCheckbox_ACU = map.$toastMuteEnabledCheckbox_ACU;
+  if (map.$promptTemplateEnabledCheckbox_ACU !== undefined) $promptTemplateEnabledCheckbox_ACU = map.$promptTemplateEnabledCheckbox_ACU;
+  if (map.$tableEditLastPairOnlyCheckbox_ACU !== undefined) $tableEditLastPairOnlyCheckbox_ACU = map.$tableEditLastPairOnlyCheckbox_ACU;
+  if (map.$tableMaxRetriesInput_ACU !== undefined) $tableMaxRetriesInput_ACU = map.$tableMaxRetriesInput_ACU;
+  if (map.$manualUpdateCardButton_ACU !== undefined) $manualUpdateCardButton_ACU = map.$manualUpdateCardButton_ACU;
+  if (map.$statusMessageSpan_ACU !== undefined) $statusMessageSpan_ACU = map.$statusMessageSpan_ACU;
+  if (map.$cardUpdateStatusDisplay_ACU !== undefined) $cardUpdateStatusDisplay_ACU = map.$cardUpdateStatusDisplay_ACU;
+  if (map.$useMainApiCheckbox_ACU !== undefined) $useMainApiCheckbox_ACU = map.$useMainApiCheckbox_ACU;
+  if (map.$streamingEnabledCheckbox_ACU !== undefined) $streamingEnabledCheckbox_ACU = map.$streamingEnabledCheckbox_ACU;
+  if (map.$manualExtraHintCheckbox_ACU !== undefined) $manualExtraHintCheckbox_ACU = map.$manualExtraHintCheckbox_ACU;
+  if (map.$skipUpdateFloorsInput_ACU !== undefined) $skipUpdateFloorsInput_ACU = map.$skipUpdateFloorsInput_ACU;
+  if (map.$saveSkipUpdateFloorsButton_ACU !== undefined) $saveSkipUpdateFloorsButton_ACU = map.$saveSkipUpdateFloorsButton_ACU;
+  if (map.$retainRecentLayersInput_ACU !== undefined) $retainRecentLayersInput_ACU = map.$retainRecentLayersInput_ACU;
+  if (map.$saveRetainRecentLayersButton_ACU !== undefined) $saveRetainRecentLayersButton_ACU = map.$saveRetainRecentLayersButton_ACU;
+  if (map.$manualTableSelector_ACU !== undefined) $manualTableSelector_ACU = map.$manualTableSelector_ACU;
+  if (map.$manualTableSelectAll_ACU !== undefined) $manualTableSelectAll_ACU = map.$manualTableSelectAll_ACU;
+  if (map.$manualTableSelectNone_ACU !== undefined) $manualTableSelectNone_ACU = map.$manualTableSelectNone_ACU;
+  if (map.$importTableSelector_ACU !== undefined) $importTableSelector_ACU = map.$importTableSelector_ACU;
+  if (map.$importTableSelectAll_ACU !== undefined) $importTableSelectAll_ACU = map.$importTableSelectAll_ACU;
+  if (map.$importTableSelectNone_ACU !== undefined) $importTableSelectNone_ACU = map.$importTableSelectNone_ACU;
+}

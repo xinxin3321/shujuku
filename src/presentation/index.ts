@@ -12,8 +12,7 @@ export * from './theme/toast';
 export * from './components/table-selector';
 export * from './components/plot-editors';
 export * from './components/status-display';
-export * from './components/update-controls';
-export * from './components/worldbook-selectors';
+
 export * from './components/worldbook-selector';
 export * from './components/template-preset-ui';
 export * from './components/optimization-ui';

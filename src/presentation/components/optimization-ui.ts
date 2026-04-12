@@ -1,3 +1,15 @@
+import { DEFAULT_PLOT_SETTINGS_ACU } from '../../data/models/defaults-json.js';
+import { activePlotEditorSettings_ACU, buildDefaultPlotPromptGroup_ACU, currentEditablePlotPresetState_ACU, currentPlotTaskEditorId_ACU, ensurePlotPromptGroup_ACU , _set_currentEditablePlotPresetState_ACU, _set_activePlotEditorSettings_ACU, _set_currentPlotTaskEditorId_ACU} from './plot-editors';
+import { showToastr_ACU } from '../theme/toast';
+import { SillyTavern_API_ACU, jQuery_API_ACU, toastr_API_ACU, $popupInstance_ACU, currentChatFileIdentifier_ACU, settings_ACU } from '../../service/runtime/state-manager';
+import { saveSettings_ACU } from '../../service/settings/settings-service';
+import { buildChatPlotScopeStateFromSettings_ACU, clearCurrentChatPlotScopeState_ACU, getCurrentChatPlotScopeState_ACU, sanitizePlotSettingsSnapshotForChat_ACU, setCurrentChatPlotScopeState_ACU } from '../../service/template/chat-scope';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { escapeHtml_ACU } from '../../shared/html-helpers';
+import { cleanChatName_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, normalizeExcludeRules_ACU, normalizeExtractRules_ACU, normalizeNonNegativeInteger_ACU, normalizePositiveInteger_ACU } from '../../shared/utils';
+import { triggerAutomaticUpdateIfNeeded_ACU } from '../triggers/settings-ui-sync';
+import { cancelContentOptimization_ACU, contentOptimizationAbortRequested_ACU, ensureOptimizationNotCancelled_ACU, getLastOptimizationBase_ACU, optimizationProgressToast_ACU, performContentOptimization_ACU, setLastOptimizationBase_ACU, _set_optimizationProgressToast_ACU, _set_contentOptimizationAbortRequested_ACU } from '../../service/optimization/content-optimization';
+import { applyContextTagFilters_ACU } from '../../service/runtime/helpers-remaining';
 /**
  * presentation/components/optimization-ui.ts — 正文优化 UI + 剧情推进 UI
  * 从 src/core/02_storage_and_profile.js:631~2772 迁移而来
@@ -69,7 +81,7 @@
   function showOptimizationProgressToast_ACU(message = '正在进行正文优化...') {
     hideOptimizationProgressToast_ACU();
     const stopButtonHtml = `<button id="acu-opt-stop-btn" style="border: 1px solid #ffc107; color: #ffc107; background: transparent; padding: 5px 10px; border-radius: 4px; cursor: pointer; float: right; margin-left: 15px; font-size: 0.9em; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#ffc107'; this.style.color='#1a1d24';" onmouseout="this.style.backgroundColor='transparent'; this.style.color='#ffc107';">取消优化</button>`;
-    optimizationProgressToast_ACU = showToastr_ACU('info', `<div>${message}${stopButtonHtml}</div>`, {
+    _set_optimizationProgressToast_ACU(showToastr_ACU('info', `<div>${message}${stopButtonHtml}</div>`, {
       timeOut: 0,
       extendedTimeOut: 0,
       tapToDismiss: false,
@@ -81,23 +93,23 @@
           jQuery_API_ACU(this).closest('.toast').remove();
         });
       }
-    });
+    }));
   }
 
   /**
    * 隐藏正文优化进度提示框
    */
-  function hideOptimizationProgressToast_ACU() {
+  export function hideOptimizationProgressToast_ACU() {
     if (optimizationProgressToast_ACU && toastr_API_ACU) {
       toastr_API_ACU.clear(optimizationProgressToast_ACU);
     }
-    optimizationProgressToast_ACU = null;
+    _set_optimizationProgressToast_ACU(null);
   }
   
   /**
    * 隐藏无感替换遮罩
    */
-  function hideOptimizationOverlay_ACU() {
+  export function hideOptimizationOverlay_ACU() {
     jQuery_API_ACU('#acu-optimization-overlay').remove();
   }
   
@@ -106,7 +118,7 @@
    * @param {number} messageIndex - 消息索引
    * @param {string} newContent - 新内容
    */
-  async function replaceChatMessage_ACU(messageIndex, newContent, options = {}) {
+  async function replaceChatMessage_ACU(messageIndex, newContent, options: any = {}) {
     try {
       logDebug_ACU(`[正文优化] replaceChatMessage_ACU 开始执行, messageIndex=${messageIndex}, newContent长度=${newContent?.length || 0}`);
       
@@ -218,7 +230,7 @@
    * 获取最近一次被正文优化替换过的 AI 消息索引
    * @returns {number} 消息索引，不存在返回 -1
    */
-  function getLastOptimizedMessageIndex_ACU() {
+  export function getLastOptimizedMessageIndex_ACU() {
     const chat = SillyTavern_API_ACU.chat || [];
     const cachedBase = getLastOptimizationBase_ACU();
 
@@ -265,9 +277,9 @@
    * @param {number} messageIndex - 消息索引
    * @returns {Promise<boolean>} 是否成功
    */
-  async function reoptimizeMessage_ACU(messageIndex) {
+  export async function reoptimizeMessage_ACU(messageIndex) {
     const config = settings_ACU.contentOptimizationSettings || {};
-    contentOptimizationAbortRequested_ACU = false;
+    _set_contentOptimizationAbortRequested_ACU(false);
     
     // 检查是否启用
     if (!config.enabled) {
@@ -345,7 +357,7 @@
     } finally {
       hideOptimizationOverlay_ACU();
       hideOptimizationProgressToast_ACU();
-      contentOptimizationAbortRequested_ACU = false;
+      _set_contentOptimizationAbortRequested_ACU(false);
     }
   }
   
@@ -483,9 +495,9 @@
    * @param {number} messageIndex - AI消息索引
    * @returns {Promise<boolean>} 是否成功
    */
-  async function executeContentOptimization_ACU(messageIndex) {
+  export async function executeContentOptimization_ACU(messageIndex) {
     const config = settings_ACU.contentOptimizationSettings || {};
-    contentOptimizationAbortRequested_ACU = false;
+    _set_contentOptimizationAbortRequested_ACU(false);
     
     // 检查是否启用
     if (!config.enabled) {
@@ -652,7 +664,7 @@
     } finally {
       hideOptimizationOverlay_ACU();
       hideOptimizationProgressToast_ACU();
-      contentOptimizationAbortRequested_ACU = false;
+      _set_contentOptimizationAbortRequested_ACU(false);
     }
   }
   
@@ -785,6 +797,7 @@
   function showOptimizationDiffDialogForLoop_ACU(messageIndex, result, callback) {
     const isLastLoop = result.currentLoop >= result.totalLoops;
     const applyButtonText = isLastLoop ? '应用并完成' : '应用并继续';
+    const originalContent = getOriginalContent_ACU(messageIndex) || result.optimizedContent;
     
     const dialogHtml = `
       <div class="acu-optimization-dialog acu-dialog-classic" style="
@@ -951,6 +964,7 @@
    * 显示优化对比对话框
    */
   function showOptimizationDiffDialog_ACU(messageIndex, result) {
+    const originalContent = getOriginalContent_ACU(messageIndex) || result.optimizedContent;
     const dialogHtml = `
       <div class="acu-optimization-dialog acu-dialog-classic" style="
         position: fixed;
@@ -1115,7 +1129,7 @@
    */
 
   // --- [剧情推进] 循环提示词兼容性处理：将旧字符串格式转换为数组格式 ---
-  function ensureLoopPromptsArray_ACU(plotSettings) {
+  export function ensureLoopPromptsArray_ACU(plotSettings) {
     if (!plotSettings || !plotSettings.loopSettings) return;
     const ls = plotSettings.loopSettings;
     
@@ -1144,7 +1158,7 @@
   }
 
   // --- [剧情推进/填表] 标签规则兼容：旧字符串字段 -> 新规则数组 ---
-  function ensureTagRulesCompat_ACU(targetSettings) {
+  export function ensureTagRulesCompat_ACU(targetSettings) {
     if (!targetSettings || typeof targetSettings !== 'object') return;
 
     targetSettings.tableContextExtractRules = normalizeExtractRules_ACU(
@@ -1191,7 +1205,7 @@
     }
   }
 
-  function getLegacyPromptFromThree_ACU(prompts, id) {
+  export function getLegacyPromptFromThree_ACU(prompts, id) {
     if (!prompts) return '';
     if (Array.isArray(prompts)) return (prompts.find(item => item && item.id === id)?.content) || '';
     if (typeof prompts === 'object') return prompts[id] || '';
@@ -1213,7 +1227,7 @@
     return '';
   }
 
-  function getLegacyPromptTextsFromPromptGroup_ACU(promptGroup) {
+  export function getLegacyPromptTextsFromPromptGroup_ACU(promptGroup) {
     const segments = Array.isArray(promptGroup) ? promptGroup : [];
     return {
       mainPrompt: (segments.find(segment => getMainSlotFromPlotSegment_ACU(segment) === 'A')?.content) || '',
@@ -1221,7 +1235,7 @@
     };
   }
 
-  function getPlotPromptGroupFromSource_ACU(source, { fallbackPromptGroup = null } = {}) {
+  export function getPlotPromptGroupFromSource_ACU(source, { fallbackPromptGroup = null } = {}) {
     if (Array.isArray(source?.promptGroup) && source.promptGroup.length > 0) {
       return JSON.parse(JSON.stringify(source.promptGroup));
     }
@@ -1235,7 +1249,7 @@
     return buildDefaultPlotPromptGroup_ACU({ mainAContent: legacyMain, mainBContent: legacySystem });
   }
 
-  function getPlotFinalDirectiveFromSource_ACU(source) {
+  export function getPlotFinalDirectiveFromSource_ACU(source) {
     if (!source || typeof source !== 'object') return '';
     return source.finalSystemDirective
       || source.finalDirective
@@ -1245,7 +1259,7 @@
   }
 
 
-  function normalizePlotTask_ACU(task, { index = 0, fallbackTask = null } = {}) {
+  export function normalizePlotTask_ACU(task, { index = 0, fallbackTask = null } = {}) {
     const cloned = task && typeof task === 'object' ? JSON.parse(JSON.stringify(task)) : {};
     const fallback = fallbackTask && typeof fallbackTask === 'object' ? fallbackTask : null;
     const defaultId = `plotTask${index + 1}`;
@@ -1289,7 +1303,7 @@
     }, { index: order });
   }
 
-  function normalizePlotTasks_ACU(source, { fallbackTaskId = 'defaultPlotTask', fallbackTaskName = '默认任务' } = {}) {
+  export function normalizePlotTasks_ACU(source, { fallbackTaskId = 'defaultPlotTask', fallbackTaskName = '默认任务' } = {}) {
     const baseSource = source && typeof source === 'object' ? source : {};
     const fallbackTask = buildLegacyWrappedPlotTask_ACU(baseSource, {
       taskId: fallbackTaskId,
@@ -1308,7 +1322,7 @@
       .sort((a, b) => a.order - b.order);
   }
 
-  function syncLegacyPlotSettingsFromTask_ACU(plotSettings, task) {
+  export function syncLegacyPlotSettingsFromTask_ACU(plotSettings, task) {
     if (!plotSettings || !task) return;
     ensurePlotPromptsArray_ACU(plotSettings);
 
@@ -1351,7 +1365,7 @@
     plotSettings.plotTasks = normalizedTasks;
   }
 
-  function ensurePlotTasksCompat_ACU(plotSettings, { persist = false, syncLegacy = true } = {}) {
+  export function ensurePlotTasksCompat_ACU(plotSettings, { persist = false, syncLegacy = true } = {}) {
     if (!plotSettings || typeof plotSettings !== 'object') return;
     const normalizedTasks = normalizePlotTasks_ACU(plotSettings);
     plotSettings.plotTasks = normalizedTasks;
@@ -1366,7 +1380,7 @@
     }
   }
 
-  function applyPlotPresetToSettings_ACU(plotSettings, preset) {
+  export function applyPlotPresetToSettings_ACU(plotSettings, preset) {
     if (!plotSettings || !preset) {
       return { normalizedPreset: null, promptGroup: [], finalDirective: '' };
     }
@@ -1406,18 +1420,18 @@
     };
   }
 
-  const DEFAULT_PRESET_OPTION_VALUE_ACU = '__ACU_DEFAULT_PRESET__';
+  export const DEFAULT_PRESET_OPTION_VALUE_ACU = '__ACU_DEFAULT_PRESET__';
 
-  function normalizePlotPresetSelectionValue_ACU(presetName) {
+  export function normalizePlotPresetSelectionValue_ACU(presetName) {
     const normalizedName = String(presetName ?? '').trim();
     return normalizedName === DEFAULT_PRESET_OPTION_VALUE_ACU ? '' : normalizedName;
   }
 
-  function isDefaultPlotPresetSelection_ACU(presetName) {
+  export function isDefaultPlotPresetSelection_ACU(presetName) {
     return normalizePlotPresetSelectionValue_ACU(presetName) === '';
   }
 
-  function ensurePlotPresetBindingsStore_ACU() {
+  export function ensurePlotPresetBindingsStore_ACU() {
     if (!settings_ACU || typeof settings_ACU !== 'object') return {};
     if (!settings_ACU.plotPresetBindings || typeof settings_ACU.plotPresetBindings !== 'object' || Array.isArray(settings_ACU.plotPresetBindings)) {
       settings_ACU.plotPresetBindings = {};
@@ -1436,7 +1450,7 @@
     return Object.prototype.hasOwnProperty.call(ensurePlotPresetBindingsStore_ACU(), normalizedChatId);
   }
 
-  function getPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
+  export function getPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
     const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
     if (!normalizedChatId) return null;
 
@@ -1472,7 +1486,7 @@
     return binding;
   }
 
-  function clearPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
+  export function clearPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
     const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
     if (!normalizedChatId) return false;
 
@@ -1493,7 +1507,7 @@
     return normalizePlotPresetSelectionValue_ACU(settings_ACU?.plotSettings?.lastUsedPresetName || '');
   }
 
-  function findPlotPresetByName_ACU(presetName) {
+  export function findPlotPresetByName_ACU(presetName) {
     const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
     if (!normalizedPresetName) return null;
 
@@ -1502,7 +1516,7 @@
     return targetPresetRaw ? normalizePlotPresetExcludeRules_ACU(targetPresetRaw) : null;
   }
 
-  function resolveActivePlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
+  export function resolveActivePlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
     const chatScopeState = getCurrentChatPlotScopeState_ACU();
     if (chatScopeState) {
       return normalizePlotPresetSelectionValue_ACU(chatScopeState.presetName || '');
@@ -1538,13 +1552,13 @@
     return 'resolved';
   }
 
-  function setCurrentEditablePlotPresetState_ACU(presetName, { scope = 'resolved', source = '' } = {}) {
-    currentEditablePlotPresetState_ACU = {
+  export function setCurrentEditablePlotPresetState_ACU(presetName, { scope = 'resolved', source = '' } = {}) {
+    _set_currentEditablePlotPresetState_ACU({
       initialized: true,
       presetName: normalizePlotPresetSelectionValue_ACU(presetName),
       scope: normalizePlotEditorScope_ACU(scope),
       source: String(source || ''),
-    };
+    });
     return currentEditablePlotPresetState_ACU;
   }
 
@@ -1558,11 +1572,11 @@
     return resolveActivePlotPresetName_ACU({ fallbackToGlobal: true });
   }
 
-  function getCurrentRuntimePlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
+  export function getCurrentRuntimePlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
     return normalizePlotPresetSelectionValue_ACU(resolveActivePlotPresetName_ACU({ fallbackToGlobal }));
   }
 
-  function syncCurrentEditablePlotPresetState_ACU({ source = 'runtime_sync' } = {}) {
+  export function syncCurrentEditablePlotPresetState_ACU({ source = 'runtime_sync' } = {}) {
     const chatScopeState = getCurrentChatPlotScopeState_ACU();
     const binding = getPlotPresetBindingForChat_ACU();
     const resolvedPresetName = resolveActivePlotPresetName_ACU({ fallbackToGlobal: true });
@@ -1570,18 +1584,18 @@
     return setCurrentEditablePlotPresetState_ACU(resolvedPresetName, { scope, source });
   }
 
-  function getActivePlotEditorSettings_ACU({ fallbackToRuntime = true } = {}) {
+  export function getActivePlotEditorSettings_ACU({ fallbackToRuntime = true } = {}) {
     const activeSettings = activePlotEditorSettings_ACU || (fallbackToRuntime ? settings_ACU?.plotSettings : null);
     return activeSettings && typeof activeSettings === 'object' ? activeSettings : null;
   }
 
-  function setActivePlotEditorSettings_ACU(plotSettings) {
+  export function setActivePlotEditorSettings_ACU(plotSettings) {
     if (!plotSettings || typeof plotSettings !== 'object') {
-      activePlotEditorSettings_ACU = null;
+      _set_activePlotEditorSettings_ACU(null);
       return null;
     }
 
-    activePlotEditorSettings_ACU = plotSettings;
+    _set_activePlotEditorSettings_ACU(plotSettings);
     ensurePlotPromptsArray_ACU(activePlotEditorSettings_ACU);
     ensureLoopPromptsArray_ACU(activePlotEditorSettings_ACU);
     ensurePlotTasksCompat_ACU(activePlotEditorSettings_ACU, { syncLegacy: true });
@@ -1594,7 +1608,7 @@
     return activePlotEditorSettings_ACU;
   }
 
-  function getPlotGlobalRevision_ACU() {
+  export function getPlotGlobalRevision_ACU() {
     const rawRevision = settings_ACU?.plotSettings?.globalRevision;
     return Number.isFinite(rawRevision) ? Math.max(0, Math.trunc(rawRevision)) : 0;
   }
@@ -1628,7 +1642,7 @@
     return previewSettings;
   }
 
-  function resetPlotSettingsToDefault_ACU(plotSettings) {
+  export function resetPlotSettingsToDefault_ACU(plotSettings) {
     if (!plotSettings || typeof plotSettings !== 'object') return null;
 
     const preservedPromptPresets = Array.isArray(plotSettings.promptPresets)
@@ -1655,7 +1669,7 @@
     return plotSettings;
   }
 
-  function replaceCurrentPlotSettingsWithSnapshot_ACU(plotSettings, snapshot) {
+  export function replaceCurrentPlotSettingsWithSnapshot_ACU(plotSettings, snapshot) {
     if (!plotSettings || typeof plotSettings !== 'object') return null;
     const normalizedSnapshot = sanitizePlotSettingsSnapshotForChat_ACU(snapshot);
     if (!normalizedSnapshot) return null;
@@ -1693,7 +1707,7 @@
       .catch(error => logWarn_ACU(`[剧情推进] 保存聊天级预设快照失败(${source}):`, error));
   }
 
-  function switchCurrentChatPlotPreset_ACU(presetName, { source = 'ui', refreshUi = false, save = true } = {}) {
+  export function switchCurrentChatPlotPreset_ACU(presetName, { source = 'ui', refreshUi = false, save = true } = {}) {
     if (!settings_ACU?.plotSettings) return false;
 
     const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
@@ -1716,7 +1730,7 @@
         resetPlotSettingsToDefault_ACU(settings_ACU.plotSettings);
       }
 
-      currentPlotTaskEditorId_ACU = '';
+      _set_currentPlotTaskEditorId_ACU('');
       setCurrentEditablePlotPresetState_ACU(inheritedGlobalPresetName, {
         scope: 'chat',
         source,
@@ -1739,7 +1753,7 @@
         source: bindingSource,
         isExplicit: true,
       });
-      currentPlotTaskEditorId_ACU = '';
+      _set_currentPlotTaskEditorId_ACU('');
       setCurrentEditablePlotPresetState_ACU(targetPreset.name, {
         scope: 'chat',
         source,
@@ -1767,7 +1781,7 @@
     return result;
   }
 
-  function persistPlotPresetSelectionState_ACU(presetName, { source = 'ui', updateGlobal = false, save = true, persistChatScope = !updateGlobal } = {}) {
+  export function persistPlotPresetSelectionState_ACU(presetName, { source = 'ui', updateGlobal = false, save = true, persistChatScope = !updateGlobal } = {}) {
     const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
     let shouldSaveChat = false;
 
@@ -1808,7 +1822,7 @@
     return normalizedPresetName;
   }
 
-  function applyGlobalPlotPresetSelectionForEditor_ACU(presetName, { source = 'ui', refreshUi = false, save = true } = {}) {
+  export function applyGlobalPlotPresetSelectionForEditor_ACU(presetName, { source = 'ui', refreshUi = false, save = true } = {}) {
     if (!settings_ACU?.plotSettings) return false;
 
     const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
@@ -1817,7 +1831,7 @@
       return false;
     }
 
-    currentPlotTaskEditorId_ACU = '';
+    _set_currentPlotTaskEditorId_ACU('');
     setCurrentEditablePlotPresetState_ACU(normalizedPresetName, {
       scope: 'global',
       source,
@@ -1860,7 +1874,7 @@
     setTimeout(runRefresh, 0);
   }
  
-  function normalizePlotPresetExcludeRules_ACU(preset) {
+  export function normalizePlotPresetExcludeRules_ACU(preset) {
     if (!preset || typeof preset !== 'object') return preset;
     const cloned = JSON.parse(JSON.stringify(preset));
     cloned.contextExtractRules = normalizeExtractRules_ACU(cloned.contextExtractRules, cloned.contextExtractTags || '');
@@ -1875,7 +1889,7 @@
     return cloned;
   }
 
-  function stripPlotPresetWorldbookEntrySelectionForExport_ACU(preset) {
+  export function stripPlotPresetWorldbookEntrySelectionForExport_ACU(preset) {
     const normalizedPreset = normalizePlotPresetExcludeRules_ACU(preset);
     if (!normalizedPreset || typeof normalizedPreset !== 'object') return normalizedPreset;
     const exportPreset = JSON.parse(JSON.stringify(normalizedPreset));
@@ -1885,7 +1899,7 @@
     return exportPreset;
   }
 
-  function renderExcludeRuleRows_ACU(containerSelector, rules, { startPlaceholder = '开始词', endPlaceholder = '结束词', fallbackRules = [] } = {}) {
+  export function renderExcludeRuleRows_ACU(containerSelector, rules, { startPlaceholder = '开始词', endPlaceholder = '结束词', fallbackRules = [] } = {}) {
     if (!$popupInstance_ACU) return;
     const $container = $popupInstance_ACU.find(containerSelector);
     if (!$container.length) return;
@@ -1896,7 +1910,7 @@
     }
     $container.empty();
 
-    const appendRow = (rule = {}) => {
+    const appendRow = (rule: any = {}) => {
       const rowHtml = `
         <div class="acu-exclude-rule-row" style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
           <input type="text" class="text_pole acu-exclude-rule-start" placeholder="${escapeHtml_ACU(startPlaceholder)}" style="flex:1;" value="${escapeHtml_ACU(rule.start || '')}">
@@ -1911,7 +1925,7 @@
     rows.forEach(rule => appendRow(rule));
   }
 
-  function appendExcludeRuleRow_ACU(containerSelector, { startPlaceholder = '开始词', endPlaceholder = '结束词' } = {}) {
+  export function appendExcludeRuleRow_ACU(containerSelector, { startPlaceholder = '开始词', endPlaceholder = '结束词' } = {}) {
     if (!$popupInstance_ACU) return;
     const $container = $popupInstance_ACU.find(containerSelector);
     if (!$container.length) return;
@@ -1925,21 +1939,21 @@
     $container.append(rowHtml);
   }
 
-  function readExcludeRulesFromRows_ACU(containerSelector) {
+  export function readExcludeRulesFromRows_ACU(containerSelector) {
     if (!$popupInstance_ACU) return [];
     const $container = $popupInstance_ACU.find(containerSelector);
     if (!$container.length) return [];
     const collected = [];
     $container.find('.acu-exclude-rule-row').each(function() {
-      const start = String($(this).find('.acu-exclude-rule-start').val() || '').trim();
-      const end = String($(this).find('.acu-exclude-rule-end').val() || '').trim();
+      const start = String(jQuery_API_ACU(this).find('.acu-exclude-rule-start').val() || '').trim();
+      const end = String(jQuery_API_ACU(this).find('.acu-exclude-rule-end').val() || '').trim();
       if (start && end) collected.push({ start, end });
     });
     return normalizeExcludeRules_ACU(collected, '');
   }
 
   // --- [剧情推进] Prompt 辅助：兼容 prompts(数组/旧对象) 并以 id 读写 ---
-  function ensurePlotPromptsArray_ACU(plotSettings) {
+  export function ensurePlotPromptsArray_ACU(plotSettings) {
     if (!plotSettings) return;
     const p = plotSettings.prompts;
 
@@ -1967,7 +1981,7 @@
     ];
   }
 
-  function getPlotPromptContentByIdFromSettings_ACU(plotSettings, promptId) {
+  export function getPlotPromptContentByIdFromSettings_ACU(plotSettings, promptId) {
     if (!plotSettings) return '';
     ensurePlotPromptsArray_ACU(plotSettings);
     const arr = plotSettings.prompts || [];
@@ -1979,7 +1993,7 @@
     return getPlotPromptContentByIdFromSettings_ACU(settings_ACU?.plotSettings, promptId);
   }
 
-  function setPlotPromptContentByIdForSettings_ACU(plotSettings, promptId, content) {
+  export function setPlotPromptContentByIdForSettings_ACU(plotSettings, promptId, content) {
     if (!plotSettings) return;
     ensurePlotPromptsArray_ACU(plotSettings);
     const arr = plotSettings.prompts || [];
@@ -1992,7 +2006,7 @@
   }
 
   // --- [剧情推进] 循环提示词列表渲染和管理 ---
-  function renderLoopPromptsList_ACU(plotSettingsOverride = null) {
+  export function renderLoopPromptsList_ACU(plotSettingsOverride = null) {
     const $container = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompts-container`);
     if (!$container.length) return;
 
@@ -2010,23 +2024,23 @@
     }
 
     prompts.forEach((prompt, index) => {
-      const $item = $('<div>', {
+      const $item = jQuery_API_ACU('<div>', {
         class: 'loop-prompt-item',
         style: 'display: flex; gap: 8px; align-items: flex-start; padding: 10px; background: var(--background_light); border: 1px solid var(--border_color_light); border-radius: 6px;'
       });
       
-      const $content = $('<div>', {
+      const $content = jQuery_API_ACU('<div>', {
         style: 'flex: 1; display: flex; flex-direction: column; gap: 6px;'
       });
       
-      $content.append($('<div>', {
+      $content.append(jQuery_API_ACU('<div>', {
         style: 'display: flex; align-items: center; gap: 8px;'
-      }).append($('<span>', {
+      }).append(jQuery_API_ACU('<span>', {
         style: 'font-size: 0.85em; color: var(--text_secondary); font-weight: 500;',
         text: `提示词 #${index + 1}`
       })));
       
-      const $textarea = $('<textarea>', {
+      const $textarea = jQuery_API_ACU('<textarea>', {
         class: 'loop-prompt-textarea text_pole',
         'data-index': index,
         rows: 2,
@@ -2036,7 +2050,7 @@
       });
       $content.append($textarea);
       
-      const $deleteBtn = $('<button>', {
+      const $deleteBtn = jQuery_API_ACU('<button>', {
         type: 'button',
         class: 'loop-prompt-delete-btn button',
         'data-index': index,
@@ -2050,7 +2064,7 @@
     });
   }
 
-  function saveLoopPromptsFromUI_ACU() {
+  export function saveLoopPromptsFromUI_ACU() {
     const plotSettings = getActivePlotEditorSettings_ACU();
     if (!plotSettings) return;
 
@@ -2058,7 +2072,7 @@
     const prompts = [];
 
     $popupInstance_ACU.find('.loop-prompt-textarea').each(function() {
-      const content = $(this).val()?.trim() || '';
+      const content = jQuery_API_ACU(this).val()?.trim() || '';
       if (content) {
         prompts.push(content);
       }
@@ -2075,10 +2089,10 @@
 
   // [剧情推进] 去重锁：避免同一次发送被 TavernHelper.generate 钩子 + GENERATION_AFTER_COMMANDS 双重处理导致重复 toast/误报失败
   let lastPlotInterception_ACU = { text: '', ts: 0 };
-  function markPlotIntercept_ACU(text) {
+  export function markPlotIntercept_ACU(text) {
       lastPlotInterception_ACU = { text: String(text || ''), ts: Date.now() };
   }
-  function shouldSkipPlotIntercept_ACU(text, windowMs = 5000) {
+  export function shouldSkipPlotIntercept_ACU(text, windowMs = 5000) {
       const t = String(text || '');
       if (!t) return false;
       const age = Date.now() - (lastPlotInterception_ACU?.ts || 0);

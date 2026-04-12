@@ -1,3 +1,16 @@
+import { getCurrentWorldbookConfig_ACU } from '../../data/repositories/character-settings-repo';
+import { CHAT_SHEET_GUIDE_FIELD_ACU } from '../../data/storage/chat-history';
+import { showToastr_ACU } from '../../presentation/theme/toast';
+import { SillyTavern_API_ACU, TavernHelper_API_ACU, allChatMessages_ACU, currentChatFileIdentifier_ACU, currentJsonTableData_ACU, lastTotalAiMessages_ACU, settings_ACU , _set_currentJsonTableData_ACU, _set_currentChatFileIdentifier_ACU, _set_allChatMessages_ACU, _set_lastTotalAiMessages_ACU} from '../runtime/state-manager';
+import { applyTemplateScopeForCurrentChat_ACU, loadSettings_ACU, saveSettings_ACU } from '../settings/settings-service';
+import { getSortedSheetKeys_ACU } from '../template/chat-scope';
+import { loadAllChatMessages_ACU } from './pipeline';
+import { topLevelWindow_ACU } from '../../shared/env';
+import { cleanChatName_ACU, getChatFirstLayerMessage_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
+import { loadOrCreateJsonTableFromChatHistory_ACU } from '../../data/repositories/table-repo';
+import { getImportBatchPrefix_ACU } from '../../presentation/components/import-status-ui';
+import { updateCardUpdateStatusDisplay_ACU } from '../../presentation/components/update-status-display';
+import { formatJsonToReadable_ACU, maybeLiftWorldbookSuppression_ACU, mergeAllIndependentTables_ACU, shouldSuppressWorldbookInjection_ACU } from '../runtime/helpers-remaining';
 /**
  * service/worldbook/injection-engine.ts — 世界书注入/导出/清理引擎
  * 从 src/core/05_core_tail.js:123~2401 迁移而来。
@@ -29,7 +42,7 @@
       }
   }
 
-  async function resetScriptStateForNewChat_ACU(chatFileName) {
+  export async function resetScriptStateForNewChat_ACU(chatFileName) {
     // 修复：当增量更新失败时，chatFileName 可能会暂时变为 null。
     // 之前的逻辑会清除数据库状态，导致“初始化失败”的错误。
     // 新逻辑：如果收到的 chatFileName 无效，则记录一个警告并忽略此事件，
@@ -43,14 +56,14 @@
     logDebug_ACU(`ACU: Resetting script state for new chat: "${chatFileName}"`);
     
     // 直接使用有效的 chatFileName，不再需要调用 /getchatname 或其他回退逻辑。
-    currentChatFileIdentifier_ACU = cleanChatName_ACU(chatFileName);
+    _set_currentChatFileIdentifier_ACU(cleanChatName_ACU(chatFileName));
 
     // [FIX] Reload all settings to ensure template is not stale for new chats.
     // MUST be called AFTER setting currentChatFileIdentifier_ACU so it loads the correct character settings.
     loadSettings_ACU();
 
-    allChatMessages_ACU = [];
-    lastTotalAiMessages_ACU = 0; // 重置 AI 消息计数
+    _set_allChatMessages_ACU([]);
+    _set_lastTotalAiMessages_ACU(0); // 重置 AI 消息计数
 
     logDebug_ACU(
       `ACU: currentChatFileIdentifier FINAL set to: "${currentChatFileIdentifier_ACU}" (Source: CHAT_CHANGED event)`,
@@ -75,7 +88,7 @@
   }
 
   // [新增] 获取数据注入目标世界书的函数
-  async function getInjectionTargetLorebook_ACU() {
+  export async function getInjectionTargetLorebook_ACU() {
       const worldbookConfig = getCurrentWorldbookConfig_ACU();
       const target = worldbookConfig.injectionTarget;
       if (target === 'character') {
@@ -86,19 +99,19 @@
 
 
   // [新增] 辅助函数：生成带隔离标识的条目前缀/注释
-  function getIsolationPrefix_ACU() {
+  export function getIsolationPrefix_ACU() {
       if (settings_ACU.dataIsolationEnabled && settings_ACU.dataIsolationCode) {
           return `ACU-[${settings_ACU.dataIsolationCode}]-`;
       }
       return '';
   }
 
-  const DEFAULT_ENTRY_PLACEMENT_ACU = Object.freeze({ position: 'at_depth_as_system', depth: 2, order: 10000 });
-  const DEFAULT_EXTRA_INDEX_PLACEMENT_ACU = Object.freeze({ position: 'at_depth_as_system', depth: 2, order: 10010 });
+  export const DEFAULT_ENTRY_PLACEMENT_ACU = Object.freeze({ position: 'at_depth_as_system', depth: 2, order: 10000 });
+  export const DEFAULT_EXTRA_INDEX_PLACEMENT_ACU = Object.freeze({ position: 'at_depth_as_system', depth: 2, order: 10010 });
   const DEFAULT_FIXED_PLACEMENT_ACU = Object.freeze({ position: 'at_depth_as_system', depth: 2, order: 99990 });
   const DEFAULT_FIXED_INDEX_PLACEMENT_ACU = Object.freeze({ position: 'at_depth_as_system', depth: 2, order: 99991 });
 
-  function normalizeLorebookPosition_ACU(position, fallback = 'at_depth_as_system') {
+  export function normalizeLorebookPosition_ACU(position, fallback = 'at_depth_as_system') {
       const raw = String(position ?? '').trim().toLowerCase();
       if (raw === 'at_depth_as_system' || raw === 'system') return 'at_depth_as_system';
       // [修复] 返回 API 期望的正确值：before_character_definition / after_character_definition
@@ -108,7 +121,7 @@
       return fallback;
   }
 
-  function normalizePlacementConfig_ACU(rawPlacement, fallbackPlacement) {
+  export function normalizePlacementConfig_ACU(rawPlacement, fallbackPlacement) {
       const fallback = fallbackPlacement || DEFAULT_ENTRY_PLACEMENT_ACU;
       const source = (rawPlacement && typeof rawPlacement === 'object') ? rawPlacement : {};
       const depthRaw = parseInt(source.depth, 10);
@@ -120,15 +133,15 @@
       };
   }
 
-  function isSummaryTableName_ACU(name) {
+  export function isSummaryTableName_ACU(name) {
       return String(name || '').trim() === '总结表';
   }
 
-  function isOutlineTableName_ACU(name) {
+  export function isOutlineTableName_ACU(name) {
       return String(name || '').trim() === '总体大纲';
   }
 
-  function isImportantPersonsTableName_ACU(name) {
+  export function isImportantPersonsTableName_ACU(name) {
       return String(name || '').trim() === '重要人物表';
   }
 
@@ -137,7 +150,7 @@
       return n === '全局数据表' || n === '全局表';
   }
 
-  function getFixedPlacementDefaultsForTable_ACU(tableName) {
+  export function getFixedPlacementDefaultsForTable_ACU(tableName) {
       const name = String(tableName || '').trim();
       if (isSummaryTableName_ACU(name)) {
           return {
@@ -170,7 +183,7 @@
       };
   }
 
-  function buildDefaultExportConfig_ACU(tableName = '') {
+  export function buildDefaultExportConfig_ACU(tableName = '') {
       const fixedDefaults = getFixedPlacementDefaultsForTable_ACU(tableName);
       return {
           enabled: false,
@@ -192,7 +205,7 @@
       };
   }
 
-  function buildDefaultGlobalInjectionConfig_ACU() {
+  export function buildDefaultGlobalInjectionConfig_ACU() {
       return {
           // [修复] 使用 API 期望的正确值 before_character_definition
           readableEntryPlacement: { position: 'before_character_definition', depth: 2, order: 99981 },
@@ -200,7 +213,7 @@
       };
   }
 
-  function ensureGlobalInjectionConfigDefaults_ACU(rawConfig) {
+  export function ensureGlobalInjectionConfigDefaults_ACU(rawConfig) {
       const base = buildDefaultGlobalInjectionConfig_ACU();
       const raw = (rawConfig && typeof rawConfig === 'object') ? rawConfig : {};
       return {
@@ -209,7 +222,7 @@
       };
   }
 
-  function getGlobalInjectionConfigFromData_ACU(dataObj, { ensureWriteBack = false } = {}) {
+  export function getGlobalInjectionConfigFromData_ACU(dataObj, { ensureWriteBack = false } = {}) {
       const defaults = buildDefaultGlobalInjectionConfig_ACU();
       const cfg = ensureGlobalInjectionConfigDefaults_ACU(dataObj?.mate?.globalInjectionConfig);
       if (ensureWriteBack && dataObj && typeof dataObj === 'object') {
@@ -224,7 +237,7 @@
       };
   }
 
-  function ensureExportConfigDefaults_ACU(exportConfig, tableName = '') {
+  export function ensureExportConfigDefaults_ACU(exportConfig, tableName = '') {
       const base = buildDefaultExportConfig_ACU(tableName);
       const raw = (exportConfig && typeof exportConfig === 'object') ? exportConfig : {};
       const merged = { ...base, ...raw };
@@ -235,13 +248,13 @@
       return merged;
   }
 
-  function ensureSheetExportConfigDefaults_ACU(sheet) {
+  export function ensureSheetExportConfigDefaults_ACU(sheet) {
       if (!sheet || typeof sheet !== 'object') return buildDefaultExportConfig_ACU('');
       sheet.exportConfig = ensureExportConfigDefaults_ACU(sheet.exportConfig, sheet.name || sheet.uid || '');
       return sheet.exportConfig;
   }
 
-  function applyPlacementToEntry_ACU(entry, placement) {
+  export function applyPlacementToEntry_ACU(entry, placement) {
       if (!entry || typeof entry !== 'object') return entry;
       const p = normalizePlacementConfig_ACU(placement, DEFAULT_ENTRY_PLACEMENT_ACU);
       const out = { ...entry, position: p.position };
@@ -253,7 +266,7 @@
       return out;
   }
 
-  function isEntryPlacementMatched_ACU(entry, placement) {
+  export function isEntryPlacementMatched_ACU(entry, placement) {
       const p = normalizePlacementConfig_ACU(placement, DEFAULT_ENTRY_PLACEMENT_ACU);
       const ep = normalizeLorebookPosition_ACU(entry?.position, p.position);
       if (ep !== p.position) return false;
@@ -306,13 +319,13 @@
   // - 本插件创建的条目之间不重复
   // - 也不与世界书中“任何现有条目”的 order 重复
   // =========================
-  function getEntryOrderNumber_ACU(entry) {
+  export function getEntryOrderNumber_ACU(entry) {
       const v = entry?.order;
       const n = typeof v === 'number' ? v : parseInt(String(v ?? ''), 10);
       return Number.isFinite(n) ? n : null;
   }
 
-  function buildUsedOrderSet_ACU(entries) {
+  export function buildUsedOrderSet_ACU(entries) {
       const used = new Set();
       if (!Array.isArray(entries)) return used;
       entries.forEach(e => {
@@ -324,7 +337,7 @@
 
   function findFirstFreeOrder_ACU(usedSet, preferred = 1, min = 1, max = 99999) {
       const used = usedSet instanceof Set ? usedSet : new Set();
-      let start = parseInt(preferred, 10);
+      let start = parseInt(String(preferred), 10);
       if (!Number.isFinite(start)) start = min;
       if (start < min) start = min;
       if (start > max) start = max;
@@ -338,7 +351,7 @@
       return null;
   }
 
-  function allocOrder_ACU(usedSet, preferred = 1, min = 1, max = 99999) {
+  export function allocOrder_ACU(usedSet, preferred = 1, min = 1, max = 99999) {
       const used = usedSet instanceof Set ? usedSet : new Set();
       const o = findFirstFreeOrder_ACU(used, preferred, min, max);
       if (o === null) throw new Error('无法分配可用的世界书条目 order（插入深度）');
@@ -346,9 +359,9 @@
       return o;
   }
 
-  function allocConsecutiveOrderBlock_ACU(usedSet, blockSize, preferred = 1, min = 1, max = 99999) {
+  export function allocConsecutiveOrderBlock_ACU(usedSet, blockSize, preferred = 1, min = 1, max = 99999) {
       const used = usedSet instanceof Set ? usedSet : new Set();
-      const size = Math.max(1, parseInt(blockSize, 10) || 1);
+      const size = Math.max(1, parseInt(String(blockSize), 10) || 1);
       const maxStart = max - size + 1;
 
       const tryFrom = (start) => {
@@ -362,7 +375,7 @@
           return null;
       };
 
-      let start = parseInt(preferred, 10);
+      let start = parseInt(String(preferred), 10);
       if (!Number.isFinite(start)) start = min;
       if (start < min) start = min;
       if (start > maxStart) start = maxStart;
@@ -493,7 +506,7 @@
   // [可视化删表-硬删除] 追溯整个聊天记录，删除指定 sheetKey 的所有本地表格数据（新版+旧版）
   // 设计目标：即使后续有“按原楼层写回”的流程，也不会把旧表复活
   // =========================
-  async function purgeSheetKeysFromChatHistoryHard_ACU(sheetKeysToPurge) {
+  export async function purgeSheetKeysFromChatHistoryHard_ACU(sheetKeysToPurge) {
       const keys = Array.isArray(sheetKeysToPurge)
           ? [...new Set(sheetKeysToPurge.filter(k => typeof k === 'string' && k.startsWith('sheet_')))]
           : [];
@@ -668,12 +681,12 @@
           await SillyTavern_API_ACU.saveChat();
           try { await loadAllChatMessages_ACU(); } catch (e) {}
           // 通知前端刷新
-          if (topLevelWindow_ACU.AutoCardUpdaterAPI) topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
+          if ((topLevelWindow_ACU as any).AutoCardUpdaterAPI) (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
       }
       return { changed: changedAny, changedCount };
   }
 
-  async function updateOutlineTableEntry_ACU(outlineTable, isImport = false) { // [外部导入] 添加 isImport 标志
+  export async function updateOutlineTableEntry_ACU(outlineTable, isImport = false) { // [外部导入] 添加 isImport 标志
     if (!TavernHelper_API_ACU) return;
     const primaryLorebookName = await getInjectionTargetLorebook_ACU();
     if (!primaryLorebookName) {
@@ -806,7 +819,7 @@
       return raw.split(/[,，]/).map(k => k.trim()).filter(Boolean);
   }
 
-  async function updateSummaryTableEntries_ACU(summaryTable, isImport = false) { // [外部导入] 添加 isImport 标志
+  export async function updateSummaryTableEntries_ACU(summaryTable, isImport = false) { // [外部导入] 添加 isImport 标志
     if (!TavernHelper_API_ACU) return;
     const primaryLorebookName = await getInjectionTargetLorebook_ACU();
     if (!primaryLorebookName) {
@@ -947,7 +960,7 @@
         if (mergedFromHistory) {
             mergedData = mergedFromHistory;
             // 同步内存中的全局数据，确保后续调用保持一致
-            currentJsonTableData_ACU = mergedFromHistory;
+            _set_currentJsonTableData_ACU(mergedFromHistory);
         } else {
             // 如果合并失败，退回到当前内存数据避免中断
             mergedData = currentJsonTableData_ACU;
@@ -1330,7 +1343,7 @@
   // [新增] 处理自定义表格导出逻辑
   // [修复] 当 mergedData 为空/null 时，仍需执行"清理旧自定义导出条目"逻辑，
   // 避免删除楼层回溯到空数据时旧条目残留在世界书中。
-  async function updateCustomTableExports_ACU(mergedData, isImport = false) {
+  export async function updateCustomTableExports_ACU(mergedData, isImport = false) {
       if (!TavernHelper_API_ACU) return;
       const primaryLorebookName = await getInjectionTargetLorebook_ACU();
       if (!primaryLorebookName) return;
@@ -1494,9 +1507,9 @@
               const modeMap = (cfg.extraIndexColumnModes && typeof cfg.extraIndexColumnModes === 'object')
                   ? cfg.extraIndexColumnModes
                   : {};
-              const selectedMeta = selectedCols.map(col => {
+              const selectedMeta = selectedCols.map((col: any) => {
                   const idx = originalHeaders.indexOf(col);
-                  const mode = modeMap[col] === 'index_only' ? 'index_only' : 'both';
+                  const mode = (modeMap as any)[col] === 'index_only' ? 'index_only' : 'both';
                   return { name: col, idx, mode };
               }).filter(m => m.idx >= 0);
               if (selectedMeta.length === 0) return null;
@@ -2097,7 +2110,7 @@
       }
   }
 
-  async function updateImportantPersonsRelatedEntries_ACU(importantPersonsTable, isImport = false) { // [外部导入] 添加 isImport 标志
+  export async function updateImportantPersonsRelatedEntries_ACU(importantPersonsTable, isImport = false) { // [外部导入] 添加 isImport 标志
     if (!TavernHelper_API_ACU) return;
     const primaryLorebookName = await getInjectionTargetLorebook_ACU();
     if (!primaryLorebookName) {

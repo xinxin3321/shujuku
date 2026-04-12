@@ -9,6 +9,9 @@
 // ── 字段名常量 ──
 
 /** 聊天级作用域配置的字段名（挂载在 chat[0] 上） */
+import { safeJsonParse_ACU } from '../../shared/json-helpers';
+import { cloneScopedConfigData_ACU, getChatFirstLayerMessage_ACU } from '../../shared/utils';
+
 export const CHAT_SCOPED_CONFIG_FIELD_ACU = 'TavernDB_ACU_ScopedConfig';
 
 /** 聊天级作用域配置版本号 */

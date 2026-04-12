@@ -1,8 +1,24 @@
 // import-process.ts
 
 
+import { STORAGE_KEY_IMPORTED_ENTRIES_ACU, STORAGE_KEY_IMPORTED_STATUS_ACU, STORAGE_KEY_IMPORTED_STATUS_FULL_ACU, STORAGE_KEY_IMPORTED_STATUS_STANDARD_ACU, STORAGE_KEY_IMPORTED_STATUS_SUMMARY_ACU } from '../../data/constants';
+
+import { importTempGet_ACU, importTempRemove_ACU, importTempSet_ACU } from '../../data/storage/idb-import-temp';
+import { getImportWorldbookTarget_ACU, updateImportStatusUI_ACU } from '../../presentation/components/import-status-ui';
+import { getImportSelectionFromUI_ACU } from '../../presentation/components/table-selector';
+import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../../presentation/theme/toast';
+import { TavernHelper_API_ACU, currentJsonTableData_ACU, settings_ACU, _set_currentJsonTableData_ACU} from '../runtime/state-manager';
+import { saveSettings_ACU } from '../settings/settings-service';
+import { proceedWithCardUpdate_ACU } from '../table/update-process';
+import { updateReadableLorebookEntry_ACU } from '../worldbook/pipeline';
+import { logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
+import { IMPORTED_ENTRY_PREFIX_ACU, getImportJsonStorageComment_ACU, setImportInjectButtonEnabled_ACU } from '../../presentation/components/import-status-ui';
+import { getSortedSheetKeys_ACU } from '../template/chat-scope';
+import { allocOrder_ACU, buildUsedOrderSet_ACU, getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from '../worldbook/injection-engine';
+
 export   async function processImportedTxtAsUpdates_ACU() {
-      // 外部导入：按“自选表格”处理与注入（与手动填表一致的表选择体验）
+      // 外部导入：按"自选表格"处理与注入（与手动填表一致的表选择体验）
+      const $injectButton: any = null; // 旧闭包变量，现在通过 UI 层控制
 
       const savedEntriesJson = await importTempGet_ACU(STORAGE_KEY_IMPORTED_ENTRIES_ACU);
       if (!savedEntriesJson) {
@@ -39,7 +55,7 @@ export   async function processImportedTxtAsUpdates_ACU() {
       // 读取当前表选择（空且曾选择过 => 不允许执行）
       const selectedSheetKeys = getImportSelectionFromUI_ACU();
       if (settings_ACU.hasImportTableSelection && (!selectedSheetKeys || selectedSheetKeys.length === 0)) {
-          showToastr_ACU('error', '未选择任何表格，无法注入。请先在“注入表选择”中勾选至少一个表。');
+          showToastr_ACU('error', '未选择任何表格，无法注入。请先在"注入表选择"中勾选至少一个表。');
           return;
       }
       const selectionSig = JSON.stringify(selectedSheetKeys || []);
@@ -65,7 +81,7 @@ export   async function processImportedTxtAsUpdates_ACU() {
       if (status.currentIndex === 0) {
           logDebug_ACU(`Starting fresh import (selected tables), resetting in-memory database from template.`);
           try {
-              currentJsonTableData_ACU = parseTableTemplateJson_ACU({ stripSeedRows: true });
+              _set_currentJsonTableData_ACU(parseTableTemplateJson_ACU({ stripSeedRows: true }));
           } catch(e) {
               logError_ACU("Failed to parse table template for import.", e);
               showToastr_ACU('error', "无法为导入解析数据库模板。");
@@ -94,7 +110,7 @@ export   async function processImportedTxtAsUpdates_ACU() {
           }
 
           if (restoredImportData && typeof restoredImportData === 'object') {
-              currentJsonTableData_ACU = restoredImportData;
+              _set_currentJsonTableData_ACU(restoredImportData);
               logDebug_ACU(`[外部导入] Resumed import from ImportedJsonData source entry. currentIndex=${status.currentIndex}`);
           } else if (currentJsonTableData_ACU) {
               logWarn_ACU('[外部导入] ImportedJsonData source entry missing during resume, falling back to in-memory data.');
@@ -149,7 +165,7 @@ export   async function processImportedTxtAsUpdates_ACU() {
       }
 
       // [新逻辑] 所有分块处理完毕后的操作
-      // 1. 按“自选表格”筛选最终数据（每批作为独立流程）
+      // 1. 按"自选表格"筛选最终数据（每批作为独立流程）
       // [修复] 最终注入前优先从目标世界书里的 ImportedJsonData 临时条目重载一次，
       // 避免 UI 刷新/回调链把 currentJsonTableData_ACU 覆盖回旧值或空模板。
       let finalImportSourceData = currentJsonTableData_ACU;
@@ -157,7 +173,7 @@ export   async function processImportedTxtAsUpdates_ACU() {
           const persistedFinalData = await loadImportedJsonDataFromLorebook_ACU(importTarget, modeSuffix);
           if (persistedFinalData && typeof persistedFinalData === 'object') {
               finalImportSourceData = persistedFinalData;
-              currentJsonTableData_ACU = persistedFinalData;
+              _set_currentJsonTableData_ACU(persistedFinalData);
               logDebug_ACU('[外部导入] Reloaded final import data from ImportedJsonData source entry before worldbook creation.');
           }
       } catch (e) {
@@ -179,14 +195,14 @@ export   async function processImportedTxtAsUpdates_ACU() {
       // 避免临时修改 worldbookConfig.injectionTarget 被 getCurrentCharSettings_ACU() 的兜底补齐逻辑覆盖
       const originalData = currentJsonTableData_ACU;
       
-      currentJsonTableData_ACU = finalDataForInjection;
+      _set_currentJsonTableData_ACU(finalDataForInjection);
       await updateReadableLorebookEntry_ACU(true, true, importTarget); // [外部导入] 添加 isImport 标志和 targetLorebookOverride 参数
       
       // 恢复原始数据
-      currentJsonTableData_ACU = originalData;
+      _set_currentJsonTableData_ACU(originalData);
       logDebug_ACU('[外部导入] Final worldbook entries created from ImportedJsonData source entry.');
 
-      // 3. 外部导入完成：删除“本地数据源 JSON 临时条目”，并解除与该世界书的绑定
+      // 3. 外部导入完成：删除"本地数据源 JSON 临时条目"，并解除与该世界书的绑定
       try {
           const deleted = await deleteImportedJsonDataFromLorebook_ACU(importTarget, modeSuffix);
           if (deleted) {
@@ -278,12 +294,12 @@ export   async function processImportedTxtAsUpdates_ACU() {
       await importTempRemove_ACU(STORAGE_KEY_IMPORTED_STATUS_FULL_ACU);
       logDebug_ACU('[外部导入] Cleared temp storage entries + status after import completion.');
 
-      // 清空导入目标，防止后续任何“删除外部导入条目”等操作误伤第三方世界书
+      // 清空导入目标，防止后续任何"删除外部导入条目"等操作误伤第三方世界书
       settings_ACU.importWorldbookTarget = '';
       saveSettings_ACU();
       
       // [新增] 清除内存中的暂存数据
-      currentJsonTableData_ACU = null;
+      _set_currentJsonTableData_ACU(null);
       logDebug_ACU('Cleared in-memory database data after import completion.');
       
       void updateImportStatusUI_ACU();

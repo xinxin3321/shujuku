@@ -1,14 +1,31 @@
 // update-process.ts
 // 从 01_update_process.js 迁入
 
-export   async function processUpdates_ACU(indicesToUpdate, mode = 'auto', options = {}) {
+import { abortAllActiveRequests_ACU, isAutoUpdatingCard_ACU, wasStoppedByUser_ACU, _set_isAutoUpdatingCard_ACU, _set_manualExtraHint_ACU, _set_wasStoppedByUser_ACU} from '../../presentation/components/plot-editors';
+import { getManualSelectionFromUI_ACU } from '../../presentation/components/table-selector';
+import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../../presentation/theme/toast';
+import { callCustomOpenAI_ACU } from '../ai/prompt-builder';
+import { SillyTavern_API_ACU, coreApisAreReady_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, toastr_API_ACU, $statusMessageSpan_ACU, _set_currentJsonTableData_ACU} from '../runtime/state-manager';
+import { checkAndTriggerAutoMergeSummary_ACU } from '../summary/merge-logic';
+import { getChatSheetGuideDataForIsolationKey_ACU } from '../template/chat-scope';
+import { loadAllChatMessages_ACU, refreshMergedDataAndNotify_ACU, updateReadableLorebookEntry_ACU } from '../worldbook/pipeline';
+import { topLevelWindow_ACU } from '../../shared/env';
+import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
+import { checkIfFirstTimeInit_ACU, saveIndependentTableToChatHistory_ACU } from '../../data/repositories/table-repo';
+import { bindTableFillStopButton_ACU, resetManualUpdateButton_ACU } from '../../presentation/components/status-display';
+import { updateCardUpdateStatusDisplay_ACU } from '../../presentation/components/update-status-display';
+import { collectManualExtraHint_ACU } from '../../presentation/triggers/settings-ui-sync';
+import { parseAndApplyTableEdits_ACU, prepareAIInput_ACU } from '../ai/prompt-builder';
+import { buildGuidedBaseDataFromSheetGuide_ACU, getSortedSheetKeys_ACU, sanitizeSheetForStorage_ACU } from '../template/chat-scope';
+
+export   async function processUpdates_ACU(indicesToUpdate, mode = 'auto', options: any = {}) {
       if (!indicesToUpdate || indicesToUpdate.length === 0) {
           return true;
       }
 
       const { targetSheetKeys, batchSize: specificBatchSize, requestOptions } = options;
 
-      isAutoUpdatingCard_ACU = true;
+      _set_isAutoUpdatingCard_ACU(true);
 
       // [新增] 根据更新模式选择不同的批处理大小和阈值
       const isSummaryMode = (mode && (mode.includes('summary') || mode === 'manual_summary')) || false;
@@ -149,7 +166,7 @@ export   async function processUpdates_ACU(indicesToUpdate, mode = 'auto', optio
           }
 
           // 将合并后的数据赋值给全局变量
-          currentJsonTableData_ACU = mergedBatchData;
+          _set_currentJsonTableData_ACU(mergedBatchData);
           
           // 统计找到的表格数量
           const foundCount = Object.values(batchFoundSheets).filter(v => v === true).length;
@@ -239,7 +256,7 @@ export   async function processUpdates_ACU(indicesToUpdate, mode = 'auto', optio
 
       // 自动合并总结检测已移至更高层级调用处
 
-      isAutoUpdatingCard_ACU = false;
+      _set_isAutoUpdatingCard_ACU(false);
       return overallSuccess;
   }
 
@@ -327,7 +344,7 @@ export   async function handleManualUpdate_ACU() {
         });
         const groupKeys = Object.keys(updateGroups);
 
-        isAutoUpdatingCard_ACU = true;
+        _set_isAutoUpdatingCard_ACU(true);
         for (const gKey of groupKeys) {
             const group = updateGroups[gKey];
             logDebug_ACU(`[Manual Parallel] Processing group update for groupId=${group.groupId}, sheets: ${group.sheetKeys.join(', ')}`);
@@ -337,14 +354,14 @@ export   async function handleManualUpdate_ACU() {
                 batchSize: group.batchSize
             });
             if (!success) {
-                isAutoUpdatingCard_ACU = false;
+                _set_isAutoUpdatingCard_ACU(false);
                 showToastr_ACU('error', '手动更新失败或被终止。', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.ERROR });
                 return;
             }
             await loadAllChatMessages_ACU();
             await refreshMergedDataAndNotify_ACU();
         }
-        isAutoUpdatingCard_ACU = false;
+        _set_isAutoUpdatingCard_ACU(false);
         showToastr_ACU('success', '手动更新完成！', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.TABLE_OK });
         if (typeof updateCardUpdateStatusDisplay_ACU === 'function') {
             updateCardUpdateStatusDisplay_ACU();
@@ -357,8 +374,8 @@ export   async function handleManualUpdate_ACU() {
             logWarn_ACU('自动合并总结检测失败:', e);
         }
       } finally {
-          manualExtraHint_ACU = '';
-          isAutoUpdatingCard_ACU = false;
+          _set_manualExtraHint_ACU('');
+          _set_isAutoUpdatingCard_ACU(false);
           if (typeof resetManualUpdateButton_ACU === 'function') resetManualUpdateButton_ACU();
       }
   }
@@ -379,7 +396,7 @@ export   async function proceedWithCardUpdate_ACU(messagesToUse, batchToastMessa
     try {
         // [新增] 静默模式下不通知填表开始
         if (!isSilentMode) {
-            topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableFillStart();
+            (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableFillStart();
         }
         
         // [新增] 静默模式下不显示toast提示
@@ -401,12 +418,12 @@ export   async function proceedWithCardUpdate_ACU(messagesToUse, batchToastMessa
                 onShown: function() {
                     if (typeof bindTableFillStopButton_ACU === 'function') {
                         bindTableFillStopButton_ACU(localAbortController, () => {
-                            wasStoppedByUser_ACU = true;
+                            _set_wasStoppedByUser_ACU(true);
                             abortAllActiveRequests_ACU();
-                            isAutoUpdatingCard_ACU = false;
+                            _set_isAutoUpdatingCard_ACU(false);
                             statusUpdate('操作已终止。');
                             showToastr_ACU('warning', '填表操作已由用户终止。');
-                            setTimeout(() => { wasStoppedByUser_ACU = false; }, 3000);
+                            setTimeout(() => { _set_wasStoppedByUser_ACU(false); }, 3000);
                         });
                     }
                 }
@@ -583,7 +600,7 @@ export   async function proceedWithCardUpdate_ACU(messagesToUse, batchToastMessa
             // 这里保留是为了兼容性，但主要通知在 saveJsonTableToChatHistory_ACU 中
             if (!isSilentMode) {
             setTimeout(() => {
-                topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
+                (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
                 logDebug_ACU('Delayed notification sent after saving.');
             }, 250);
             }

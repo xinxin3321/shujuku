@@ -19,7 +19,8 @@
       "@service/*": ["src/service/*"],
       "@presentation/*": ["src/presentation/*"]
     },
-    "typeRoots": ["./@types"]
+    "types": ["function"],
+    "typeRoots": ["./@types", "./node_modules/@types"]
   },
   "include": [
     "src/**/*.ts",

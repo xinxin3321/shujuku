@@ -2,6 +2,25 @@
  * presentation/pages/visualizer-main.ts — 可视化编辑器主区域 + 保存
  * 从 visualizer.ts 拆出
  */
+import { TABLE_TEMPLATE_ACU } from '../../data/models/defaults-json.js';
+import { isDefaultTemplatePresetSelection_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../data/repositories/template-preset-repo';
+import { getOrderedSheetKeys_ACU } from './visualizer-sidebar';
+import { showToastr_ACU } from '../theme/toast';
+import { SillyTavern_API_ACU, TABLE_ORDER_FIELD_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU} from '../../service/runtime/state-manager';
+import { buildChatSheetGuideDataFromData_ACU, getChatSheetGuideDataForIsolationKey_ACU, sanitizeTemplateSnapshotForChat_ACU, setChatSheetGuideDataForIsolationKey_ACU } from '../../service/template/chat-scope';
+import { refreshMergedDataAndNotify_ACU, updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { topLevelWindow_ACU } from '../../shared/env';
+import { escapeHtml_ACU } from '../../shared/html-helpers';
+import { safeJsonStringify_ACU } from '../../shared/json-helpers';
+import { applySheetOrderNumbers_ACU, ensureSheetOrderNumbers_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
+import { saveIndependentTableToChatHistory_ACU } from '../../data/repositories/table-repo';
+import { applyTemplatePresetToCurrent_ACU, loadTemplatePresetSelect_ACU, resolveActiveTemplatePresetName_ACU, upsertTemplatePreset_ACU } from '../components/template-preset-ui';
+import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-display';
+import { applySpecialIndexSequenceToSummaryTables_ACU, getSummaryIndexColumnIndex_ACU, getTableLocksForSheet_ACU, isSpecialIndexLockEnabled_ACU, setSpecialIndexLockEnabled_ACU, toggleCellLock_ACU, toggleColLock_ACU, toggleRowLock_ACU } from '../../service/runtime/helpers-remaining';
+import { getSortedSheetKeys_ACU, materializeDataFromSheetGuide_ACU } from '../../service/template/chat-scope';
+import { DEFAULT_ENTRY_PLACEMENT_ACU, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU, buildDefaultGlobalInjectionConfig_ACU, ensureSheetExportConfigDefaults_ACU, getFixedPlacementDefaultsForTable_ACU, getGlobalInjectionConfigFromData_ACU, isImportantPersonsTableName_ACU, isOutlineTableName_ACU, isSummaryTableName_ACU, normalizeLorebookPosition_ACU, normalizePlacementConfig_ACU, purgeSheetKeysFromChatHistoryHard_ACU } from '../../service/worldbook/injection-engine';
+
   export function renderVisualizerMain_ACU() {
       const $main = jQuery_API_ACU('#acu-vis-main-area');
       $main.empty();
@@ -799,7 +818,7 @@
       applySpecialIndexSequenceToSummaryTables_ACU(orderedData);
       
       // First, apply changes to local variable (使用排序后的数据)
-      currentJsonTableData_ACU = JSON.parse(JSON.stringify(orderedData));
+      _set_currentJsonTableData_ACU(JSON.parse(JSON.stringify(orderedData)));
 
       // [新增] 可视化编辑器属于“用户显式修改表结构/表名/顺序”的入口：
       // 覆盖式更新聊天第一层的“空白指导表”（仅表头+参数，无数据行），让后续合并/显示/填表参数都以此为准。

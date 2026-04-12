@@ -3,6 +3,10 @@
 // 从 02_storage_and_profile.js 行 18~101 迁入
 // ═══════════════════════════════════════════════════════════════
 
+import { settings_ACU, SillyTavern_API_ACU, TavernHelper_API_ACU } from '../../service/runtime/state-manager';
+import { persistSettingsToStorage_ACU } from '../storage/config-storage';
+import { getTemplatePreset_ACU } from '../../presentation/components/template-preset-ui';
+
 export const DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU = '__ACU_DEFAULT_TEMPLATE_PRESET__';
 
 export function normalizeTemplatePresetSelectionValue_ACU(presetName: any): string {
@@ -15,18 +19,18 @@ export function isDefaultTemplatePresetSelection_ACU(presetName: any): boolean {
 }
 
 export function getCurrentTemplatePresetName_ACU({ requireExisting = false } = {}): string {
-    const presetName = normalizeTemplatePresetSelectionValue_ACU((settings_ACU as any)?.currentTemplatePresetName || '');
+    const presetName = normalizeTemplatePresetSelectionValue_ACU(settings_ACU?.currentTemplatePresetName || '');
     if (!presetName) return '';
     if (!requireExisting) return presetName;
-    return (getTemplatePreset_ACU as any)(presetName)?.templateStr ? presetName : '';
+    return getTemplatePreset_ACU(presetName)?.templateStr ? presetName : '';
 }
 
 export function persistCurrentTemplatePresetName_ACU(presetName: any, { save = true } = {}): string {
     if (!settings_ACU || typeof settings_ACU !== 'object') return '';
     const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
-    (settings_ACU as any).currentTemplatePresetName = normalizedPresetName;
+    settings_ACU.currentTemplatePresetName = normalizedPresetName;
     if (save) {
-        (persistSettingsToStorage_ACU as any)();
+        persistSettingsToStorage_ACU();
     }
     return normalizedPresetName;
 }
@@ -43,19 +47,19 @@ export function getCurrentCharacterCardName_ACU(): string {
     try {
         const stContext = (window as any).SillyTavern?.getContext?.();
         let character = null;
-        if ((TavernHelper_API_ACU as any)?.getCharData) {
-            character = (TavernHelper_API_ACU as any).getCharData('current');
+        if (TavernHelper_API_ACU?.getCharData) {
+            character = TavernHelper_API_ACU.getCharData('current');
         }
         if (!character) {
-            character = (SillyTavern_API_ACU as any)?.characters?.[(SillyTavern_API_ACU as any)?.this_chid]
+            character = SillyTavern_API_ACU?.characters?.[SillyTavern_API_ACU?.this_chid]
                 || stContext?.characters?.[stContext?.characterId]
-                || (typeof characters !== 'undefined' && typeof this_chid !== 'undefined' ? (characters as any)[(this_chid as any)] : null);
+                || (typeof (window as any).characters !== 'undefined' && typeof (window as any).this_chid !== 'undefined' ? (window as any).characters[(window as any).this_chid] : null);
         }
         return String(
             character?.name
             || character?.data?.name
             || stContext?.name2
-            || (SillyTavern_API_ACU as any)?.name2
+            || SillyTavern_API_ACU?.name2
             || ''
         ).trim();
     } catch (e) {

@@ -1,8 +1,15 @@
+import { showToastr_ACU } from '../../presentation/theme/toast';
+import { SillyTavern_API_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU , _set_currentJsonTableData_ACU} from '../../service/runtime/state-manager';
+import { applyTemplateScopeForCurrentChat_ACU } from '../../service/settings/settings-service';
+import { attachSeedRowsToCurrentDataFromGuide_ACU, buildChatSheetGuideDataFromData_ACU, ensureChatSheetGuideSeeded_ACU, getChatSheetGuideDataForIsolationKey_ACU, getSortedSheetKeys_ACU, sanitizeSheetForStorage_ACU, setChatSheetGuideDataForIsolationKey_ACU } from '../../service/template/chat-scope';
+import { deleteAllGeneratedEntries_ACU, refreshMergedDataAndNotify_ACU } from '../../service/worldbook/pipeline';
+import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
+import { mergeAllIndependentTables_ACU } from '../../service/runtime/helpers-remaining';
 /**
  * data/repositories/table-repo.ts — 表格数据 CRUD
  * 从 src/core/05_core_tail.js:2409~2693 迁移而来。
  */
-  async function saveIndependentTableToChatHistory_ACU(targetMessageIndex = -1, targetSheetKeys = null, updateGroupKeys = null, skipPostRefresh = false) {
+  export async function saveIndependentTableToChatHistory_ACU(targetMessageIndex = -1, targetSheetKeys = null, updateGroupKeys = null, skipPostRefresh = false) {
     if (!currentJsonTableData_ACU) {
         logError_ACU('Save aborted: currentJsonTableData_ACU is null.');
         return false;
@@ -174,7 +181,7 @@
    * [优化] 检查是否是首次初始化（聊天记录中没有任何当前标签的数据库记录）
    * 用于判断是否需要保存完整的模板结构
    */
-  async function checkIfFirstTimeInit_ACU() {
+  export async function checkIfFirstTimeInit_ACU() {
     const chat = SillyTavern_API_ACU.chat;
     if (!chat || chat.length === 0) return true;
     
@@ -216,12 +223,12 @@
     // 步骤2：安全地在内存中创建数据库
     try {
         // [修复] 初始化内存数据库时，只使用“表结构”（避免模板自带数据被当作当前数据）
-        currentJsonTableData_ACU = parseTableTemplateJson_ACU({ stripSeedRows: true });
+        _set_currentJsonTableData_ACU(parseTableTemplateJson_ACU({ stripSeedRows: true }));
         logDebug_ACU('Successfully initialized database in memory.');
     } catch (error) {
         logError_ACU('Failed to parse template and initialize database in memory:', error);
         showToastr_ACU('error', '从模板解析数据库失败，请检查模板格式。');
-        currentJsonTableData_ACU = null;
+        _set_currentJsonTableData_ACU(null);
         return false;
     }
     if (!currentJsonTableData_ACU) {
@@ -256,8 +263,8 @@
     return true;
   }
 
-  async function loadOrCreateJsonTableFromChatHistory_ACU() {
-    currentJsonTableData_ACU = null; // Reset before loading
+  export async function loadOrCreateJsonTableFromChatHistory_ACU() {
+    _set_currentJsonTableData_ACU(null); // Reset before loading
     logDebug_ACU('Attempting to load database from chat history...');
 
     const chat = SillyTavern_API_ACU.chat;
@@ -273,7 +280,7 @@
     const mergedData = await mergeAllIndependentTables_ACU();
 
     if (mergedData) {
-        currentJsonTableData_ACU = mergedData;
+        _set_currentJsonTableData_ACU(mergedData);
         logDebug_ACU('Database content successfully merged (tag-aware) and loaded into memory.');
         await refreshMergedDataAndNotify_ACU();
         return;

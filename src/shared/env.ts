@@ -6,6 +6,8 @@
  */
 
 /** 顶层窗口引用（iframe 环境下为 window.parent） */
+
+
 export const topLevelWindow_ACU = (typeof window.parent !== 'undefined' ? window.parent : window);
 
 /** 是否禁止使用浏览器 localStorage/sessionStorage 存储配置 */

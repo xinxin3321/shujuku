@@ -2,6 +2,10 @@
  * presentation/window/window-styles.ts — 窗口样式注入 + 主题切换
  * 从 window-system.ts 拆出
  */
+import { getConfigStorage_ACU } from '../../data/storage/tavern-storage';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { topLevelWindow_ACU } from '../../shared/env';
+
   const ACU_WINDOW_STYLES_INJECTED_FLAG = `${SCRIPT_ID_PREFIX_ACU}_window_styles_injected`;
   const ACU_UI_THEME_STORAGE_KEY = `${SCRIPT_ID_PREFIX_ACU}_ui_theme_v1`;
 

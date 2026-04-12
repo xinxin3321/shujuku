@@ -1,8 +1,21 @@
+import { STORAGE_KEY_TEMPLATE_PRESETS_ACU } from '../../data/constants';
+import { DEFAULT_TABLE_TEMPLATE_ACU, TABLE_TEMPLATE_ACU , _set_TABLE_TEMPLATE_ACU} from '../../data/models/defaults-json.js';
+import { saveCurrentProfileTemplate_ACU } from '../../data/repositories/profile-repo';
+import { DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU, getCurrentTemplatePresetName_ACU, isDefaultTemplatePresetSelection_ACU, normalizeTemplatePresetSelectionValue_ACU, persistCurrentTemplatePresetName_ACU } from '../../data/repositories/template-preset-repo';
+import { getConfigStorage_ACU } from '../../data/storage/tavern-storage';
+import { SillyTavern_API_ACU, jQuery_API_ACU, $popupInstance_ACU, getCurrentIsolationKey_ACU } from '../../service/runtime/state-manager';
+import { applyTemplateScopeForCurrentChat_ACU, saveSettings_ACU } from '../../service/settings/settings-service';
+import { activateChatTemplatePresetSelection_ACU, buildChatSheetGuideDataFromTemplateObj_ACU, buildChatTemplatePresetLinkState_ACU, buildChatTemplateScopeStateFromCurrent_ACU, clearChatSheetGuideDataForIsolationKey_ACU, getCurrentChatTemplateScopeState_ACU, listChatTemplatePresetEntries_ACU, migrateLegacyTemplateScopeForCurrentChat_ACU, normalizeTemplateScopeIsolationKey_ACU, normalizeTemplateScopeMode_ACU, sanitizeChatSheetsObject_ACU, sanitizeTemplateSnapshotForChat_ACU, setCurrentChatTemplateScopeState_ACU, upsertChatTemplatePresetEntry_ACU } from '../../service/template/chat-scope';
+import { refreshMergedDataAndNotify_ACU } from '../../service/worldbook/pipeline';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-helpers';
+import { ensureSheetOrderNumbers_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
+import { formatPlotScopeUpdatedAt_ACU } from '../pages/popup-helpers';
 /**
  * presentation/components/template-preset-ui.ts — 模板预设 UI 函数
  * 从 src/core/02_storage_and_profile.js:20~628 迁移而来
  */
-  function getTemplatePresetSelectJQ_ACU() {
+  export function getTemplatePresetSelectJQ_ACU() {
       try {
           if (!$popupInstance_ACU || !$popupInstance_ACU.length) return null;
           const $sel = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-template-preset-select`);
@@ -22,12 +35,12 @@
       }
   }
 
-  function getTemplatePresetDisplayName_ACU(presetName) {
+  export function getTemplatePresetDisplayName_ACU(presetName) {
       const normalizedName = normalizeTemplatePresetSelectionValue_ACU(presetName);
       return normalizedName || '默认预设';
   }
 
-  function resolveActiveTemplatePresetName_ACU({ fallbackToGlobal = true, isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+  export function resolveActiveTemplatePresetName_ACU({ fallbackToGlobal = true, isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const normalizedKey = String(isolationKey ?? '');
       const chatScopeState = getCurrentChatTemplateScopeState_ACU({ isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
       const chatPresetName = normalizeTemplatePresetSelectionValue_ACU(chatScopeState?.presetName || '');
@@ -36,7 +49,7 @@
       return getCurrentTemplatePresetName_ACU({ requireExisting: false });
   }
 
-  function getActiveTemplatePresetMeta_ACU({ isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+  export function getActiveTemplatePresetMeta_ACU({ isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const normalizedKey = String(isolationKey ?? '');
       const chatScopeState = getCurrentChatTemplateScopeState_ACU({ isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
       const normalizedMode = normalizeTemplateScopeMode_ACU(chatScopeState?.mode);
@@ -78,7 +91,7 @@
       });
   }
 
-  function loadTemplatePresetSelect_ACU({ globalSelectName = null, keepGlobalValue = false } = {}) {
+  export function loadTemplatePresetSelect_ACU({ globalSelectName = null, keepGlobalValue = false } = {}) {
       if (!$popupInstance_ACU || !$popupInstance_ACU.length) return;
 
       const presetNames = listTemplatePresetNames_ACU();
@@ -237,7 +250,7 @@
       }
   }
 
-  function refreshTemplatePresetSelectInUI_ACU({ selectName = null, keepValue = false } = {}) {
+  export function refreshTemplatePresetSelectInUI_ACU({ selectName = null, keepValue = false } = {}) {
       if ($popupInstance_ACU && $popupInstance_ACU.length) {
           loadTemplatePresetSelect_ACU({ globalSelectName: selectName, keepGlobalValue: !!keepValue });
           return;
@@ -253,7 +266,7 @@
       $sel.val(normalizedName || DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU);
   }
 
-  function ensureUniqueTemplatePresetName_ACU(baseNameRaw) {
+  export function ensureUniqueTemplatePresetName_ACU(baseNameRaw) {
       const baseName = String(baseNameRaw || '').trim();
       if (!baseName) return '';
       const names = new Set(listTemplatePresetNames_ACU().map(n => String(n)));
@@ -291,18 +304,18 @@
       }
   }
 
-  function listTemplatePresetNames_ACU() {
+  export function listTemplatePresetNames_ACU() {
       const s = loadTemplatePresetsStore_ACU();
       return Object.keys(s.presets || {}).sort((a, b) => String(a).localeCompare(String(b)));
   }
 
-  function getTemplatePreset_ACU(name) {
+  export function getTemplatePreset_ACU(name) {
       const s = loadTemplatePresetsStore_ACU();
       const p = s?.presets?.[String(name || '')];
       return p && typeof p === 'object' ? p : null;
   }
 
-  function upsertTemplatePreset_ACU(nameRaw, templateStr) {
+  export function upsertTemplatePreset_ACU(nameRaw, templateStr) {
       const name = String(nameRaw || '').trim();
       if (!name) return false;
       const s = loadTemplatePresetsStore_ACU();
@@ -311,7 +324,7 @@
       return saveTemplatePresetsStore_ACU(s);
   }
 
-  function deleteTemplatePreset_ACU(nameRaw) {
+  export function deleteTemplatePreset_ACU(nameRaw) {
       const name = String(nameRaw || '').trim();
       if (!name) return false;
       const s = loadTemplatePresetsStore_ACU();
@@ -321,7 +334,7 @@
       return saveTemplatePresetsStore_ACU(s);
   }
 
-  function normalizeTemplateForPresetSave_ACU() {
+  export function normalizeTemplateForPresetSave_ACU() {
       // 返回：{ templateObj, templateStr } 或 null
       const obj = parseTableTemplateJson_ACU({ stripSeedRows: false });
       if (!obj || typeof obj !== 'object') return null;
@@ -365,7 +378,7 @@
       } catch (e) {}
   }
 
-  function getDefaultTemplateSnapshot_ACU() {
+  export function getDefaultTemplateSnapshot_ACU() {
       const previousTemplate = TABLE_TEMPLATE_ACU;
       let snapshot = sanitizeTemplateSnapshotForChat_ACU(DEFAULT_TABLE_TEMPLATE_ACU);
       if (snapshot?.templateStr) {
@@ -373,23 +386,23 @@
       }
 
       try {
-          TABLE_TEMPLATE_ACU = DEFAULT_TABLE_TEMPLATE_ACU;
+          _set_TABLE_TEMPLATE_ACU(DEFAULT_TABLE_TEMPLATE_ACU);
           const parsedTemplate = parseTableTemplateJson_ACU({ stripSeedRows: false });
           snapshot = sanitizeTemplateSnapshotForChat_ACU(parsedTemplate);
       } catch (e) {
           snapshot = null;
       } finally {
-          TABLE_TEMPLATE_ACU = previousTemplate;
+          _set_TABLE_TEMPLATE_ACU(previousTemplate);
       }
 
       return snapshot || sanitizeTemplateSnapshotForChat_ACU(previousTemplate);
   }
 
-  function normalizeTemplateOperationScope_ACU(scope) {
+  export function normalizeTemplateOperationScope_ACU(scope) {
       return scope === 'chat' ? 'chat' : 'global';
   }
 
-  function parseImportedTemplateData_ACU(templateData) {
+  export function parseImportedTemplateData_ACU(templateData) {
       let jsonData;
 
       if (typeof templateData === 'string') {
@@ -451,7 +464,7 @@
       };
   }
 
-  async function applyTemplateSnapshotToScope_ACU(templateSource, { scope = 'global', source = 'ui', presetName = '', refreshUi = false, save = true, persistChatScope = null, registerChatPresetEntry = null } = {}) {
+  export async function applyTemplateSnapshotToScope_ACU(templateSource, { scope = 'global', source = 'ui', presetName = '', refreshUi = false, save = true, persistChatScope = null, registerChatPresetEntry = null } = {}) {
       const normalizedScope = normalizeTemplateOperationScope_ACU(scope);
       const snapshot = sanitizeTemplateSnapshotForChat_ACU(templateSource);
       if (!snapshot?.templateStr || !snapshot?.templateObj) return false;
@@ -462,7 +475,7 @@
       const effectiveRegisterChatPresetEntry = registerChatPresetEntry === null
           ? (!updateGlobal && !!effectivePersistChatScope)
           : !!registerChatPresetEntry;
-      TABLE_TEMPLATE_ACU = snapshot.templateStr;
+      _set_TABLE_TEMPLATE_ACU(snapshot.templateStr);
       if (updateGlobal) {
           saveCurrentProfileTemplate_ACU(TABLE_TEMPLATE_ACU);
       }
@@ -496,7 +509,7 @@
       };
   }
 
-  function persistTemplateScopeSelectionState_ACU(presetName, { source = 'ui', updateGlobal = false, save = true, persistChatScope = !updateGlobal, templateSource = TABLE_TEMPLATE_ACU, guideData = null, archivePreviousChatScope = false, scopeMode = persistChatScope ? 'chat_override' : 'inherit_global', registerChatPresetEntry = !updateGlobal && !!persistChatScope && normalizeTemplateScopeMode_ACU(scopeMode) === 'chat_override' } = {}) {
+  export function persistTemplateScopeSelectionState_ACU(presetName, { source = 'ui', updateGlobal = false, save = true, persistChatScope = !updateGlobal, templateSource = TABLE_TEMPLATE_ACU, guideData = null, archivePreviousChatScope = false, scopeMode = persistChatScope ? 'chat_override' : 'inherit_global', registerChatPresetEntry = !updateGlobal && !!persistChatScope && normalizeTemplateScopeMode_ACU(scopeMode) === 'chat_override' } = {}) {
       void archivePreviousChatScope;
       const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
       let shouldSaveSettings = false;
@@ -565,7 +578,7 @@
       return normalizedPresetName;
   }
 
-  async function applyTemplatePresetToCurrent_ACU(presetName, { source = 'ui', updateGlobal = true, refreshUi = false, save = true, persistChatScope = !updateGlobal } = {}) {
+  export async function applyTemplatePresetToCurrent_ACU(presetName, { source = 'ui', updateGlobal = true, refreshUi = false, save = true, persistChatScope = !updateGlobal } = {}) {
       const name = normalizeTemplatePresetSelectionValue_ACU(presetName);
       const isDefaultPreset = isDefaultTemplatePresetSelection_ACU(name);
 

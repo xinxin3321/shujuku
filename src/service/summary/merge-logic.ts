@@ -1,6 +1,17 @@
 // merge-logic.ts
 
 
+import { DEFAULT_CHAR_CARD_PROMPT_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_ACU } from '../../data/models/defaults-json.js';
+import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../../presentation/theme/toast';
+import { handleApiResponse_ACU } from '../ai/prompt-builder';
+import { SillyTavern_API_ACU, currentJsonTableData_ACU, settings_ACU } from '../runtime/state-manager';
+import { updateReadableLorebookEntry_ACU } from '../worldbook/pipeline';
+import { topLevelWindow_ACU } from '../../shared/env';
+import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
+import { saveIndependentTableToChatHistory_ACU } from '../../data/repositories/table-repo';
+import { updateCardUpdateStatusDisplay_ACU } from '../../presentation/components/update-status-display';
+import { extractTableEditInner_ACU } from '../ai/prompt-builder';
+
 export   async function checkAndTriggerAutoMergeSummary_ACU() {
       if (!settings_ACU.autoMergeEnabled) return;
       

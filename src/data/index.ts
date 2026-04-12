@@ -26,5 +26,4 @@ export * from './repositories/isolation-repo';
 export * from './repositories/template-preset-repo';
 export * from './repositories/character-settings-repo';
 export * from './repositories/table-repo';
-export * from './repositories/settings-repo';
 export * from './repositories/import-repo';

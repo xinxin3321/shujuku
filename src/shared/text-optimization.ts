@@ -1,9 +1,11 @@
 /**
  * 正文优化纯逻辑函数
  *
- * 纯文本处理工具，不依赖任何全局变量（除 logDebug_ACU）。
+ * 纯文本处理工具。
  * 用于正文优化功能中的段落匹配、标点处理和优化应用。
  */
+
+import { logDebug_ACU } from './utils';
 
 /**
  * 去除文本中的标点符号和空白，只保留文字和数字
@@ -233,7 +235,7 @@ export function applyOptimizations_ACU(originalContent: string, optimizations: a
 
         result = result.substring(0, match.start) + finalContent + result.substring(match.end);
         replaced = true;
-        (logDebug_ACU as any)(`[正文优化] 优化项 ${i + 1} 使用${match.method}成功，位置: ${match.start}-${match.end}`);
+        logDebug_ACU(`[正文优化] 优化项 ${i + 1} 使用${match.method}成功，位置: ${match.start}-${match.end}`);
       }
 
       if (replaced) {
@@ -245,12 +247,12 @@ export function applyOptimizations_ACU(originalContent: string, optimizations: a
           original: opt.original.substring(0, 100) + (opt.original.length > 100 ? '...' : ''),
           plan: opt.plan || opt.reason || '未说明',
         });
-        (logDebug_ACU as any)(`[正文优化] 优化项 ${i + 1} 匹配失败，原文片段: "${opt.original.substring(0, 50)}..."`);
+        logDebug_ACU(`[正文优化] 优化项 ${i + 1} 匹配失败，原文片段: "${opt.original.substring(0, 50)}..."`);
       }
     }
   }
 
-  (logDebug_ACU as any)(`[正文优化] 替换统计: 成功 ${appliedCount}/${optimizations.length}，失败 ${failedCount}`);
+  logDebug_ACU(`[正文优化] 替换统计: 成功 ${appliedCount}/${optimizations.length}，失败 ${failedCount}`);
 
   if (failedItems.length > 0) {
     console.warn('[正文优化] 以下优化项未能应用:', failedItems);

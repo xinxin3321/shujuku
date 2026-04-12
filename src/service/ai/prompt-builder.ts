@@ -1,8 +1,16 @@
+import { currentAbortController_ACU, manualExtraHint_ACU, trackAbortController_ACU, untrackAbortController_ACU , _set_currentAbortController_ACU} from '../../presentation/components/plot-editors';
+import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../../presentation/theme/toast';
+import { getApiConfigByPreset_ACU } from './api-call';
+import { SillyTavern_API_ACU, TavernHelper_API_ACU, currentJsonTableData_ACU, settings_ACU } from '../runtime/state-manager';
+import { attachSeedRowsToCurrentDataFromGuide_ACU, ensureChatSheetGuideSeeded_ACU, getEffectiveSeedRowsForSheet_ACU, getSortedSheetKeys_ACU } from '../template/chat-scope';
+import { getCombinedWorldbookContent_ACU } from '../worldbook/pipeline';
+import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shared/utils';
+import { applyContextTagFilters_ACU, applyExcludeRulesToText_ACU, applySummaryIndexSequenceToTable_ACU, formatSummaryIndexCode_ACU, getLatestAIMessageContent_ACU, getPlotFromHistory_ACU, getSummaryIndexColumnIndex_ACU, getTableLocksForSheet_ACU, isSpecialIndexLockEnabled_ACU, parseIfBlocksInContent_ACU, parseRandomTags_ACU, replaceRandomVariables_ACU } from '../runtime/helpers-remaining';
 /**
  * service/ai/prompt-builder.ts — AI 输入准备 + JSON清洗 + 表格编辑解析
  * 从 src/features/ai/01_prompt_prepare.js + 02_api_call.js 合并迁移。
  */
-  async function prepareAIInput_ACU(messages, updateMode = 'standard', targetSheetKeys = null, options = {}) {
+  export async function prepareAIInput_ACU(messages, updateMode = 'standard', targetSheetKeys = null, options: any = {}) {
     // updateMode: 'standard' 表示更新标准表，'summary' 表示更新总结表和总体大纲
     // targetSheetKeys: 可选，指定要更新的表格key列表
     // This function is now simplified to only prepare the dynamic content parts.    // The main prompt assembly will happen in callCustomOpenAI_ACU.
@@ -183,10 +191,10 @@
     return { tableDataText, messagesText, worldbookContent, manualExtraHint: manualExtraHintText };
 }
 
-async function callCustomOpenAI_ACU(dynamicContent, abortController = null, options = null) {
+export async function callCustomOpenAI_ACU(dynamicContent, abortController = null, options = null) {
     // [新增] 创建一个新的 AbortController 用于本次请求
     const localAbortController = abortController || new AbortController();
-    currentAbortController_ACU = localAbortController;
+    _set_currentAbortController_ACU(localAbortController);
     trackAbortController_ACU(localAbortController);
     const abortSignal = localAbortController.signal;
     const skipProfileSwitch = !!options?.skipProfileSwitch;
@@ -226,11 +234,11 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
     try {
       // 按优先级尝试获取 persona_description
       // 1. 从 SillyTavern 全局对象获取 powerUserSettings
-      // 2. 从 window.power_user 获取（酒馆内部变量）
+      // 2. 从 (window as any).power_user 获取（酒馆内部变量）
       // 3. 从 SillyTavern_API_ACU 获取
-      const stContext = window.SillyTavern?.getContext?.();
+      const stContext = (window as any).SillyTavern?.getContext?.();
       userInfoContent_Table = stContext?.powerUserSettings?.persona_description
-        || window.power_user?.persona_description
+        || (window as any).power_user?.persona_description
         || SillyTavern_API_ACU?.powerUserSettings?.persona_description
         || '';
       logDebug_ACU(`[填表] $U (persona_description) 获取结果: ${userInfoContent_Table ? '成功' : '为空'}`);
@@ -245,9 +253,9 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
       // 按优先级尝试获取角色描述
       // 1. 使用酒馆助手 TavernHelper.getCharData('current') 获取当前角色卡
       // 2. 从 SillyTavern_API_ACU.characters[this_chid] 获取
-      // 3. 从 window.SillyTavern?.getContext() 获取
+      // 3. 从 (window as any).SillyTavern?.getContext() 获取
       // 4. 从全局 characters/this_chid 变量获取
-      const stContext = window.SillyTavern?.getContext?.();
+      const stContext = (window as any).SillyTavern?.getContext?.();
       
       // 优先使用 TavernHelper.getCharData('current')
       let character = null;
@@ -257,7 +265,7 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
       if (!character) {
         character = SillyTavern_API_ACU?.characters?.[SillyTavern_API_ACU?.this_chid]
           || stContext?.characters?.[stContext?.characterId]
-          || (typeof characters !== 'undefined' && typeof this_chid !== 'undefined' ? characters[this_chid] : null);
+          || (typeof (window as any).characters !== 'undefined' && typeof (window as any).this_chid !== 'undefined' ? (window as any).characters[(window as any).this_chid] : null);
       }
       
       charInfoContent_Table = character?.description
@@ -296,11 +304,11 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
         finalContent = finalContent.replace(/\$C/g, filterTableInjectedContent(charInfoContent_Table, '$C'));
         
         // [新增] 先让 st-prompt-template 插件处理提示词（如果存在）
-        if (typeof globalThis.EjsTemplate?.evalTemplate === 'function') {
+        if (typeof (globalThis as any).EjsTemplate?.evalTemplate === 'function') {
           try {
             // 不传入 context，让 evalTemplate 自动调用 prepareContext()
             // 这样可以确保上下文正确传递给 EJS 模板引擎
-            finalContent = await globalThis.EjsTemplate.evalTemplate(finalContent);
+            finalContent = await (globalThis as any).EjsTemplate.evalTemplate(finalContent);
             logDebug_ACU('[填表] 已通过 st-prompt-template 处理提示词');
           } catch (e) {
             logWarn_ACU('[填表] st-prompt-template 处理失败，使用原始内容:', e);
@@ -319,7 +327,7 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
             allTablesJson: currentJsonTableData_ACU,
             plotContent: lastPlotContent || ''
           };
-          finalContent = parseIfBlocksInContent_ACU(finalContent, templateContext);
+          finalContent = parseIfBlocksInContent_ACU(finalContent, templateContext, 0);
         }
         
         // Convert role to API-safe role
@@ -508,7 +516,7 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
     } finally {
         untrackAbortController_ACU(localAbortController);
         if (currentAbortController_ACU === localAbortController) {
-            currentAbortController_ACU = null;
+            _set_currentAbortController_ACU(null);
         }
     }
   }
@@ -534,7 +542,7 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
     return cleaned;
   }
 
-  function extractTableEditInner_ACU(text, options = {}) {
+  export function extractTableEditInner_ACU(text, options: any = {}) {
     const { allowNoTableEditTags = true, useLastPairOnly = (settings_ACU?.tableEditLastPairOnly !== false) } = options;
     const cleaned = normalizeAiResponseForTableEditParsing_ACU(text);
     if (!cleaned) return null;
@@ -610,7 +618,7 @@ async function callCustomOpenAI_ACU(dynamicContent, abortController = null, opti
     return { inner: chosen.raw, cleaned, mode: 'comment_fallback', hasOpen, hasClose };
   }
 
-  function parseAndApplyTableEdits_ACU(aiResponse, updateMode = 'standard', isImportMode = false) {
+  export function parseAndApplyTableEdits_ACU(aiResponse, updateMode = 'standard', isImportMode = false) {
     // updateMode: 'standard' 表示更新标准表，'summary' 表示更新总结表和总体大纲
     if (!currentJsonTableData_ACU) {
         logError_ACU('Cannot apply edits, currentJsonTableData_ACU is not loaded.');
@@ -1614,7 +1622,7 @@ async function parseNonStreamResponse_ACU(response) {
  * @param {AbortSignal} signal - 可选的中止信号
  * @returns {Promise<string|null>} AI 响应文本，失败返回null
  */
-async function handleApiResponse_ACU(response, signal = null) {
+export async function handleApiResponse_ACU(response, signal = null) {
     if (settings_ACU.streamingEnabled) {
         return await streamToText_ACU(response, signal);
     } else {

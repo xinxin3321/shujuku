@@ -8,6 +8,15 @@
 /**
  * 清洗聊天文件名：去除路径前缀和扩展名后缀
  */
+import { TABLE_TEMPLATE_ACU, _set_TABLE_TEMPLATE_ACU} from '../data/models/defaults-json.js';
+import { saveCurrentProfileTemplate_ACU } from '../data/repositories/profile-repo';
+import { TABLE_ORDER_FIELD_ACU } from '../service/runtime/state-manager';
+import { getCurrentChatTemplateScopeState_ACU, migrateLegacyTemplateScopeForCurrentChat_ACU } from '../service/template/chat-scope';
+import { DEBUG_MODE_ACU, SCRIPT_ID_PREFIX_ACU } from './constants';
+import { safeJsonParse_ACU } from './json-helpers';
+import { buildBoundaryRulesFromLegacyTags_ACU } from '../service/runtime/helpers-remaining';
+import { buildChatSheetGuideDataFromTemplateObj_ACU, buildChatTemplateScopeStateFromCurrent_ACU, setCurrentChatTemplateScopeState_ACU } from '../service/template/chat-scope';
+
 export function cleanChatName_ACU(fileName: string): string {
   if (!fileName || typeof fileName !== 'string') return 'unknown_chat_source';
   let cleanedName = fileName;
@@ -386,7 +395,7 @@ export   function getTemplateSheetKeys_ACU() {
       if (changed) {
           try {
               const normalizedTemplateStr = JSON.stringify(templateObj);
-              TABLE_TEMPLATE_ACU = normalizedTemplateStr;
+              _set_TABLE_TEMPLATE_ACU(normalizedTemplateStr);
               const currentChatTemplateScope = getCurrentChatTemplateScopeState_ACU() || migrateLegacyTemplateScopeForCurrentChat_ACU();
               if (currentChatTemplateScope?.templateStr) {
                   const updatedGuideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: false });

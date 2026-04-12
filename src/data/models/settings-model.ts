@@ -5,6 +5,7 @@
  */
 
 /** 世界书注入配置 */
+
 export interface WorldbookConfig_ACU {
   source: 'character' | 'manual';
   manualSelection: string[];

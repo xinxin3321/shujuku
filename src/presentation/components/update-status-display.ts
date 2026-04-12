@@ -1,8 +1,14 @@
+import { SillyTavern_API_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../../service/runtime/state-manager';
+import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { escapeHtml_ACU } from '../../shared/html-helpers';
+import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU } from '../../shared/utils';
+import { getActiveTemplatePresetMeta_ACU } from './template-preset-ui';
 /**
  * presentation/components/update-status-display.ts — 运行时状态/更新显示 UI
  * 从 features/runtime/01_runtime_state.js 迁移而来
  */
-  async function updateCardUpdateStatusDisplay_ACU() {
+  export async function updateCardUpdateStatusDisplay_ACU() {
     const $totalMessagesDisplay = $popupInstance_ACU
       ? $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-total-messages-display`)
       : null;

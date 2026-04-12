@@ -2,12 +2,14 @@
  * 酒馆设置存储桥接（Tavern Settings Bridge）
  *
  * 负责在 SillyTavern 的 extensionSettings 中读写脚本设置。
- * 依赖全局变量（在 IIFE 闭包内由 01_header_and_env.js 提供）：
- *   topLevelWindow_ACU, storage_ACU, FORBID_BROWSER_LOCAL_STORAGE_FOR_CONFIG_ACU,
- *   ALLOW_LEGACY_LOCALSTORAGE_MIGRATION_ACU, legacyLocalStorage_ACU, SCRIPT_ID_PREFIX_ACU
  */
 
+import { topLevelWindow_ACU, FORBID_BROWSER_LOCAL_STORAGE_FOR_CONFIG_ACU, ALLOW_LEGACY_LOCALSTORAGE_MIGRATION_ACU, legacyLocalStorage_ACU, storage_ACU } from '../../shared/env';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+
 // ── 常量 ──
+import { idbRequestToPromise_ACU, isIndexedDbAvailable_ACU } from './idb-import-temp';
+
 export const USE_TAVERN_SETTINGS_STORAGE_ACU = true;
 export const TAVERN_SETTINGS_NAMESPACE_ACU = `${SCRIPT_ID_PREFIX_ACU}__userscript_settings_v1`;
 export let tavernSaveSettingsFn_ACU: any = null;
@@ -252,7 +254,7 @@ export function getConfigStorage_ACU(): any {
             if (hasTavern && Object.prototype.hasOwnProperty.call(ns, key)) return ns[key];
             const cached = configIdbGetCached_ACU(key);
             if (cached !== null && typeof cached !== 'undefined') return cached;
-            if (!(FORBID_BROWSER_LOCAL_STORAGE_FOR_CONFIG_ACU as any) && (storage_ACU as any)?.getItem) return (storage_ACU as any).getItem(key);
+            if (!FORBID_BROWSER_LOCAL_STORAGE_FOR_CONFIG_ACU && storage_ACU?.getItem) return storage_ACU.getItem(key);
             return null;
         },
         setItem: (key: string, value: any) => {
@@ -260,8 +262,8 @@ export function getConfigStorage_ACU(): any {
             if (hasTavern) {
                 ns[key] = v;
                 persistTavernSettings_ACU();
-            } else if (!(FORBID_BROWSER_LOCAL_STORAGE_FOR_CONFIG_ACU as any) && (storage_ACU as any)?.setItem) {
-                (storage_ACU as any).setItem(key, v);
+            } else if (!FORBID_BROWSER_LOCAL_STORAGE_FOR_CONFIG_ACU && storage_ACU?.setItem) {
+                storage_ACU.setItem(key, v);
             }
             void configIdbSetCached_ACU(key, v);
         },
@@ -269,8 +271,8 @@ export function getConfigStorage_ACU(): any {
             if (hasTavern) {
                 delete ns[key];
                 persistTavernSettings_ACU();
-            } else if (!(FORBID_BROWSER_LOCAL_STORAGE_FOR_CONFIG_ACU as any) && (storage_ACU as any)?.removeItem) {
-                (storage_ACU as any).removeItem(key);
+            } else if (!FORBID_BROWSER_LOCAL_STORAGE_FOR_CONFIG_ACU && storage_ACU?.removeItem) {
+                storage_ACU.removeItem(key);
             }
             void configIdbRemoveCached_ACU(key);
         },
@@ -283,12 +285,14 @@ export function migrateKeyToTavernStorageIfNeeded_ACU(key: string): boolean {
     if (!store || !store._isTavern) return false;
     const cur = store.getItem(key);
     if (cur !== null && typeof cur !== 'undefined') return false;
-    if (!(ALLOW_LEGACY_LOCALSTORAGE_MIGRATION_ACU as any) || !(legacyLocalStorage_ACU as any)) return false;
-    const legacy = (legacyLocalStorage_ACU as any).getItem(key);
+    if (!ALLOW_LEGACY_LOCALSTORAGE_MIGRATION_ACU || !legacyLocalStorage_ACU) return false;
+    const legacy = legacyLocalStorage_ACU.getItem(key);
     if (legacy !== null && typeof legacy !== 'undefined') {
         store.setItem(key, legacy);
-        try { (legacyLocalStorage_ACU as any).removeItem(key); } catch (e) { /* ignore */ }
+        try { legacyLocalStorage_ACU.removeItem(key); } catch (e) { /* ignore */ }
         return true;
     }
     return false;
 }
+
+export function _set_pendingSettingsReloadFromIdb_ACU(v: any) { pendingSettingsReloadFromIdb_ACU = v; }

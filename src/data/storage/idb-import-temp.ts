@@ -2,12 +2,15 @@
  * IndexedDB 导入临时存储 + 通用 IDB 工具
  *
  * 仅"外部导入"的暂存数据（分块内容、断点状态）使用 IndexedDB。
- * 依赖全局变量：topLevelWindow_ACU, SCRIPT_ID_PREFIX_ACU, logWarn_ACU
  */
+
+import { topLevelWindow_ACU } from '../../shared/env';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { logWarn_ACU } from '../../shared/utils';
 
 // ── 通用 IDB 工具 ──
 export function isIndexedDbAvailable_ACU(): boolean {
-    return !!((topLevelWindow_ACU as any) && (topLevelWindow_ACU as any).indexedDB);
+    return !!(topLevelWindow_ACU && (topLevelWindow_ACU as any).indexedDB);
 }
 
 export function idbRequestToPromise_ACU(req: any): Promise<any> {
@@ -75,7 +78,7 @@ export async function importTempGet_ACU(key: string): Promise<any> {
             if (typeof v !== 'undefined') return v;
         }
     } catch (e) {
-        (logWarn_ACU as any)('[外部导入] IndexedDB get 失败，将回退到"仅内存暂存"(不落盘):', e);
+        logWarn_ACU('[外部导入] IndexedDB get 失败，将回退到"仅内存暂存"(不落盘):', e);
     }
     return importTempMem_ACU.has(key) ? importTempMem_ACU.get(key) : null;
 }
@@ -87,7 +90,7 @@ export async function importTempSet_ACU(key: string, value: any): Promise<void> 
             return;
         }
     } catch (e) {
-        (logWarn_ACU as any)('[外部导入] IndexedDB set 失败，将回退到"仅内存暂存"(不落盘):', e);
+        logWarn_ACU('[外部导入] IndexedDB set 失败，将回退到"仅内存暂存"(不落盘):', e);
     }
     importTempMem_ACU.set(key, value);
 }
@@ -98,7 +101,7 @@ export async function importTempRemove_ACU(key: string): Promise<void> {
             await idbDel_ACU(key);
         }
     } catch (e) {
-        (logWarn_ACU as any)('[外部导入] IndexedDB delete 失败，将继续清理"仅内存暂存":', e);
+        logWarn_ACU('[外部导入] IndexedDB delete 失败，将继续清理"仅内存暂存":', e);
     }
     importTempMem_ACU.delete(key);
 }

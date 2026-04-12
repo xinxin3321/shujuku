@@ -1,3 +1,14 @@
+import { DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU } from '../../data/models/defaults-json.js';
+import { flushCurrentPlotTaskEditorState_ACU, loadCurrentPlotTaskToUI_ACU, renderPlotTaskList_ACU } from '../components/plot-editors';
+import { showToastr_ACU } from '../theme/toast';
+import { loopState_ACU, settings_ACU } from '../../service/runtime/state-manager';
+import { saveSettings_ACU } from '../../service/settings/settings-service';
+import { getCurrentChatPlotScopeState_ACU } from '../../service/template/chat-scope';
+import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { escapeHtml_ACU } from '../../shared/html-helpers';
+import { normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shared/utils';
+import { DEFAULT_PRESET_OPTION_VALUE_ACU, applyGlobalPlotPresetSelectionForEditor_ACU, applyPlotPresetToSettings_ACU, ensureLoopPromptsArray_ACU, ensurePlotPromptsArray_ACU, ensurePlotTasksCompat_ACU, findPlotPresetByName_ACU, getActivePlotEditorSettings_ACU, getCurrentRuntimePlotPresetName_ACU, getLegacyPromptTextsFromPromptGroup_ACU, getPlotPresetBindingForChat_ACU, getPlotPromptContentByIdFromSettings_ACU, getPlotPromptGroupFromSource_ACU, normalizePlotPresetExcludeRules_ACU, normalizePlotPresetSelectionValue_ACU, normalizePlotTasks_ACU, persistPlotPresetSelectionState_ACU, readExcludeRulesFromRows_ACU, renderExcludeRuleRows_ACU, renderLoopPromptsList_ACU, resolveActivePlotPresetName_ACU, setActivePlotEditorSettings_ACU, setCurrentEditablePlotPresetState_ACU, setPlotPromptContentByIdForSettings_ACU } from '../components/optimization-ui';
+import { getDefaultPlotContextExcludeRules_ACU, getDefaultPlotContextExtractRules_ACU } from '../../service/runtime/helpers-remaining';
 /**
  * presentation/pages/popup-helpers.ts — 主弹窗辅助函数
  * 从 main-popup.ts 拆出（原 openAutoCardPopup_ACU 内嵌函数）
@@ -7,7 +18,7 @@
     /**
      * 加载剧情推进设置到UI
      */
-    function loadPlotSettingsToUI_ACU(plotSettingsOverride = null) {
+    export function loadPlotSettingsToUI_ACU(plotSettingsOverride = null) {
       if (!$popupInstance_ACU) return;
  
       $plotPromptSegmentsContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompt-segments-container`);
@@ -70,7 +81,7 @@
     /**
      * 加载正文替换预设选择器
      */
-    function loadOptimizationPresetSelect_ACU() {
+    export function loadOptimizationPresetSelect_ACU() {
       if (!$popupInstance_ACU) return;
 
       const $select = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-preset-select`);
@@ -101,7 +112,7 @@
     /**
      * 另存为新的正文替换预设
      */
-    function saveOptimizationPresetAsNew_ACU() {
+    export function saveOptimizationPresetAsNew_ACU() {
       const presetName = prompt('请输入新预设的名称：');
       if (!presetName || !presetName.trim()) {
         showToastr_ACU('warning', '预设名称不能为空。');
@@ -141,7 +152,7 @@
     /**
      * 加载正文替换设置到UI
      */
-    function loadOptimizationSettingsToUI_ACU() {
+    export function loadOptimizationSettingsToUI_ACU() {
       if (!$popupInstance_ACU) return;
 
       const config = settings_ACU.contentOptimizationSettings || {};
@@ -214,7 +225,7 @@
     /**
      * 渲染正文优化提示词段落
      */
-    function renderOptimizationPromptSegments_ACU(segments) {
+    export function renderOptimizationPromptSegments_ACU(segments) {
       if (!$popupInstance_ACU) return;
       const $container = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-prompt-segments-container`);
       if (!$container.length) return;
@@ -281,7 +292,7 @@
     /**
      * 从UI获取正文优化提示词组
      */
-    function getOptimizationPromptGroupFromUI_ACU() {
+    export function getOptimizationPromptGroupFromUI_ACU() {
       if (!$popupInstance_ACU) return [];
 
       const segments = [];
@@ -335,7 +346,7 @@
       return normalizedPresetName || '默认预设';
     }
 
-    function formatPlotScopeUpdatedAt_ACU(updatedAt) {
+    export function formatPlotScopeUpdatedAt_ACU(updatedAt) {
       const ts = Number(updatedAt) || 0;
       if (!ts) return '';
       try {
@@ -366,7 +377,7 @@
       }
     }
 
-    function loadPlotPresetSelect_ACU() {
+    export function loadPlotPresetSelect_ACU() {
       if (!$popupInstance_ACU || !settings_ACU?.plotSettings) return;
 
       const presets = settings_ACU.plotSettings.promptPresets || [];
@@ -454,7 +465,7 @@
     /**
      * 从UI获取当前剧情设置
      */
-    function getCurrentPlotSettingsFromUI_ACU() {
+    export function getCurrentPlotSettingsFromUI_ACU() {
       if (!$popupInstance_ACU) return {};
 
       flushCurrentPlotTaskEditorState_ACU({ renderTaskList: true, persist: false });
@@ -511,7 +522,7 @@
     /**
      * 另存为新的全局预设
      */
-    function savePlotPresetAsNew_ACU() {
+    export function savePlotPresetAsNew_ACU() {
       const presetName = prompt('请输入新的全局预设名称：');
       const name = String(presetName || '').trim();
       if (!name) return;
