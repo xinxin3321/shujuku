@@ -98,7 +98,7 @@ export   function importCombinedSettings_ACU() {
                 const appliedTemplate = await applyTemplateSnapshotToScope_ACU(sanitizedTemplate, {
                     scope: 'global',
                     source: 'import_combined',
-                    presetName: normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU({ requireExisting: false })),
+                    presetName: normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false })),
                     refreshUi: false,
                     save: true,
                     persistChatScope: false,

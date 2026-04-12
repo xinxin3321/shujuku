@@ -8,8 +8,13 @@ import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-help
 import { logWarn_ACU } from '../../shared/utils';
 import { STORAGE_KEY_GLOBAL_META_ACU, normalizeIsolationCode_ACU, getProfileSettingsKey_ACU, getProfileTemplateKey_ACU } from '../constants';
 import { getConfigStorage_ACU } from '../storage/config-storage';
-import { settings_ACU } from '../../service/runtime/state-manager';
 import { TABLE_TEMPLATE_ACU } from '../models/defaults-json.js';
+
+// 注入点：由 service 层在启动时设置
+let _settingsRef: () => any = () => ({});
+export function _injectProfileRepoDeps(getSettings: () => any) {
+  _settingsRef = getSettings;
+}
 
 export let globalMeta_ACU: any = {
     version: 1,
@@ -85,7 +90,7 @@ export function writeProfileTemplateToStorage_ACU(code: string, templateStr: str
 
 export function saveCurrentProfileTemplate_ACU(templateStr?: string): void {
     const tpl = templateStr !== undefined ? templateStr : TABLE_TEMPLATE_ACU;
-    const code = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || '');
+    const code = normalizeIsolationCode_ACU(_settingsRef()?.dataIsolationCode || '');
     writeProfileTemplateToStorage_ACU(code, String(tpl || ''));
 }
 

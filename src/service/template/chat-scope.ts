@@ -273,7 +273,7 @@ import { ensureExportConfigDefaults_ACU, ensureGlobalInjectionConfigDefaults_ACU
               isolationKey: normalizedKey,
               presetName: normalizedPresetName,
               source,
-              originGlobalName: getCurrentTemplatePresetName_ACU({ requireExisting: false }),
+              originGlobalName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
               originGlobalRevision: 0,
               updatedAt: Date.now(),
           });
@@ -930,7 +930,7 @@ import { ensureExportConfigDefaults_ACU, ensureGlobalInjectionConfigDefaults_ACU
       if (shouldSyncTemplateScope) {
           const fallbackTemplateSource = existingTemplateScopeState?.templateStr || materializeDataFromSheetGuide_ACU(normalized, { includeSeedRows: true });
           const resolvedTemplateSource = templateSource || fallbackTemplateSource;
-          const currentGlobalPresetName = normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU({ requireExisting: false }));
+          const currentGlobalPresetName = normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }));
           const resolvedPresetName = normalizeTemplatePresetSelectionValue_ACU(
               presetName || existingTemplateScopeState?.presetName || currentGlobalPresetName,
           );

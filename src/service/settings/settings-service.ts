@@ -28,7 +28,7 @@ import { deepMerge_ACU, ensureSheetOrderNumbers_ACU, logDebug_ACU, logError_ACU,
 
 export function saveSettings_ACU() {
   // 数据层：纯存储持久化
-  persistSettingsToStorage_ACU();
+  persistSettingsToStorage_ACU(settings_ACU);
 
   // service 层补充：存储状态检查 + UI 通知
   try {
@@ -455,7 +455,7 @@ export   function applyTemplateScopeForCurrentChat_ACU({ isolationKey = getCurre
       return {
           mode: 'inherit_global',
           isolationKey: normalizedKey,
-          presetName: getCurrentTemplatePresetName_ACU({ requireExisting: false }),
+          presetName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
       };
   }
 
@@ -464,7 +464,7 @@ export async function switchIsolationProfile_ACU(newCodeRaw: string): Promise<vo
     const newCode = normalizeIsolationCode_ACU(newCodeRaw);
     const oldCode = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || '');
 
-    persistSettingsToStorage_ACU();
+    persistSettingsToStorage_ACU(settings_ACU);
 
     loadGlobalMeta_ACU();
     if (oldCode) addDataIsolationHistory_ACU(oldCode, { save: false });

@@ -1,4 +1,3 @@
-import { currentJsonTableData_ACU } from '../../service/runtime/state-manager';
 /**
  * data/models/table-data.ts — 表格数据结构定义
  *

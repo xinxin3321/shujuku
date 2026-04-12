@@ -1190,8 +1190,8 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                 if (nn !== oldName) {
                     deleteTemplatePreset_ACU(oldName);
                 }
-                if (normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU({ requireExisting: false })) === oldName) {
-                    persistCurrentTemplatePresetName_ACU(nn, { save: false });
+                if (normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false })) === oldName) {
+                    persistCurrentTemplatePresetName_ACU(settings_ACU, nn, { save: false });
                     saveSettings_ACU();
                 }
                 refreshTemplatePresetUiState_ACU({ globalSelectName: nn, keepGlobalValue: false });
@@ -1209,7 +1209,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                 const ok = deleteTemplatePreset_ACU(name);
                 refreshTemplatePresetUiState_ACU({ keepGlobalValue: false });
                 if (ok) {
-                    const activeGlobalName = normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU({ requireExisting: false }));
+                    const activeGlobalName = normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }));
                     if (activeGlobalName === name) {
                         showToastr_ACU('success', `已从全局模板库删除预设：${name}。当前 profile 仍保留这份模板快照，直到你再次切换或恢复默认。`, { acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT });
                     } else {

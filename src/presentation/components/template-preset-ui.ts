@@ -3,7 +3,7 @@ import { DEFAULT_TABLE_TEMPLATE_ACU, TABLE_TEMPLATE_ACU , _set_TABLE_TEMPLATE_AC
 import { saveCurrentProfileTemplate_ACU } from '../../data/repositories/profile-repo';
 import { DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU, getCurrentTemplatePresetName_ACU, isDefaultTemplatePresetSelection_ACU, normalizeTemplatePresetSelectionValue_ACU, persistCurrentTemplatePresetName_ACU } from '../../data/repositories/template-preset-repo';
 import { getConfigStorage_ACU } from '../../data/storage/tavern-storage';
-import { SillyTavern_API_ACU, jQuery_API_ACU, $popupInstance_ACU, getCurrentIsolationKey_ACU } from '../../service/runtime/state-manager';
+import { SillyTavern_API_ACU, jQuery_API_ACU, $popupInstance_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../../service/runtime/state-manager';
 import { applyTemplateScopeForCurrentChat_ACU, saveSettings_ACU } from '../../service/settings/settings-service';
 import { activateChatTemplatePresetSelection_ACU, buildChatSheetGuideDataFromTemplateObj_ACU, buildChatTemplatePresetLinkState_ACU, buildChatTemplateScopeStateFromCurrent_ACU, clearChatSheetGuideDataForIsolationKey_ACU, getCurrentChatTemplateScopeState_ACU, listChatTemplatePresetEntries_ACU, migrateLegacyTemplateScopeForCurrentChat_ACU, normalizeTemplateScopeIsolationKey_ACU, normalizeTemplateScopeMode_ACU, sanitizeChatSheetsObject_ACU, sanitizeTemplateSnapshotForChat_ACU, setCurrentChatTemplateScopeState_ACU, upsertChatTemplatePresetEntry_ACU } from '../../service/template/chat-scope';
 import { refreshMergedDataAndNotify_ACU } from '../../service/worldbook/pipeline';
@@ -46,7 +46,7 @@ import { formatPlotScopeUpdatedAt_ACU } from '../pages/popup-helpers';
       const chatPresetName = normalizeTemplatePresetSelectionValue_ACU(chatScopeState?.presetName || '');
       if (chatPresetName) return chatPresetName;
       if (!fallbackToGlobal) return '';
-      return getCurrentTemplatePresetName_ACU({ requireExisting: false });
+      return getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false });
   }
 
   export function getActiveTemplatePresetMeta_ACU({ isolationKey = getCurrentIsolationKey_ACU() } = {}) {
@@ -95,7 +95,7 @@ import { formatPlotScopeUpdatedAt_ACU } from '../pages/popup-helpers';
       if (!$popupInstance_ACU || !$popupInstance_ACU.length) return;
 
       const presetNames = listTemplatePresetNames_ACU();
-      const globalPresetName = normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU({ requireExisting: false }));
+      const globalPresetName = normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }));
       const chatScopeState = getCurrentChatTemplateScopeState_ACU() || migrateLegacyTemplateScopeForCurrentChat_ACU();
       const normalizedChatMode = normalizeTemplateScopeMode_ACU(chatScopeState?.mode);
       const effectiveChatPresetName = resolveActiveTemplatePresetName_ACU({ fallbackToGlobal: true });
@@ -353,7 +353,7 @@ import { formatPlotScopeUpdatedAt_ACU } from '../pages/popup-helpers';
           if (!$select || !$select.length) return;
           const prev = keepValue ? normalizeTemplatePresetSelectionValue_ACU($select.val()) : '';
           const names = listTemplatePresetNames_ACU();
-          const persistedName = getCurrentTemplatePresetName_ACU({ requireExisting: true });
+          const persistedName = getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: true, getTemplatePresetFn: getTemplatePreset_ACU });
           $select.empty();
           $select.append(jQuery_API_ACU('<option/>').val(DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU).text('默认预设'));
           names.forEach(n => {
@@ -516,7 +516,7 @@ import { formatPlotScopeUpdatedAt_ACU } from '../pages/popup-helpers';
       let shouldSaveChat = false;
 
       if (updateGlobal) {
-          persistCurrentTemplatePresetName_ACU(normalizedPresetName, { save: false });
+          persistCurrentTemplatePresetName_ACU(settings_ACU, normalizedPresetName, { save: false });
           shouldSaveSettings = true;
       } else if (persistChatScope) {
           const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(getCurrentIsolationKey_ACU());
@@ -528,7 +528,7 @@ import { formatPlotScopeUpdatedAt_ACU } from '../pages/popup-helpers';
                   isolationKey: normalizedKey,
                   presetName: normalizedPresetName,
                   source,
-                  originGlobalName: getCurrentTemplatePresetName_ACU({ requireExisting: false }),
+                  originGlobalName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
                   originGlobalRevision: 0,
                   updatedAt: Date.now(),
                   templateSource,
@@ -539,7 +539,7 @@ import { formatPlotScopeUpdatedAt_ACU } from '../pages/popup-helpers';
                   isolationKey: normalizedKey,
                   presetName: normalizedPresetName,
                   source,
-                  originGlobalName: getCurrentTemplatePresetName_ACU({ requireExisting: false }),
+                  originGlobalName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
                   originGlobalRevision: 0,
                   updatedAt: Date.now(),
               });

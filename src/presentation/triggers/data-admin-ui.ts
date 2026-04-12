@@ -134,7 +134,7 @@ import { buildDefaultExportConfig_ACU, ensureExportConfigDefaults_ACU, getInject
                 const appliedTemplate = await applyTemplateSnapshotToScope_ACU(sanitizedTemplate, {
                     scope: 'global',
                     source: 'import_combined',
-                    presetName: normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU({ requireExisting: false })),
+                    presetName: normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false })),
                     refreshUi: !!$popupInstance_ACU,
                     save: true,
                     persistChatScope: false,
@@ -395,7 +395,7 @@ import { buildDefaultExportConfig_ACU, ensureExportConfigDefaults_ACU, getInject
                 const globalSnapshot = getGlobalTemplateSnapshotForCurrentProfile_ACU();
                 if (globalSnapshot?.templateObj && typeof globalSnapshot.templateObj === 'object') {
                     jsonData = JSON.parse(JSON.stringify(globalSnapshot.templateObj));
-                    fromPresetName = normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU({ requireExisting: false }));
+                    fromPresetName = normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }));
                 }
             }
         } else {

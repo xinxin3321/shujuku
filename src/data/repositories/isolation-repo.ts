@@ -7,8 +7,13 @@
 import { logWarn_ACU } from '../../shared/utils';
 import { normalizeIsolationCode_ACU } from '../constants';
 import { globalMeta_ACU, saveGlobalMeta_ACU, readProfileSettingsFromStorage_ACU, writeProfileSettingsToStorage_ACU, readProfileTemplateFromStorage_ACU, writeProfileTemplateToStorage_ACU, sanitizeSettingsForProfileSave_ACU } from './profile-repo';
-import { settings_ACU } from '../../service/runtime/state-manager';
 import { TABLE_TEMPLATE_ACU, DEFAULT_TABLE_TEMPLATE_ACU } from '../models/defaults-json.js';
+
+// 注入点：由 service 层在启动时设置
+let _settingsRef: () => any = () => ({});
+export function _injectIsolationRepoDeps(getSettings: () => any) {
+  _settingsRef = getSettings;
+}
 
 
 
@@ -60,7 +65,7 @@ export function ensureProfileExists_ACU(code: string, { seedFromCurrent = true }
     const hasTemplate = !!readProfileTemplateFromStorage_ACU(c);
 
     if (!hasSettings) {
-        const seed = seedFromCurrent ? sanitizeSettingsForProfileSave_ACU(settings_ACU) : {};
+        const seed = seedFromCurrent ? sanitizeSettingsForProfileSave_ACU(_settingsRef()) : {};
         seed.dataIsolationCode = c;
         try { writeProfileSettingsToStorage_ACU(c, seed); } catch (e) { logWarn_ACU('[Profile] seed settings failed:', e); }
     }

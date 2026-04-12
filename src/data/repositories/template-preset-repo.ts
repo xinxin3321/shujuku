@@ -3,9 +3,8 @@
 // 从 02_storage_and_profile.js 行 18~101 迁入
 // ═══════════════════════════════════════════════════════════════
 
-import { settings_ACU, SillyTavern_API_ACU, TavernHelper_API_ACU } from '../../service/runtime/state-manager';
+import { SillyTavern_API_ACU, TavernHelper_API_ACU } from '../../shared/host-api';
 import { persistSettingsToStorage_ACU } from '../storage/config-storage';
-import { getTemplatePreset_ACU } from '../../presentation/components/template-preset-ui';
 
 export const DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU = '__ACU_DEFAULT_TEMPLATE_PRESET__';
 
@@ -18,19 +17,22 @@ export function isDefaultTemplatePresetSelection_ACU(presetName: any): boolean {
     return normalizeTemplatePresetSelectionValue_ACU(presetName) === '';
 }
 
-export function getCurrentTemplatePresetName_ACU({ requireExisting = false } = {}): string {
+export function getCurrentTemplatePresetName_ACU(settings_ACU: any, { requireExisting = false, getTemplatePresetFn = null as any } = {}): string {
     const presetName = normalizeTemplatePresetSelectionValue_ACU(settings_ACU?.currentTemplatePresetName || '');
     if (!presetName) return '';
     if (!requireExisting) return presetName;
-    return getTemplatePreset_ACU(presetName)?.templateStr ? presetName : '';
+    if (typeof getTemplatePresetFn === 'function') {
+        return getTemplatePresetFn(presetName)?.templateStr ? presetName : '';
+    }
+    return presetName;
 }
 
-export function persistCurrentTemplatePresetName_ACU(presetName: any, { save = true } = {}): string {
+export function persistCurrentTemplatePresetName_ACU(settings_ACU: any, presetName: any, { save = true } = {}): string {
     if (!settings_ACU || typeof settings_ACU !== 'object') return '';
     const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
     settings_ACU.currentTemplatePresetName = normalizedPresetName;
     if (save) {
-        persistSettingsToStorage_ACU();
+        persistSettingsToStorage_ACU(settings_ACU);
     }
     return normalizedPresetName;
 }

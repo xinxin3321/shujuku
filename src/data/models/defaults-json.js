@@ -1,4 +1,3 @@
-import { entryName } from '../../service/worldbook/injection-engine';
 /**
  * data/models/defaults-json.js — 巨型 JSON 默认值
  *

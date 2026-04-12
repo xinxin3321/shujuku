@@ -1,6 +1,11 @@
 // init.ts — 初始化编排
 // 从 05_core_tail.js 迁入
 
+import { _injectCharSettingsDeps } from '../../data/repositories/character-settings-repo';
+import { _injectIsolationRepoDeps } from '../../data/repositories/isolation-repo';
+import { _injectProfileRepoDeps } from '../../data/repositories/profile-repo';
+import { _injectTableRepoDeps } from '../../data/repositories/table-repo';
+
 import { DEFAULT_PLOT_SETTINGS_ACU } from '../../data/models/defaults-json.js';
 import { addAutoCardMenuItem_ACU } from '../../presentation/bootstrap/startup';
 import { newMessageDebounceTimer_ACU, _set_newMessageDebounceTimer_ACU} from '../../presentation/components/plot-editors';
@@ -19,6 +24,29 @@ import { handleNewMessageDebounced_ACU } from '../../presentation/triggers/setti
 import { enterLoopRetryFlow_ACU, onLoopGenerationEnded_ACU, runOptimizationLogic_ACU } from './helpers-remaining';
 
 export   function mainInitialize_ACU() {
+    // 注入 data 层依赖（打破 data→service 的循环依赖）
+    _injectCharSettingsDeps(() => settings_ACU, () => currentChatFileIdentifier_ACU);
+    _injectIsolationRepoDeps(() => settings_ACU);
+    _injectProfileRepoDeps(() => settings_ACU);
+    _injectTableRepoDeps({
+      getSettings: () => settings_ACU,
+      getCurrentJsonTableData: () => currentJsonTableData_ACU,
+      setCurrentJsonTableData: (v) => _set_currentJsonTableData_ACU(v),
+      getCurrentIsolationKey: () => getCurrentIsolationKey_ACU(),
+      showToastr: (...args) => { try { const { showToastr_ACU } = require('../../presentation/theme/toast'); showToastr_ACU(...args); } catch(e) {} },
+      applyTemplateScopeForCurrentChat: (...args) => { const { applyTemplateScopeForCurrentChat_ACU } = require('../settings/settings-service'); return applyTemplateScopeForCurrentChat_ACU(...args); },
+      attachSeedRowsToCurrentDataFromGuide: (...args) => { const m = require('../template/chat-scope'); return m.attachSeedRowsToCurrentDataFromGuide_ACU(...args); },
+      buildChatSheetGuideDataFromData: (...args) => { const m = require('../template/chat-scope'); return m.buildChatSheetGuideDataFromData_ACU(...args); },
+      ensureChatSheetGuideSeeded: (...args) => { const m = require('../template/chat-scope'); return m.ensureChatSheetGuideSeeded_ACU(...args); },
+      getChatSheetGuideDataForIsolationKey: (...args) => { const m = require('../template/chat-scope'); return m.getChatSheetGuideDataForIsolationKey_ACU(...args); },
+      getSortedSheetKeys: (...args) => { const m = require('../template/chat-scope'); return m.getSortedSheetKeys_ACU(...args); },
+      sanitizeSheetForStorage: (...args) => { const m = require('../template/chat-scope'); return m.sanitizeSheetForStorage_ACU(...args); },
+      setChatSheetGuideDataForIsolationKey: (...args) => { const m = require('../template/chat-scope'); return m.setChatSheetGuideDataForIsolationKey_ACU(...args); },
+      deleteAllGeneratedEntries: (...args) => { const m = require('../worldbook/pipeline'); return m.deleteAllGeneratedEntries_ACU(...args); },
+      refreshMergedDataAndNotify: (...args) => { const m = require('../worldbook/pipeline'); return m.refreshMergedDataAndNotify_ACU(...args); },
+      mergeAllIndependentTables: (...args) => { const m = require('./helpers-remaining'); return m.mergeAllIndependentTables_ACU(...args); },
+    });
+
     console.log('ACU_INIT_DEBUG: mainInitialize_ACU called.');
     if (attemptToLoadCoreApis_ACU()) {
       logDebug_ACU('AutoCardUpdater Initialization successful! Core APIs loaded.');

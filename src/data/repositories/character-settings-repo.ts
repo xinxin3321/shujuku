@@ -6,9 +6,18 @@
 import { logDebug_ACU, deepMerge_ACU } from '../../shared/utils';
 import { defaultWorldbookConfig_ACU } from '../models/defaults';
 import { globalMeta_ACU } from './profile-repo';
-import { settings_ACU, currentChatFileIdentifier_ACU } from '../../service/runtime/state-manager';
+
+// 注入点：由 service 层在启动时设置
+let _settingsRef: () => any = () => ({});
+let _chatFileIdRef: () => any = () => 'default';
+export function _injectCharSettingsDeps(getSettings: () => any, getChatFileId: () => any) {
+  _settingsRef = getSettings;
+  _chatFileIdRef = getChatFileId;
+}
 
 export function getCurrentCharSettings_ACU() {
+    const settings_ACU = _settingsRef();
+    const currentChatFileIdentifier_ACU = _chatFileIdRef();
     const charId = currentChatFileIdentifier_ACU || 'default';
     if (!settings_ACU.characterSettings) {
         settings_ACU.characterSettings = {};
