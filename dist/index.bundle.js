@@ -2234,7 +2234,7 @@ $CONTENT
                             normalizedComment.startsWith('小总结条目');
                         if (isDbGenerated)
                             return false;
-                        if (isEntryBlocked_ACU(entry))
+                        if (isEntryBlocked_ACU$1(entry))
                             return false;
                         return true;
                     })
@@ -2256,7 +2256,7 @@ $CONTENT
                         normalizedComment.startsWith('小总结条目');
                     if (isDbGenerated)
                         return;
-                    if (isEntryBlocked_ACU(entry))
+                    if (isEntryBlocked_ACU$1(entry))
                         return;
                     visibleEntries.push({
                         uid: entry.uid,
@@ -2326,7 +2326,7 @@ $CONTENT
         }
     }
     // [新增] 辅助函数：检查条目是否包含屏蔽词
-    function isEntryBlocked_ACU(entry) {
+    function isEntryBlocked_ACU$1(entry) {
         if (!entry)
             return false;
         const blockedKeywords = ["规则", "思维链", "cot", "MVU", "mvu", "变量", "状态", "Status", "Rule", "rule", "检定", "判断", "叙事", "文风", "InitVar", "格式"];
@@ -2724,7 +2724,7 @@ $CONTENT
                             return false;
                         }
                         // [新增] 过滤屏蔽词条目
-                        if (isEntryBlocked_ACU(entry)) {
+                        if (isEntryBlocked_ACU$1(entry)) {
                             return false;
                         }
                         return true;
@@ -2741,7 +2741,7 @@ $CONTENT
                         return;
                     }
                     // [新增] 过滤屏蔽词条目，不显示在列表中
-                    if (isEntryBlocked_ACU(entry)) {
+                    if (isEntryBlocked_ACU$1(entry)) {
                         return;
                     }
                     visibleEntries.push({
@@ -19369,7 +19369,7 @@ $CONTENT
         const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
         return normalizedPresetName || '默认预设';
     }
-    function formatPlotScopeUpdatedAt_ACU(updatedAt) {
+    function formatPlotScopeUpdatedAt_ACU$1(updatedAt) {
         const ts = Number(updatedAt) || 0;
         if (!ts)
             return '';
@@ -21333,7 +21333,7 @@ $CONTENT
             if (comment.startsWith('TavernDB-ACU-') || comment.startsWith('重要人物条目') || comment.startsWith('总结条目')) {
                 return false;
             }
-            if (isEntryBlocked_ACU(entry))
+            if (isEntryBlocked_ACU$1(entry))
                 return false;
             if (!entry.enabled)
                 return false;
@@ -23396,7 +23396,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
                     normalizedComment.startsWith('重要人物条目');
                 if (isDbGenerated)
                     return false;
-                if (isEntryBlocked_ACU(entry))
+                if (isEntryBlocked_ACU$1(entry))
                     return false;
                 // “启用的世界书条目”按钮应只勾选 ST 本身启用的条目（否则勾选了也不会被使用）
                 if (!entry.enabled)
@@ -32085,8 +32085,8 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         })
             .map(entry => {
             const entryName = normalizeTemplatePresetSelectionValue_ACU(entry?.presetName || '');
-            const updatedAtText = (typeof formatPlotScopeUpdatedAt_ACU === 'function')
-                ? formatPlotScopeUpdatedAt_ACU(entry?.updatedAt || entry?.archivedAt)
+            const updatedAtText = (typeof formatPlotScopeUpdatedAt_ACU$1 === 'function')
+                ? formatPlotScopeUpdatedAt_ACU$1(entry?.updatedAt || entry?.archivedAt)
                 : '';
             return {
                 value: entryName,
@@ -32195,7 +32195,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
                 if (Number.isFinite(chatScopeState.originGlobalRevision) && chatScopeState.originGlobalRevision > 0) {
                     detailParts.push(`来源全局版本：v${chatScopeState.originGlobalRevision}`);
                 }
-                const updatedAtText = (typeof formatPlotScopeUpdatedAt_ACU === 'function') ? formatPlotScopeUpdatedAt_ACU(chatScopeState.updatedAt) : '';
+                const updatedAtText = (typeof formatPlotScopeUpdatedAt_ACU$1 === 'function') ? formatPlotScopeUpdatedAt_ACU$1(chatScopeState.updatedAt) : '';
                 if (updatedAtText) {
                     detailParts.push(`更新时间：${updatedAtText}`);
                 }
@@ -32212,7 +32212,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
                     '来源语义：当前聊天仅记录预设引用，未保存本地模板快照',
                     `引用预设：${getTemplatePresetDisplayName_ACU(chatSelectedPresetName)}`,
                 ];
-                const updatedAtText = (typeof formatPlotScopeUpdatedAt_ACU === 'function') ? formatPlotScopeUpdatedAt_ACU(chatScopeState?.updatedAt) : '';
+                const updatedAtText = (typeof formatPlotScopeUpdatedAt_ACU$1 === 'function') ? formatPlotScopeUpdatedAt_ACU$1(chatScopeState?.updatedAt) : '';
                 if (updatedAtText) {
                     detailParts.push(`更新时间：${updatedAtText}`);
                 }
@@ -32596,6 +32596,13 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             return false;
         return { ...applied, isDefault: isDefaultPreset };
     }
+
+    /**
+     * service/template/template-preset-service.ts — 模板预设纯逻辑函数
+     *
+     * 从 presentation/components/template-preset-ui.ts 中提取的纯数据操作函数。
+     * 不操作 DOM，可被 service 层和 presentation 层共同引用。
+     */
 
     /**
      * service/template/chat-scope.ts — 聊天模板/剧情作用域管理 + Sheet Guide + sanitize
@@ -34403,6 +34410,24 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         catch (e) {
             return fallback;
         }
+    }
+    function formatPlotScopeUpdatedAt_ACU(updatedAt) {
+        const ts = Number(updatedAt) || 0;
+        if (!ts)
+            return '';
+        try {
+            return new Date(ts).toLocaleString('zh-CN', { hour12: false });
+        }
+        catch (error) {
+            return '';
+        }
+    }
+    function isEntryBlocked_ACU(entry) {
+        if (!entry)
+            return false;
+        const blockedKeywords = ["规则", "思维链", "cot", "MVU", "mvu", "变量", "状态", "Status", "Rule", "rule", "检定", "判断", "叙事", "文风", "InitVar", "格式"];
+        const name = entry.comment || entry.name || '';
+        return blockedKeywords.some(keyword => name.includes(keyword));
     }
 
     /**

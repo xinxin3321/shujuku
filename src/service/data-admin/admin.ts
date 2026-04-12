@@ -9,7 +9,7 @@ import { saveSettings_ACU } from '../settings/settings-service';
 import { sanitizeChatSheetsObject_ACU } from '../template/chat-scope';
 import { ensureSheetOrderNumbers_ACU, logDebug_ACU, logError_ACU } from '../../shared/utils';
 import { syncMergeSettingsToUI_ACU } from '../../presentation/components/status-display';
-import { applyTemplateSnapshotToScope_ACU } from '../../presentation/components/template-preset-ui';
+import { applyTemplateSnapshotToScope_ACU } from '../template/template-preset-service';
 
 export   function importCombinedSettings_ACU() {
     const input = document.createElement('input');

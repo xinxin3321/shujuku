@@ -450,3 +450,21 @@ export   function cloneScopedConfigData_ACU(value, fallback = null) {
           return fallback;
       }
   }
+
+  export function formatPlotScopeUpdatedAt_ACU(updatedAt) {
+    const ts = Number(updatedAt) || 0;
+    if (!ts) return '';
+    try {
+      return new Date(ts).toLocaleString('zh-CN', { hour12: false });
+    } catch (error) {
+      return '';
+    }
+  }
+
+
+  export function isEntryBlocked_ACU(entry) {
+    if (!entry) return false;
+    const blockedKeywords = ["规则", "思维链", "cot", "MVU", "mvu", "变量", "状态", "Status", "Rule", "rule", "检定", "判断", "叙事", "文风", "InitVar", "格式"];
+    const name = entry.comment || entry.name || '';
+    return blockedKeywords.some(keyword => name.includes(keyword));
+  }

@@ -22,7 +22,7 @@ import { saveIndependentTableToChatHistory_ACU } from '../../data/repositories/t
 import { handleInjectSplitEntriesFull_ACU, handleInjectSplitEntriesStandard_ACU, handleInjectSplitEntriesSummary_ACU } from '../../presentation/components/import-status-ui';
 import { getCurrentRuntimePlotPresetName_ACU, normalizePlotPresetExcludeRules_ACU, switchCurrentChatPlotPreset_ACU } from '../plot/plot-logic';
 import { reoptimizeMessage_ACU } from '../../presentation/components/optimization-ui';
-import { applyTemplatePresetToCurrent_ACU, applyTemplateSnapshotToScope_ACU, listTemplatePresetNames_ACU, normalizeTemplateOperationScope_ACU, parseImportedTemplateData_ACU, refreshTemplatePresetSelectInUI_ACU, upsertTemplatePreset_ACU } from '../../presentation/components/template-preset-ui';
+import { applyTemplatePresetToCurrent_ACU, applyTemplateSnapshotToScope_ACU, listTemplatePresetNames_ACU, normalizeTemplateOperationScope_ACU, parseImportedTemplateData_ACU, refreshTemplatePresetSelectInUI_ACU, upsertTemplatePreset_ACU } from '../template/template-preset-service';
 import { exportCurrentJsonData_ACU, exportTableTemplate_ACU, importTableTemplate_ACU, overrideLatestLayerWithTemplate_ACU, resetAllToDefaults_ACU, resetTableTemplate_ACU } from '../../presentation/triggers/data-admin-ui';
 import { deleteApiPreset_ACU, loadApiPreset_ACU, saveApiPreset_ACU } from '../../presentation/triggers/settings-ui-sync';
 import { exportCombinedSettings_ACU, handleManualMergeSummary_ACU } from '../../presentation/triggers/update-trigger';

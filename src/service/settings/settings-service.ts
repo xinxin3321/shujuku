@@ -18,7 +18,7 @@ import { isIndexedDbAvailable_ACU } from '../../data/storage/idb-import-temp';
 import { configIdbCacheLoaded_ACU, ensureConfigIdbCacheLoaded_ACU, getConfigStorage_ACU, initTavernSettingsBridge_ACU, migrateKeyToTavernStorageIfNeeded_ACU, pendingSettingsReloadFromIdb_ACU, _set_pendingSettingsReloadFromIdb_ACU} from '../../data/storage/tavern-storage';
 import { ensureTagRulesCompat_ACU } from '../plot/plot-logic';
 import { syncAllSettingsToUI_ACU } from '../../presentation/components/status-display';
-import { getDefaultTemplateSnapshot_ACU, getTemplatePreset_ACU } from '../../presentation/components/template-preset-ui';
+import { getDefaultTemplateSnapshot_ACU, getTemplatePreset_ACU } from '../template/template-preset-service';
 import { showToastr_ACU } from '../../presentation/theme/toast';
 import { buildDefaultContentOptimizationPromptGroup_ACU } from '../optimization/content-optimization';
 import { currentChatFileIdentifier_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_settings_ACU} from '../runtime/state-manager';

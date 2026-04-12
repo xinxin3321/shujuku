@@ -11,8 +11,8 @@ import { topLevelWindow_ACU } from '../../shared/env';
 import { ensureSheetOrderNumbers_ACU, escapeRegExp_ACU, getTemplateSheetKeys_ACU, hashUserInput_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, normalizeExcludeRules_ACU, normalizeExtractRules_ACU, normalizeNonNegativeInteger_ACU, normalizePositiveInteger_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
 import { applyPlotPresetToSettings_ACU, clearPlotPresetBindingForChat_ACU, ensureLoopPromptsArray_ACU, ensurePlotPresetBindingsStore_ACU, ensurePlotTasksCompat_ACU, findPlotPresetByName_ACU, getCurrentRuntimePlotPresetName_ACU, getPlotGlobalRevision_ACU, getPlotPresetBindingForChat_ACU, getPlotPromptContentByIdFromSettings_ACU, isDefaultPlotPresetSelection_ACU, normalizePlotPresetSelectionValue_ACU, normalizePlotTask_ACU, normalizePlotTasks_ACU, replaceCurrentPlotSettingsWithSnapshot_ACU, resetPlotSettingsToDefault_ACU, syncCurrentEditablePlotPresetState_ACU } from '../plot/plot-logic';
 import { clickSendButton_ACU, setSendTextareaValue_ACU } from '../../presentation/components/status-display';
-import { upsertTemplatePreset_ACU } from '../../presentation/components/template-preset-ui';
-import { isEntryBlocked_ACU } from '../../presentation/components/worldbook-selector';
+import { upsertTemplatePreset_ACU } from '../template/template-preset-service';
+import { isEntryBlocked_ACU } from '../../shared/utils';
 import { updateLoopTimerDisplay_ACU, updateLoopUIStatus_ACU } from '../../presentation/triggers/settings-ui-sync';
 import { getIsolationPrefix_ACU } from '../worldbook/injection-engine';
 /**
