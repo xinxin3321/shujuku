@@ -172,3 +172,172 @@
     if (isQuietLikeGeneration_ACU(g.type, g.params)) return false;
     return true;
   }
+
+// [从 02_storage_and_profile.js:2777~2938 迁移] 核心全局变量 + settings 对象
+  let SillyTavern_API_ACU, TavernHelper_API_ACU, jQuery_API_ACU, toastr_API_ACU;
+  let coreApisAreReady_ACU = false;
+  let allChatMessages_ACU = [];
+  let lastTotalAiMessages_ACU = 0; // 记录上次检查时的AI消息总数
+  let currentChatFileIdentifier_ACU = 'unknown_chat_init';
+  let currentJsonTableData_ACU = null; // Holds the parsed JSON table for the current chat
+  let $popupInstance_ACU = null;
+
+  // [新增] 独立表格更新状态追踪
+  let independentTableStates_ACU = {};
+  // 结构: { [sheetKey]: { lastUpdatedAiFloor: 0 } }
+
+  // UI jQuery Object Placeholders
+  let $apiConfigSectionToggle_ACU,
+    $apiConfigAreaDiv_ACU,
+    $customApiUrlInput_ACU,
+    $customApiKeyInput_ACU,
+    $customApiModelInput_ACU,
+    $customApiModelSelect_ACU,
+    $maxTokensInput_ACU,
+    $temperatureInput_ACU,
+    $loadModelsButton_ACU,
+    $saveApiConfigButton_ACU,
+    $clearApiConfigButton_ACU,
+    $apiStatusDisplay_ACU,
+    $charCardPromptToggle_ACU,
+    $charCardPromptAreaDiv_ACU,
+    $charCardPromptSegmentsContainer_ACU,
+    $saveCharCardPromptButton_ACU,
+    $resetCharCardPromptButton_ACU,
+    $plotPromptSegmentsContainer_ACU,
+    $plotTaskListContainer_ACU,
+    $themeColorButtonsContainer_ACU,
+    $autoUpdateThresholdInput_ACU,
+    $saveAutoUpdateThresholdButton_ACU, // Replaces chunk size inputs
+    $autoUpdateTokenThresholdInput_ACU, // Token threshold input
+    $saveAutoUpdateTokenThresholdButton_ACU, // Token threshold save button
+    $autoUpdateFrequencyInput_ACU, // Auto update frequency input
+    $saveAutoUpdateFrequencyButton_ACU, // Auto update frequency save button
+    $updateBatchSizeInput_ACU, // [新增] 批处理大小输入
+    $saveUpdateBatchSizeButton_ACU, // [新增] 批处理大小保存按钮
+    $maxConcurrentGroupsInput_ACU, // [新增] 最大并发数输入
+    $autoUpdateEnabledCheckbox_ACU, // 新增UI元素
+    $standardizedTableFillEnabledCheckbox_ACU, // [新增] 规范填表功能
+    $toastMuteEnabledCheckbox_ACU, // [新增] 静默提示框
+    $promptTemplateEnabledCheckbox_ACU, // [新增] 条件模板功能开关
+    $tableEditLastPairOnlyCheckbox_ACU, // [新增] 仅识别最后一对 tableEdit
+    $tableMaxRetriesInput_ACU, // [新增] 填表自动重试次数
+    $manualUpdateCardButton_ACU, // New manual update button
+    $statusMessageSpan_ACU,
+    $cardUpdateStatusDisplay_ACU,
+    $useMainApiCheckbox_ACU,
+    $streamingEnabledCheckbox_ACU, // [新增] 流式传输开关
+    $manualExtraHintCheckbox_ACU,
+    $skipUpdateFloorsInput_ACU,
+    $saveSkipUpdateFloorsButton_ACU,
+    $retainRecentLayersInput_ACU,
+    $saveRetainRecentLayersButton_ACU,
+    $manualTableSelector_ACU,
+    $manualTableSelectAll_ACU,
+    $manualTableSelectNone_ACU,
+    $importTableSelector_ACU,
+    $importTableSelectAll_ACU,
+    $importTableSelectNone_ACU;
+
+  // --- 全局设置对象 ---
+  // [已迁移到 src/data/models/defaults.ts] defaultWorldbookConfig_ACU
+
+  let settings_ACU = {
+      // 全局设置
+      apiConfig: { url: '', apiKey: '', model: '', useMainApi: true, max_tokens: 60000, temperature: 1.0 },
+      apiMode: 'custom', // 'custom' or 'tavern'
+      streamingEnabled: false, // [新增] 流式传输开关（默认关闭）
+      tavernProfile: '', // ID of the selected tavern profile
+      // [新增] API预设系统
+      apiPresets: [], // [{name, apiMode, apiConfig, tavernProfile}]
+      tableApiPreset: '', // 填表使用的API预设名称，空表示使用当前配置
+      plotApiPreset: '', // 剧情推进使用的API预设名称，空表示使用当前配置
+      charCardPrompt: DEFAULT_CHAR_CARD_PROMPT_ACU,
+      autoUpdateThreshold: DEFAULT_AUTO_UPDATE_THRESHOLD_ACU,
+      autoUpdateFrequency: DEFAULT_AUTO_UPDATE_FREQUENCY_ACU,
+      autoUpdateTokenThreshold: DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU,
+      updateBatchSize: 3,
+      maxConcurrentGroups: 1,
+      autoUpdateEnabled: true,
+      standardizedTableFillEnabled: true, // [新增] 规范填表功能
+      // [新增] UI提示框静默模式：勾选后，除白名单提示外，其余 toast 全部不显示
+      toastMuteEnabled: false,
+      // [剧情推进] 设置
+      plotSettings: JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU)),
+      plotPresetBindings: {}, // [剧情推进] 按聊天记录绑定剧情推进预设
+      currentTemplatePresetName: '', // [模板预设] 当前模板预设名，空表示默认预设
+      // [填表功能] 正文标签提取，从上下文中提取指定标签的内容发送给AI，User回复不受影响
+      tableContextExtractTags: '',
+      tableContextExtractRules: [],
+      // [填表功能] 正文标签排除：将指定标签内容从上下文中移除
+      tableContextExcludeTags: '',
+      tableContextExcludeRules: [],
+      // [填表功能] 仅识别最后一对 <tableEdit> 标签
+      tableEditLastPairOnly: true,
+      // [新增] 填表自动重试次数（错误或空回时重试，默认3次）
+      tableMaxRetries: 3,
+      importSplitSize: 10000,
+      skipUpdateFloors: 0, // 全局有效楼层 (UI参数) - 影响所有表
+      retainRecentLayers: 100, // [新增] 保留最近N层本地数据 (0或空=全部保留，按AI楼层计数)
+      // [新增] 表格顺序（用户手动调整后持久化）。为空时使用模板顺序。
+      tableKeyOrder: [], // ['sheet_xxx', 'sheet_yyy', ...]
+      manualSelectedTables: [], // 手动更新时使用UI参数的表格key列表
+      hasManualSelection: false, // 是否用户显式选择过（全选/全不选/自选）
+      hasManualSelection: false, // 是否用户显式选择过（全选/全不选/自选）
+      
+      // [外部导入] 注入时自选表格（与手动填表一致的交互，但独立存储）
+      importSelectedTables: [], // 外部导入注入时保留的表格key列表
+      hasImportTableSelection: false, // 是否用户显式选择过（全选/全不选/自选）
+      // [新增] 表格更新锁定（按聊天+隔离标签存储；仅对 updateRow 生效）
+      tableUpdateLocks: {}, // { [chatScopeKey]: { [sheetKey]: { rows:[], cols:[], cells:[] } } }
+      // [新增] 总结表/总体大纲"编码索引列"特殊锁定（默认锁定）
+      specialIndexLocks: {}, // { [chatScopeKey]: { [sheetKey]: boolean } }
+      
+      // [新增] 外部导入专用的世界书配置
+      importWorldbookTarget: '', // 导入数据注入目标世界书名称
+      importPromptExcludeImportedWorldbookEntries: true, // [新增] 仅外部导入时，填表提示词中的世界书占位符屏蔽所有带"外部导入-"标签的条目
+      // [新增] 0TK占用模式全局默认值：新对话会继承这个值
+      zeroTkOccupyModeDefault: false,
+
+    // [新增] 数据隔离/多副本机制
+    dataIsolationEnabled: false, // 是否开启数据隔离
+    dataIsolationCode: '', // 隔离标识代码
+    dataIsolationHistory: [], // 标识代码历史
+    
+    // [新增] 酒馆提示词模板功能
+    promptTemplateSettings: {
+      enabled: true,           // 总开关
+      maxNestingDepth: 10,     // 最大嵌套深度
+      debugMode: false         // 调试模式
+    },
+    
+    // [新增] 正文优化功能
+    contentOptimizationSettings: {
+      enabled: false,                    // 是否启用正文优化
+      apiPreset: '',                     // 优化使用的API预设（为空则使用当前配置）
+      seamlessMode: true,                // 无感替换模式：显示遮罩，优化完成后直接显示结果
+      autoApply: true,                   // 是否自动应用优化结果（关闭时显示对比让用户选择）
+      showDiff: true,                    // 是否显示优化对比（非无感模式下有效）
+      minLength: 100,                    // 最小优化长度阈值
+      maxOptimizations: 10,              // 单次最大优化项数
+      loopCount: 1,                      // 循环优化次数（1表示不循环，2表示优化2次，以此类推）
+      retryCount: 3,                     // 自动重试次数（API调用失败时自动重试，默认3次）
+      promptGroup: [],                   // 提示词组（段落编辑器）
+    },
+    
+    // 角色专属设置
+      characterSettings: {
+          // [charId]: { worldbookConfig: { ... } }
+      },
+  };
+  // TABLE_TEMPLATE_ACU 现在从"配置存储(getConfigStorage_ACU)"或默认值加载，因此不属于主 settings 对象的一部分。
+
+  // [已迁移到 src/data/repositories/isolation-repo.ts] MAX_DATA_ISOLATION_HISTORY, normalizeDataIsolationHistory_ACU, getDataIsolationHistory_ACU, addDataIsolationHistory_ACU, removeDataIsolationHistory_ACU, ensureProfileExists_ACU, switchIsolationProfile_ACU
+
+  // [已迁移到 src/data/repositories/character-settings-repo.ts] getCurrentCharSettings_ACU, getCurrentWorldbookConfig_ACU
+
+
+  // [从 05_core_tail.js:124 迁移] 隔离键辅助函数
+  function getCurrentIsolationKey_ACU() {
+      return settings_ACU.dataIsolationEnabled ? (settings_ACU.dataIsolationCode || '') : '';
+  }

@@ -174,6 +174,13 @@ if (BUILD_MODE === 'concat') {
     { path: 'src/presentation/components/worldbook-selectors.ts' },
     { path: 'src/presentation/pages/main-popup.ts' },
     { path: 'src/presentation/pages/visualizer.ts' },
+    { path: 'src/presentation/components/template-preset-ui.ts' },
+    { path: 'src/presentation/components/optimization-ui.ts' },
+    { path: 'src/presentation/components/worldbook-selector.ts' },
+    { path: 'src/presentation/components/update-status-display.ts' },
+    { path: 'src/presentation/components/import-status-ui.ts' },
+    { path: 'src/presentation/triggers/update-trigger.ts' },
+    { path: 'src/presentation/triggers/data-admin-ui.ts' },
   ];
 
   function moduleAssemblyPlugin() {
