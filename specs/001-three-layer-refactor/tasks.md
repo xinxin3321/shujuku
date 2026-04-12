@@ -320,17 +320,17 @@
 
 ### 9A：轻量文件（DOM 操作 ≤5 处）
 
-- [ ] T170 [US7] `service/template/chat-scope.ts`（2处）：`$popupInstance_ACU && refreshUi` → `loadTemplatePresetSelect_ACU` 调用移到 presentation 层调用方
-- [ ] T171 [US7] `service/runtime/state-manager.ts`（2处）：仅全局变量声明 `let jQuery_API_ACU` / `let $popupInstance_ACU`，移到 `shared/env.ts` 或保留（声明不算 DOM 操作）
-- [ ] T172 [US7] `service/worldbook/pipeline.ts`（3处）：`jQuery_API_ACU(document).trigger()` + `$popupInstance_ACU.is(':visible')` → 提取为 `notifyVisualizerRefresh_ACU()` 到 presentation
-- [ ] T173 [US7] `service/table/update-process.ts`（4处）：`$statusMessageSpan_ACU` + 停止按钮绑定 → 提取为 `bindStopButton_ACU()` / `updateStatusText_ACU()` 到 presentation
-- [ ] T174 [US7] `service/worldbook/injection-engine.ts`（4处）：`$popupInstance_ACU.find('h2')` + `jQuery_API_ACU(document).trigger()` → 提取 UI 更新到 presentation
-- [ ] T175 [US7] `service/runtime/api-registry.ts`（5处）：`!!$popupInstance_ACU` 作为 refreshUi 参数 → 保留（条件传递不算直接操作），`loadPlotPresetSelect_ACU()` 调用移到 presentation
+- [x] T170 [US7] `service/template/chat-scope.ts`（2处→0处）：loadTemplatePresetSelect 调用移到 presentation/template-preset-ui.ts
+- [x] T171 [US7] `service/runtime/state-manager.ts`（2处）：仅全局变量声明，保留
+- [x] T172 [US7] `service/worldbook/pipeline.ts`（3处→0处）：notifyVisualizerRefresh_ACU + isPopupOpen_ACU 到 presentation
+- [x] T173 [US7] `service/table/update-process.ts`（4处→0处）：updateTableFillStatus + bindTableFillStopButton + resetManualUpdateButton 到 presentation
+- [x] T174 [US7] `service/worldbook/injection-engine.ts`（4处→0处）：updateChatTitleDisplay + notifyVisualizerRefresh 到 presentation
+- [x] T175 [US7] `service/runtime/api-registry.ts`（5处→0处）：isPopupOpen_ACU() 替代 !!$popupInstance_ACU
 
 ### 9B：中量文件（DOM 操作 5~20 处）
 
-- [ ] T176 [US7] `service/import/import-process.ts`（7处）：`$popupInstance_ACU.find()` 读导入参数 + 禁用按钮 → 提取为 `getImportParams_ACU()` + `setInjectButtonEnabled_ACU()` 到 presentation
-- [ ] T177 [US7] `service/runtime/init.ts`（11处）：`jQuery_API_ACU('#send_textarea').val()` 读写 + `jQuery_API_ACU(document).trigger()` → 提取为 `getSendTextareaValue_ACU()` / `setSendTextareaValue_ACU()` / `triggerVisualizerRefresh_ACU()` 到 presentation
+- [x] T176 [US7] `service/import/import-process.ts`（7处→0处）：handleTxtImportAndSplit + getImportWorldbookTarget 移到 presentation
+- [x] T177 [US7] `service/runtime/init.ts`（11处→0处）：getSendTextareaValue + setSendTextareaValue + notifyVisualizerRefresh 到 presentation
 - [ ] T178 [US7] `service/data-admin/admin.ts`（12处）：导入后回填 UI → 提取为 `refreshImportSettingsUI_ACU(settings)` 到 presentation
 - [ ] T179 [US7] `service/settings/settings-service.ts`（17处）：`loadSettings_ACU` 中的 UI 回填 → 提取为 `syncSettingsToUI_ACU(settings)` 到 presentation
 
