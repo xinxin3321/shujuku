@@ -150,6 +150,7 @@ if (BUILD_MODE === 'concat') {
     { path: 'src/data/repositories/table-repo.ts' },
     { path: 'src/service/settings/settings-service.ts' },
     { path: 'src/service/ai/api-call.ts' },
+    { path: 'src/service/ai/prompt-builder.ts' },
     { path: 'src/service/table/update-process.ts' },
     { path: 'src/service/worldbook/pipeline.ts' },
     { path: 'src/service/worldbook/injection-engine.ts' },
