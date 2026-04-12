@@ -2520,158 +2520,9 @@ function loadSettings_ACU() {
         settings_ACU.maxConcurrentGroups = 1;
     }
     logDebug_ACU('Settings loaded:', settings_ACU);
-    // Update UI if it's open
-    if ($popupInstance_ACU) {
-        if ($customApiUrlInput_ACU)
-            $customApiUrlInput_ACU.val(settings_ACU.apiConfig.url);
-        if ($customApiKeyInput_ACU)
-            $customApiKeyInput_ACU.val(settings_ACU.apiConfig.apiKey);
-        if ($maxTokensInput_ACU)
-            $maxTokensInput_ACU.val(settings_ACU.apiConfig.max_tokens);
-        if ($temperatureInput_ACU)
-            $temperatureInput_ACU.val(settings_ACU.apiConfig.temperature);
-        if ($customApiModelInput_ACU) {
-            $customApiModelInput_ACU.val(settings_ACU.apiConfig.model || '');
-        }
-        if ($customApiModelSelect_ACU) {
-            // 清空现有选项并添加默认选项
-            $customApiModelSelect_ACU.empty().append('<option value="">-- 请先加载模型列表 --</option>');
-            if (settings_ACU.apiConfig.model) {
-                // 将已保存的模型添加到select中
-                $customApiModelSelect_ACU.append(`<option value="${escapeHtml_ACU(settings_ACU.apiConfig.model)}">${escapeHtml_ACU(settings_ACU.apiConfig.model)}</option>`);
-            }
-        }
-        updateApiStatusDisplay_ACU();
-        // 使用新的渲染函数
-        if ($charCardPromptSegmentsContainer_ACU)
-            renderPromptSegments_ACU(settings_ACU.charCardPrompt);
-        if ($autoUpdateThresholdInput_ACU)
-            $autoUpdateThresholdInput_ACU.val(settings_ACU.autoUpdateThreshold);
-        if ($autoUpdateFrequencyInput_ACU)
-            $autoUpdateFrequencyInput_ACU.val(settings_ACU.autoUpdateFrequency);
-        if ($autoUpdateTokenThresholdInput_ACU)
-            $autoUpdateTokenThresholdInput_ACU.val(settings_ACU.autoUpdateTokenThreshold);
-        if ($updateBatchSizeInput_ACU)
-            $updateBatchSizeInput_ACU.val(settings_ACU.updateBatchSize); // [新增]
-        if ($maxConcurrentGroupsInput_ACU)
-            $maxConcurrentGroupsInput_ACU.val(settings_ACU.maxConcurrentGroups || 1);
-        if ($skipUpdateFloorsInput_ACU)
-            $skipUpdateFloorsInput_ACU.val(settings_ACU.skipUpdateFloors || 0);
-        if ($retainRecentLayersInput_ACU)
-            $retainRecentLayersInput_ACU.val(settings_ACU.retainRecentLayers || '');
-        renderExcludeRuleRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-table-context-extract-rules`, normalizeExtractRules_ACU(settings_ACU.tableContextExtractRules, settings_ACU.tableContextExtractTags || ''), { startPlaceholder: '开始词（例如：<think）', endPlaceholder: '结束词（例如：</think>）' });
-        renderExcludeRuleRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-table-context-exclude-rules`, normalizeExcludeRules_ACU(settings_ACU.tableContextExcludeRules, settings_ACU.tableContextExcludeTags || ''), { startPlaceholder: '开始词（例如：<thinking）', endPlaceholder: '结束词（例如：</thinking>）' });
-        const $importSplitSizeInput = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-split-size`);
-        if ($importSplitSizeInput.length)
-            $importSplitSizeInput.val(settings_ACU.importSplitSize);
-        const $importPromptExcludeImportedEntriesToggle = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-prompt-exclude-imported-worldbook-entries`);
-        if ($importPromptExcludeImportedEntriesToggle.length) {
-            $importPromptExcludeImportedEntriesToggle.prop('checked', settings_ACU.importPromptExcludeImportedWorldbookEntries !== false);
-        }
-        if ($autoUpdateEnabledCheckbox_ACU)
-            $autoUpdateEnabledCheckbox_ACU.prop('checked', settings_ACU.autoUpdateEnabled);
-        if ($standardizedTableFillEnabledCheckbox_ACU)
-            $standardizedTableFillEnabledCheckbox_ACU.prop('checked', settings_ACU.standardizedTableFillEnabled !== false);
-        if ($toastMuteEnabledCheckbox_ACU)
-            $toastMuteEnabledCheckbox_ACU.prop('checked', !!settings_ACU.toastMuteEnabled);
-        if ($promptTemplateEnabledCheckbox_ACU)
-            $promptTemplateEnabledCheckbox_ACU.prop('checked', settings_ACU.promptTemplateSettings?.enabled !== false);
-        if ($tableEditLastPairOnlyCheckbox_ACU)
-            $tableEditLastPairOnlyCheckbox_ACU.prop('checked', settings_ACU.tableEditLastPairOnly !== false);
-        if ($tableMaxRetriesInput_ACU)
-            $tableMaxRetriesInput_ACU.val(settings_ACU.tableMaxRetries || 3); // [新增] 填表重试次数
-        // [新增] 更新所有合并相关设置
-        const $mergePromptInput = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-prompt-template`);
-        const $mergeTargetCount = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-target-count`);
-        const $mergeBatchSize = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-batch-size`);
-        const $mergeStartIndex = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-start-index`);
-        const $mergeEndIndex = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-end-index`);
-        const $autoMergeEnabled = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-merge-enabled`);
-        const $autoMergeThreshold = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-merge-threshold`);
-        const $autoMergeReserve = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-merge-reserve`);
-        if ($mergePromptInput.length)
-            $mergePromptInput.val(settings_ACU.mergeSummaryPrompt || DEFAULT_MERGE_SUMMARY_PROMPT_ACU);
-        if ($mergeTargetCount.length)
-            $mergeTargetCount.val(settings_ACU.mergeTargetCount || 1);
-        if ($mergeBatchSize.length)
-            $mergeBatchSize.val(settings_ACU.mergeBatchSize || 5);
-        if ($mergeStartIndex.length)
-            $mergeStartIndex.val(settings_ACU.mergeStartIndex || 1);
-        if ($mergeEndIndex.length)
-            $mergeEndIndex.val(settings_ACU.mergeEndIndex || '');
-        if ($autoMergeEnabled.length)
-            $autoMergeEnabled.prop('checked', settings_ACU.autoMergeEnabled || false);
-        if ($autoMergeThreshold.length)
-            $autoMergeThreshold.val(settings_ACU.autoMergeThreshold || 20);
-        if ($autoMergeReserve.length)
-            $autoMergeReserve.val(settings_ACU.autoMergeReserve || 0);
-        // [新增] 删除楼层范围设置
-        const $deleteStartFloor = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-delete-start-floor`);
-        const $deleteEndFloor = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-delete-end-floor`);
-        if ($deleteStartFloor.length)
-            $deleteStartFloor.val(settings_ACU.deleteStartFloor || 1);
-        if ($deleteEndFloor.length)
-            $deleteEndFloor.val(settings_ACU.deleteEndFloor || '');
-        // [重构] 更新UI以使用新的角色专属世界书配置
-        const worldbookConfig = getCurrentWorldbookConfig_ACU();
-        const $worldbookSourceRadios = $popupInstance_ACU.find(`input[name="${SCRIPT_ID_PREFIX_ACU}-worldbook-source"]`);
-        $worldbookSourceRadios.filter(`[value="${worldbookConfig.source}"]`).prop('checked', true);
-        updateWorldbookSourceView_ACU();
-        populateInjectionTargetSelector_ACU();
-        // [新增] 同步"总结大纲(总体大纲)"条目启用开关
-        const $outlineEnabledToggle = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-outline-entry-enabled`);
-        if ($outlineEnabledToggle.length) {
-            // UI 显示的是"0TK占用模式"，默认不勾选
-            // 兼容：若 zeroTkOccupyMode 未设置，则从旧字段 outlineEntryEnabled 反推
-            let mode = worldbookConfig.zeroTkOccupyMode;
-            if (typeof mode === 'undefined' && typeof worldbookConfig.outlineEntryEnabled !== 'undefined') {
-                mode = (worldbookConfig.outlineEntryEnabled === false);
-            }
-            $outlineEnabledToggle.prop('checked', mode === true);
-        }
-        if ($useMainApiCheckbox_ACU) {
-            $useMainApiCheckbox_ACU.prop('checked', settings_ACU.apiConfig.useMainApi);
-            updateCustomApiInputsState_ACU(); // Update disabled state on load
-        }
-        // [新增] 加载流式传输开关状态
-        if ($streamingEnabledCheckbox_ACU) {
-            $streamingEnabledCheckbox_ACU.prop('checked', settings_ACU.streamingEnabled || false);
-        }
-        if ($manualTableSelector_ACU) {
-            renderManualTableSelector_ACU();
-        }
-        if ($importTableSelector_ACU) {
-            renderImportTableSelector_ACU();
-        }
-        if ($manualTableSelectAll_ACU && $manualTableSelectAll_ACU.length) {
-            $manualTableSelectAll_ACU.on('click', function (e) {
-                e.preventDefault();
-                handleManualSelectAll_ACU();
-            });
-        }
-        if ($manualTableSelectNone_ACU && $manualTableSelectNone_ACU.length) {
-            $manualTableSelectNone_ACU.on('click', function (e) {
-                e.preventDefault();
-                handleManualSelectNone_ACU();
-            });
-        }
-        if ($importTableSelectAll_ACU && $importTableSelectAll_ACU.length) {
-            $importTableSelectAll_ACU.on('click', function (e) {
-                e.preventDefault();
-                handleImportSelectAll_ACU();
-            });
-        }
-        if ($importTableSelectNone_ACU && $importTableSelectNone_ACU.length) {
-            $importTableSelectNone_ACU.on('click', function (e) {
-                e.preventDefault();
-                handleImportSelectNone_ACU();
-            });
-        }
-        if ($popupInstance_ACU) {
-            $popupInstance_ACU.find(`input[name="${SCRIPT_ID_PREFIX_ACU}-api-mode"][value="${settings_ACU.apiMode}"]`).prop('checked', true);
-            updateApiModeView_ACU(settings_ACU.apiMode);
-        }
-    }
+    // UI 回填交给 presentation 层
+    if (typeof syncAllSettingsToUI_ACU === 'function')
+        syncAllSettingsToUI_ACU(settings_ACU);
 }
 function loadTemplateFromStorage_ACU(codeOverride = null) {
     const code = normalizeIsolationCode_ACU((codeOverride !== null && typeof codeOverride !== 'undefined')
@@ -8436,10 +8287,8 @@ function importCombinedSettings_ACU() {
                 if (combinedData.mergeSummaryPrompt) {
                     settings_ACU.mergeSummaryPrompt = combinedData.mergeSummaryPrompt;
                     saveSettings_ACU();
-                    const $mergePromptInput = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-prompt-template`);
-                    if ($mergePromptInput.length) {
-                        $mergePromptInput.val(combinedData.mergeSummaryPrompt);
-                    }
+                    if (typeof syncMergeSettingsToUI_ACU === 'function')
+                        syncMergeSettingsToUI_ACU(settings_ACU);
                     logDebug_ACU('Merge summary prompt imported.');
                 }
                 // [新增] 导入所有合并设置 (如果存在)
@@ -8448,10 +8297,6 @@ function importCombinedSettings_ACU() {
                     // 导入合并提示词
                     if (combinedData.mergeSummaryPrompt) {
                         settings_ACU.mergeSummaryPrompt = combinedData.mergeSummaryPrompt;
-                        const $mergePromptInput = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-prompt-template`);
-                        if ($mergePromptInput.length) {
-                            $mergePromptInput.val(combinedData.mergeSummaryPrompt);
-                        }
                     }
                     // 导入手动合并设置
                     settings_ACU.mergeTargetCount = combinedData.mergeTargetCount || 1;
@@ -8466,35 +8311,9 @@ function importCombinedSettings_ACU() {
                     settings_ACU.deleteStartFloor = combinedData.deleteStartFloor || null;
                     settings_ACU.deleteEndFloor = combinedData.deleteEndFloor || null;
                     saveSettings_ACU();
-                    // 更新所有UI
-                    const $mergeTargetCount = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-target-count`);
-                    const $mergeBatchSize = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-batch-size`);
-                    const $mergeStartIndex = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-start-index`);
-                    const $mergeEndIndex = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-end-index`);
-                    const $autoMergeEnabled = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-merge-enabled`);
-                    const $autoMergeThreshold = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-merge-threshold`);
-                    const $autoMergeReserve = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-merge-reserve`);
-                    if ($mergeTargetCount.length)
-                        $mergeTargetCount.val(settings_ACU.mergeTargetCount);
-                    if ($mergeBatchSize.length)
-                        $mergeBatchSize.val(settings_ACU.mergeBatchSize);
-                    if ($mergeStartIndex.length)
-                        $mergeStartIndex.val(settings_ACU.mergeStartIndex);
-                    if ($mergeEndIndex.length)
-                        $mergeEndIndex.val(settings_ACU.mergeEndIndex || '');
-                    if ($autoMergeEnabled.length)
-                        $autoMergeEnabled.prop('checked', settings_ACU.autoMergeEnabled);
-                    if ($autoMergeThreshold.length)
-                        $autoMergeThreshold.val(settings_ACU.autoMergeThreshold);
-                    if ($autoMergeReserve.length)
-                        $autoMergeReserve.val(settings_ACU.autoMergeReserve);
-                    // 更新删除楼层范围UI
-                    const $deleteStartFloor = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-delete-start-floor`);
-                    const $deleteEndFloor = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-delete-end-floor`);
-                    if ($deleteStartFloor.length)
-                        $deleteStartFloor.val(settings_ACU.deleteStartFloor || 1);
-                    if ($deleteEndFloor.length)
-                        $deleteEndFloor.val(settings_ACU.deleteEndFloor || '');
+                    // UI 回填交给 presentation 层
+                    if (typeof syncMergeSettingsToUI_ACU === 'function')
+                        syncMergeSettingsToUI_ACU(settings_ACU);
                     logDebug_ACU('All merge settings imported.');
                 }
                 // 2. Apply and save template
@@ -8506,7 +8325,7 @@ function importCombinedSettings_ACU() {
                     scope: 'global',
                     source: 'import_combined',
                     presetName: normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU({ requireExisting: false })),
-                    refreshUi: !!$popupInstance_ACU,
+                    refreshUi: typeof isPopupOpen_ACU === "function" ? isPopupOpen_ACU() : false,
                     save: true,
                     persistChatScope: false,
                 });
@@ -21739,6 +21558,116 @@ function setSendTextareaValue_ACU(text) {
         jQuery_API_ACU('#send_textarea').trigger('input');
     }
     catch (e) { }
+}
+// [T178] 将合并/删除设置同步到 UI
+function syncMergeSettingsToUI_ACU(s) {
+    if (!$popupInstance_ACU)
+        return;
+    const find = (id) => $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-${id}`);
+    const setVal = (id, v) => { const $el = find(id); if ($el.length)
+        $el.val(v); };
+    const setChecked = (id, v) => { const $el = find(id); if ($el.length)
+        $el.prop('checked', !!v); };
+    setVal('merge-prompt-template', s.mergeSummaryPrompt || DEFAULT_MERGE_SUMMARY_PROMPT_ACU);
+    setVal('merge-target-count', s.mergeTargetCount || 1);
+    setVal('merge-batch-size', s.mergeBatchSize || 5);
+    setVal('merge-start-index', s.mergeStartIndex || 1);
+    setVal('merge-end-index', s.mergeEndIndex || '');
+    setChecked('auto-merge-enabled', s.autoMergeEnabled);
+    setVal('auto-merge-threshold', s.autoMergeThreshold || 20);
+    setVal('auto-merge-reserve', s.autoMergeReserve || 0);
+    setVal('delete-start-floor', s.deleteStartFloor || 1);
+    setVal('delete-end-floor', s.deleteEndFloor || '');
+}
+// [T179] 将全部设置同步到 UI（从 service/settings/settings-service.ts 提取）
+function syncAllSettingsToUI_ACU(s) {
+    if (!$popupInstance_ACU)
+        return;
+    if ($customApiUrlInput_ACU)
+        $customApiUrlInput_ACU.val(s.apiConfig.url);
+    if ($customApiKeyInput_ACU)
+        $customApiKeyInput_ACU.val(s.apiConfig.apiKey);
+    if ($maxTokensInput_ACU)
+        $maxTokensInput_ACU.val(s.apiConfig.max_tokens);
+    if ($temperatureInput_ACU)
+        $temperatureInput_ACU.val(s.apiConfig.temperature);
+    if ($customApiModelInput_ACU)
+        $customApiModelInput_ACU.val(s.apiConfig.model || '');
+    if ($customApiModelSelect_ACU) {
+        $customApiModelSelect_ACU.empty().append('<option value="">-- 请先加载模型列表 --</option>');
+        if (s.apiConfig.model) {
+            $customApiModelSelect_ACU.append(`<option value="${escapeHtml_ACU(s.apiConfig.model)}">${escapeHtml_ACU(s.apiConfig.model)}</option>`);
+        }
+    }
+    if (typeof updateApiStatusDisplay_ACU === 'function')
+        updateApiStatusDisplay_ACU();
+    if ($charCardPromptSegmentsContainer_ACU)
+        renderPromptSegments_ACU(s.charCardPrompt);
+    if ($autoUpdateThresholdInput_ACU)
+        $autoUpdateThresholdInput_ACU.val(s.autoUpdateThreshold);
+    if ($autoUpdateFrequencyInput_ACU)
+        $autoUpdateFrequencyInput_ACU.val(s.autoUpdateFrequency);
+    if ($autoUpdateTokenThresholdInput_ACU)
+        $autoUpdateTokenThresholdInput_ACU.val(s.autoUpdateTokenThreshold);
+    if ($updateBatchSizeInput_ACU)
+        $updateBatchSizeInput_ACU.val(s.updateBatchSize);
+    if ($maxConcurrentGroupsInput_ACU)
+        $maxConcurrentGroupsInput_ACU.val(s.maxConcurrentGroups || 1);
+    if ($skipUpdateFloorsInput_ACU)
+        $skipUpdateFloorsInput_ACU.val(s.skipUpdateFloors || 0);
+    if ($retainRecentLayersInput_ACU)
+        $retainRecentLayersInput_ACU.val(s.retainRecentLayers || '');
+    if (typeof renderExcludeRuleRows_ACU === 'function') {
+        renderExcludeRuleRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-table-context-extract-rules`, normalizeExtractRules_ACU(s.tableContextExtractRules, s.tableContextExtractTags || ''), { startPlaceholder: '开始词（例如：<think）', endPlaceholder: '结束词（例如：</think>）' });
+        renderExcludeRuleRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-table-context-exclude-rules`, normalizeExcludeRules_ACU(s.tableContextExcludeRules, s.tableContextExcludeTags || ''), { startPlaceholder: '开始词（例如：<thinking）', endPlaceholder: '结束词（例如：</thinking>）' });
+    }
+    const find = (id) => $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-${id}`);
+    const setVal = (id, v) => { const $el = find(id); if ($el.length)
+        $el.val(v); };
+    const setChecked = (id, v) => { const $el = find(id); if ($el.length)
+        $el.prop('checked', !!v); };
+    setVal('import-split-size', s.importSplitSize);
+    setChecked('import-prompt-exclude-imported-worldbook-entries', s.importPromptExcludeImportedWorldbookEntries !== false);
+    if ($autoUpdateEnabledCheckbox_ACU)
+        $autoUpdateEnabledCheckbox_ACU.prop('checked', s.autoUpdateEnabled);
+    if ($standardizedTableFillEnabledCheckbox_ACU)
+        $standardizedTableFillEnabledCheckbox_ACU.prop('checked', s.standardizedTableFillEnabled !== false);
+    if ($toastMuteEnabledCheckbox_ACU)
+        $toastMuteEnabledCheckbox_ACU.prop('checked', !!s.toastMuteEnabled);
+    if ($promptTemplateEnabledCheckbox_ACU)
+        $promptTemplateEnabledCheckbox_ACU.prop('checked', s.promptTemplateSettings?.enabled !== false);
+    if ($tableEditLastPairOnlyCheckbox_ACU)
+        $tableEditLastPairOnlyCheckbox_ACU.prop('checked', s.tableEditLastPairOnly !== false);
+    if ($tableMaxRetriesInput_ACU)
+        $tableMaxRetriesInput_ACU.val(s.tableMaxRetries || 3);
+    syncMergeSettingsToUI_ACU(s);
+    const worldbookConfig = getCurrentWorldbookConfig_ACU();
+    $popupInstance_ACU.find(`input[name="${SCRIPT_ID_PREFIX_ACU}-worldbook-source"]`).filter(`[value="${worldbookConfig.source}"]`).prop('checked', true);
+    if (typeof updateWorldbookSourceView_ACU === 'function')
+        updateWorldbookSourceView_ACU();
+    if (typeof populateInjectionTargetSelector_ACU === 'function')
+        populateInjectionTargetSelector_ACU();
+    const $outlineToggle = find('worldbook-outline-entry-enabled');
+    if ($outlineToggle.length) {
+        let mode = worldbookConfig.zeroTkOccupyMode;
+        if (typeof mode === 'undefined' && typeof worldbookConfig.outlineEntryEnabled !== 'undefined')
+            mode = (worldbookConfig.outlineEntryEnabled === false);
+        $outlineToggle.prop('checked', mode === true);
+    }
+    if ($useMainApiCheckbox_ACU) {
+        $useMainApiCheckbox_ACU.prop('checked', s.apiConfig.useMainApi);
+        if (typeof updateCustomApiInputsState_ACU === 'function')
+            updateCustomApiInputsState_ACU();
+    }
+    if ($streamingEnabledCheckbox_ACU)
+        $streamingEnabledCheckbox_ACU.prop('checked', s.streamingEnabled || false);
+    if ($manualTableSelector_ACU && typeof renderManualTableSelector_ACU === 'function')
+        renderManualTableSelector_ACU();
+    if ($importTableSelector_ACU && typeof renderImportTableSelector_ACU === 'function')
+        renderImportTableSelector_ACU();
+    $popupInstance_ACU.find(`input[name="${SCRIPT_ID_PREFIX_ACU}-api-mode"][value="${s.apiMode}"]`).prop('checked', true);
+    if (typeof updateApiModeView_ACU === 'function')
+        updateApiModeView_ACU(s.apiMode);
 }
 
 

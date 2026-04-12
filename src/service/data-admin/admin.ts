@@ -44,10 +44,7 @@ export   function importCombinedSettings_ACU() {
                 if (combinedData.mergeSummaryPrompt) {
                     settings_ACU.mergeSummaryPrompt = combinedData.mergeSummaryPrompt;
                     saveSettings_ACU();
-                    const $mergePromptInput = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-prompt-template`);
-                    if ($mergePromptInput.length) {
-                        $mergePromptInput.val(combinedData.mergeSummaryPrompt);
-                    }
+                    if (typeof syncMergeSettingsToUI_ACU === 'function') syncMergeSettingsToUI_ACU(settings_ACU);
                     logDebug_ACU('Merge summary prompt imported.');
                 }
 
@@ -58,10 +55,6 @@ export   function importCombinedSettings_ACU() {
                     // 导入合并提示词
                     if (combinedData.mergeSummaryPrompt) {
                         settings_ACU.mergeSummaryPrompt = combinedData.mergeSummaryPrompt;
-                        const $mergePromptInput = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-prompt-template`);
-                        if ($mergePromptInput.length) {
-                            $mergePromptInput.val(combinedData.mergeSummaryPrompt);
-                        }
                     }
 
                     // 导入手动合并设置
@@ -81,29 +74,8 @@ export   function importCombinedSettings_ACU() {
 
                     saveSettings_ACU();
 
-                    // 更新所有UI
-                    const $mergeTargetCount = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-target-count`);
-                    const $mergeBatchSize = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-batch-size`);
-                    const $mergeStartIndex = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-start-index`);
-                    const $mergeEndIndex = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-end-index`);
-                    const $autoMergeEnabled = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-merge-enabled`);
-                    const $autoMergeThreshold = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-merge-threshold`);
-                    const $autoMergeReserve = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-merge-reserve`);
-
-                    if ($mergeTargetCount.length) $mergeTargetCount.val(settings_ACU.mergeTargetCount);
-                    if ($mergeBatchSize.length) $mergeBatchSize.val(settings_ACU.mergeBatchSize);
-                    if ($mergeStartIndex.length) $mergeStartIndex.val(settings_ACU.mergeStartIndex);
-                    if ($mergeEndIndex.length) $mergeEndIndex.val(settings_ACU.mergeEndIndex || '');
-                    if ($autoMergeEnabled.length) $autoMergeEnabled.prop('checked', settings_ACU.autoMergeEnabled);
-                    if ($autoMergeThreshold.length) $autoMergeThreshold.val(settings_ACU.autoMergeThreshold);
-                    if ($autoMergeReserve.length) $autoMergeReserve.val(settings_ACU.autoMergeReserve);
-
-                    // 更新删除楼层范围UI
-                    const $deleteStartFloor = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-delete-start-floor`);
-                    const $deleteEndFloor = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-delete-end-floor`);
-
-                    if ($deleteStartFloor.length) $deleteStartFloor.val(settings_ACU.deleteStartFloor || 1);
-                    if ($deleteEndFloor.length) $deleteEndFloor.val(settings_ACU.deleteEndFloor || '');
+                    // UI 回填交给 presentation 层
+                    if (typeof syncMergeSettingsToUI_ACU === 'function') syncMergeSettingsToUI_ACU(settings_ACU);
 
                     logDebug_ACU('All merge settings imported.');
                 }
@@ -117,7 +89,7 @@ export   function importCombinedSettings_ACU() {
                     scope: 'global',
                     source: 'import_combined',
                     presetName: normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU({ requireExisting: false })),
-                    refreshUi: !!$popupInstance_ACU,
+                    refreshUi: typeof isPopupOpen_ACU === "function" ? isPopupOpen_ACU() : false,
                     save: true,
                     persistChatScope: false,
                 });
