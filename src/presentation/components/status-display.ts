@@ -47,3 +47,16 @@
   function isPopupOpen_ACU() {
     return !!$popupInstance_ACU;
   }
+
+  // [T177] 读取酒馆发送输入框的值
+  function getSendTextareaValue_ACU() {
+    try { return jQuery_API_ACU('#send_textarea').val() || ''; } catch(e) { return ''; }
+  }
+
+  // [T177] 设置酒馆发送输入框的值并触发 input 事件
+  function setSendTextareaValue_ACU(text) {
+    try {
+      jQuery_API_ACU('#send_textarea').val(text);
+      jQuery_API_ACU('#send_textarea').trigger('input');
+    } catch(e) {}
+  }

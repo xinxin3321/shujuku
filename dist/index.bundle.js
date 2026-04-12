@@ -9443,11 +9443,12 @@ function mainInitialize_ACU() {
                     applyTemplateScopeForCurrentChat_ACU();
                     // 3. 刷新所有UI（包括可视化编辑器）和世界书
                     await refreshMergedDataAndNotify_ACU();
-                    if ($popupInstance_ACU && $popupInstance_ACU.length) {
+                    if (typeof isPopupOpen_ACU === "function" && isPopupOpen_ACU()) {
                         loadTemplatePresetSelect_ACU({ keepGlobalValue: false });
                     }
                     // [新增] 再次强制刷新可视化编辑器，确保万无一失
-                    jQuery_API_ACU(document).trigger('acu-visualizer-refresh-data');
+                    if (typeof notifyVisualizerRefresh_ACU === 'function')
+                        notifyVisualizerRefresh_ACU();
                     // [新增] 再次强制刷新状态显示，确保UI同步
                     if (typeof updateCardUpdateStatusDisplay_ACU === 'function') {
                         updateCardUpdateStatusDisplay_ACU();
@@ -9508,7 +9509,7 @@ function mainInitialize_ACU() {
                         const lastMsgText = (SillyTavern_API_ACU.chat?.length && SillyTavern_API_ACU.chat[SillyTavern_API_ACU.chat.length - 1]?.is_user)
                             ? (SillyTavern_API_ACU.chat[SillyTavern_API_ACU.chat.length - 1].mes || '')
                             : '';
-                        const boxText = jQuery_API_ACU('#send_textarea').val() || '';
+                        const boxText = getSendTextareaValue_ACU() || '';
                         if (shouldSkipPlotIntercept_ACU(lastMsgText) || shouldSkipPlotIntercept_ACU(boxText)) {
                             logDebug_ACU('[剧情推进] Skip GENERATION_AFTER_COMMANDS due to recent TavernHelper.generate interception.');
                             return;
@@ -9578,8 +9579,8 @@ function mainInitialize_ACU() {
                                         catch (e) { }
                                         try {
                                             const t = finalMessage.restoreText ?? messageToProcess;
-                                            jQuery_API_ACU('#send_textarea').val(t);
-                                            jQuery_API_ACU('#send_textarea').trigger('input');
+                                            setSendTextareaValue_ACU(t);
+                                            ;
                                         }
                                         catch (e) { }
                                     }
@@ -9591,9 +9592,9 @@ function mainInitialize_ACU() {
                                     // 发送消息更新事件以刷新UI
                                     SillyTavern_API_ACU.eventSource.emit(SillyTavern_API_ACU.eventTypes.MESSAGE_UPDATED, lastMessageIndex);
                                     // 清空输入框
-                                    if (jQuery_API_ACU('#send_textarea').val() === messageToProcess) {
-                                        jQuery_API_ACU('#send_textarea').val('');
-                                        jQuery_API_ACU('#send_textarea').trigger('input');
+                                    if (getSendTextareaValue_ACU() === messageToProcess) {
+                                        setSendTextareaValue_ACU('');
+                                        ;
                                     }
                                 }
                             }
@@ -9611,7 +9612,7 @@ function mainInitialize_ACU() {
                     // 仅当检测到“近期发送意图”时才读取输入框，避免其它插件触发的生成误伤。
                     if (!isRecentUserSendIntent_ACU())
                         return;
-                    const textInBox = jQuery_API_ACU('#send_textarea').val();
+                    const textInBox = getSendTextareaValue_ACU();
                     if (!textInBox || !String(textInBox).trim())
                         return;
                     isProcessing_Plot_ACU = true;
@@ -9645,8 +9646,8 @@ function mainInitialize_ACU() {
                         }
                         if (finalMessage && typeof finalMessage === 'string') {
                             // 关键：写回输入框 + 写回 params.prompt（供本次生成使用），达到“先规划再发送”的效果
-                            jQuery_API_ACU('#send_textarea').val(finalMessage);
-                            jQuery_API_ACU('#send_textarea').trigger('input');
+                            setSendTextareaValue_ACU(finalMessage);
+                            ;
                             try {
                                 params.prompt = finalMessage;
                             }
@@ -21721,6 +21722,23 @@ function updateChatTitleDisplay_ACU(chatIdentifier) {
 // [T175] 检查弹窗是否打开（供 service 层用布尔判断，不暴露 DOM 引用）
 function isPopupOpen_ACU() {
     return !!$popupInstance_ACU;
+}
+// [T177] 读取酒馆发送输入框的值
+function getSendTextareaValue_ACU() {
+    try {
+        return jQuery_API_ACU('#send_textarea').val() || '';
+    }
+    catch (e) {
+        return '';
+    }
+}
+// [T177] 设置酒馆发送输入框的值并触发 input 事件
+function setSendTextareaValue_ACU(text) {
+    try {
+        jQuery_API_ACU('#send_textarea').val(text);
+        jQuery_API_ACU('#send_textarea').trigger('input');
+    }
+    catch (e) { }
 }
 
 
