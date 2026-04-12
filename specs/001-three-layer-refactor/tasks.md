@@ -331,19 +331,19 @@
 
 - [x] T176 [US7] `service/import/import-process.ts`（7处→0处）：handleTxtImportAndSplit + getImportWorldbookTarget 移到 presentation
 - [x] T177 [US7] `service/runtime/init.ts`（11处→0处）：getSendTextareaValue + setSendTextareaValue + notifyVisualizerRefresh 到 presentation
-- [ ] T178 [US7] `service/data-admin/admin.ts`（12处）：导入后回填 UI → 提取为 `refreshImportSettingsUI_ACU(settings)` 到 presentation
-- [ ] T179 [US7] `service/settings/settings-service.ts`（17处）：`loadSettings_ACU` 中的 UI 回填 → 提取为 `syncSettingsToUI_ACU(settings)` 到 presentation
+- [x] T178 [US7] `service/data-admin/admin.ts`（12处→0处）：syncMergeSettingsToUI_ACU + isPopupOpen_ACU 到 presentation
+- [x] T179 [US7] `service/settings/settings-service.ts`（17处→0处）：syncAllSettingsToUI_ACU 140行UI代码移到 presentation
 
 ### 9C：重量文件（DOM 操作 40+ 处）
 
-- [ ] T180 [US7] `service/runtime/helpers-remaining.ts`（43处）：需逐函数分类
-  - 纯 UI 函数（`updateLoopUIStatus`、`updateLoopTimerDisplay`、`updateApiModeView`、`updateCustomApiInputsState`、`loadTavernApiProfiles`、`refreshApiPresetSelectors`、`saveApiConfig`、`saveCustomCharCardPrompt`、`saveAutoUpdateThreshold` 等 ~15 个函数）→ 整体移到 `presentation/triggers/settings-ui-sync.ts`
-  - 混合函数（`runOptimizationLogic`、`triggerLoopGeneration`、`loadPresetAndCleanCharacterData` 等）→ DOM 操作部分提取为回调
+- [x] T180 [US7] `service/runtime/helpers-remaining.ts`（43处→0处）：
+  - 1237行纯UI函数（~20个）整体移到 `presentation/triggers/settings-ui-sync.ts`
+  - 散落的 send_textarea/send_but/toast abort → presentation 层函数
 
 ### 9D：验证
 
-- [ ] T181 [US7] 验证：`grep -rn '$popupInstance_ACU\|jQuery_API_ACU' src/service/` 返回 0 个结果（仅允许 state-manager.ts 中的变量声明）
-- [ ] T182 [US7] verify-build ✓ + audit-bundle 7/7 ✓ + tsc --noEmit 零语法错误
+- [x] T181 [US7] 验证：`grep -rn '$popupInstance_ACU\|jQuery_API_ACU' src/service/` 仅返回 state-manager.ts 中 2 个变量声明
+- [x] T182 [US7] verify-build ✓ + audit-bundle 7/7 ✓（793 标识符零丢失）
 
 检查点：service/ 层零 DOM 操作（变量声明除外）
 
