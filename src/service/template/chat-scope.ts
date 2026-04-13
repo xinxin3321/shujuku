@@ -5,11 +5,12 @@
  */
 import { normalizeIsolationCode_ACU } from '../../shared/data-constants';
 import { DEFAULT_TABLE_TEMPLATE_ACU, TABLE_TEMPLATE_ACU, _set_TABLE_TEMPLATE_ACU} from '../../shared/defaults-json.js';
-import { readProfileTemplateFromStorage_ACU } from '../../data/repositories/profile-repo';
-import { DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU, deriveTemplatePresetNameForImport_ACU, getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../data/repositories/template-preset-repo';
+import { readProfileTemplateFromStorage_ACU, saveCurrentProfileTemplate_ACU } from '../../data/repositories/profile-repo';
+import { DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU, deriveTemplatePresetNameForImport_ACU, getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
 import { CHAT_SCOPED_CONFIG_FIELD_ACU, CHAT_SHEET_GUIDE_FIELD_ACU, CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU, CHAT_SHEET_GUIDE_VERSION_ACU, CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU, LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU, MAX_CHAT_TEMPLATE_ARCHIVES_PER_TAG_ACU, getChatScopedConfigContainer_ACU, getChatSheetGuideContainer_ACU, normalizeChatScopedConfigContainer_ACU } from '../../data/storage/chat-history';
 import { getDefaultTemplateSnapshot_ACU, getTemplatePreset_ACU } from './template-preset-service';
-import { SillyTavern_API_ACU, TABLE_ORDER_FIELD_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../runtime/state-manager';
+import { SillyTavern_API_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../runtime/state-manager';
+import { TABLE_ORDER_FIELD_ACU } from '../../shared/constants';
 import { applyTemplateScopeForCurrentChat_ACU } from '../settings/settings-service';
 import { refreshMergedDataAndNotify_ACU } from '../worldbook/pipeline';
 import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-helpers';
@@ -246,7 +247,7 @@ import { ensureExportConfigDefaults_ACU, ensureGlobalInjectionConfigDefaults_ACU
       }, { isolationKey: normalizedKey });
   }
 
-  export async function activateChatTemplatePresetSelection_ACU(presetName, { source = 'ui_chat_select', refreshUi = false, save = true } = {}) {
+  export async function activateChatTemplatePresetSelection_ACU(presetName, { source = 'ui_chat_select', save = true } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(getCurrentIsolationKey_ACU());
       const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
       const localEntry = findChatTemplatePresetEntry_ACU(normalizedPresetName, { isolationKey: normalizedKey });
@@ -443,7 +444,7 @@ import { ensureExportConfigDefaults_ACU, ensureGlobalInjectionConfigDefaults_ACU
           : `${baseLabel}（聊天历史快照）`;
   }
 
-  async function restoreChatTemplateArchiveEntry_ACU(archiveKey, { chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU(), refreshUi = false, save = true } = {}) {
+  async function restoreChatTemplateArchiveEntry_ACU(archiveKey, { chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU(), save = true } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       const normalizedArchiveKey = String(archiveKey || '').trim();
       if (!normalizedArchiveKey) return false;
@@ -1356,3 +1357,53 @@ import { ensureExportConfigDefaults_ACU, ensureGlobalInjectionConfigDefaults_ACU
 
 
   // [新增] 辅助函数：从上下文中提取指定标签的内容（正文标签提取）
+
+// 从 shared/utils.ts 搬来（原函数依赖 service/data 层，不适合放在 shared 层）
+export function getTemplateSheetKeys_ACU() {
+    const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
+    if (!templateObj || typeof templateObj !== 'object') return [];
+
+    const keys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
+    if (keys.length === 0) return [];
+
+    const changed = ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: keys, forceRebuild: false });
+    if (changed) {
+        try {
+            const normalizedTemplateStr = JSON.stringify(templateObj);
+            _set_TABLE_TEMPLATE_ACU(normalizedTemplateStr);
+            const currentChatTemplateScope = getCurrentChatTemplateScopeState_ACU() || migrateLegacyTemplateScopeForCurrentChat_ACU();
+            if (currentChatTemplateScope?.templateStr) {
+                const updatedGuideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: false });
+                const nextState = buildChatTemplateScopeStateFromCurrent_ACU({
+                    isolationKey: currentChatTemplateScope.isolationKey,
+                    presetName: currentChatTemplateScope.presetName,
+                    source: currentChatTemplateScope.source || 'inherit',
+                    originGlobalName: currentChatTemplateScope.originGlobalName,
+                    originGlobalRevision: currentChatTemplateScope.originGlobalRevision,
+                    updatedAt: currentChatTemplateScope.updatedAt || Date.now(),
+                    templateSource: normalizedTemplateStr,
+                    guideData: updatedGuideData || currentChatTemplateScope.guideData,
+                });
+                if (nextState) {
+                    setCurrentChatTemplateScopeState_ACU(nextState, {
+                        isolationKey: currentChatTemplateScope.isolationKey,
+                        reason: 'template_scope_order_no_init',
+                    });
+                }
+                logDebug_ACU('[OrderNo] Chat template order numbers initialized and persisted to current chat scope.');
+            } else {
+                saveCurrentProfileTemplate_ACU(TABLE_TEMPLATE_ACU, settings_ACU);
+                logDebug_ACU('[OrderNo] Global template order numbers initialized and persisted.');
+            }
+        } catch (e) {
+            logWarn_ACU('[OrderNo] Failed to persist initialized template order numbers:', e);
+        }
+    }
+
+    return keys.sort((a, b) => {
+        const ao = Number.isFinite(templateObj[a]?.[TABLE_ORDER_FIELD_ACU]) ? templateObj[a][TABLE_ORDER_FIELD_ACU] : Infinity;
+        const bo = Number.isFinite(templateObj[b]?.[TABLE_ORDER_FIELD_ACU]) ? templateObj[b][TABLE_ORDER_FIELD_ACU] : Infinity;
+        if (ao !== bo) return ao - bo;
+        return String(templateObj[a]?.name || a).localeCompare(String(templateObj[b]?.name || b));
+    });
+}

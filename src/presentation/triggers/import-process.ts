@@ -3,13 +3,13 @@
 
 import { STORAGE_KEY_IMPORTED_ENTRIES_ACU, STORAGE_KEY_IMPORTED_STATUS_ACU, STORAGE_KEY_IMPORTED_STATUS_FULL_ACU, STORAGE_KEY_IMPORTED_STATUS_STANDARD_ACU, STORAGE_KEY_IMPORTED_STATUS_SUMMARY_ACU } from '../../shared/data-constants';
 
-import { importTempGet_ACU, importTempRemove_ACU, importTempSet_ACU } from '../../data/storage/idb-import-temp';
+import { importTempGet_ACU, importTempRemove_ACU, importTempSet_ACU } from '../../shared/idb-import-temp';
 import { getImportWorldbookTarget_ACU, updateImportStatusUI_ACU } from '../components/import-status-ui';
 import { getImportSelectionFromUI_ACU } from '../components/table-selector';
-import { showToastr_ACU } from '../../service/runtime/toast-service';
+import { showToastr_ACU } from '../theme/toast';
 import { ACU_TOAST_CATEGORY_ACU, IMPORTED_ENTRY_PREFIX_ACU, getImportJsonStorageComment_ACU } from '../../shared/constants';
 import { TavernHelper_API_ACU, currentJsonTableData_ACU, settings_ACU, _set_currentJsonTableData_ACU} from '../../service/runtime/state-manager';
-import { saveSettings_ACU } from '../../service/settings/settings-service';
+import { saveSettingsAndNotify_ACU } from '../components/settings-ui-helpers';
 import { proceedWithCardUpdate_ACU } from './update-process';
 import { updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
 import { logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
@@ -297,7 +297,7 @@ export   async function processImportedTxtAsUpdates_ACU() {
 
       // 清空导入目标，防止后续任何"删除外部导入条目"等操作误伤第三方世界书
       settings_ACU.importWorldbookTarget = '';
-      saveSettings_ACU();
+      saveSettingsAndNotify_ACU();
       
       // [新增] 清除内存中的暂存数据
       _set_currentJsonTableData_ACU(null);

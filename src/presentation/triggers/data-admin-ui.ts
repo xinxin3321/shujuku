@@ -1,18 +1,21 @@
 import { DEFAULT_CHAR_CARD_PROMPT_ACU, TABLE_TEMPLATE_ACU } from '../../shared/defaults-json.js';
-import { deriveTemplatePresetNameForImport_ACU, getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU, sanitizeFilenameComponent_ACU } from '../../data/repositories/template-preset-repo';
+import { deriveTemplatePresetNameForImport_ACU, getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU, sanitizeFilenameComponent_ACU } from '../../shared/template-preset-utils';
 import { renderPromptSegments_ACU } from '../components/plot-editors';
-import { getDefaultTemplateSnapshot_ACU, getTemplatePreset_ACU } from '../components/template-preset-ui';
-import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../theme/toast';
-import { SillyTavern_API_ACU, TavernHelper_API_ACU, $popupInstance_ACU, currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../../service/runtime/state-manager';
-import { saveSettings_ACU } from '../../service/settings/settings-service';
+import { getDefaultTemplateSnapshot_ACU, getTemplatePreset_ACU } from '../../service/template/template-preset-service';
+import { showToastr_ACU } from '../theme/toast';
+import { ACU_TOAST_CATEGORY_ACU } from '../../shared/constants';
+import { SillyTavern_API_ACU, TavernHelper_API_ACU, currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../../service/runtime/state-manager';
+import { $popupInstance_ACU } from '../state/ui-refs';
+import { saveSettingsAndNotify_ACU } from '../components/settings-ui-helpers';
 import { loadSettingsAndRefreshUI_ACU } from '../components/settings-ui-helpers';
 import { getCurrentChatTemplateScopeState_ACU, getGlobalTemplateSnapshotForCurrentProfile_ACU, migrateLegacyTemplateScopeForCurrentChat_ACU, sanitizeChatSheetsObject_ACU, sanitizeTemplateSnapshotForChat_ACU } from '../../service/template/chat-scope';
-import { refreshMergedDataAndNotify_ACU } from '../../service/worldbook/pipeline';
+import { refreshMergedDataAndNotifyWithUI_ACU } from '../components/pipeline-ui-helpers';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { safeJsonParse_ACU } from '../../shared/json-helpers';
 import { ensureSheetOrderNumbers_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
-import { loadOrCreateJsonTableFromChatHistory_ACU } from '../../data/repositories/table-repo';
-import { applyTemplateSnapshotToScope_ACU, getTemplatePresetSelectJQ_ACU, normalizeTemplateOperationScope_ACU, parseImportedTemplateData_ACU, refreshTemplatePresetSelectInUI_ACU, resolveActiveTemplatePresetName_ACU, upsertTemplatePreset_ACU } from '../components/template-preset-ui';
+import { loadOrCreateJsonTableFromChatHistory_ACU } from '../../service/table/table-service';
+import { applyTemplateSnapshotToScope_ACU, normalizeTemplateOperationScope_ACU, parseImportedTemplateData_ACU, resolveActiveTemplatePresetName_ACU, upsertTemplatePreset_ACU } from '../../service/template/template-preset-service';
+import { getTemplatePresetSelectJQ_ACU, refreshTemplatePresetSelectInUI_ACU } from '../components/template-preset-ui';
 import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-display';
 import { buildDefaultExportConfig_ACU, ensureExportConfigDefaults_ACU, getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from '../../service/worldbook/injection-engine';
 /**
@@ -55,14 +58,14 @@ import { buildDefaultExportConfig_ACU, ensureExportConfigDefaults_ACU, getInject
 
                 // 1. Apply and save prompt
                 settings_ACU.charCardPrompt = combinedData.prompt;
-                saveSettings_ACU();
+                saveSettingsAndNotify_ACU();
                 renderPromptSegments_ACU(combinedData.prompt);
                 showToastr_ACU('success', '提示词预设已成功导入并保存！');
 
                 // [新增] 导入合并提示词 (如果存在)
                 if (combinedData.mergeSummaryPrompt) {
                     settings_ACU.mergeSummaryPrompt = combinedData.mergeSummaryPrompt;
-                    saveSettings_ACU();
+                    saveSettingsAndNotify_ACU();
                     const $mergePromptInput = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-prompt-template`);
                     if ($mergePromptInput.length) {
                         $mergePromptInput.val(combinedData.mergeSummaryPrompt);
@@ -98,7 +101,7 @@ import { buildDefaultExportConfig_ACU, ensureExportConfigDefaults_ACU, getInject
                     settings_ACU.deleteStartFloor = combinedData.deleteStartFloor || null;
                     settings_ACU.deleteEndFloor = combinedData.deleteEndFloor || null;
 
-                    saveSettings_ACU();
+                    saveSettingsAndNotify_ACU();
 
                     // 更新所有UI
                     const $mergeTargetCount = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-target-count`);
@@ -136,7 +139,6 @@ import { buildDefaultExportConfig_ACU, ensureExportConfigDefaults_ACU, getInject
                     scope: 'global',
                     source: 'import_combined',
                     presetName: normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false })),
-                    refreshUi: !!$popupInstance_ACU,
                     save: true,
                     persistChatScope: false,
                 });
@@ -272,7 +274,7 @@ import { buildDefaultExportConfig_ACU, ensureExportConfigDefaults_ACU, getInject
           await SillyTavern_API_ACU.saveChat();
           // 刷新内存和UI
           await loadOrCreateJsonTableFromChatHistory_ACU();
-          await refreshMergedDataAndNotify_ACU();
+          await refreshMergedDataAndNotifyWithUI_ACU();
 
           // [新增] 删除 WrapperStart 和 WrapperEnd 世界书条目
           try {
@@ -479,12 +481,12 @@ import { buildDefaultExportConfig_ACU, ensureExportConfigDefaults_ACU, getInject
 
       try {
           settings_ACU.charCardPrompt = DEFAULT_CHAR_CARD_PROMPT_ACU;
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
 
           const templateResetOk = await resetTableTemplate_ACU({
               showToast: false,
               updatePresetSelection: true,
-              refreshUi: false,
+              _refreshUi: false,
               overwriteReason: 'reset_all_defaults',
               scope: 'global',
               source: 'reset_all_defaults',
@@ -592,7 +594,7 @@ import { buildDefaultExportConfig_ACU, ensureExportConfigDefaults_ACU, getInject
 
           // 刷新内存和UI
           await loadOrCreateJsonTableFromChatHistory_ACU();
-          await refreshMergedDataAndNotify_ACU();
+          await refreshMergedDataAndNotifyWithUI_ACU();
 
           showToastr_ACU('success', `已使用通用模板覆盖最新层的${Object.keys(templateData).filter(k => k.startsWith('sheet_')).length}个表格数据。`);
       } else {
@@ -600,7 +602,7 @@ import { buildDefaultExportConfig_ACU, ensureExportConfigDefaults_ACU, getInject
       }
   }
 
-  export async function resetTableTemplate_ACU({ showToast = true, updatePresetSelection = true, refreshUi = true, overwriteReason = 'reset_template', scope = 'global', source = '' } = {}) {
+  export async function resetTableTemplate_ACU({ showToast = true, updatePresetSelection = true, _refreshUi = true, overwriteReason = 'reset_template', scope = 'global', source = '' } = {}) {
     const normalizedScope = normalizeTemplateOperationScope_ACU(scope);
     try {
         const snapshot = getDefaultTemplateSnapshot_ACU();
@@ -612,7 +614,6 @@ import { buildDefaultExportConfig_ACU, ensureExportConfigDefaults_ACU, getInject
             scope: normalizedScope,
             source: source || overwriteReason || (normalizedScope === 'chat' ? 'ui_chat_reset' : 'ui_global_reset'),
             presetName: '',
-            refreshUi,
             save: true,
             persistChatScope: normalizedScope === 'chat',
         });
@@ -673,7 +674,6 @@ import { buildDefaultExportConfig_ACU, ensureExportConfigDefaults_ACU, getInject
                     scope: normalizedScope,
                     source: normalizedScope === 'chat' ? 'ui_chat_import' : 'ui_global_import',
                     presetName: derivedPresetName,
-                    refreshUi: true,
                     save: true,
                     persistChatScope: normalizedScope === 'chat',
                 });

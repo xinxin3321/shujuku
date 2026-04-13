@@ -8,7 +8,7 @@ import { topLevelWindow_ACU, FORBID_BROWSER_LOCAL_STORAGE_FOR_CONFIG_ACU, ALLOW_
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 
 // ── 常量 ──
-import { idbRequestToPromise_ACU, isIndexedDbAvailable_ACU } from './idb-import-temp';
+import { idbRequestToPromise_ACU, isIndexedDbAvailable_ACU } from '../../shared/idb-import-temp';
 
 export const USE_TAVERN_SETTINGS_STORAGE_ACU = true;
 export const TAVERN_SETTINGS_NAMESPACE_ACU = `${SCRIPT_ID_PREFIX_ACU}__userscript_settings_v1`;

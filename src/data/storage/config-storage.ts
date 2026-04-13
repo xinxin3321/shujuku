@@ -10,32 +10,22 @@
  */
 
 import { logError_ACU } from '../../shared/utils';
-import { normalizeIsolationCode_ACU, getProfileSettingsKey_ACU } from '../../shared/data-constants';
-import { globalMeta_ACU, saveGlobalMeta_ACU, sanitizeSettingsForProfileSave_ACU } from '../repositories/profile-repo';
-import { addDataIsolationHistory_ACU, normalizeDataIsolationHistory_ACU } from '../repositories/isolation-repo';
+import { getProfileSettingsKey_ACU } from '../../shared/data-constants';
+import { sanitizeSettingsForProfileSave_ACU } from '../repositories/profile-repo';
 
 import { getConfigStorage_ACU } from './tavern-storage';
-import { migrateKeyToTavernStorageIfNeeded_ACU } from './tavern-storage';
 
-
-export { getConfigStorage_ACU } from './tavern-storage';
-export { migrateKeyToTavernStorageIfNeeded_ACU } from './tavern-storage';
 
 /**
- * 纯数据层的 settings 持久化（不含 UI 通知）
+ * 纯数据层的 settings 持久化（只做写存储，不做业务编排）
  * @param settingsObj 要持久化的 settings 对象（由调用方传入）
+ * @param isolationCode 已规范化的隔离码（由 service 层传入）
  */
-export function persistSettingsToStorage_ACU(settingsObj?: any) {
+export function persistSettingsToStorage_ACU(settingsObj?: any, isolationCode?: string) {
     try {
         if (!settingsObj) return;
         const store = getConfigStorage_ACU();
-        const code = normalizeIsolationCode_ACU(settingsObj?.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || '');
-        if (globalMeta_ACU && typeof globalMeta_ACU === 'object') {
-            globalMeta_ACU.activeIsolationCode = code;
-            if (code) addDataIsolationHistory_ACU(code, { save: false });
-            normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
-            saveGlobalMeta_ACU();
-        }
+        const code = isolationCode ?? '';
         const payloadObj = sanitizeSettingsForProfileSave_ACU(settingsObj);
         payloadObj.dataIsolationCode = code;
         const payload = JSON.stringify(payloadObj);

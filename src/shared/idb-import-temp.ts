@@ -4,9 +4,9 @@
  * 仅"外部导入"的暂存数据（分块内容、断点状态）使用 IndexedDB。
  */
 
-import { topLevelWindow_ACU } from '../../shared/env';
-import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
-import { logWarn_ACU } from '../../shared/utils';
+import { topLevelWindow_ACU } from './env';
+import { SCRIPT_ID_PREFIX_ACU } from './constants';
+import { logWarn_ACU } from './utils';
 
 // ── 通用 IDB 工具 ──
 export function isIndexedDbAvailable_ACU(): boolean {

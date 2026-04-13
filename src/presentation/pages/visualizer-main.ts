@@ -3,23 +3,29 @@
  * 从 visualizer.ts 拆出
  */
 import { TABLE_TEMPLATE_ACU } from '../../shared/defaults-json.js';
-import { isDefaultTemplatePresetSelection_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../data/repositories/template-preset-repo';
+import { isDefaultTemplatePresetSelection_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
 import { getOrderedSheetKeys_ACU } from './visualizer-sidebar';
 import { showToastr_ACU } from '../theme/toast';
-import { SillyTavern_API_ACU, TABLE_ORDER_FIELD_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU} from '../../service/runtime/state-manager';
+import { SillyTavern_API_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU} from '../../service/runtime/state-manager';
 import { buildChatSheetGuideDataFromData_ACU, getChatSheetGuideDataForIsolationKey_ACU, sanitizeTemplateSnapshotForChat_ACU, setChatSheetGuideDataForIsolationKey_ACU } from '../../service/template/chat-scope';
-import { refreshMergedDataAndNotify_ACU, updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
-import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
+import { updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
+import { refreshMergedDataAndNotifyWithUI_ACU } from '../components/pipeline-ui-helpers';
+import { SCRIPT_ID_PREFIX_ACU, TABLE_ORDER_FIELD_ACU } from '../../shared/constants';
 import { topLevelWindow_ACU } from '../../shared/env';
 import { escapeHtml_ACU } from '../../shared/html-helpers';
 import { safeJsonStringify_ACU } from '../../shared/json-helpers';
 import { applySheetOrderNumbers_ACU, ensureSheetOrderNumbers_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
-import { saveIndependentTableToChatHistory_ACU } from '../../data/repositories/table-repo';
-import { applyTemplatePresetToCurrent_ACU, loadTemplatePresetSelect_ACU, resolveActiveTemplatePresetName_ACU, upsertTemplatePreset_ACU } from '../components/template-preset-ui';
+import { saveIndependentTableToChatHistory_ACU } from '../../service/table/table-service';
+import { applyTemplatePresetToCurrent_ACU, resolveActiveTemplatePresetName_ACU, upsertTemplatePreset_ACU } from '../../service/template/template-preset-service';
+import { loadTemplatePresetSelect_ACU } from '../components/template-preset-ui';
 import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-display';
 import { applySpecialIndexSequenceToSummaryTables_ACU, getSummaryIndexColumnIndex_ACU, getTableLocksForSheet_ACU, isSpecialIndexLockEnabled_ACU, setSpecialIndexLockEnabled_ACU, toggleCellLock_ACU, toggleColLock_ACU, toggleRowLock_ACU } from '../../service/runtime/helpers-remaining';
 import { getSortedSheetKeys_ACU, materializeDataFromSheetGuide_ACU } from '../../service/template/chat-scope';
 import { DEFAULT_ENTRY_PLACEMENT_ACU, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU, buildDefaultGlobalInjectionConfig_ACU, ensureSheetExportConfigDefaults_ACU, getFixedPlacementDefaultsForTable_ACU, getGlobalInjectionConfigFromData_ACU, isImportantPersonsTableName_ACU, isOutlineTableName_ACU, isSummaryTableName_ACU, normalizeLorebookPosition_ACU, normalizePlacementConfig_ACU, purgeSheetKeysFromChatHistoryHard_ACU } from '../../service/worldbook/injection-engine';
+import { jQuery_API_ACU } from '../../service/runtime/state-manager';
+import { _acuVisState } from './visualizer';
+import { $popupInstance_ACU } from '../state/ui-refs';
+import { closeACUWindow } from '../window/window-system';
 
   export function renderVisualizerMain_ACU() {
       const $main = jQuery_API_ACU('#acu-vis-main-area');
@@ -986,7 +992,6 @@ import { DEFAULT_ENTRY_PLACEMENT_ACU, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU, buildDe
                   const appliedGlobalTemplate = await applyTemplatePresetToCurrent_ACU(finalGlobalPresetName, {
                       source: 'visualizer_save_to_global',
                       updateGlobal: true,
-                      refreshUi: !!$popupInstance_ACU,
                       save: true,
                       persistChatScope: false,
                   });
@@ -1100,7 +1105,7 @@ import { DEFAULT_ENTRY_PLACEMENT_ACU, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU, buildDe
               for (const [indexStr, keys] of Object.entries(bucketByIndex)) {
                   const idx = parseInt(indexStr, 10);
                   if (Number.isNaN(idx)) continue;
-                  await saveIndependentTableToChatHistory_ACU(idx, keys, keys, true);
+                  await saveIndependentTableToChatHistory_ACU(idx, keys as string[], keys as string[], true);
               }
 
               // 2.4.5 [关键] 如果本次在可视化编辑器删除了表格，则此处追溯整个聊天记录做“硬删除”
@@ -1110,6 +1115,9 @@ import { DEFAULT_ENTRY_PLACEMENT_ACU, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU, buildDe
                       const r = await purgeSheetKeysFromChatHistoryHard_ACU(deletedKeysToPurge_ACU);
                       if (r?.changed) {
                           logDebug_ACU(`[VisualizerDelete] Hard-purged ${deletedKeysToPurge_ACU.length} keys from ${r.changedCount} AI messages.`);
+                          if ((topLevelWindow_ACU as any)?.AutoCardUpdaterAPI) {
+                              (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
+                          }
                       }
                       _acuVisState.deletedSheetKeys = [];
                   } catch (e) {
@@ -1119,7 +1127,7 @@ import { DEFAULT_ENTRY_PLACEMENT_ACU, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU, buildDe
               }
 
               // 2.5 所有保存完成后再统一刷新，确保读取最新数据再进行后续操作
-              await refreshMergedDataAndNotify_ACU();
+              await refreshMergedDataAndNotifyWithUI_ACU();
               if ($popupInstance_ACU && $popupInstance_ACU.length) {
                   loadTemplatePresetSelect_ACU({ keepGlobalValue: false });
               }
@@ -1129,7 +1137,7 @@ import { DEFAULT_ENTRY_PLACEMENT_ACU, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU, buildDe
 
       // 3. Trigger UI Update & Worldbook Injection
       await updateReadableLorebookEntry_ACU(true);
-      topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
+      (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
       if (typeof updateCardUpdateStatusDisplay_ACU === 'function') updateCardUpdateStatusDisplay_ACU();
 
       // 4. Inheritance Check (已移除旧逻辑)

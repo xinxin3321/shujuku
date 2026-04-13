@@ -2,11 +2,13 @@
 // 从 04_table_selectors.js 整体迁入
 
 import { currentJsonTableData_ACU, settings_ACU } from '../../service/runtime/state-manager';
-import { saveSettings_ACU } from '../../service/settings/settings-service';
+import { saveSettingsAndNotify_ACU } from './settings-ui-helpers';
 import { escapeHtml_ACU } from '../../shared/html-helpers';
 import { parseTableTemplateJson_ACU } from '../../shared/utils';
 import { getSelectedManualSheetKeys_ACU } from '../triggers/settings-ui-sync';
 import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
+import { jQuery_API_ACU } from '../../service/runtime/state-manager';
+import { $manualTableSelector_ACU, $importTableSelector_ACU } from '../state/ui-refs';
 
   export function renderManualTableSelector_ACU() {
       if (!$manualTableSelector_ACU || !$manualTableSelector_ACU.length || !currentJsonTableData_ACU) return;
@@ -19,7 +21,7 @@ import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
       const selectedSet = new Set(resolvedSelection);
       if (!Array.isArray(settings_ACU.manualSelectedTables) || JSON.stringify(settings_ACU.manualSelectedTables) !== JSON.stringify(resolvedSelection)) {
           settings_ACU.manualSelectedTables = resolvedSelection;
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
       }
       let html = '<div class="acu-table-selector" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;max-height:240px;overflow:auto;padding:8px;border:1px solid var(--border-normal);border-radius:8px;background:var(--bg-secondary);">';
       availableKeys.forEach(key => {
@@ -40,7 +42,7 @@ import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
           });
           settings_ACU.manualSelectedTables = checkedKeys;
           settings_ACU.hasManualSelection = true;
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
       });
   }
 
@@ -56,7 +58,7 @@ import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
               // 如果读取到选择，或曾经明确选择过，则同步到设置
               settings_ACU.manualSelectedTables = keys;
               settings_ACU.hasManualSelection = true;
-              saveSettings_ACU();
+              saveSettingsAndNotify_ACU();
               return keys;
           }
       }
@@ -108,7 +110,7 @@ import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
       const selectedSet = new Set(resolvedSelection);
       if (!Array.isArray(settings_ACU.importSelectedTables) || JSON.stringify(settings_ACU.importSelectedTables) !== JSON.stringify(resolvedSelection)) {
           settings_ACU.importSelectedTables = resolvedSelection;
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
       }
 
       let html = '<div class="acu-table-selector" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;max-height:240px;overflow:auto;padding:8px;border:1px solid var(--border-normal);border-radius:8px;background:var(--bg-secondary);">';
@@ -130,7 +132,7 @@ import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
           });
           settings_ACU.importSelectedTables = checkedKeys;
           settings_ACU.hasImportTableSelection = true;
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
       });
   }
 
@@ -144,7 +146,7 @@ import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
           if (keys.length > 0 || settings_ACU.hasImportTableSelection) {
               settings_ACU.importSelectedTables = keys;
               settings_ACU.hasImportTableSelection = true;
-              saveSettings_ACU();
+              saveSettingsAndNotify_ACU();
               return keys;
           }
       }
@@ -157,14 +159,14 @@ import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
       const keys = getSortedSheetKeys_ACU(base);
       settings_ACU.importSelectedTables = keys;
       settings_ACU.hasImportTableSelection = true;
-      saveSettings_ACU();
+      saveSettingsAndNotify_ACU();
       renderImportTableSelector_ACU();
   }
 
   export function handleImportSelectNone_ACU() {
       settings_ACU.importSelectedTables = [];
       settings_ACU.hasImportTableSelection = true;
-      saveSettings_ACU();
+      saveSettingsAndNotify_ACU();
       renderImportTableSelector_ACU();
   }
 
@@ -173,14 +175,14 @@ import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
       const keys = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
       settings_ACU.manualSelectedTables = keys;
       settings_ACU.hasManualSelection = true;
-      saveSettings_ACU();
+      saveSettingsAndNotify_ACU();
       renderManualTableSelector_ACU();
   }
 
   export function handleManualSelectNone_ACU() {
       settings_ACU.manualSelectedTables = [];
       settings_ACU.hasManualSelection = true;
-      saveSettings_ACU();
+      saveSettingsAndNotify_ACU();
       renderManualTableSelector_ACU();
   }
 

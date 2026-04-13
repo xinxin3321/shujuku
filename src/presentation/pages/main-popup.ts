@@ -2,9 +2,10 @@
 // 从 05_main_popup.js 整体迁入
 
 import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU } from '../../shared/defaults';
-import { DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU } from '../../data/repositories/template-preset-repo';
+import { DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU } from '../../shared/template-preset-utils';
 import { showToastr_ACU } from '../theme/toast';
-import { coreApisAreReady_ACU, currentChatFileIdentifier_ACU, $popupInstance_ACU, _set_$popupInstance_ACU} from '../../service/runtime/state-manager';
+import { coreApisAreReady_ACU, currentChatFileIdentifier_ACU } from '../../service/runtime/state-manager';
+import { $popupInstance_ACU, _set_$popupInstance_ACU } from '../state/ui-refs';
 import { loadSettingsAndRefreshUI_ACU } from '../components/settings-ui-helpers';
 import { POPUP_ID_ACU, SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { escapeHtml_ACU } from '../../shared/html-helpers';

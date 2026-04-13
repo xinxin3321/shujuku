@@ -8,14 +8,9 @@
 /**
  * 清洗聊天文件名：去除路径前缀和扩展名后缀
  */
-import { TABLE_TEMPLATE_ACU, _set_TABLE_TEMPLATE_ACU} from './defaults-json.js';
-import { saveCurrentProfileTemplate_ACU } from '../data/repositories/profile-repo';
-import { TABLE_ORDER_FIELD_ACU } from '../service/runtime/state-manager';
-import { getCurrentChatTemplateScopeState_ACU, migrateLegacyTemplateScopeForCurrentChat_ACU } from '../service/template/chat-scope';
-import { DEBUG_MODE_ACU, SCRIPT_ID_PREFIX_ACU } from './constants';
+import { TABLE_TEMPLATE_ACU } from './defaults-json.js';
+import { DEBUG_MODE_ACU, SCRIPT_ID_PREFIX_ACU, TABLE_ORDER_FIELD_ACU } from './constants';
 import { safeJsonParse_ACU } from './json-helpers';
-import { buildBoundaryRulesFromLegacyTags_ACU } from '../service/runtime/helpers-remaining';
-import { buildChatSheetGuideDataFromTemplateObj_ACU, buildChatTemplateScopeStateFromCurrent_ACU, setCurrentChatTemplateScopeState_ACU } from '../service/template/chat-scope';
 
 export function cleanChatName_ACU(fileName: string): string {
   if (!fileName || typeof fileName !== 'string') return 'unknown_chat_source';
@@ -139,6 +134,22 @@ export function isStandardTable_ACU(tableName: string): boolean {
   return !isSummaryOrOutlineTable_ACU(tableName);
 }
 
+
+// 标签列表解析：支持英文逗号/中文逗号/空格分隔
+function parseTagList_ACU(input) {
+    if (!input || typeof input !== 'string') return [];
+    return input
+        .split(/[,，\s]+/g)
+        .map(t => t.trim())
+        .filter(Boolean)
+        .map(t => t.replace(/[<>]/g, ''));
+}
+
+// 兼容旧"标签提取/排除"字符串：tagA,tagB -> [{start:"<tagA", end:"</tagA>"}, ...]
+export function buildBoundaryRulesFromLegacyTags_ACU(tagsText = '') {
+    const tags = parseTagList_ACU(tagsText);
+    return tags.map(tag => ({ start: `<${tag}`, end: `</${tag}>` }));
+}
 
 export   function normalizeExtractRules_ACU(extractRulesInput, legacyExtractTags = '') {
       return normalizeExcludeRules_ACU(extractRulesInput, legacyExtractTags);
@@ -381,59 +392,7 @@ export   function ensureSheetOrderNumbers_ACU(dataObj, { baseOrderKeys = null, f
   }
 
 
-export   function getTemplateSheetKeys_ACU() {
-      const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
-      if (!templateObj || typeof templateObj !== 'object') return [];
 
-      const keys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
-      if (keys.length === 0) return [];
-
-      // 如果模板缺编号（或重复），按现有键顺序补齐。
-      // 注意：当前运行态可能来自"全局模板"也可能来自"当前聊天模板覆写"，
-      // 因此这里不能无条件回写到 profile，否则会把聊天专属模板误污染到全局模板存储里。
-      const changed = ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: keys, forceRebuild: false });
-      if (changed) {
-          try {
-              const normalizedTemplateStr = JSON.stringify(templateObj);
-              _set_TABLE_TEMPLATE_ACU(normalizedTemplateStr);
-              const currentChatTemplateScope = getCurrentChatTemplateScopeState_ACU() || migrateLegacyTemplateScopeForCurrentChat_ACU();
-              if (currentChatTemplateScope?.templateStr) {
-                  const updatedGuideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: false });
-                  const nextState = buildChatTemplateScopeStateFromCurrent_ACU({
-                      isolationKey: currentChatTemplateScope.isolationKey,
-                      presetName: currentChatTemplateScope.presetName,
-                      source: currentChatTemplateScope.source || 'inherit',
-                      originGlobalName: currentChatTemplateScope.originGlobalName,
-                      originGlobalRevision: currentChatTemplateScope.originGlobalRevision,
-                      updatedAt: currentChatTemplateScope.updatedAt || Date.now(),
-                      templateSource: normalizedTemplateStr,
-                      guideData: updatedGuideData || currentChatTemplateScope.guideData,
-                  });
-                  if (nextState) {
-                      setCurrentChatTemplateScopeState_ACU(nextState, {
-                          isolationKey: currentChatTemplateScope.isolationKey,
-                          reason: 'template_scope_order_no_init',
-                      });
-                  }
-                  logDebug_ACU('[OrderNo] Chat template order numbers initialized and persisted to current chat scope.');
-              } else {
-                  // [Profile] 模板随"标识代码(profile)"保存
-                  saveCurrentProfileTemplate_ACU(TABLE_TEMPLATE_ACU);
-                  logDebug_ACU('[OrderNo] Global template order numbers initialized and persisted.');
-              }
-          } catch (e) {
-              logWarn_ACU('[OrderNo] Failed to persist initialized template order numbers:', e);
-          }
-      }
-
-      // 按 orderNo 排序输出 keys
-      return keys.sort((a, b) => {
-          const ao = Number.isFinite(templateObj[a]?.[TABLE_ORDER_FIELD_ACU]) ? templateObj[a][TABLE_ORDER_FIELD_ACU] : Infinity;
-          const bo = Number.isFinite(templateObj[b]?.[TABLE_ORDER_FIELD_ACU]) ? templateObj[b][TABLE_ORDER_FIELD_ACU] : Infinity;
-          if (ao !== bo) return ao - bo;
-          return String(templateObj[a]?.name || a).localeCompare(String(templateObj[b]?.name || b));
-      });
-  }
 
 
 export   function getChatFirstLayerMessage_ACU(chat) {

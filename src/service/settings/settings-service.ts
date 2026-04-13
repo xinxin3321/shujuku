@@ -8,41 +8,49 @@
 
 import { STORAGE_KEY_ALL_SETTINGS_ACU, STORAGE_KEY_CUSTOM_TEMPLATE_ACU, normalizeIsolationCode_ACU } from '../../shared/data-constants';
 import { DEFAULT_CHAR_CARD_PROMPT_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_PLOT_SETTINGS_ACU, DEFAULT_TABLE_TEMPLATE_ACU, TABLE_TEMPLATE_ACU, _set_TABLE_TEMPLATE_ACU} from '../../shared/defaults-json.js';
-import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, buildDefaultPlotWorldbookConfig_ACU } from '../../shared/defaults';
-import { getCurrentCharSettings_ACU } from '../../data/repositories/character-settings-repo';
+import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, buildDefaultPlotWorldbookConfig_ACU, defaultWorldbookConfig_ACU } from '../../shared/defaults';
 import { addDataIsolationHistory_ACU, ensureProfileExists_ACU, normalizeDataIsolationHistory_ACU } from '../../data/repositories/isolation-repo';
 import { globalMeta_ACU, loadGlobalMeta_ACU, readProfileSettingsFromStorage_ACU, readProfileTemplateFromStorage_ACU, sanitizeSettingsForProfileSave_ACU, saveGlobalMeta_ACU, writeProfileSettingsToStorage_ACU, writeProfileTemplateToStorage_ACU } from '../../data/repositories/profile-repo';
-import { getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../data/repositories/template-preset-repo';
+import { getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
 import { persistSettingsToStorage_ACU } from '../../data/storage/config-storage';
-import { isIndexedDbAvailable_ACU } from '../../data/storage/idb-import-temp';
+import { isIndexedDbAvailable_ACU } from '../../shared/idb-import-temp';
 import { configIdbCacheLoaded_ACU, ensureConfigIdbCacheLoaded_ACU, getConfigStorage_ACU, initTavernSettingsBridge_ACU, migrateKeyToTavernStorageIfNeeded_ACU, pendingSettingsReloadFromIdb_ACU, _set_pendingSettingsReloadFromIdb_ACU} from '../../data/storage/tavern-storage';
 import { ensureTagRulesCompat_ACU } from '../plot/plot-logic';
 import { getDefaultTemplateSnapshot_ACU, getTemplatePreset_ACU } from '../template/template-preset-service';
-import { showToastr_ACU } from '../runtime/toast-service';
 import { buildDefaultContentOptimizationPromptGroup_ACU } from '../optimization/content-optimization';
 import { currentChatFileIdentifier_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_settings_ACU} from '../runtime/state-manager';
 import { getCurrentChatTemplateScopeState_ACU, getGlobalTemplateSnapshotForCurrentProfile_ACU, migrateLegacyTemplateScopeForCurrentChat_ACU, normalizeTemplateScopeIsolationKey_ACU, sanitizeChatSheetsObject_ACU, sanitizeTemplateSnapshotForChat_ACU } from '../template/chat-scope';
 import { safeJsonParse_ACU } from '../../shared/json-helpers';
 import { deepMerge_ACU, ensureSheetOrderNumbers_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
 
-export function saveSettings_ACU() {
-  // 数据层：纯存储持久化
-  persistSettingsToStorage_ACU(settings_ACU);
+export function saveSettings_ACU(): { saved: boolean; storageType: 'tavern' | 'indexeddb' | 'memory'; warning?: string; error?: string } {
+  // 业务编排：同步隔离码到 globalMeta + 持久化
+  const code = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || '');
+  if (globalMeta_ACU && typeof globalMeta_ACU === 'object') {
+    globalMeta_ACU.activeIsolationCode = code;
+    if (code) addDataIsolationHistory_ACU(code, { save: false });
+    normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
+    saveGlobalMeta_ACU();
+  }
 
-  // service 层补充：存储状态检查 + UI 通知
+  // 数据层：纯存储持久化
+  persistSettingsToStorage_ACU(settings_ACU, code);
+
   try {
       const store = (getConfigStorage_ACU)();
       if (store && !store._isTavern) {
           if ((isIndexedDbAvailable_ACU)()) {
-              try { showToastr_ACU('info', '当前未连接酒馆设置：已保存到 IndexedDB（仅本浏览器可用）。', { timeOut: 6000 }); } catch (e) {}
+              void (initTavernSettingsBridge_ACU)();
+              return { saved: true, storageType: 'indexeddb', warning: '当前未连接酒馆设置：已保存到 IndexedDB（仅本浏览器可用）。' };
           } else {
-              try { showToastr_ACU('warning', '⚠️ 当前未连接酒馆设置且 IndexedDB 不可用，本次修改刷新后会丢失。', { timeOut: 8000 }); } catch (e) {}
+              void (initTavernSettingsBridge_ACU)();
+              return { saved: true, storageType: 'memory', warning: '⚠️ 当前未连接酒馆设置且 IndexedDB 不可用，本次修改刷新后会丢失。' };
           }
-          void (initTavernSettingsBridge_ACU)();
       }
+      return { saved: true, storageType: 'tavern' };
   } catch (error) {
       logError_ACU('Failed to save settings:', error);
-      showToastr_ACU('error', '保存设置时发生浏览器存储错误。');
+      return { saved: false, storageType: 'memory', error: '保存设置时发生浏览器存储错误。' };
   }
 }
 
@@ -458,7 +466,7 @@ export async function switchIsolationProfile_ACU(newCodeRaw: string): Promise<vo
     const newCode = normalizeIsolationCode_ACU(newCodeRaw);
     const oldCode = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || '');
 
-    persistSettingsToStorage_ACU(settings_ACU);
+    persistSettingsToStorage_ACU(settings_ACU, oldCode);
 
     loadGlobalMeta_ACU();
     if (oldCode) addDataIsolationHistory_ACU(oldCode, { save: false });
@@ -467,8 +475,74 @@ export async function switchIsolationProfile_ACU(newCodeRaw: string): Promise<vo
     normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
     saveGlobalMeta_ACU();
 
-    ensureProfileExists_ACU(newCode, { seedFromCurrent: true });
+    ensureProfileExists_ACU(newCode, { seedFromCurrent: true, settings: settings_ACU });
 
     loadSettings_ACU();
     applyTemplateScopeForCurrentChat_ACU({ isolationKey: newCode });
 }
+
+// [从 data/repositories/template-preset-repo.ts 移入] 修改当前模板预设名 + 可选持久化
+export function persistCurrentTemplatePresetName_ACU(settingsObj: any, presetName: any, { save = true } = {}): string {
+    if (!settingsObj || typeof settingsObj !== 'object') return '';
+    const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
+    settingsObj.currentTemplatePresetName = normalizedPresetName;
+    if (save) {
+        const code = normalizeIsolationCode_ACU(settingsObj?.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || '');
+        persistSettingsToStorage_ACU(settingsObj, code);
+    }
+    return normalizedPresetName;
+}
+
+// [从 data/repositories/character-settings-repo.ts 移入] 角色专属设置（业务逻辑：读 settings → deep merge 默认值 → 写回）
+export function getCurrentCharSettings_ACU() {
+    const charId = currentChatFileIdentifier_ACU || 'default';
+    if (!settings_ACU.characterSettings) {
+        settings_ACU.characterSettings = {};
+    }
+    const globalZeroTkDefault =
+        (typeof globalMeta_ACU?.zeroTkOccupyModeGlobal === 'boolean')
+            ? (globalMeta_ACU.zeroTkOccupyModeGlobal === true)
+            : (settings_ACU?.zeroTkOccupyModeDefault === true);
+    if (!settings_ACU.characterSettings[charId]) {
+        const worldbookConfigForNewChat = JSON.parse(JSON.stringify(defaultWorldbookConfig_ACU));
+        worldbookConfigForNewChat.zeroTkOccupyMode = globalZeroTkDefault;
+        worldbookConfigForNewChat.outlineEntryEnabled = !globalZeroTkDefault;
+        settings_ACU.characterSettings[charId] = {
+            worldbookConfig: worldbookConfigForNewChat,
+        };
+        logDebug_ACU(`Created new character settings for: ${charId}`);
+    }
+    try {
+        const existingCfg = settings_ACU.characterSettings[charId].worldbookConfig || {};
+        const mergedCfg = deepMerge_ACU(
+            JSON.parse(JSON.stringify(defaultWorldbookConfig_ACU)),
+            existingCfg,
+        );
+        mergedCfg.zeroTkOccupyMode = globalZeroTkDefault;
+        mergedCfg.outlineEntryEnabled = !globalZeroTkDefault;
+        settings_ACU.characterSettings[charId].worldbookConfig = mergedCfg;
+    } catch (e) {
+        // ignore
+    }
+    return settings_ACU.characterSettings[charId];
+}
+
+export function getCurrentWorldbookConfig_ACU() {
+    return getCurrentCharSettings_ACU().worldbookConfig;
+}
+
+// [从 popup-bindings.ts / api-registry.ts 提取] 切换 0TK 占用模式的完整业务流程
+export function setZeroTkOccupyMode_ACU(modeEnabled: boolean) {
+    const cfg = getCurrentWorldbookConfig_ACU();
+    cfg.zeroTkOccupyMode = !!modeEnabled;
+    cfg.outlineEntryEnabled = !cfg.zeroTkOccupyMode;
+    settings_ACU.zeroTkOccupyModeDefault = !!modeEnabled;
+    globalMeta_ACU.zeroTkOccupyModeGlobal = !!modeEnabled;
+    saveGlobalMeta_ACU();
+    saveSettings_ACU();
+}
+
+// re-export data 层基础设施（供 presentation 层通过 service 层访问，避免 presentation→data 直接依赖）
+export { getConfigStorage_ACU, persistTavernSettings_ACU } from '../../data/storage/tavern-storage';
+export { saveCurrentProfileTemplate_ACU } from '../../data/repositories/profile-repo';
+export { getDataIsolationHistory_ACU, removeDataIsolationHistory_ACU } from '../../data/repositories/isolation-repo';

@@ -3,11 +3,13 @@
  * 从 visualizer.ts 拆出
  */
 import { renderVisualizerMain_ACU } from './visualizer-main';
-import { TABLE_ORDER_FIELD_ACU } from '../../service/runtime/state-manager';
+import { TABLE_ORDER_FIELD_ACU } from '../../shared/constants';
 import { escapeHtml_ACU } from '../../shared/html-helpers';
 import { applySheetOrderNumbers_ACU } from '../../shared/utils';
 import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
 import { buildDefaultExportConfig_ACU } from '../../service/worldbook/injection-engine';
+import { jQuery_API_ACU } from '../../service/runtime/state-manager';
+import { _acuVisState } from './visualizer';
 
   export function getOrderedSheetKeys_ACU() {
       // 新机制：顺序由每张表的 orderNo 决定；编辑器内部仍保留一个数组用于“上移/下移”

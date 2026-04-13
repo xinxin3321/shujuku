@@ -1,28 +1,29 @@
 // window-system.ts
 // 从 01_window_system.js 整体迁入
 
-import { getConfigStorage_ACU, persistTavernSettings_ACU } from '../../data/storage/tavern-storage';
-import { applyACUThemeToDocument_ACU, syncACUThemeButtons_ACU, toggleACUTheme_ACU } from './window-styles';
+import { getConfigStorage_ACU, persistTavernSettings_ACU } from '../../service/settings/settings-service';
+import { applyACUThemeToDocument_ACU, injectACUWindowStyles, syncACUThemeButtons_ACU, toggleACUTheme_ACU } from './window-styles';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { topLevelWindow_ACU } from '../../shared/env';
 import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-helpers';
+import { jQuery_API_ACU } from '../../service/runtime/state-manager';
 
-  const ACU_WindowManager = {
+  export const ACU_WindowManager = {
     windows: new Map(), // id -> { $el, zIndex, ... }
     baseZIndex: 10000,
     topZIndex: 10000,
     
-    register(id, $el) {
+    register(id: string, $el: any) {
       this.topZIndex++;
       this.windows.set(id, { $el, zIndex: this.topZIndex });
       $el.css('z-index', this.topZIndex);
     },
     
-    unregister(id) {
+    unregister(id: string) {
       this.windows.delete(id);
     },
     
-    bringToFront(id) {
+    bringToFront(id: string) {
       const win = this.windows.get(id);
       if (!win) return;
       this.topZIndex++;
@@ -30,16 +31,16 @@ import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-help
       win.$el.css('z-index', this.topZIndex);
     },
     
-    getWindow(id) {
+    getWindow(id: string) {
       return this.windows.get(id)?.$el || null;
     },
     
-    isOpen(id) {
+    isOpen(id: string) {
       return this.windows.has(id);
     },
     
     closeAll() {
-      this.windows.forEach((_, id) => {
+      this.windows.forEach((_: any, id: string) => {
         const $el = this.windows.get(id)?.$el;
         if ($el) $el.remove();
       });
@@ -90,7 +91,7 @@ import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-help
    * @param {string} windowId - 窗口ID
    * @returns {object|null} 窗口状态或null
    */
-  export function getWindowState_ACU(windowId) {
+  export function getWindowState_ACU(windowId: string) {
     const states = getWindowStates_ACU();
     return states[windowId] || null;
   }
@@ -140,7 +141,7 @@ import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-help
     // ═══ 关键：始终挂载到酒馆主窗口（topLevelWindow_ACU）═══
     const targetWin = topLevelWindow_ACU || window;
     const targetDoc = targetWin.document;
-    const $ = targetWin.jQuery || (typeof jQuery_API_ACU !== 'undefined' ? jQuery_API_ACU : null);
+    const $ = (targetWin as any).jQuery || jQuery_API_ACU || null;
     if (!$) {
       console.error('[ACU] jQuery not available for window creation');
       return null;
@@ -237,7 +238,7 @@ import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-help
     $window.on('mousedown', () => ACU_WindowManager.bringToFront(id));
 
     // 主题切换
-    $window.find('.acu-window-btn.theme-toggle').on('click', (e) => {
+    $window.find('.acu-window-btn.theme-toggle').on('click', (e: any) => {
       e.preventDefault();
       e.stopPropagation();
       toggleACUTheme_ACU(targetDoc);
@@ -266,7 +267,7 @@ import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-help
     
     // 遮罩层点击关闭（可选）
     if ($overlay) {
-      $overlay.on('click', (e) => {
+      $overlay.on('click', (e: any) => {
         if (e.target === $overlay[0]) {
           // 可以选择不关闭，或者关闭
           // 这里选择不关闭，用户必须点击关闭按钮
@@ -326,7 +327,7 @@ import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-help
     let isDragging = false;
     let dragStartX, dragStartY, windowStartX, windowStartY;
     
-    $window.find('.acu-window-header').on('mousedown', (e) => {
+    $window.find('.acu-window-header').on('mousedown', (e: any) => {
       if ($(e.target).closest('.acu-window-controls').length) return;
       if (isMaximized) return;
       
@@ -339,7 +340,7 @@ import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-help
       $(targetDoc.body).css('user-select', 'none');
     });
     
-    $(targetDoc).on('mousemove.acuWindowDrag' + id, (e) => {
+    $(targetDoc).on('mousemove.acuWindowDrag' + id, (e: any) => {
       if (!isDragging) return;
       
       const dx = e.clientX - dragStartX;
@@ -362,9 +363,9 @@ import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-help
     if (resizable) {
       let isResizing = false;
       let resizeType = '';
-      let resizeStartX, resizeStartY, startWidth, startHeight, startLeft, startTop;
+      let resizeStartX: number, resizeStartY: number, startWidth: number, startHeight: number, startLeft: number, startTop: number;
       
-      $window.find('.acu-window-resize-handle').on('mousedown', function(e) {
+      $window.find('.acu-window-resize-handle').on('mousedown', function(e: any) {
         if (isMaximized) return;
         
         isResizing = true;
@@ -389,7 +390,7 @@ import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-help
         e.stopPropagation();
       });
       
-      $(targetDoc).on('mousemove.acuWindowResize' + id, (e) => {
+      $(targetDoc).on('mousemove.acuWindowResize' + id, (e: any) => {
         if (!isResizing) return;
         
         const dx = e.clientX - resizeStartX;
@@ -448,12 +449,12 @@ import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-help
   /**
    * 关闭指定窗口
    */
-  function closeACUWindow(id) {
+  export function closeACUWindow(id) {
     const $window = ACU_WindowManager.getWindow(id);
     if ($window) {
       // 获取主窗口 jQuery
       const targetWin = topLevelWindow_ACU || window;
-      const $ = targetWin.jQuery || (typeof jQuery_API_ACU !== 'undefined' ? jQuery_API_ACU : null);
+      const $ = (targetWin as any).jQuery || (typeof jQuery_API_ACU !== 'undefined' ? jQuery_API_ACU : null);
       if ($) {
         $(`.acu-window-overlay[data-for="${id}"]`).remove();
         // 清理事件

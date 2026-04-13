@@ -1,12 +1,13 @@
 import { DEFAULT_PLOT_SETTINGS_ACU } from '../../shared/defaults-json.js';
 import { buildDefaultPlotWorldbookConfig_ACU } from '../../shared/defaults';
-import { getCurrentWorldbookConfig_ACU } from '../../data/repositories/character-settings-repo';
-import { settings_ACU } from '../../service/runtime/state-manager';
-import { saveSettings_ACU } from '../../service/settings/settings-service';
+import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-service';
+import { settings_ACU, jQuery_API_ACU, TavernHelper_API_ACU } from '../../service/runtime/state-manager';
+import { saveSettingsAndNotify_ACU } from './settings-ui-helpers';
 import { getLorebookEntriesByNames_ACU, getWorldbookNames_ACU } from '../../service/worldbook/pipeline';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { escapeHtml_ACU } from '../../shared/html-helpers';
 import { logError_ACU } from '../../shared/utils';
+import { $popupInstance_ACU } from '../state/ui-refs';
 /**
  * presentation/components/worldbook-selector.ts — 世界书选择 UI
  * 从 features/worldbook/01~03 + 04 迁移而来
@@ -179,7 +180,7 @@ import { logError_ACU } from '../../shared/utils';
           }
 
           if (settingsChanged) {
-              saveSettings_ACU();
+              saveSettingsAndNotify_ACU();
           }
           renderLazyWorldbookEntryList_ACU($list, groups, {
               checkboxIdPrefix: 'plot-wb-entry',
@@ -241,7 +242,7 @@ import { logError_ACU } from '../../shared/utils';
       return `${safePrefix}-${safeBook}-${uid}`;
   }
 
-  function createLazyWorldbookEntryViewState_ACU(groups = [], options = {}) {
+  function createLazyWorldbookEntryViewState_ACU(groups: any[] = [], options: any = {}) {
       const normalizedGroups = (Array.isArray(groups) ? groups : []).map(group => ({
           bookName: String(group?.bookName || ''),
           entries: Array.isArray(group?.entries) ? group.entries.map(entry => ({ ...entry })) : [],
@@ -301,7 +302,7 @@ import { logError_ACU } from '../../shared/utils';
       $group.find('.qrf_worldbook_entry_load_more').toggle(group.expanded && loadedCount < sourceEntries.length);
   }
 
-  export function renderLazyWorldbookEntryItems_ACU($list, bookName, options = {}) {
+  export function renderLazyWorldbookEntryItems_ACU($list: any, bookName: any, options: any = {}) {
       if (!$list || !$list.length) return;
       const state = $list.data('acuLazyWorldbookState');
       const group = findLazyWorldbookEntryGroupState_ACU($list, bookName);
@@ -336,7 +337,7 @@ import { logError_ACU } from '../../shared/utils';
       updateLazyWorldbookEntryGroupMeta_ACU($list, bookName);
   }
 
-  function renderLazyWorldbookEntryList_ACU($list, groups, options = {}) {
+  function renderLazyWorldbookEntryList_ACU($list: any, groups: any, options: any = {}) {
       if (!$list || !$list.length) return;
       const state = createLazyWorldbookEntryViewState_ACU(groups, options);
       $list.data('acuLazyWorldbookState', state);
@@ -664,7 +665,7 @@ import { logError_ACU } from '../../shared/utils';
           }
           
           if (settingsChanged) {
-              saveSettings_ACU();
+              saveSettingsAndNotify_ACU();
           }
 
           renderLazyWorldbookEntryList_ACU($list, groups, {

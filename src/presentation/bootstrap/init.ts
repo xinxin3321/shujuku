@@ -1,52 +1,71 @@
 // init.ts — 初始化编排（presentation 层：负责事件绑定、UI 初始化、模块串联）
 // 从 05_core_tail.js 迁入
 
-import { _injectCharSettingsDeps } from '../../data/repositories/character-settings-repo';
-import { _injectIsolationRepoDeps } from '../../data/repositories/isolation-repo';
-import { _injectProfileRepoDeps } from '../../data/repositories/profile-repo';
-import { _injectTableRepoDeps } from '../../data/repositories/table-repo';
-
 import { DEFAULT_PLOT_SETTINGS_ACU } from '../../shared/defaults-json.js';
 import { addAutoCardMenuItem_ACU } from './startup';
 import { newMessageDebounceTimer_ACU, _set_newMessageDebounceTimer_ACU} from '../../service/runtime/state-manager';
-import { showToastr_ACU } from '../../service/runtime/toast-service';
+import { showToastr_ACU } from '../theme/toast';
 import { attemptToLoadCoreApis_ACU } from '../triggers/settings-ui-sync';
 import { handleChatCompletionReady_ACU, loadPresetAndCleanCharacterData_ACU } from '../../service/runtime/helpers-remaining';
-import { SillyTavern_API_ACU, currentChatFileIdentifier_ACU, generationGate_ACU, installSendIntentCaptureHooks_ACU, isProcessing_Plot_ACU, isQuietLikeGeneration_ACU, isRecentUserSendIntent_ACU, loopState_ACU, recordGenerationContext_ACU, recordLastUserSend_ACU, settings_ACU, shouldProcessAutoTableUpdateForGenerationEnded_ACU, shouldProcessPlotForGeneration_ACU, _set_isProcessing_Plot_ACU} from '../../service/runtime/state-manager';
+import { SillyTavern_API_ACU, currentChatFileIdentifier_ACU, generationGate_ACU, markUserSendIntent_ACU, isProcessing_Plot_ACU, isQuietLikeGeneration_ACU, isRecentUserSendIntent_ACU, loopState_ACU, recordGenerationContext_ACU, recordLastUserSend_ACU, settings_ACU, shouldProcessAutoTableUpdateForGenerationEnded_ACU, shouldProcessPlotForGeneration_ACU, _set_isProcessing_Plot_ACU} from '../../service/runtime/state-manager';
 import { applyTemplateScopeForCurrentChat_ACU, loadSettings_ACU } from '../../service/settings/settings-service';
 import { resetScriptStateForNewChat_ACU } from '../../service/worldbook/injection-engine';
-import { loadAllChatMessages_ACU, refreshMergedDataAndNotify_ACU } from '../../service/worldbook/pipeline';
+import { loadAllChatMessages_ACU } from '../../service/worldbook/pipeline';
+import { refreshMergedDataAndNotifyWithUI_ACU } from '../components/pipeline-ui-helpers';
 import { cleanChatName_ACU, hashUserInput_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
 import { markPlotIntercept_ACU, shouldSkipPlotIntercept_ACU } from '../../service/plot/plot-logic';
 import { getSendTextareaValue_ACU, setSendTextareaValue_ACU } from '../components/status-display';
 import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-display';
 import { handleNewMessageDebounced_ACU } from '../triggers/settings-ui-sync';
-import { enterLoopRetryFlow_ACU, onLoopGenerationEnded_ACU } from '../triggers/auto-loop';
-import { runOptimizationLogic_ACU } from '../../service/runtime/helpers-remaining';
+import { enterLoopRetryFlow_ACU, onLoopGenerationEnded_ACU, stopAutoLoop_ACU } from '../triggers/auto-loop';
+import { runOptimizationLogicWithUI_ACU } from '../components/plot-planning-ui';
+
+// [从 state-manager.ts 搬入 presentation 层] 安装发送意图捕捉钩子（DOM 事件绑定）
+function installSendIntentCaptureHooks_ACU() {
+  try {
+    const parentDoc = SillyTavern_API_ACU?.Chat?.document
+      ? SillyTavern_API_ACU.Chat.document
+      : (window.parent || window).document;
+    const doc = parentDoc || document;
+
+    if (!(window as any).__ACU_sendIntentHooksInstalled) {
+      (window as any).__ACU_sendIntentHooksInstalled = { send: false, enter: false };
+    }
+
+    const sendBtn = doc.getElementById('send_but');
+    if (sendBtn && !(window as any).__ACU_sendIntentHooksInstalled.send) {
+      sendBtn.addEventListener('click', () => markUserSendIntent_ACU(), true);
+      sendBtn.addEventListener('pointerup', () => markUserSendIntent_ACU(), true);
+      sendBtn.addEventListener('touchend', () => markUserSendIntent_ACU(), true);
+      (window as any).__ACU_sendIntentHooksInstalled.send = true;
+    }
+
+    const ta = doc.getElementById('send_textarea');
+    if (ta && !(window as any).__ACU_sendIntentHooksInstalled.enter) {
+      ta.addEventListener('keydown', (e) => {
+        try {
+          const key = (e as KeyboardEvent).key || (e as KeyboardEvent).code;
+          if ((key === 'Enter' || key === 'NumpadEnter') && !(e as KeyboardEvent).shiftKey) {
+            markUserSendIntent_ACU();
+          }
+        } catch (err) {}
+      }, true);
+      (window as any).__ACU_sendIntentHooksInstalled.enter = true;
+    }
+
+    if ((!sendBtn || !ta) && !(window as any).__ACU_sendIntentHooksRetryScheduled) {
+      (window as any).__ACU_sendIntentHooksRetryScheduled = true;
+      setTimeout(() => {
+        (window as any).__ACU_sendIntentHooksRetryScheduled = false;
+        installSendIntentCaptureHooks_ACU();
+      }, 1200);
+    }
+  } catch (e) {
+    // ignore
+  }
+}
 
 export   function mainInitialize_ACU() {
-    // 注入 data 层依赖（打破 data→service 的循环依赖）
-    _injectCharSettingsDeps(() => settings_ACU, () => currentChatFileIdentifier_ACU);
-    _injectIsolationRepoDeps(() => settings_ACU);
-    _injectProfileRepoDeps(() => settings_ACU);
-    _injectTableRepoDeps({
-      getSettings: () => settings_ACU,
-      getCurrentJsonTableData: () => currentJsonTableData_ACU,
-      setCurrentJsonTableData: (v) => _set_currentJsonTableData_ACU(v),
-      getCurrentIsolationKey: () => getCurrentIsolationKey_ACU(),
-      showToastr: (...args) => { try { const { showToastr_ACU } = require('../../service/runtime/toast-service'); showToastr_ACU(...args); } catch(e) {} },
-      applyTemplateScopeForCurrentChat: (...args) => { const { applyTemplateScopeForCurrentChat_ACU } = require('../../service/settings/settings-service'); return applyTemplateScopeForCurrentChat_ACU(...args); },
-      attachSeedRowsToCurrentDataFromGuide: (...args) => { const m = require('../../service/template/chat-scope'); return m.attachSeedRowsToCurrentDataFromGuide_ACU(...args); },
-      buildChatSheetGuideDataFromData: (...args) => { const m = require('../../service/template/chat-scope'); return m.buildChatSheetGuideDataFromData_ACU(...args); },
-      ensureChatSheetGuideSeeded: (...args) => { const m = require('../../service/template/chat-scope'); return m.ensureChatSheetGuideSeeded_ACU(...args); },
-      getChatSheetGuideDataForIsolationKey: (...args) => { const m = require('../../service/template/chat-scope'); return m.getChatSheetGuideDataForIsolationKey_ACU(...args); },
-      getSortedSheetKeys: (...args) => { const m = require('../../service/template/chat-scope'); return m.getSortedSheetKeys_ACU(...args); },
-      sanitizeSheetForStorage: (...args) => { const m = require('../../service/template/chat-scope'); return m.sanitizeSheetForStorage_ACU(...args); },
-      setChatSheetGuideDataForIsolationKey: (...args) => { const m = require('../../service/template/chat-scope'); return m.setChatSheetGuideDataForIsolationKey_ACU(...args); },
-      deleteAllGeneratedEntries: (...args) => { const m = require('../../service/worldbook/pipeline'); return m.deleteAllGeneratedEntries_ACU(...args); },
-      refreshMergedDataAndNotify: (...args) => { const m = require('../../service/worldbook/pipeline'); return m.refreshMergedDataAndNotify_ACU(...args); },
-      mergeAllIndependentTables: (...args) => { const m = require('../../service/runtime/helpers-remaining'); return m.mergeAllIndependentTables_ACU(...args); },
-    });
 
     console.log('ACU_INIT_DEBUG: mainInitialize_ACU called.');
     if (attemptToLoadCoreApis_ACU()) {
@@ -133,7 +152,7 @@ export   function mainInitialize_ACU() {
                     try {
                       // [优化] 传递原始用户输入用于哈希匹配
                       // 注意：在 TavernHelper.generate 钩子中，userMessage 就是原始用户输入
-                      const finalMessage = await runOptimizationLogic_ACU(userMessage, {
+                      const finalMessage = await runOptimizationLogicWithUI_ACU(userMessage, {
                         originalUserInput: userMessage,
                         hasExistingUserMessage: false,
                       });
@@ -210,7 +229,7 @@ export   function mainInitialize_ACU() {
              applyTemplateScopeForCurrentChat_ACU();
  
             // 3. 刷新数据（UI 刷新由 presentation 层负责）
-            await refreshMergedDataAndNotify_ACU();
+            await refreshMergedDataAndNotifyWithUI_ACU();
             
             // [新增] 再次强制刷新状态显示，确保UI同步
             if (typeof updateCardUpdateStatusDisplay_ACU === 'function') {
@@ -316,7 +335,7 @@ export   function mainInitialize_ACU() {
 
                   // [优化] 传递原始用户输入用于哈希匹配
                   // 注意：在策略1中，lastMessage.mes 就是原始用户输入（还未被规划结果替换）
-                  const finalMessage = await runOptimizationLogic_ACU(messageToProcess, {
+                  const finalMessage = await runOptimizationLogicWithUI_ACU(messageToProcess, {
                     originalUserInput: messageToProcess,
                     hasExistingUserMessage: true,
                   });
@@ -351,7 +370,6 @@ export   function mainInitialize_ACU() {
                       try {
                         const t = finalMessage.restoreText ?? messageToProcess;
                         setSendTextareaValue_ACU(t);
-                        ;
                       } catch (e) {}
                     }
                     return;
@@ -367,7 +385,6 @@ export   function mainInitialize_ACU() {
                     // 清空输入框
                     if (getSendTextareaValue_ACU() === messageToProcess) {
                       setSendTextareaValue_ACU('');
-                      ;
                     }
                   }
                 } catch (error) {
@@ -391,7 +408,7 @@ export   function mainInitialize_ACU() {
               // [优化] 传递原始用户输入用于哈希匹配
               // 注意：在策略2中，textInBox 就是原始用户输入（还未被规划结果替换）
               const originalInputText = String(textInBox);
-              const finalMessage = await runOptimizationLogic_ACU(originalInputText, {
+              const finalMessage = await runOptimizationLogicWithUI_ACU(originalInputText, {
                 originalUserInput: originalInputText,
                 hasExistingUserMessage: false,
               });
@@ -419,7 +436,6 @@ export   function mainInitialize_ACU() {
               if (finalMessage && typeof finalMessage === 'string') {
                 // 关键：写回输入框 + 写回 params.prompt（供本次生成使用），达到“先规划再发送”的效果
                 setSendTextareaValue_ACU(finalMessage);
-                ;
                 try { params.prompt = finalMessage; } catch (e) {}
               }
             } catch (error) {
@@ -439,7 +455,7 @@ export   function mainInitialize_ACU() {
                     clearTimeout(newMessageDebounceTimer_ACU);
                     _set_newMessageDebounceTimer_ACU(setTimeout(async () => {
                         // [修复] 重新合并数据并更新UI和世界书
-                        await refreshMergedDataAndNotify_ACU();
+                        await refreshMergedDataAndNotifyWithUI_ACU();
                     }, 500)); // 使用防抖处理快速滑动
                 });
             }
@@ -471,7 +487,7 @@ export   function mainInitialize_ACU() {
               
               // 再次强制刷新数据和UI，确保初始加载时表格显示正确
               await loadAllChatMessages_ACU();
-              await refreshMergedDataAndNotify_ACU();
+              await refreshMergedDataAndNotifyWithUI_ACU();
               
               if (typeof updateCardUpdateStatusDisplay_ACU === 'function') {
                  updateCardUpdateStatusDisplay_ACU();

@@ -1,20 +1,22 @@
 import { DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_PLOT_SETTINGS_ACU, TABLE_TEMPLATE_ACU } from '../../shared/defaults-json.js';
-import { getCurrentWorldbookConfig_ACU } from '../../data/repositories/character-settings-repo';
-import { getDataIsolationHistory_ACU, removeDataIsolationHistory_ACU } from '../../data/repositories/isolation-repo';
-import { globalMeta_ACU, saveGlobalMeta_ACU } from '../../data/repositories/profile-repo';
-import { deriveTemplatePresetNameForImport_ACU, getCurrentTemplatePresetName_ACU, isDefaultTemplatePresetSelection_ACU, normalizeTemplatePresetSelectionValue_ACU, persistCurrentTemplatePresetName_ACU } from '../../data/repositories/template-preset-repo';
+import { deriveTemplatePresetNameForImport_ACU, getCurrentTemplatePresetName_ACU, isDefaultTemplatePresetSelection_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
 import { updateImportStatusUI_ACU, handleTxtImportAndSplit_ACU } from '../components/import-status-ui';
-import { addPlotTaskFromUI_ACU, buildDefaultPlotPromptGroup_ACU, deleteCurrentPlotTaskFromUI_ACU, getCharCardPromptFromUI_ACU, getPlotPromptGroupFromUI_ACU, loadCurrentPlotTaskToUI_ACU, moveCurrentPlotTask_ACU, renderPlotPromptSegments_ACU, renderPlotTaskList_ACU, renderPromptSegments_ACU, saveCurrentPlotTaskFromUI_ACU, schedulePlotTaskAutoSave_ACU, selectPlotTaskForEditing_ACU } from '../components/plot-editors';
-import { getTemplatePreset_ACU } from '../components/template-preset-ui';
+import { addPlotTaskFromUI_ACU, deleteCurrentPlotTaskFromUI_ACU, getCharCardPromptFromUI_ACU, getPlotPromptGroupFromUI_ACU, loadCurrentPlotTaskToUI_ACU, moveCurrentPlotTask_ACU, renderPlotPromptSegments_ACU, renderPlotTaskList_ACU, renderPromptSegments_ACU, saveCurrentPlotTaskFromUI_ACU, schedulePlotTaskAutoSave_ACU, selectPlotTaskForEditing_ACU } from '../components/plot-editors';
+import { buildDefaultPlotPromptGroup_ACU } from '../../service/plot/plot-state';
+import { getTemplatePreset_ACU } from '../../service/template/template-preset-service';
 import { openNewVisualizer_ACU } from './visualizer';
-import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../theme/toast';
+import { showToastr_ACU } from '../theme/toast';
+import { ACU_TOAST_CATEGORY_ACU } from '../../shared/constants';
 import { importCombinedSettings_ACU } from '../triggers/admin-ui';
 import { clearImportLocalStorage_ACU, clearImportedEntries_ACU, deleteImportedEntries_ACU, handleInjectImportedTxtSelected_ACU } from '../triggers/import-process';
 import { buildDefaultContentOptimizationPromptGroup_ACU } from '../../service/optimization/content-optimization';
 import { stopAutoLoop_ACU } from '../triggers/auto-loop';
 import {
   currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU,
-  jQuery_API_ACU, toastr_API_ACU, TavernHelper_API_ACU, $popupInstance_ACU,
+  jQuery_API_ACU, toastr_API_ACU, TavernHelper_API_ACU
+} from '../../service/runtime/state-manager';
+import {
+  $popupInstance_ACU,
   $apiConfigSectionToggle_ACU, $apiConfigAreaDiv_ACU, $customApiUrlInput_ACU, $customApiKeyInput_ACU,
   $customApiModelInput_ACU, $customApiModelSelect_ACU, $maxTokensInput_ACU, $temperatureInput_ACU,
   $loadModelsButton_ACU, $saveApiConfigButton_ACU, $clearApiConfigButton_ACU, $apiStatusDisplay_ACU,
@@ -32,19 +34,22 @@ import {
   $manualTableSelectAll_ACU, $manualTableSelectNone_ACU, $importTableSelector_ACU,
   $importTableSelectAll_ACU, $importTableSelectNone_ACU,
   _assignUIPlaceholders_ACU
-} from '../../service/runtime/state-manager';
-import { applyTemplateScopeForCurrentChat_ACU, saveSettings_ACU, switchIsolationProfile_ACU } from '../../service/settings/settings-service';
+} from '../state/ui-refs';
+import { applyTemplateScopeForCurrentChat_ACU, getCurrentWorldbookConfig_ACU, getDataIsolationHistory_ACU, persistCurrentTemplatePresetName_ACU, removeDataIsolationHistory_ACU, setZeroTkOccupyMode_ACU, switchIsolationProfile_ACU } from '../../service/settings/settings-service';
+import { saveSettingsAndNotify_ACU } from '../components/settings-ui-helpers';
 import { loadSettingsAndRefreshUI_ACU } from '../components/settings-ui-helpers';
 import { handleManualUpdate_ACU } from '../triggers/update-process';
 import { getChatSheetGuideDataForIsolationKey_ACU, getCurrentChatPlotScopeState_ACU, getCurrentChatTemplateScopeState_ACU, sanitizeTemplateSnapshotForChat_ACU } from '../../service/template/chat-scope';
-import { deleteAllGeneratedEntries_ACU, getLorebookEntriesByNames_ACU, getWorldBooks_ACU, refreshMergedDataAndNotify_ACU, updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
+import { deleteAllGeneratedEntries_ACU, getLorebookEntriesByNames_ACU, getWorldBooks_ACU, updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
+import { refreshMergedDataAndNotifyWithUI_ACU } from '../components/pipeline-ui-helpers';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { topLevelWindow_ACU } from '../../shared/env';
 import { escapeHtml_ACU } from '../../shared/html-helpers';
 import { logDebug_ACU, logError_ACU, logWarn_ACU, normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shared/utils';
-import { loadOrCreateJsonTableFromChatHistory_ACU } from '../../data/repositories/table-repo';
+import { loadOrCreateJsonTableFromChatHistory_ACU } from '../../service/table/table-service';
 import { appendExcludeRuleRow_ACU, applyGlobalPlotPresetSelectionForEditor_ACU, applyPlotPresetToSettings_ACU, clearPlotPresetBindingForChat_ACU, ensureLoopPromptsArray_ACU, ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getCurrentRuntimePlotPresetName_ACU, getLastOptimizedMessageIndex_ACU, getPlotPresetBindingForChat_ACU, isDefaultPlotPresetSelection_ACU, normalizePlotPresetExcludeRules_ACU, normalizePlotPresetSelectionValue_ACU, persistPlotPresetSelectionState_ACU, readExcludeRulesFromRows_ACU, renderLoopPromptsList_ACU, reoptimizeMessage_ACU, saveLoopPromptsFromUI_ACU, setActivePlotEditorSettings_ACU, setCurrentEditablePlotPresetState_ACU, setPlotPromptContentByIdForSettings_ACU, stripPlotPresetWorldbookEntrySelectionForExport_ACU, switchCurrentChatPlotPreset_ACU } from '../components/optimization-ui';
-import { applyTemplatePresetToCurrent_ACU, applyTemplateSnapshotToScope_ACU, deleteTemplatePreset_ACU, ensureUniqueTemplatePresetName_ACU, loadTemplatePresetSelect_ACU, normalizeTemplateForPresetSave_ACU, parseImportedTemplateData_ACU, persistTemplateScopeSelectionState_ACU, resolveActiveTemplatePresetName_ACU, upsertTemplatePreset_ACU } from '../components/template-preset-ui';
+import { applyTemplatePresetToCurrent_ACU, applyTemplateSnapshotToScope_ACU, deleteTemplatePreset_ACU, ensureUniqueTemplatePresetName_ACU, normalizeTemplateForPresetSave_ACU, parseImportedTemplateData_ACU, persistTemplateScopeSelectionState_ACU, resolveActiveTemplatePresetName_ACU, upsertTemplatePreset_ACU } from '../../service/template/template-preset-service';
+import { loadTemplatePresetSelect_ACU } from '../components/template-preset-ui';
 import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-display';
 import { applyWorldbookEntryFilter_ACU, applyWorldbookListFilter_ACU, applyWorldbookSelectFilter_ACU, getPlotWorldbookConfig_ACU, isEntryBlocked_ACU, populateImportWorldbookTargetSelector_ACU, populateInjectionTargetSelector_ACU, populatePlotWorldbookEntryList_ACU, populateWorldbookEntryList_ACU, populateWorldbookList_ACU, renderLazyWorldbookEntryItems_ACU, toggleLazyWorldbookEntryGroup_ACU, updateLazyWorldbookEntryCheckedState_ACU, updatePlotWorldbookSourceView_ACU, updateWorldbookSourceView_ACU } from '../components/worldbook-selector';
 import { getCurrentPlotSettingsFromUI_ACU, getOptimizationPromptGroupFromUI_ACU, loadOptimizationPresetSelect_ACU, loadOptimizationSettingsToUI_ACU, loadPlotPresetSelect_ACU, loadPlotSettingsToUI_ACU, renderOptimizationPromptSegments_ACU, saveOptimizationPresetAsNew_ACU, savePlotPresetAsNew_ACU } from './popup-helpers';
@@ -197,7 +202,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
 
               // 2. 更新设置为新目标并保存
               worldbookConfig.injectionTarget = newTargetSetting;
-              saveSettings_ACU();
+              saveSettingsAndNotify_ACU();
               logDebug_ACU(`Injection target changed from "${oldTargetSetting}" to "${newTargetSetting}" for char ${currentChatFileIdentifier_ACU}.`);
 
               // 3. 向新目标注入条目
@@ -241,7 +246,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
             $apiModeRadios.on('change', function() {
                 const selectedMode = jQuery_API_ACU(this).val();
                 settings_ACU.apiMode = selectedMode;
-                saveSettings_ACU();
+                saveSettingsAndNotify_ACU();
                 updateApiModeView_ACU(selectedMode);
             });
         }
@@ -251,7 +256,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
         if ($tavernProfileSelect.length) {
             $tavernProfileSelect.on('change', function() {
                 settings_ACU.tavernProfile = jQuery_API_ACU(this).val();
-                saveSettings_ACU();
+                saveSettingsAndNotify_ACU();
             });
         }
 
@@ -401,7 +406,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
           $worldbookSourceRadios.on('change', async function() {
               const worldbookConfig = getCurrentWorldbookConfig_ACU();
               worldbookConfig.source = jQuery_API_ACU(this).val();
-              saveSettings_ACU();
+              saveSettingsAndNotify_ACU();
               await updateWorldbookSourceView_ACU();
           });
       }
@@ -444,14 +449,14 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
       if ($importWorldbookTargetSelect.length) {
           $importWorldbookTargetSelect.on('change', function() {
               settings_ACU.importWorldbookTarget = jQuery_API_ACU(this).val();
-              saveSettings_ACU();
+              saveSettingsAndNotify_ACU();
               logDebug_ACU(`Import worldbook target changed to: ${settings_ACU.importWorldbookTarget}`);
           });
       }
       if ($importPromptExcludeImportedEntriesToggle.length) {
           $importPromptExcludeImportedEntriesToggle.off('change.acu_import_prompt_filter').on('change.acu_import_prompt_filter', function() {
               settings_ACU.importPromptExcludeImportedWorldbookEntries = jQuery_API_ACU(this).is(':checked');
-              saveSettings_ACU();
+              saveSettingsAndNotify_ACU();
               logDebug_ACU(`[外部导入] importPromptExcludeImportedWorldbookEntries=${settings_ACU.importPromptExcludeImportedWorldbookEntries}`);
           });
       }
@@ -491,7 +496,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                   worldbookConfig.enabledEntries[bookName] = entries.filter(isWorldbookEntryAllowedForUI_ACU).map(entry => entry.uid);
               }
           }
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           await populateWorldbookEntryList_ACU();
       };
       if ($worldbookSelect.length) {
@@ -513,7 +518,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
               worldbookConfig.manualSelection = selection;
               $item.toggleClass('selected'); // Toggle visual state
               
-              saveSettings_ACU();
+              saveSettingsAndNotify_ACU();
               await populateWorldbookEntryList_ACU();
           });
       }
@@ -537,7 +542,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                   enabledList.splice(index, 1);
               }
               updateLazyWorldbookEntryCheckedState_ACU($worldbookEntryList, bookName, entryUid, checked);
-              saveSettings_ACU();
+              saveSettingsAndNotify_ACU();
           });
           $worldbookEntryList.off('click.acu_wb_toggle').on('click.acu_wb_toggle', '.qrf_worldbook_entry_toggle', function() {
               const bookName = jQuery_API_ACU(this).closest('.qrf_worldbook_entry_group').data('book-name');
@@ -551,20 +556,13 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
           });
       }
 
-      // [新增] “总结大纲(总体大纲)”条目启用开关
+      // [新增] "总结大纲(总体大纲)"条目启用开关
       const $outlineEnabledToggle = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-outline-entry-enabled`);
       if ($outlineEnabledToggle.length) {
           $outlineEnabledToggle.off('change.acu_outline_toggle').on('change.acu_outline_toggle', async function() {
-              // UI 是“0TK占用模式”
+              // UI 是"0TK占用模式"
               const modeEnabled = jQuery_API_ACU(this).is(':checked');
-              const worldbookConfig = getCurrentWorldbookConfig_ACU();
-              worldbookConfig.zeroTkOccupyMode = !!modeEnabled;
-              // 兼容：同步旧字段（旧语义：true=条目启用）
-              worldbookConfig.outlineEntryEnabled = !modeEnabled;
-              settings_ACU.zeroTkOccupyModeDefault = !!modeEnabled;
-              globalMeta_ACU.zeroTkOccupyModeGlobal = !!modeEnabled;
-              saveGlobalMeta_ACU();
-              saveSettings_ACU();
+              setZeroTkOccupyMode_ACU(modeEnabled);
               showToastr_ACU(
                   'info',
                   `0TK占用模式已${modeEnabled ? '启用' : '禁用'}（世界书中该条目显示为 ${modeEnabled ? '禁用' : '启用'}）。`,
@@ -652,7 +650,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
               settings_ACU.autoMergeThreshold = parseInt($autoThreshold.val()) || 20;
               settings_ACU.autoMergeReserve = parseInt($autoReserve.val()) || 0;
 
-              saveSettings_ACU();
+              saveSettingsAndNotify_ACU();
               showToastr_ACU('success', '所有合并设置已保存！');
           });
       }
@@ -689,7 +687,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                   settings_ACU.autoMergeThreshold = 20;
                   settings_ACU.autoMergeReserve = 0;
 
-                  saveSettings_ACU();
+                  saveSettingsAndNotify_ACU();
                   showToastr_ACU('success', '所有合并设置已恢复默认值并保存。', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.MERGE_TABLE });
               }
           });
@@ -721,7 +719,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
       if ($useMainApiCheckbox_ACU.length) {
         $useMainApiCheckbox_ACU.on('change', function () {
             settings_ACU.apiConfig.useMainApi = jQuery_API_ACU(this).is(':checked');
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
             updateCustomApiInputsState_ACU();
             showToastr_ACU('info', `自定义API已切换为 ${settings_ACU.apiConfig.useMainApi ? '使用主API' : '使用独立配置'}`);
         });
@@ -730,7 +728,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
       if ($streamingEnabledCheckbox_ACU.length) {
         $streamingEnabledCheckbox_ACU.on('change', function () {
             settings_ACU.streamingEnabled = jQuery_API_ACU(this).is(':checked');
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
             showToastr_ACU('info', `流式传输已${settings_ACU.streamingEnabled ? '启用' : '关闭'}`);
         });
       }
@@ -779,7 +777,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
       // 填表API预设选择器
       $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-table-api-preset-select`).on('change', function() {
         settings_ACU.tableApiPreset = jQuery_API_ACU(this).val();
-        saveSettings_ACU();
+        saveSettingsAndNotify_ACU();
         logDebug_ACU(`填表API预设已切换为: ${settings_ACU.tableApiPreset || '当前配置'}`);
       });
 
@@ -792,13 +790,13 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
       });
       $popupInstance_ACU.on('input', `#${SCRIPT_ID_PREFIX_ACU}-table-context-extract-rules .acu-exclude-rule-start, #${SCRIPT_ID_PREFIX_ACU}-table-context-extract-rules .acu-exclude-rule-end`, function() {
         settings_ACU.tableContextExtractRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-table-context-extract-rules`);
-        saveSettings_ACU();
+        saveSettingsAndNotify_ACU();
       });
       $popupInstance_ACU.on('click', `#${SCRIPT_ID_PREFIX_ACU}-table-context-extract-rules .acu-exclude-rule-delete`, function() {
         const $row = jQuery_API_ACU(this).closest('.acu-exclude-rule-row');
         if ($row.length) $row.remove();
         settings_ACU.tableContextExtractRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-table-context-extract-rules`);
-        saveSettings_ACU();
+        saveSettingsAndNotify_ACU();
       });
 
       // 填表正文标签排除规则编辑器
@@ -810,19 +808,19 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
       });
       $popupInstance_ACU.on('input', `#${SCRIPT_ID_PREFIX_ACU}-table-context-exclude-rules .acu-exclude-rule-start, #${SCRIPT_ID_PREFIX_ACU}-table-context-exclude-rules .acu-exclude-rule-end`, function() {
         settings_ACU.tableContextExcludeRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-table-context-exclude-rules`);
-        saveSettings_ACU();
+        saveSettingsAndNotify_ACU();
       });
       $popupInstance_ACU.on('click', `#${SCRIPT_ID_PREFIX_ACU}-table-context-exclude-rules .acu-exclude-rule-delete`, function() {
         const $row = jQuery_API_ACU(this).closest('.acu-exclude-rule-row');
         if ($row.length) $row.remove();
         settings_ACU.tableContextExcludeRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-table-context-exclude-rules`);
-        saveSettings_ACU();
+        saveSettingsAndNotify_ACU();
       });
 
       // 剧情推进API预设选择器
       $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-api-preset-select`).on('change', function() {
         settings_ACU.plotApiPreset = jQuery_API_ACU(this).val();
-        saveSettings_ACU();
+        saveSettingsAndNotify_ACU();
         logDebug_ACU(`剧情推进API预设已切换为: ${settings_ACU.plotApiPreset || '当前配置'}`);
       });
 
@@ -831,7 +829,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
       if ($saveCharCardPromptButton_ACU.length) $saveCharCardPromptButton_ACU.on('click', saveCustomCharCardPrompt_ACU);
       if ($resetCharCardPromptButton_ACU.length)
         $resetCharCardPromptButton_ACU.on('click', resetDefaultCharCardPrompt_ACU);
-      // 由上方“提示词组 JSON 导入/导出”统一做 off/on 绑定，避免重复绑定导致多次触发
+      // 由上方"提示词组 JSON 导入/导出"统一做 off/on 绑定，避免重复绑定导致多次触发
       // if ($loadCharCardPromptFromJsonButton_ACU.length) $loadCharCardPromptFromJsonButton_ACU.on('click', loadCharCardPromptFromJson_ACU);
       
       // --- [新增] 对话编辑器事件绑定 ---
@@ -859,7 +857,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
           const $currentSegment = jQuery_API_ACU(this).closest('.prompt-segment');
           const selected = String(jQuery_API_ACU(this).val() || '').toUpperCase();
 
-          // 1) A/B 槽位唯一：同槽位的其他段落自动改为“普通”
+          // 1) A/B 槽位唯一：同槽位的其他段落自动改为"普通"
           if (selected === 'A' || selected === 'B') {
             $charCardPromptSegmentsContainer_ACU
               .find('.prompt-segment')
@@ -892,7 +890,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
       });
       
 
-      // [优化] 填表相关参数：取消“保存按钮”，改为输入后自动保存（与剧情推进一致）
+      // [优化] 填表相关参数：取消"保存按钮"，改为输入后自动保存（与剧情推进一致）
       const bindAutoSaveNumberInput_ACU = ($input, saveFn, debounceMs = 450) => {
           if (!$input || !$input.length || typeof saveFn !== 'function') return;
           let t = null;
@@ -919,7 +917,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
       if ($autoUpdateEnabledCheckbox_ACU.length) {
         $autoUpdateEnabledCheckbox_ACU.on('change', function () {
           settings_ACU.autoUpdateEnabled = jQuery_API_ACU(this).is(':checked');
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           logDebug_ACU('数据库自动更新启用状态已保存:', settings_ACU.autoUpdateEnabled);
           showToastr_ACU('info', `数据库自动更新已 ${settings_ACU.autoUpdateEnabled ? '启用' : '禁用'}`);
         });
@@ -927,7 +925,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
       if ($standardizedTableFillEnabledCheckbox_ACU && $standardizedTableFillEnabledCheckbox_ACU.length) {
         $standardizedTableFillEnabledCheckbox_ACU.on('change', function () {
           settings_ACU.standardizedTableFillEnabled = jQuery_API_ACU(this).is(':checked');
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           logDebug_ACU('规范填表功能启用状态已保存:', settings_ACU.standardizedTableFillEnabled);
           showToastr_ACU('info', `规范填表功能已 ${settings_ACU.standardizedTableFillEnabled ? '开启' : '关闭'}`, {
             acuToastCategory: ACU_TOAST_CATEGORY_ACU.MANUAL_TABLE,
@@ -937,9 +935,9 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
       if ($toastMuteEnabledCheckbox_ACU && $toastMuteEnabledCheckbox_ACU.length) {
         $toastMuteEnabledCheckbox_ACU.on('change', function () {
           settings_ACU.toastMuteEnabled = jQuery_API_ACU(this).is(':checked');
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           logDebug_ACU('静默提示框启用状态已保存:', settings_ACU.toastMuteEnabled);
-          // 该提示属于“导入/手动操作类”允许项，避免用户开启后无反馈
+          // 该提示属于"导入/手动操作类"允许项，避免用户开启后无反馈
           showToastr_ACU('info', `静默提示框已 ${settings_ACU.toastMuteEnabled ? '开启' : '关闭'}`, {
             acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT,
           });
@@ -951,7 +949,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
             settings_ACU.promptTemplateSettings = { enabled: true, maxNestingDepth: 10, debugMode: false };
           }
           settings_ACU.promptTemplateSettings.enabled = jQuery_API_ACU(this).is(':checked');
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           logDebug_ACU('条件模板功能启用状态已保存:', settings_ACU.promptTemplateSettings.enabled);
           showToastr_ACU('info', `条件模板功能已 ${settings_ACU.promptTemplateSettings.enabled ? '开启' : '关闭'}`, {
             acuToastCategory: ACU_TOAST_CATEGORY_ACU.MANUAL_TABLE,
@@ -961,7 +959,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
       if ($tableEditLastPairOnlyCheckbox_ACU && $tableEditLastPairOnlyCheckbox_ACU.length) {
         $tableEditLastPairOnlyCheckbox_ACU.on('change', function () {
           settings_ACU.tableEditLastPairOnly = jQuery_API_ACU(this).is(':checked');
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           logDebug_ACU('仅识别最后一对 tableEdit 启用状态已保存:', settings_ACU.tableEditLastPairOnly);
           showToastr_ACU('info', `tableEdit 解析将${settings_ACU.tableEditLastPairOnly ? '仅使用最后一对标签' : '按全部标签优先匹配'}`, {
             acuToastCategory: ACU_TOAST_CATEGORY_ACU.MANUAL_TABLE,
@@ -1013,7 +1011,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                 registerChatPresetEntry: true,
             });
             applyTemplateScopeForCurrentChat_ACU();
-            try { await refreshMergedDataAndNotify_ACU(); } catch (e) {}
+            try { await refreshMergedDataAndNotifyWithUI_ACU(); } catch (e) {}
             refreshTemplatePresetUiState_ACU({ keepGlobalValue: true });
             if (showToast) {
                 showToastr_ACU('success', `当前聊天预设已保存${resolvedPresetName ? `（预设名：${resolvedPresetName}）` : '（默认预设）'}；后续在此聊天再次保存会直接覆盖同名聊天预设。`, {
@@ -1058,7 +1056,6 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                 const result = await applyTemplatePresetToCurrent_ACU(name, {
                     source: 'ui_global_select',
                     updateGlobal: true,
-                    refreshUi: true,
                     save: true,
                     persistChatScope: false,
                 });
@@ -1079,7 +1076,6 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                 const result = await applyTemplatePresetToCurrent_ACU(name, {
                     source: 'ui_chat_select',
                     updateGlobal: false,
-                    refreshUi: true,
                     save: true,
                     persistChatScope: true,
                 });
@@ -1121,7 +1117,6 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                 const applied = await applyTemplatePresetToCurrent_ACU(finalName, {
                     source: 'ui_global_save',
                     updateGlobal: true,
-                    refreshUi: true,
                     save: true,
                     persistChatScope: false,
                 });
@@ -1157,7 +1152,6 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                 const applied = await applyTemplatePresetToCurrent_ACU(finalName, {
                     source: 'ui_global_save_as',
                     updateGlobal: true,
-                    refreshUi: true,
                     save: true,
                     persistChatScope: false,
                 });
@@ -1194,7 +1188,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                 }
                 if (normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false })) === oldName) {
                     persistCurrentTemplatePresetName_ACU(settings_ACU, nn, { save: false });
-                    saveSettings_ACU();
+                    saveSettingsAndNotify_ACU();
                 }
                 refreshTemplatePresetUiState_ACU({ globalSelectName: nn, keepGlobalValue: false });
                 showToastr_ACU('success', `全局模板预设已重命名：${oldName} → ${nn}`, { acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT });
@@ -1257,7 +1251,6 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                 const applied = await applyTemplatePresetToCurrent_ACU(finalName, {
                     source: 'ui_chat_save_to_global',
                     updateGlobal: true,
-                    refreshUi: true,
                     save: true,
                     persistChatScope: false,
                 });
@@ -1297,7 +1290,6 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                             scope: 'chat',
                             source: 'ui_chat_import',
                             presetName,
-                            refreshUi: true,
                             save: true,
                             persistChatScope: true,
                             registerChatPresetEntry: true,
@@ -1305,7 +1297,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                         if (!applied) {
                             throw new Error('模板结构无效，无法生成当前聊天模板预设。');
                         }
-                        try { await refreshMergedDataAndNotify_ACU(); } catch (e) {}
+                        try { await refreshMergedDataAndNotifyWithUI_ACU(); } catch (e) {}
                         refreshTemplatePresetUiState_ACU({ keepGlobalValue: true });
                         showToastr_ACU('success', `当前聊天模板预设已导入${presetName ? `（预设名：${presetName}）` : ''}；同名聊天预设会直接覆盖。`, {
                             acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT,
@@ -1344,7 +1336,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                 // 保存楼层范围设置
                 settings_ACU.deleteStartFloor = startFloor;
                 settings_ACU.deleteEndFloor = endFloor;
-                saveSettings_ACU();
+                saveSettingsAndNotify_ACU();
 
                 const identityText = settings_ACU.dataIsolationEnabled ? `标识 [${settings_ACU.dataIsolationCode}]` : "所有标识";
                 const rangeText = startFloor && endFloor ? `第${startFloor}到${endFloor}AI楼层` :
@@ -1368,7 +1360,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTa
                 // 保存楼层范围设置
                 settings_ACU.deleteStartFloor = startFloor;
                 settings_ACU.deleteEndFloor = endFloor;
-                saveSettings_ACU();
+                saveSettingsAndNotify_ACU();
 
                 const rangeText = startFloor && endFloor ? `第${startFloor}到${endFloor}AI楼层` :
                                 startFloor ? `从第${startFloor}AI楼层开始` :
@@ -1472,7 +1464,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       if ($plotEnabledCheckbox.length) {
         $plotEnabledCheckbox.on('change', function() {
           settings_ACU.plotSettings.enabled = jQuery_API_ACU(this).is(':checked');
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
         });
       }
 
@@ -1487,7 +1479,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           if (!plotSettings) return;
           plotSettings.finalSystemDirective = value;
           setPlotPromptContentByIdForSettings_ACU(plotSettings, 'finalSystemDirective', value);
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
         });
       }
 
@@ -1620,7 +1612,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             const plotSettings = getActivePlotEditorSettings_ACU();
             if (!plotSettings) return;
             plotSettings[key] = parseFloat(jQuery_API_ACU(this).val()) || defaultValue;
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
           });
         }
       });
@@ -1657,7 +1649,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
               plotSettings[key] = value;
             }
 
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
           });
         }
       });
@@ -1673,7 +1665,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         const plotSettings = getActivePlotEditorSettings_ACU();
         if (!plotSettings) return;
         plotSettings.contextExtractRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-extract-rules`);
-        saveSettings_ACU();
+        saveSettingsAndNotify_ACU();
       });
       $popupInstance_ACU.on('click', `#${SCRIPT_ID_PREFIX_ACU}-plot-context-extract-rules .acu-exclude-rule-delete`, function() {
         const plotSettings = getActivePlotEditorSettings_ACU();
@@ -1681,7 +1673,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         const $row = jQuery_API_ACU(this).closest('.acu-exclude-rule-row');
         if ($row.length) $row.remove();
         plotSettings.contextExtractRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-extract-rules`);
-        saveSettings_ACU();
+        saveSettingsAndNotify_ACU();
       });
 
       // 剧情推进标签排除规则编辑器
@@ -1695,7 +1687,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         const plotSettings = getActivePlotEditorSettings_ACU();
         if (!plotSettings) return;
         plotSettings.contextExcludeRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-exclude-rules`);
-        saveSettings_ACU();
+        saveSettingsAndNotify_ACU();
       });
       $popupInstance_ACU.on('click', `#${SCRIPT_ID_PREFIX_ACU}-plot-context-exclude-rules .acu-exclude-rule-delete`, function() {
         const plotSettings = getActivePlotEditorSettings_ACU();
@@ -1703,7 +1695,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         const $row = jQuery_API_ACU(this).closest('.acu-exclude-rule-row');
         if ($row.length) $row.remove();
         plotSettings.contextExcludeRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-exclude-rules`);
-        saveSettings_ACU();
+        saveSettingsAndNotify_ACU();
       });
 
       // 循环提示词列表管理
@@ -1775,7 +1767,6 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           const selectedName = normalizePlotPresetSelectionValue_ACU(jQuery_API_ACU(this).val());
           const result = applyGlobalPlotPresetSelectionForEditor_ACU(selectedName, {
             source: 'ui_global_select',
-            refreshUi: true,
             save: true,
           });
 
@@ -1792,7 +1783,6 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           const selectedName = normalizePlotPresetSelectionValue_ACU(jQuery_API_ACU(this).val());
           const result = switchCurrentChatPlotPreset_ACU(selectedName, {
             source: 'ui',
-            refreshUi: true,
             save: true,
           });
 
@@ -1858,7 +1848,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         $plotSavePreset.on('click', function() {
           const selectedName = normalizePlotPresetSelectionValue_ACU($plotPresetSelect.val());
           if (isDefaultPlotPresetSelection_ACU(selectedName)) {
-            // 如果当前是默认预设，则等同于“另存为新的全局预设”
+            // 如果当前是默认预设，则等同于"另存为新的全局预设"
             savePlotPresetAsNew_ACU();
             return;
           }
@@ -1896,7 +1886,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             source: 'ui_global_save',
           });
           persistPlotPresetSelectionState_ACU(selectedName, { source: 'ui_global_save', updateGlobal: true, save: false });
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           loadPlotPresetSelect_ACU();
           showToastr_ACU('success', `全局预设 "${selectedName}" 已被成功覆盖。`);
         });
@@ -1939,7 +1929,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
               clearPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU);
             }
 
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
 
             // 刷新预设选择器
             loadPlotPresetSelect_ACU();
@@ -1953,13 +1943,12 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       // 恢复全局默认提示词
       if ($plotResetDefaults.length) {
         $plotResetDefaults.on('click', function() {
-          if (!confirm('确定要恢复全局默认的剧情推进提示词吗？这将覆盖当前的提示词设置，并重置“标签摘取”。')) {
+          if (!confirm('确定要恢复全局默认的剧情推进提示词吗？这将覆盖当前的提示词设置，并重置"标签摘取"。')) {
             return;
           }
 
           const result = applyGlobalPlotPresetSelectionForEditor_ACU('', {
             source: 'ui_global_reset',
-            refreshUi: true,
             save: true,
           });
 
@@ -1968,7 +1957,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             return;
           }
 
-          showToastr_ACU('success', '全局剧情推进提示词与“标签摘取”已恢复为默认值。');
+          showToastr_ACU('success', '全局剧情推进提示词与"标签摘取"已恢复为默认值。');
         });
       }
 
@@ -2055,7 +2044,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
 
               if (importedCount > 0 || overwrittenCount > 0) {
                 settings_ACU.plotSettings.promptPresets = currentPresets;
-                saveSettings_ACU();
+                saveSettingsAndNotify_ACU();
                 loadPlotPresetSelect_ACU();
 
                 let messages = [];
@@ -2124,7 +2113,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       if ($optimizationEnabledCheckbox.length) {
         $optimizationEnabledCheckbox.on('change', function() {
           settings_ACU.contentOptimizationSettings.enabled = jQuery_API_ACU(this).is(':checked');
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
         });
       }
 
@@ -2133,7 +2122,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       if ($optimizationApiPreset.length) {
         $optimizationApiPreset.on('change', function() {
           settings_ACU.contentOptimizationSettings.apiPreset = jQuery_API_ACU(this).val();
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
         });
       }
 
@@ -2144,7 +2133,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           const val = parseInt(jQuery_API_ACU(this).val(), 10);
           if (!isNaN(val) && val >= 0) {
             settings_ACU.contentOptimizationSettings.minLength = val;
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
           }
         });
       }
@@ -2156,7 +2145,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           const val = parseInt(jQuery_API_ACU(this).val(), 10);
           if (!isNaN(val) && val >= 1 && val <= 100) {
             settings_ACU.contentOptimizationSettings.maxOptimizations = val;
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
           }
         });
       }
@@ -2168,7 +2157,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           const val = parseInt(jQuery_API_ACU(this).val(), 10);
           if (!isNaN(val) && val >= 1 && val <= 10) {
             settings_ACU.contentOptimizationSettings.loopCount = val;
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
           }
         });
       }
@@ -2180,7 +2169,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           const val = parseInt(jQuery_API_ACU(this).val(), 10);
           if (!isNaN(val) && val >= 1 && val <= 10) {
             settings_ACU.contentOptimizationSettings.retryCount = val;
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
           }
         });
       }
@@ -2190,7 +2179,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       if ($optimizationSeamlessMode.length) {
         $optimizationSeamlessMode.on('change', function() {
           settings_ACU.contentOptimizationSettings.seamlessMode = jQuery_API_ACU(this).is(':checked');
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
         });
       }
 
@@ -2199,7 +2188,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       if ($optimizationAutoApply.length) {
         $optimizationAutoApply.on('change', function() {
           settings_ACU.contentOptimizationSettings.autoApply = jQuery_API_ACU(this).is(':checked');
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
         });
       }
 
@@ -2208,7 +2197,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       if ($optimizationShowDiff.length) {
         $optimizationShowDiff.on('change', function() {
           settings_ACU.contentOptimizationSettings.showDiff = jQuery_API_ACU(this).is(':checked');
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
         });
       }
 
@@ -2217,7 +2206,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       if ($optimizationParallelMode.length) {
         $optimizationParallelMode.on('change', function() {
           settings_ACU.contentOptimizationSettings.parallelMode = jQuery_API_ACU(this).is(':checked');
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
         });
       }
 
@@ -2228,7 +2217,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           const lastOptimizedMessageIndex = getLastOptimizedMessageIndex_ACU();
 
           if (lastOptimizedMessageIndex < 0) {
-            showToastr_ACU('warning', '当前还没有“已被正文替换过”的 AI 回复可供重新优化');
+            showToastr_ACU('warning', '当前还没有"已被正文替换过"的 AI 回复可供重新优化');
             return;
           }
 
@@ -2248,7 +2237,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       if ($optimizationExtractTags.length) {
         $optimizationExtractTags.on('input', function() {
           settings_ACU.contentOptimizationSettings.extractTags = jQuery_API_ACU(this).val();
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
         });
       }
 
@@ -2261,13 +2250,13 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       });
       $popupInstance_ACU.on('input', `#${SCRIPT_ID_PREFIX_ACU}-optimization-extract-rules .acu-exclude-rule-start, #${SCRIPT_ID_PREFIX_ACU}-optimization-extract-rules .acu-exclude-rule-end`, function() {
         settings_ACU.contentOptimizationSettings.extractRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-optimization-extract-rules`);
-        saveSettings_ACU();
+        saveSettingsAndNotify_ACU();
       });
       $popupInstance_ACU.on('click', `#${SCRIPT_ID_PREFIX_ACU}-optimization-extract-rules .acu-exclude-rule-delete`, function() {
         const $row = jQuery_API_ACU(this).closest('.acu-exclude-rule-row');
         if ($row.length) $row.remove();
         settings_ACU.contentOptimizationSettings.extractRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-optimization-extract-rules`);
-        saveSettings_ACU();
+        saveSettingsAndNotify_ACU();
       });
 
       // 标签排除规则编辑器
@@ -2279,13 +2268,13 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
       });
       $popupInstance_ACU.on('input', `#${SCRIPT_ID_PREFIX_ACU}-optimization-exclude-rules .acu-exclude-rule-start, #${SCRIPT_ID_PREFIX_ACU}-optimization-exclude-rules .acu-exclude-rule-end`, function() {
         settings_ACU.contentOptimizationSettings.excludeRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-optimization-exclude-rules`);
-        saveSettings_ACU();
+        saveSettingsAndNotify_ACU();
       });
       $popupInstance_ACU.on('click', `#${SCRIPT_ID_PREFIX_ACU}-optimization-exclude-rules .acu-exclude-rule-delete`, function() {
         const $row = jQuery_API_ACU(this).closest('.acu-exclude-rule-row');
         if ($row.length) $row.remove();
         settings_ACU.contentOptimizationSettings.excludeRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-optimization-exclude-rules`);
-        saveSettings_ACU();
+        saveSettingsAndNotify_ACU();
       });
 
       // ═══ 正文替换预设管理 ═══
@@ -2317,7 +2306,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
               renderOptimizationPromptSegments_ACU(selectedPreset.promptGroup);
             }
             $optimizationDeletePreset.show();
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
             showToastr_ACU('success', `已加载预设 "${selectedName}"`);
           }
         });
@@ -2388,7 +2377,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           const currentPromptGroup = getOptimizationPromptGroupFromUI_ACU();
           presets[existingIndex] = { name: selectedName, promptGroup: currentPromptGroup };
           settings_ACU.contentOptimizationSettings.promptPresets = presets;
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           showToastr_ACU('success', `预设 "${selectedName}" 已被成功覆盖。`);
         });
       }
@@ -2419,7 +2408,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           if (indexToDelete > -1) {
             presets.splice(indexToDelete, 1);
             settings_ACU.contentOptimizationSettings.promptPresets = presets;
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
 
             // 刷新预设选择器
             loadOptimizationPresetSelect_ACU();
@@ -2437,7 +2426,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             return;
           }
           settings_ACU.contentOptimizationSettings.promptGroup = buildDefaultContentOptimizationPromptGroup_ACU();
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           renderOptimizationPromptSegments_ACU(settings_ACU.contentOptimizationSettings.promptGroup);
           showToastr_ACU('success', '正文替换提示词已恢复为默认值');
         });
@@ -2483,7 +2472,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
 
               if (importedCount > 0 || overwrittenCount > 0) {
                 settings_ACU.contentOptimizationSettings.promptPresets = currentPresets;
-                saveSettings_ACU();
+                saveSettingsAndNotify_ACU();
                 loadOptimizationPresetSelect_ACU();
 
                 let messages = [];
@@ -2517,7 +2506,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         $optimizationSavePromptGroup.on('click', function() {
           const segments = getOptimizationPromptGroupFromUI_ACU();
           settings_ACU.contentOptimizationSettings.promptGroup = segments;
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           showToastr_ACU('success', '正文替换提示词组已保存');
         });
       }
@@ -2530,7 +2519,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             return;
           }
           settings_ACU.contentOptimizationSettings.promptGroup = buildDefaultContentOptimizationPromptGroup_ACU();
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           renderOptimizationPromptSegments_ACU(settings_ACU.contentOptimizationSettings.promptGroup);
           showToastr_ACU('success', '正文替换提示词已恢复为默认值');
         });
@@ -2609,7 +2598,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
           $plotWbRadios.off('change.acu_plot_wb').on('change.acu_plot_wb', async function() {
             const v = jQuery_API_ACU(this).val();
             cfg.source = (v === 'manual') ? 'manual' : 'character';
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
             await updatePlotWorldbookSourceView_ACU();
           });
         }
@@ -2626,7 +2615,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             if (selection.includes(bookName)) selection = selection.filter(x => x !== bookName);
             else selection = [...selection, bookName];
             cfg.manualSelection = selection;
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
             await updatePlotWorldbookSourceView_ACU();
           });
         }
@@ -2653,7 +2642,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         const isPlotEntryAllowed_ACU = (entry) => {
           if (!entry) return false;
           const comment = entry.comment || entry.name || '';
-          // UI 不显示数据库生成条目（含隔离/外部导入前缀），因此“全选/全不选”也只作用于非数据库条目
+          // UI 不显示数据库生成条目（含隔离/外部导入前缀），因此"全选/全不选"也只作用于非数据库条目
           let normalizedComment = String(comment).replace(/^ACU-\[[^\]]+\]-/, '');
           normalizedComment = normalizedComment.replace(/^外部导入-(?:[^-]+-)?/, '');
           if (normalizedComment.startsWith('TavernDB-ACU-OutlineTable')) return false; // 仍需屏蔽总结大纲
@@ -2664,7 +2653,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             normalizedComment.startsWith('重要人物条目');
           if (isDbGenerated) return false;
           if (isEntryBlocked_ACU(entry)) return false;
-          // “启用的世界书条目”按钮应只勾选 ST 本身启用的条目（否则勾选了也不会被使用）
+          // "启用的世界书条目"按钮应只勾选 ST 本身启用的条目（否则勾选了也不会被使用）
           if (!entry.enabled) return false;
           return true;
         };
@@ -2690,7 +2679,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             }
           }
 
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           await populatePlotWorldbookEntryList_ACU(); // 立即刷新UI，显示勾选/取消
         };
 
@@ -2731,7 +2720,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             if (checked && !list.includes(uid)) list.push(uid);
             if (!checked && list.includes(uid)) cfg.enabledEntries[bookName] = list.filter(x => x !== uid);
             updateLazyWorldbookEntryCheckedState_ACU($plotEntryList, bookName, uid, checked);
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
           });
           $plotEntryList.off('click.acu_plot_wb_toggle').on('click.acu_plot_wb_toggle', '.qrf_worldbook_entry_toggle', function() {
             const bookName = jQuery_API_ACU(this).closest('.qrf_worldbook_entry_group').data('book-name');

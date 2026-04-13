@@ -5,7 +5,8 @@
   "type": "module",
   "description": "星·数据库 III (AutoCardUpdater) - SillyTavern 数据库自动更新 Tampermonkey 脚本",
   "scripts": {
-    "build": "rollup -c",
+    "build": "rollup -c && bash scripts/check-arch.sh",
+    "build:nocheck": "rollup -c",
     "build:concat": "BUILD_MODE=concat rollup -c",
     "verify": "bash scripts/verify-build.sh",
     "typecheck": "tsc --noEmit"

@@ -4,7 +4,7 @@
  * 这些函数涉及 UI 操作（写文本框、点发送按钮、更新循环状态 UI），属于 presentation 层。
  */
 
-import { showToastr_ACU } from '../../service/runtime/toast-service';
+import { showToastr_ACU } from '../theme/toast';
 import { DEFAULT_PLOT_SETTINGS_ACU } from '../../shared/defaults-json.js';
 import { SillyTavern_API_ACU, loopState_ACU, planningGuard_ACU, settings_ACU } from '../../service/runtime/state-manager';
 import { ensureLoopPromptsArray_ACU } from '../../service/plot/plot-logic';

@@ -42,3 +42,5 @@ export const ACU_TOAST_CATEGORY_ACU = {
     MERGE_TABLE: 'merge_table',
     IMPORT: 'import',
 };
+
+export const TABLE_ORDER_FIELD_ACU = 'orderNo';

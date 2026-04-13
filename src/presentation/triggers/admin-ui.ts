@@ -1,11 +1,11 @@
 // admin-ui.ts — 导入合并配置（presentation 层：涉及 DOM 操作和 UI 刷新）
 // 从 01_data_admin.js 迁入
 
-import { getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../data/repositories/template-preset-repo';
+import { getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
 import { renderPromptSegments_ACU } from '../components/plot-editors';
-import { showToastr_ACU } from '../../service/runtime/toast-service';
+import { showToastr_ACU } from '../theme/toast';
 import { settings_ACU } from '../../service/runtime/state-manager';
-import { saveSettings_ACU } from '../../service/settings/settings-service';
+import { saveSettingsAndNotify_ACU } from '../components/settings-ui-helpers';
 import { sanitizeChatSheetsObject_ACU } from '../../service/template/chat-scope';
 import { ensureSheetOrderNumbers_ACU, logDebug_ACU, logError_ACU } from '../../shared/utils';
 import { syncMergeSettingsToUI_ACU } from '../components/status-display';
@@ -46,14 +46,14 @@ export   function importCombinedSettings_ACU() {
 
                 // 1. Apply and save prompt
                 settings_ACU.charCardPrompt = combinedData.prompt;
-                saveSettings_ACU();
+                saveSettingsAndNotify_ACU();
                 renderPromptSegments_ACU(combinedData.prompt);
                 showToastr_ACU('success', '提示词预设已成功导入并保存！');
 
                 // [新增] 导入合并提示词 (如果存在)
                 if (combinedData.mergeSummaryPrompt) {
                     settings_ACU.mergeSummaryPrompt = combinedData.mergeSummaryPrompt;
-                    saveSettings_ACU();
+                    saveSettingsAndNotify_ACU();
                     if (typeof syncMergeSettingsToUI_ACU === 'function') syncMergeSettingsToUI_ACU(settings_ACU);
                     logDebug_ACU('Merge summary prompt imported.');
                 }
@@ -82,7 +82,7 @@ export   function importCombinedSettings_ACU() {
                     settings_ACU.deleteStartFloor = combinedData.deleteStartFloor || null;
                     settings_ACU.deleteEndFloor = combinedData.deleteEndFloor || null;
 
-                    saveSettings_ACU();
+                    saveSettingsAndNotify_ACU();
 
                     // UI 回填交给 presentation 层
                     if (typeof syncMergeSettingsToUI_ACU === 'function') syncMergeSettingsToUI_ACU(settings_ACU);
@@ -99,7 +99,6 @@ export   function importCombinedSettings_ACU() {
                     scope: 'global',
                     source: 'import_combined',
                     presetName: normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false })),
-                    refreshUi: false,
                     save: true,
                     persistChatScope: false,
                 });

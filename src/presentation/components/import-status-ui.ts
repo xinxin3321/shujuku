@@ -1,11 +1,13 @@
 import { STORAGE_KEY_IMPORTED_ENTRIES_ACU, STORAGE_KEY_IMPORTED_STATUS_ACU, STORAGE_KEY_IMPORTED_STATUS_FULL_ACU, STORAGE_KEY_IMPORTED_STATUS_STANDARD_ACU, STORAGE_KEY_IMPORTED_STATUS_SUMMARY_ACU } from '../../shared/data-constants';
-import { importTempGet_ACU, importTempRemove_ACU, importTempSet_ACU } from '../../data/storage/idb-import-temp';
+import { importTempGet_ACU, importTempRemove_ACU, importTempSet_ACU } from '../../shared/idb-import-temp';
 import { getImportSelectionFromUI_ACU, renderImportTableSelector_ACU } from './table-selector';
-import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../theme/toast';
+import { showToastr_ACU } from '../theme/toast';
+import { ACU_TOAST_CATEGORY_ACU } from '../../shared/constants';
 import { handleInjectImportedTxtSelected_ACU } from '../triggers/import-process';
 import { settings_ACU } from '../../service/runtime/state-manager';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { logDebug_ACU } from '../../shared/utils';
+import { $popupInstance_ACU, $importTableSelector_ACU } from '../state/ui-refs';
 /**
  * presentation/components/import-status-ui.ts — 导入状态 UI
  * 从 features/import/01~03 迁移而来
@@ -129,7 +131,7 @@ import { logDebug_ACU } from '../../shared/utils';
           const reader = new FileReader();
           
           reader.onload = (readerEvent) => {
-              const content = readerEvent.target.result;
+              const content = readerEvent.target.result as string;
               if (!content) {
                   showToastr_ACU('warning', '文件为空或读取失败。', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT });
                   void updateImportStatusUI_ACU();

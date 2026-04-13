@@ -1,15 +1,15 @@
 import { DEFAULT_PLOT_SETTINGS_ACU } from '../../shared/defaults-json.js';
-import { deriveTemplatePresetNameForImport_ACU } from '../../data/repositories/template-preset-repo';
-import { currentPlotTaskEditorId_ACU , _set_currentPlotTaskEditorId_ACU} from './state-manager';
-import { showToastr_ACU } from '../runtime/toast-service';
-import { ACU_TOAST_CATEGORY_ACU } from '../../shared/constants';
+import { deriveTemplatePresetNameForImport_ACU } from '../../shared/template-preset-utils';
+import { currentPlotTaskEditorId_ACU , _set_currentPlotTaskEditorId_ACU} from '../plot/plot-state';
+import { TABLE_ORDER_FIELD_ACU } from '../../shared/constants';
 import { callApi_ACU, getApiConfigByPreset_ACU } from '../ai/api-call';
-import { SillyTavern_API_ACU, TavernHelper_API_ACU, toastr_API_ACU, TABLE_ORDER_FIELD_ACU, abortController_ACU, currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, independentTableStates_ACU, isProcessing_Plot_ACU, loopState_ACU, planningGuard_ACU, settings_ACU, suppressWorldbookInjectionInGreeting_ACU, tempPlotToSave_ACU , _set_isProcessing_Plot_ACU, _set_abortController_ACU, _set_tempPlotToSave_ACU, _set_suppressWorldbookInjectionInGreeting_ACU, _set_currentJsonTableData_ACU} from './state-manager';
+import { SillyTavern_API_ACU, TavernHelper_API_ACU, abortController_ACU, currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, independentTableStates_ACU, isProcessing_Plot_ACU, loopState_ACU, planningGuard_ACU, settings_ACU, suppressWorldbookInjectionInGreeting_ACU, tempPlotToSave_ACU , _set_isProcessing_Plot_ACU, _set_abortController_ACU, _set_tempPlotToSave_ACU, _set_suppressWorldbookInjectionInGreeting_ACU, _set_currentJsonTableData_ACU} from './state-manager';
 import { applyTemplateScopeForCurrentChat_ACU, saveSettings_ACU } from '../settings/settings-service';
 import { buildChatPlotScopeStateFromSettings_ACU, buildChatSheetGuideDataFromTemplateObj_ACU, getChatSheetGuideDataForIsolationKey_ACU, getCurrentChatPlotScopeState_ACU, getSortedSheetKeys_ACU, materializeDataFromSheetGuide_ACU, reorderDataBySheetKeys_ACU, sanitizeTemplateSnapshotForChat_ACU, setChatSheetGuideDataForIsolationKey_ACU, setCurrentChatPlotScopeState_ACU } from '../template/chat-scope';
 import { buildCombinedWorldbookContentByStrategy_ACU, deleteAllGeneratedEntries_ACU } from '../worldbook/pipeline';
 import { topLevelWindow_ACU } from '../../shared/env';
-import { ensureSheetOrderNumbers_ACU, escapeRegExp_ACU, getTemplateSheetKeys_ACU, hashUserInput_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, normalizeExcludeRules_ACU, normalizeExtractRules_ACU, normalizeNonNegativeInteger_ACU, normalizePositiveInteger_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
+import { ensureSheetOrderNumbers_ACU, escapeRegExp_ACU, hashUserInput_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, normalizeExcludeRules_ACU, normalizeExtractRules_ACU, normalizeNonNegativeInteger_ACU, normalizePositiveInteger_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
+import { getTemplateSheetKeys_ACU } from '../template/chat-scope';
 import { applyPlotPresetToSettings_ACU, clearPlotPresetBindingForChat_ACU, ensureLoopPromptsArray_ACU, ensurePlotPresetBindingsStore_ACU, ensurePlotTasksCompat_ACU, findPlotPresetByName_ACU, getCurrentRuntimePlotPresetName_ACU, getPlotGlobalRevision_ACU, getPlotPresetBindingForChat_ACU, getPlotPromptContentByIdFromSettings_ACU, isDefaultPlotPresetSelection_ACU, normalizePlotPresetSelectionValue_ACU, normalizePlotTask_ACU, normalizePlotTasks_ACU, replaceCurrentPlotSettingsWithSnapshot_ACU, resetPlotSettingsToDefault_ACU, syncCurrentEditablePlotPresetState_ACU } from '../plot/plot-logic';
 import { upsertTemplatePreset_ACU } from '../template/template-preset-service';
 import { isEntryBlocked_ACU } from '../../shared/utils';
@@ -87,25 +87,8 @@ import { getIsolationPrefix_ACU } from '../worldbook/injection-engine';
       return content;
   }
 
-  // [新增] 标签列表解析：支持英文逗号/中文逗号/空格分隔
-  function parseTagList_ACU(input) {
-      if (!input || typeof input !== 'string') return [];
-      return input
-          .split(/[,，\s]+/g)
-          .map(t => t.trim())
-          .filter(Boolean)
-          .map(t => t.replace(/[<>]/g, '')); // 防止用户输入 <tag>
-  }
-
-  // [新增] 兼容旧"标签提取/排除"字符串：tagA,tagB -> [{start:"<tagA", end:"</tagA>"}, ...]
-  export function buildBoundaryRulesFromLegacyTags_ACU(tagsText = '') {
-      const tags = parseTagList_ACU(tagsText);
-      return tags.map(tag => ({ start: `<${tag}`, end: `</${tag}>` }));
-  }
-
-  // [新增] 标准化标签排除规则：支持数组对象/字符串行/旧标签字符串兜底
-
-  // [新增] 标准化正文标签提取规则，结构与排除规则一致
+  // [新增] 兼容旧"标签提取/排除"字符串（已搬到 shared/utils.ts）
+  // buildBoundaryRulesFromLegacyTags_ACU 从 shared/utils re-import
 
   export function getDefaultPlotContextExtractRules_ACU() {
       return normalizeExtractRules_ACU(
@@ -761,21 +744,12 @@ import { getIsolationPrefix_ACU } from '../worldbook/injection-engine';
               logWarn_ACU('[Worldbook] Cleanup on greeting seed failed:', e);
           }
 
-          // 仅触发前端显示刷新（更新该楼层的UI）
-          if (SillyTavern_API_ACU?.eventSource?.emit && SillyTavern_API_ACU?.eventTypes?.MESSAGE_UPDATED) {
-              SillyTavern_API_ACU.eventSource.emit(SillyTavern_API_ACU.eventTypes.MESSAGE_UPDATED, firstAiIndex);
-          }
-          // 额外通知前端表格刷新（可视化/面板读取本地数据）
-          if ((topLevelWindow_ACU as any).AutoCardUpdaterAPI) {
-              (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
-          }
-
           // 更新内存（但不触发世界书注入）
           _set_currentJsonTableData_ACU(reorderDataBySheetKeys_ACU(JSON.parse(JSON.stringify(baseData)), getSortedSheetKeys_ACU(baseData)));
-          return true;
+          return { success: true, messageIndex: firstAiIndex };
       } catch (e) {
           logWarn_ACU('[GreetingLocalBaseState] Failed to seed greeting local data from template:', e);
-          return false;
+          return { success: false };
       }
   }
 
@@ -870,19 +844,11 @@ import { getIsolationPrefix_ACU } from '../worldbook/injection-engine';
           // 更新内存数据
           _set_currentJsonTableData_ACU(reorderDataBySheetKeys_ACU(JSON.parse(JSON.stringify(fullData)), getSortedSheetKeys_ACU(fullData)));
 
-          // 通知前端刷新
-          if (SillyTavern_API_ACU?.eventSource?.emit && SillyTavern_API_ACU?.eventTypes?.MESSAGE_UPDATED) {
-              SillyTavern_API_ACU.eventSource.emit(SillyTavern_API_ACU.eventTypes.MESSAGE_UPDATED, firstAiIndex);
-          }
-          if ((topLevelWindow_ACU as any).AutoCardUpdaterAPI) {
-              (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
-          }
-
           logDebug_ACU(`[FillFirstLayer] 成功将模板数据填充到第一楼，共 ${sheetKeys.length} 个表格`);
-          return true;
+          return { success: true, messageIndex: firstAiIndex, sheetCount: sheetKeys.length };
       } catch (e) {
           logError_ACU('[FillFirstLayer] 填充第一楼数据失败:', e);
-          return false;
+          return { success: false };
       }
   }
 
@@ -3319,10 +3285,18 @@ import { getIsolationPrefix_ACU } from '../worldbook/injection-engine';
       return applyExcludeRulesToText_ACU(text, { excludeRules: plotExcludeRules, excludeTags: plotExcludeTags });
     };
 
-    const sanitizeHtml = htmlString => {
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = htmlString;
-      return tempDiv.textContent || tempDiv.innerText || '';
+    const sanitizeHtml = (htmlString: string): string => {
+      if (!htmlString) return '';
+      return String(htmlString)
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/?[^>]+(>|$)/g, '')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#039;/g, "'")
+        .replace(/&nbsp;/g, ' ')
+        .trim();
     };
 
     const formattedHistory = (slicedContext && Array.isArray(slicedContext) ? slicedContext : [])
@@ -3579,7 +3553,7 @@ import { getIsolationPrefix_ACU } from '../worldbook/injection-engine';
   }
 
   async function runPlotTasksRuntime_ACU(plotSettings, userMessage, runtimeOptions: any = {}) {
-    const { inputForHash = userMessage, $toast = null, hasExistingUserMessage = false } = runtimeOptions;
+    const { inputForHash = userMessage, hasExistingUserMessage = false } = runtimeOptions;
 
     ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
 
@@ -3597,12 +3571,6 @@ import { getIsolationPrefix_ACU } from '../worldbook/injection-engine';
 
     const stageGroups = groupPlotTasksByStage_ACU(enabledTasks);
 
-    try {
-      if ($toast?.find) {
-        $toast.find('.toastr-message').text(`正在读取过往的记忆并分析，请稍后...（共 ${enabledTasks.length} 个任务，${stageGroups.length} 个阶段）`);
-      }
-    } catch (e) {}
-
     const sharedContext = await buildPlotSharedContext_ACU(plotSettings, userMessage, {
       inputForHash,
       hasExistingUserMessage,
@@ -3616,11 +3584,6 @@ import { getIsolationPrefix_ACU } from '../worldbook/injection-engine';
 
     for (let stageIndex = 0; stageIndex < stageGroups.length; stageIndex++) {
       const stageGroup = stageGroups[stageIndex];
-      try {
-        if ($toast?.find) {
-          $toast.find('.toastr-message').text(`正在读取过往的记忆并分析，请稍后...（第 ${stageIndex + 1}/${stageGroups.length} 阶段，阶段号 ${stageGroup.stage}，本阶段 ${stageGroup.tasks.length} 个任务）`);
-        }
-      } catch (e) {}
 
       const stageResults = await Promise.all(
         stageGroup.tasks.map(task =>
@@ -4071,23 +4034,24 @@ import { getIsolationPrefix_ACU } from '../worldbook/injection-engine';
   }
 
   /**
-   * 核心优化逻辑，可被多处调用。
+   * 核心优化逻辑（纯 service 层：读数据→业务决策→写数据→构造返回值）。
    * @param {string} userMessage - 需要被优化的用户输入文本。
    * @param {Object} options - 可选参数
    * @param {string} options.originalUserInput - 原始用户输入文本（用于哈希匹配，如果与userMessage不同）
-   * @returns {Promise<string|null>} - 返回优化后的完整消息体，如果失败或跳过则返回null。
+   * @returns {Promise<object>} - 结构化结果：
+   *   { success, finalMessage?, aborted?, skipped?, manual?, restoreText?,
+   *     error?, errorType?, successCount?, failCount?, enabledTaskCount?, aggregatedTagNames?,
+   *     abortedByStageFailure?, failedStage?, errorMessage? }
    */
   export async function runOptimizationLogic_ACU(userMessage, options: any = {}) {
     const { originalUserInput, hasExistingUserMessage = false } = options;
-    // 用于哈希匹配的原始用户输入（如果未提供，使用userMessage）
     const inputForHash = originalUserInput || userMessage;
-    // 如果当前处于重试流程，绝对禁止触发剧情规划
+
     if (loopState_ACU.isRetrying) {
         logDebug_ACU('[剧情推进] 当前处于重试流程，跳过剧情规划逻辑。');
-        return null;
+        return { success: false, skipped: true, reason: 'retrying' };
     }
 
-    // [关键修复] 硬互斥：同一时刻只允许一个剧情规划在跑，防止重复触发导致"成功但刷一堆规划失败 toast"
     if ((runOptimizationLogic_ACU as any).__inFlight) {
       const inflightText = String((runOptimizationLogic_ACU as any).__inFlightText || '');
       const t = String(userMessage || '');
@@ -4096,19 +4060,15 @@ import { getIsolationPrefix_ACU } from '../worldbook/injection-engine';
       } else {
         logDebug_ACU('[剧情推进] Planning skipped (another planning in-flight).');
       }
-      return { skipped: true };
+      return { success: false, skipped: true, reason: 'inflight' };
     }
     (runOptimizationLogic_ACU as any).__inFlight = true;
     (runOptimizationLogic_ACU as any).__inFlightText = String(userMessage || '');
 
-    let $toast = null;
-    // [中止回退] 记录本次规划对应的原始用户文本，用于"用户手动终止"时回填
     let originalUserInputForAbort_ACU = userMessage || '';
     try {
-      // 标记进入规划阶段：用于忽略规划触发的生成事件
       planningGuard_ACU.inProgress = true;
 
-      // 在每次执行前，都重新进行一次深度合并，以获取最新、最完整的设置状态
       const currentSettings = settings_ACU.plotSettings || {};
       const plotSettings = {
         ...DEFAULT_PLOT_SETTINGS_ACU,
@@ -4116,96 +4076,42 @@ import { getIsolationPrefix_ACU } from '../worldbook/injection-engine';
       };
 
       if (!plotSettings.enabled) {
-        return null; // 剧情推进功能未启用，直接返回
+        return { success: false, skipped: true, reason: 'disabled' };
       }
 
-      // 重置中止控制器
       _set_abortController_ACU(new AbortController());
-
-      // 创建带中止按钮的 Toast（使用 ACU 主题 toast class，保证风格统一）
-      const toastMsg = `
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-              <span class="toastr-message" style="margin-right: 10px;">正在读取过往的记忆并分析，请稍后...</span>
-              <button class="qrf-abort-btn">终止</button>
-          </div>
-      `;
-
-      // "正在规划"属于白名单提示：无论是否开启静默都允许显示
-      $toast = showToastr_ACU('info', toastMsg, {
-            timeOut: 0,
-            extendedTimeOut: 0,
-            escapeHtml: false,
-            tapToDismiss: false,
-            closeButton: false,
-            progressBar: false,
-          toastClass: 'toast acu-toast acu-toast--info',
-          acuToastCategory: ACU_TOAST_CATEGORY_ACU.PLANNING,
-        });
-
-      // 确保中止按钮绑定生效 - 在toast显示后立即绑定（绑定到本 toast 内按钮，避免误绑/绑到旧 toast）
-      setTimeout(() => {
-        // 优先绑定当前 toast 内的按钮
-        const $abortBtn = ($toast && $toast.find) ? $toast.find('.qrf-abort-btn') : null;
-        if ($abortBtn.length > 0) {
-          $abortBtn.off('click').on('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            logDebug_ACU('[剧情推进] 用户点击了中止按钮。');
-
-            if (abortController_ACU) {
-              abortController_ACU.abort();
-              logDebug_ACU('[剧情推进] 用户手动中止了规划任务。');
-            }
-
-            // 仅移除本次规划 toast（不要清空其它 toast；不同 toastr 封装可能不存在 remove()）
-            try {
-              // 先尝试 clear 当前 toast 对象
-              if ($toast) toastr_API_ACU.clear($toast);
-              // 再兜底：从按钮回溯到 toast DOM 并直接移除
-              try { if ($toast) toastr_API_ACU.clear($toast); } catch (e2) {}
-            } catch (e) {}
-            _set_isProcessing_Plot_ACU(false); // 强制释放锁
-
-            setTimeout(() => {
-              // 用户主动中止属于正常流程，不应触发"错误"类提示
-              showToastr_ACU('info', '规划任务已被用户中止。', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.PLANNING });
-            }, 500);
-          });
-          logDebug_ACU('[剧情推进] 中止按钮事件已绑定。');
-        } else {
-          logWarn_ACU('[剧情推进] 未找到中止按钮元素。');
-        }
-      }, 200);
 
       const runtimeResult = await runPlotTasksRuntime_ACU(plotSettings, userMessage, {
         inputForHash,
-        $toast,
         hasExistingUserMessage,
       });
 
-      try { if ($toast) toastr_API_ACU.clear($toast); } catch (e) {}
-
       if (!runtimeResult?.finalMessage) {
         if (runtimeResult?.abortedByStageFailure) {
-          showToastr_ACU(
-            'error',
-            runtimeResult.errorMessage || `剧情任务阶段 ${runtimeResult.failedStage ?? '?'} 执行失败，后续阶段已停止。`,
-            '规划失败',
-            { acuToastCategory: ACU_TOAST_CATEGORY_ACU.ERROR },
-          );
+          return {
+            success: false,
+            errorType: 'stage_failure',
+            errorMessage: runtimeResult.errorMessage || `剧情任务阶段 ${runtimeResult.failedStage ?? '?'} 执行失败，后续阶段已停止。`,
+            failedStage: runtimeResult.failedStage,
+            enabledTaskCount: runtimeResult.enabledTaskCount,
+            successCount: runtimeResult.successfulResults?.length ?? 0,
+            failCount: runtimeResult.failedResults?.length ?? 0,
+          };
         } else if (runtimeResult?.enabledTaskCount > 0) {
-          showToastr_ACU(
-            'error',
-            `共 ${runtimeResult.enabledTaskCount} 个剧情任务均未返回有效结果，操作已取消。`,
-            '规划失败',
-            { acuToastCategory: ACU_TOAST_CATEGORY_ACU.ERROR },
-          );
+          return {
+            success: false,
+            errorType: 'all_failed',
+            errorMessage: `共 ${runtimeResult.enabledTaskCount} 个剧情任务均未返回有效结果，操作已取消。`,
+            enabledTaskCount: runtimeResult.enabledTaskCount,
+          };
         } else {
-          showToastr_ACU('error', '当前没有可执行的剧情任务。', '规划失败', {
-            acuToastCategory: ACU_TOAST_CATEGORY_ACU.ERROR,
-          });
+          return {
+            success: false,
+            errorType: 'no_tasks',
+            errorMessage: '当前没有可执行的剧情任务。',
+            enabledTaskCount: 0,
+          };
         }
-        return null;
       }
 
       const aggregatedTagNames = runtimeResult.aggregatedTags instanceof Map
@@ -4213,39 +4119,31 @@ import { getIsolationPrefix_ACU } from '../worldbook/injection-engine';
         : [];
       if (aggregatedTagNames.length > 0) {
         logDebug_ACU(`[剧情推进] 成功聚合标签: ${aggregatedTagNames.join(', ')}`);
-        showToastr_ACU('info', `已成功聚合 [${aggregatedTagNames.join(', ')}] 标签内容并注入。`, '标签摘取');
       }
 
-      if (runtimeResult.failedResults.length > 0) {
-        showToastr_ACU(
-          'warning',
-          `剧情规划完成，${runtimeResult.successfulResults.length}/${runtimeResult.enabledTaskCount} 个任务成功。`,
-          '部分成功',
-          { acuToastCategory: ACU_TOAST_CATEGORY_ACU.PLAN_OK },
-        );
-      } else {
-        showToastr_ACU(
-          'success',
-          `剧情规划成功，共完成 ${runtimeResult.successfulResults.length} 个任务。`,
-          '规划成功',
-          { acuToastCategory: ACU_TOAST_CATEGORY_ACU.PLAN_OK },
-        );
-      }
-
-      return runtimeResult.finalMessage;
+      return {
+        success: true,
+        finalMessage: runtimeResult.finalMessage,
+        successCount: runtimeResult.successfulResults.length,
+        failCount: runtimeResult.failedResults.length,
+        enabledTaskCount: runtimeResult.enabledTaskCount,
+        aggregatedTagNames,
+        hasPartialFailure: runtimeResult.failedResults.length > 0,
+      };
     } catch (error) {
       if (error.message === 'TaskAbortedByUser') {
-          // 用户中止，返回特殊标记对象
-          return { aborted: true, manual: true, restoreText: originalUserInputForAbort_ACU };
+          return { success: false, aborted: true, manual: true, restoreText: originalUserInputForAbort_ACU };
       }
-      // 兼容 AbortController/浏览器的标准取消错误（不应当弹红框）
       if (error?.name === 'AbortError' || String(error?.message || '').toLowerCase().includes('aborted')) {
-          return { aborted: true, manual: true, restoreText: originalUserInputForAbort_ACU };
+          return { success: false, aborted: true, manual: true, restoreText: originalUserInputForAbort_ACU };
       }
       logError_ACU('[剧情推进] 在核心优化逻辑中发生错误:', error);
-      try { if ($toast) toastr_API_ACU.clear($toast); } catch (e) {}
-      showToastr_ACU('error', '剧情规划大师在处理时发生错误。', '规划失败', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.ERROR });
-      return null;
+      return {
+        success: false,
+        errorType: 'exception',
+        errorMessage: '剧情规划大师在处理时发生错误。',
+        error: String(error?.message || error),
+      };
     } finally {
         planningGuard_ACU.inProgress = false;
         _set_abortController_ACU(null);

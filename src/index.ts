@@ -10,7 +10,6 @@
 // ═══════════════════════════════════════════════════════════════
 import './shared/constants';
 import './shared/env';
-import './shared/service-locator';
 import './shared/utils';
 import './shared/json-helpers';
 import './shared/html-helpers';
@@ -20,7 +19,7 @@ import './shared/text-optimization';
 // data 层
 // ═══════════════════════════════════════════════════════════════
 import './shared/data-constants';
-import './data/storage/idb-import-temp';
+import './shared/idb-import-temp';
 import './data/storage/tavern-storage';
 import './data/storage/chat-history';
 import './shared/defaults';
@@ -28,9 +27,6 @@ import './shared/defaults-json.js';
 import './data/storage/config-storage';
 import './data/repositories/profile-repo';
 import './data/repositories/isolation-repo';
-import './data/repositories/template-preset-repo';
-import './data/repositories/character-settings-repo';
-import './data/repositories/table-repo';
 
 // ═══════════════════════════════════════════════════════════════
 // service 层
@@ -38,23 +34,22 @@ import './data/repositories/table-repo';
 import './service/settings/settings-service';
 import './service/ai/api-call';
 import './service/ai/prompt-builder';
-import './presentation/triggers/update-process';
 import './service/worldbook/pipeline';
 import './service/worldbook/injection-engine';
-import './presentation/triggers/admin-ui';
 import './service/summary/merge-logic';
-import './presentation/triggers/import-process';
-import './presentation/bootstrap/init';
 import './service/runtime/state-manager';
-import './service/runtime/event-bus';
 import './service/runtime/helpers-remaining';
-import './presentation/bootstrap/api-registry';
 import './service/template/chat-scope';
 import './service/optimization/content-optimization';
 
 // ═══════════════════════════════════════════════════════════════
 // presentation 层
 // ═══════════════════════════════════════════════════════════════
+import './presentation/triggers/update-process';
+import './presentation/triggers/admin-ui';
+import './presentation/triggers/import-process';
+import './presentation/bootstrap/init';
+import './presentation/bootstrap/api-registry';
 import './presentation/window/window-system';
 import './presentation/window/window-styles';
 import './presentation/theme/toast';
@@ -62,8 +57,6 @@ import './presentation/components/table-selector';
 import './presentation/components/plot-editors';
 import './presentation/components/status-display';
 import './presentation/bootstrap/startup';
-import './presentation/components/update-controls';
-import './presentation/components/worldbook-selectors';
 import './presentation/pages/main-popup';
 import './presentation/pages/popup-bindings';
 import './presentation/pages/popup-helpers';

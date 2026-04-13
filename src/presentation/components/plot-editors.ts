@@ -1,15 +1,19 @@
 // plot-editors.ts
 // 从 02_shared_editors_and_selectors.js 整体迁入
 
-import { DEFAULT_CHAR_CARD_PROMPT_ACU, DEFAULT_PLOT_PROMPT_GROUP_ACU, DEFAULT_PLOT_SETTINGS_ACU } from '../../shared/defaults-json.js';
+import { DEFAULT_CHAR_CARD_PROMPT_ACU } from '../../shared/defaults-json.js';
 import { showToastr_ACU } from '../theme/toast';
 
 import { settings_ACU } from '../../service/runtime/state-manager';
-import { saveSettings_ACU } from '../../service/settings/settings-service';
+import { saveSettingsAndNotify_ACU } from './settings-ui-helpers';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { escapeHtml_ACU } from '../../shared/html-helpers';
 import { logWarn_ACU, normalizePositiveInteger_ACU } from '../../shared/utils';
-import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotPromptGroupFromSource_ACU, normalizePlotTask_ACU, normalizePlotTasks_ACU, syncLegacyPlotSettingsFromTask_ACU } from './optimization-ui';
+import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotPromptGroupFromSource_ACU, normalizePlotTask_ACU, normalizePlotTasks_ACU, syncLegacyPlotSettingsFromTask_ACU } from '../../service/plot/plot-logic';
+import { activePlotEditorSettings_ACU, currentPlotTaskEditorId_ACU, _set_currentPlotTaskEditorId_ACU, buildDefaultPlotPromptGroup_ACU, ensurePlotPromptGroup_ACU } from '../../service/plot/plot-state';
+import { $popupInstance_ACU, $charCardPromptSegmentsContainer_ACU, $plotPromptSegmentsContainer_ACU, $plotTaskListContainer_ACU, _assignUIPlaceholders_ACU } from '../state/ui-refs';
+import { DEFAULT_PLOT_SETTINGS_ACU } from '../../shared/defaults-json.js';
+import { jQuery_API_ACU } from '../../service/runtime/state-manager';
 
   export function renderPromptSegments_ACU(segments) {
       if (!$charCardPromptSegmentsContainer_ACU) return;
@@ -83,7 +87,7 @@ import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotProm
       if (!$charCardPromptSegmentsContainer_ACU) return [];
       const segments = [];
       $charCardPromptSegmentsContainer_ACU.find('.prompt-segment').each(function() {
-          const $segment = $(this);
+          const $segment = jQuery_API_ACU(this);
           const role = $segment.find('.prompt-segment-role').val();
           const content = $segment.find('.prompt-segment-content').val();
           const mainSlotRaw = $segment.find('.prompt-segment-main-slot').val();
@@ -94,7 +98,7 @@ import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotProm
           // 主提示词A/B不可删除
           const isDeletable = (isMainA || isMainB) ? false : true;
           
-          const segmentData = { role: role, content: content, deletable: isDeletable };
+          const segmentData: any = { role: role, content: content, deletable: isDeletable };
           if (isMainA) {
             segmentData.mainSlot = 'A';
             segmentData.isMain = true; // 兼容旧逻辑
@@ -109,78 +113,11 @@ import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotProm
   }
 
   // --- [剧情推进] 独立提示词组（段落编辑器） ---
-  // 说明：
-  // - 用途：规划请求（callApi_ACU 的 messages）完全来自 plotSettings.promptGroup，不再“运行时替换”数据库更新预设的 A/B 段落。
-  // - 兼容：若用户只有旧的三段 prompts(main/system/final)，则会自动迁移生成一份 promptGroup（只在首次缺失时发生）。
-
-  export function buildDefaultPlotPromptGroup_ACU({ mainAContent = '', mainBContent = '' } = {}) {
-      // [重要] 现在从独立的 DEFAULT_PLOT_PROMPT_GROUP_ACU 获取默认结构，不再从填表提示词合并
-      const src = DEFAULT_PLOT_PROMPT_GROUP_ACU;
-      const base = Array.isArray(src)
-          ? JSON.parse(JSON.stringify(src))
-          : (typeof src === 'string' && src.trim() ? [{ role: 'USER', content: src, deletable: false, mainSlot: 'A', isMain: true }] : []);
-
-      const getMainSlot = seg => {
-          if (!seg) return '';
-          const slot = String(seg.mainSlot || '').toUpperCase();
-          if (slot === 'A' || slot === 'B') return slot;
-          if (seg.isMain) return 'A';
-          if (seg.isMain2) return 'B';
-          return '';
-      };
-
-      let aIdx = base.findIndex(s => getMainSlot(s) === 'A');
-      let bIdx = base.findIndex(s => getMainSlot(s) === 'B');
-      if (aIdx === -1) {
-          base.unshift({ role: 'SYSTEM', content: '', deletable: false, mainSlot: 'A', isMain: true });
-          aIdx = 0;
-      }
-      if (bIdx === -1) {
-          base.splice(aIdx + 1, 0, { role: 'USER', content: '', deletable: false, mainSlot: 'B', isMain2: true });
-          bIdx = aIdx + 1;
-      }
-
-      // 如果传入了自定义内容，则覆盖默认内容
-      if (mainAContent && base[aIdx]) base[aIdx].content = String(mainAContent);
-      if (mainBContent && base[bIdx]) base[bIdx].content = String(mainBContent);
-      return base;
-  }
-
-  export function getLegacyPlotPromptContent_ACU(plotSettings, promptId) {
-      try {
-          const p = plotSettings?.prompts;
-          if (!p) return '';
-          if (Array.isArray(p)) {
-              const item = p.find(x => x && x.id === promptId);
-              return item?.content || '';
-          }
-          // 旧对象结构：{ mainPrompt, systemPrompt, finalSystemDirective }
-          if (typeof p === 'object') return p[promptId] || '';
-      } catch (e) {}
-      return '';
-  }
-
-  export function ensurePlotPromptGroup_ACU(plotSettings, { persist = false } = {}) {
-      if (!plotSettings) return;
-      if (Array.isArray(plotSettings.promptGroup) && plotSettings.promptGroup.length > 0) return;
-
-      // 默认来源：优先用旧三段 prompts 的 main/system；否则用默认值。
-      const legacyMain = getLegacyPlotPromptContent_ACU(plotSettings, 'mainPrompt') || (DEFAULT_PLOT_SETTINGS_ACU?.prompts?.[0]?.content || '');
-      const legacySystem = getLegacyPlotPromptContent_ACU(plotSettings, 'systemPrompt') || (DEFAULT_PLOT_SETTINGS_ACU?.prompts?.[1]?.content || '');
-
-      plotSettings.promptGroup = buildDefaultPlotPromptGroup_ACU({
-          mainAContent: legacyMain,
-          mainBContent: legacySystem,
-      });
-
-      if (persist) {
-          try { saveSettings_ACU(); } catch (e) {}
-      }
-  }
+  // buildDefaultPlotPromptGroup_ACU, getLegacyPlotPromptContent_ACU, ensurePlotPromptGroup_ACU 已搬到 service/plot/plot-state.ts
 
   export function renderPlotPromptSegments_ACU(segments) {
       if ((!$plotPromptSegmentsContainer_ACU || !$plotPromptSegmentsContainer_ACU.length) && $popupInstance_ACU) {
-          $plotPromptSegmentsContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompt-segments-container`);
+          _assignUIPlaceholders_ACU({ $plotPromptSegmentsContainer_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompt-segments-container`) });
       }
       if (!$plotPromptSegmentsContainer_ACU || !$plotPromptSegmentsContainer_ACU.length) return;
       $plotPromptSegmentsContainer_ACU.empty();
@@ -245,7 +182,7 @@ import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotProm
       if (!$plotPromptSegmentsContainer_ACU) return [];
       const segments = [];
       $plotPromptSegmentsContainer_ACU.find('.plot-prompt-segment').each(function() {
-          const $segment = $(this);
+          const $segment = jQuery_API_ACU(this);
           const role = $segment.find('.plot-prompt-segment-role').val();
           const content = $segment.find('.plot-prompt-segment-content').val();
           const mainSlotRaw = $segment.find('.plot-prompt-segment-main-slot').val();
@@ -256,7 +193,7 @@ import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotProm
           // 主提示词A/B不可删除
           const isDeletable = (isMainA || isMainB) ? false : true;
 
-          const segmentData = { role: role, content: content, deletable: isDeletable };
+          const segmentData: any = { role: role, content: content, deletable: isDeletable };
           if (isMainA) {
               segmentData.mainSlot = 'A';
               segmentData.isMain = true;
@@ -301,7 +238,7 @@ import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotProm
       ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: false });
       const tasks = Array.isArray(plotSettings.plotTasks) ? plotSettings.plotTasks : [];
       if (!tasks.length) {
-          currentPlotTaskEditorId_ACU = '';
+          _set_currentPlotTaskEditorId_ACU('');
           return { tasks: [], selectedTask: null, selectedIndex: -1 };
       }
 
@@ -309,12 +246,12 @@ import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotProm
       if (selectedIndex === -1 && autoSelect) {
           const fallbackTask = tasks.find(task => task && task.enabled !== false) || tasks[0];
           selectedIndex = tasks.indexOf(fallbackTask);
-          currentPlotTaskEditorId_ACU = fallbackTask?.id || '';
+          _set_currentPlotTaskEditorId_ACU(fallbackTask?.id || '');
       }
 
       const selectedTask = selectedIndex >= 0 ? tasks[selectedIndex] : null;
       if (selectedTask?.id) {
-          currentPlotTaskEditorId_ACU = selectedTask.id;
+          _set_currentPlotTaskEditorId_ACU(selectedTask.id);
       }
 
       return { tasks, selectedTask, selectedIndex };
@@ -323,7 +260,7 @@ import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotProm
   export function renderPlotTaskList_ACU(plotSettings = getActivePlotEditorSettings_ACU()) {
       if (!$popupInstance_ACU) return;
       if (!$plotTaskListContainer_ACU || !$plotTaskListContainer_ACU.length) {
-          $plotTaskListContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-list`);
+          _assignUIPlaceholders_ACU({ $plotTaskListContainer_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-list`) });
       }
       if (!$plotTaskListContainer_ACU || !$plotTaskListContainer_ACU.length) return;
 
@@ -409,10 +346,10 @@ import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotProm
 
       const nextTasks = normalizePlotTaskListForEditor_ACU(tasks.map((task, index) => index === selectedIndex ? updatedTask : task));
       plotSettings.plotTasks = nextTasks;
-      currentPlotTaskEditorId_ACU = updatedTask.id;
+      _set_currentPlotTaskEditorId_ACU(updatedTask.id);
       syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings);
 
-      if (persist) saveSettings_ACU();
+      if (persist) saveSettingsAndNotify_ACU();
       if (renderTaskList) renderPlotTaskList_ACU(plotSettings);
       if (!silent) showToastr_ACU('success', '当前剧情任务已保存。');
       return updatedTask;
@@ -458,7 +395,7 @@ import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotProm
       if (saveCurrent) {
           saveCurrentPlotTaskFromUI_ACU({ silent: true, renderTaskList: false, persist: true });
       }
-      currentPlotTaskEditorId_ACU = String(taskId);
+      _set_currentPlotTaskEditorId_ACU(String(taskId));
       renderPlotTaskList_ACU(plotSettings);
       loadCurrentPlotTaskToUI_ACU(plotSettings);
   }
@@ -472,9 +409,9 @@ import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotProm
           buildNewPlotTaskForUI_ACU(plotSettings),
       ]);
       plotSettings.plotTasks = nextTasks;
-      currentPlotTaskEditorId_ACU = nextTasks[nextTasks.length - 1]?.id || currentPlotTaskEditorId_ACU;
+      _set_currentPlotTaskEditorId_ACU(nextTasks[nextTasks.length - 1]?.id || currentPlotTaskEditorId_ACU);
       syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings);
-      saveSettings_ACU();
+      saveSettingsAndNotify_ACU();
       renderPlotTaskList_ACU(plotSettings);
       loadCurrentPlotTaskToUI_ACU(plotSettings);
       showToastr_ACU('success', '已新增一个剧情任务。');
@@ -489,16 +426,16 @@ import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotProm
           showToastr_ACU('warning', '至少需要保留一个剧情任务。');
           return;
       }
-      if (!confirm(`确定要删除剧情任务“${selectedTask.name || selectedTask.id}”吗？`)) {
+      if (!confirm(`确定要删除剧情任务"${selectedTask.name || selectedTask.id}"吗？`)) {
           return;
       }
 
       const nextTasks = normalizePlotTaskListForEditor_ACU(tasks.filter((_, index) => index !== selectedIndex));
       const fallbackIndex = Math.min(selectedIndex, nextTasks.length - 1);
       plotSettings.plotTasks = nextTasks;
-      currentPlotTaskEditorId_ACU = nextTasks[fallbackIndex]?.id || nextTasks[0]?.id || '';
+      _set_currentPlotTaskEditorId_ACU(nextTasks[fallbackIndex]?.id || nextTasks[0]?.id || '');
       syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings);
-      saveSettings_ACU();
+      saveSettingsAndNotify_ACU();
       renderPlotTaskList_ACU(plotSettings);
       loadCurrentPlotTaskToUI_ACU(plotSettings);
       showToastr_ACU('success', '剧情任务已删除。');
@@ -519,9 +456,9 @@ import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotProm
       const [movedTask] = reordered.splice(selectedIndex, 1);
       reordered.splice(targetIndex, 0, movedTask);
       plotSettings.plotTasks = normalizePlotTaskListForEditor_ACU(reordered);
-      currentPlotTaskEditorId_ACU = movedTask?.id || currentPlotTaskEditorId_ACU;
+      _set_currentPlotTaskEditorId_ACU(movedTask?.id || currentPlotTaskEditorId_ACU);
       syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings);
-      saveSettings_ACU();
+      saveSettingsAndNotify_ACU();
       renderPlotTaskList_ACU(plotSettings);
       loadCurrentPlotTaskToUI_ACU(plotSettings);
   }
@@ -531,16 +468,9 @@ import { ensurePlotTasksCompat_ACU, getActivePlotEditorSettings_ACU, getPlotProm
   export let wasStoppedByUser_ACU = false; // [新增] 标记更新是否被用户手动终止
   export let newMessageDebounceTimer_ACU = null;
   export let currentAbortController_ACU = null; // [新增] 用于中止正在进行的AI请求
-  export let activePlotEditorSettings_ACU = null;
-  export let currentPlotTaskEditorId_ACU = '';
-  export let currentEditablePlotPresetState_ACU = {
-    initialized: false,
-    presetName: '',
-    scope: 'resolved',
-    source: '',
-  };
+  // activePlotEditorSettings_ACU, currentPlotTaskEditorId_ACU, currentEditablePlotPresetState_ACU 已搬到 service/plot/plot-state.ts
   export let plotTaskEditorAutoSaveTimer_ACU = null;
-  export let activeAbortControllers_ACU = new Set(); // [新增] 并发请求的 AbortController 集合
+  export let activeAbortControllers_ACU: Set<AbortController> = new Set(); // [新增] 并发请求的 AbortController 集合
   export let manualExtraHint_ACU = ''; // [新增] 手动更新时的额外提示词（一次性）
 
   export function trackAbortController_ACU(controller) {
@@ -568,7 +498,5 @@ export function _set_currentAbortController_ACU(v: any) { currentAbortController
 export function _set_isAutoUpdatingCard_ACU(v: any) { isAutoUpdatingCard_ACU = v; }
 export function _set_manualExtraHint_ACU(v: any) { manualExtraHint_ACU = v; }
 export function _set_wasStoppedByUser_ACU(v: any) { wasStoppedByUser_ACU = v; }
-export function _set_currentEditablePlotPresetState_ACU(v: any) { currentEditablePlotPresetState_ACU = v; }
-export function _set_activePlotEditorSettings_ACU(v: any) { activePlotEditorSettings_ACU = v; }
-export function _set_currentPlotTaskEditorId_ACU(v: any) { currentPlotTaskEditorId_ACU = v; }
+// _set_currentEditablePlotPresetState_ACU, _set_activePlotEditorSettings_ACU, _set_currentPlotTaskEditorId_ACU 已搬到 service/plot/plot-state.ts
 export function _set_newMessageDebounceTimer_ACU(v: any) { newMessageDebounceTimer_ACU = v; }

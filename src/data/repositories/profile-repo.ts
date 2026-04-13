@@ -7,14 +7,8 @@
 import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-helpers';
 import { logWarn_ACU } from '../../shared/utils';
 import { STORAGE_KEY_GLOBAL_META_ACU, normalizeIsolationCode_ACU, getProfileSettingsKey_ACU, getProfileTemplateKey_ACU } from '../../shared/data-constants';
-import { getConfigStorage_ACU } from '../storage/config-storage';
+import { getConfigStorage_ACU } from '../storage/tavern-storage';
 import { TABLE_TEMPLATE_ACU } from '../../shared/defaults-json.js';
-
-// 注入点：由 service 层在启动时设置
-let _settingsRef: () => any = () => ({});
-export function _injectProfileRepoDeps(getSettings: () => any) {
-  _settingsRef = getSettings;
-}
 
 export let globalMeta_ACU: any = {
     version: 1,
@@ -88,9 +82,9 @@ export function writeProfileTemplateToStorage_ACU(code: string, templateStr: str
     store.setItem(getProfileTemplateKey_ACU(code), String(templateStr || ''));
 }
 
-export function saveCurrentProfileTemplate_ACU(templateStr?: string): void {
+export function saveCurrentProfileTemplate_ACU(templateStr?: string, settings?: any): void {
     const tpl = templateStr !== undefined ? templateStr : TABLE_TEMPLATE_ACU;
-    const code = normalizeIsolationCode_ACU(_settingsRef()?.dataIsolationCode || '');
+    const code = normalizeIsolationCode_ACU(settings?.dataIsolationCode || '');
     writeProfileTemplateToStorage_ACU(code, String(tpl || ''));
 }
 

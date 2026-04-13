@@ -1,10 +1,8 @@
-import { getCurrentWorldbookConfig_ACU } from '../../data/repositories/character-settings-repo';
-import { showToastr_ACU } from '../runtime/toast-service';
-import { SillyTavern_API_ACU, TavernHelper_API_ACU, allChatMessages_ACU, coreApisAreReady_ACU, currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, $manualTableSelector_ACU, $importTableSelector_ACU, _set_currentJsonTableData_ACU, _set_allChatMessages_ACU} from '../runtime/state-manager';
+import { getCurrentWorldbookConfig_ACU } from '../settings/settings-service';
+import { SillyTavern_API_ACU, TavernHelper_API_ACU, allChatMessages_ACU, coreApisAreReady_ACU, currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU, _set_allChatMessages_ACU} from '../runtime/state-manager';
 import { saveSettings_ACU } from '../settings/settings-service';
 import { getChatSheetGuideDataForIsolationKey_ACU, getSortedSheetKeys_ACU, materializeDataFromSheetGuide_ACU, reorderDataBySheetKeys_ACU } from '../template/chat-scope';
-import { SCRIPT_ID_PREFIX_ACU, getImportBatchPrefix_ACU, getImportStablePrefix_ACU } from '../../shared/constants';
-import { topLevelWindow_ACU } from '../../shared/env';
+import { getImportBatchPrefix_ACU, getImportStablePrefix_ACU } from '../../shared/constants';
 import { logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
 import { isEntryBlocked_ACU } from '../../shared/utils';
 import { formatJsonToReadable_ACU, maybeLiftWorldbookSuppression_ACU, mergeAllIndependentTables_ACU, shouldSuppressWorldbookInjection_ACU } from '../runtime/helpers-remaining';
@@ -222,7 +220,6 @@ export   async function updateReadableLorebookEntry_ACU(createIfNeeded = false, 
                 }, globalFixedIndexPlacement);
                 await TavernHelper_API_ACU.createLorebookEntries(primaryLorebookName, [newDb2Entry]);
                 logDebug_ACU('Global readable lorebook entry not found. Created a new one.');
-                showToastr_ACU('success', `已创建全局可读数据库条目。`);
             }
 
             // [新增] 创建 WrapperStart 条目
@@ -600,36 +597,12 @@ export   async function refreshMergedDataAndNotify_ACU() {
         // UI 选择器刷新由 presentation 层调用方负责
     }
           
-    // 更新世界书（此时 currentJsonTableData_ACU 已是最新状态，空数据也会被正确处理）
+    // 更新世界书
     await updateReadableLorebookEntry_ACU(true);
     logDebug_ACU('Updated worldbook entries with merged data.');
-          
-    // 通知前端进行UI刷新，并等待前端完成数据读取
-    return new Promise((resolve) => {
-        // 1. 通知前端 (iframe context)
-        if ((topLevelWindow_ACU as any).AutoCardUpdaterAPI) {
-            (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
-            logDebug_ACU('Notified frontend to refresh UI after data merge.');
-        }
-        
-        // 2. 刷新可视化编辑器（UI层负责）
-        setTimeout(() => {
-             if (typeof (window as any).ACU_Visualizer_Refresh === 'function') {
-                 (window as any).ACU_Visualizer_Refresh();
-                 logDebug_ACU('Triggered global visualizer refresh.');
-             } else if (typeof (window as any).ACU_WindowManager !== 'undefined' && (window as any).ACU_WindowManager.isOpen(`${SCRIPT_ID_PREFIX_ACU}-visualizer-window`)) {
-             }
-        }, 200);
 
-        // 3. 刷新状态面板由 presentation 层调用方负责
-              
-        // [修复] 等待足够的时间，确保前端完成数据读取和UI刷新
-        // 使用较长的延迟，确保前端有足够时间处理数据
-        setTimeout(() => {
-            logDebug_ACU('UI refresh wait period completed. Frontend should have finished reading data.');
-            resolve(undefined);
-        }, 800); // 增加到 800ms，确保前端有足够时间读取数据
-    });
+    // 返回结果，UI 通知由 presentation 层调用方负责
+    return { mergedData: currentJsonTableData_ACU, integrityFixed: false };
   }
 
 

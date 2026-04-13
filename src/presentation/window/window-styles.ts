@@ -2,7 +2,7 @@
  * presentation/window/window-styles.ts — 窗口样式注入 + 主题切换
  * 从 window-system.ts 拆出
  */
-import { getConfigStorage_ACU } from '../../data/storage/tavern-storage';
+import { getConfigStorage_ACU } from '../../service/settings/settings-service';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { topLevelWindow_ACU } from '../../shared/env';
 
@@ -66,7 +66,7 @@ import { topLevelWindow_ACU } from '../../shared/env';
     return nextTheme;
   }
 
-  function injectACUWindowStyles() {
+  export function injectACUWindowStyles() {
     // 始终往酒馆主窗口注入样式
     const targetWin = topLevelWindow_ACU || window;
     const targetDoc = targetWin.document;

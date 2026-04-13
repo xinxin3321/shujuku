@@ -2,16 +2,19 @@ import { DEFAULT_CHAR_CARD_PROMPT_ACU } from '../../shared/defaults-json.js';
 import { AUTO_UPDATE_FLOOR_INCREASE_DELAY_ACU } from '../../shared/defaults';
 import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-display';
 import { getCharCardPromptFromUI_ACU, isAutoUpdatingCard_ACU, manualExtraHint_ACU, newMessageDebounceTimer_ACU, renderPromptSegments_ACU, wasStoppedByUser_ACU , _set_isAutoUpdatingCard_ACU, _set_manualExtraHint_ACU, _set_newMessageDebounceTimer_ACU} from '../components/plot-editors';
-import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../theme/toast';
-import { NEW_MESSAGE_DEBOUNCE_DELAY_ACU, SillyTavern_API_ACU, TavernHelper_API_ACU, jQuery_API_ACU, toastr_API_ACU, $popupInstance_ACU, $customApiUrlInput_ACU, $customApiKeyInput_ACU, $customApiModelInput_ACU, $customApiModelSelect_ACU, $maxTokensInput_ACU, $temperatureInput_ACU, $apiStatusDisplay_ACU, $charCardPromptSegmentsContainer_ACU, $autoUpdateThresholdInput_ACU, $autoUpdateTokenThresholdInput_ACU, $autoUpdateFrequencyInput_ACU, $updateBatchSizeInput_ACU, $maxConcurrentGroupsInput_ACU, $skipUpdateFloorsInput_ACU, $retainRecentLayersInput_ACU, $tableMaxRetriesInput_ACU, $manualExtraHintCheckbox_ACU, allChatMessages_ACU, coreApisAreReady_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, lastTotalAiMessages_ACU, settings_ACU , _set_coreApisAreReady_ACU, _set_SillyTavern_API_ACU, _set_TavernHelper_API_ACU, _set_jQuery_API_ACU, _set_toastr_API_ACU, _set_lastTotalAiMessages_ACU} from '../../service/runtime/state-manager';
-import { saveSettings_ACU } from '../../service/settings/settings-service';
-import { loadSettingsAndRefreshUI_ACU } from '../components/settings-ui-helpers';
-import { checkAndTriggerAutoMergeSummary_ACU } from '../../service/summary/merge-logic';
+import { showToastr_ACU } from '../theme/toast';
+import { ACU_TOAST_CATEGORY_ACU } from '../../shared/constants';
+import { NEW_MESSAGE_DEBOUNCE_DELAY_ACU, SillyTavern_API_ACU, TavernHelper_API_ACU, jQuery_API_ACU, toastr_API_ACU, allChatMessages_ACU, coreApisAreReady_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, lastTotalAiMessages_ACU, settings_ACU , _set_coreApisAreReady_ACU, _set_SillyTavern_API_ACU, _set_TavernHelper_API_ACU, _set_jQuery_API_ACU, _set_toastr_API_ACU, _set_lastTotalAiMessages_ACU} from '../../service/runtime/state-manager';
+import { $popupInstance_ACU, $customApiUrlInput_ACU, $customApiKeyInput_ACU, $customApiModelInput_ACU, $customApiModelSelect_ACU, $maxTokensInput_ACU, $temperatureInput_ACU, $apiStatusDisplay_ACU, $charCardPromptSegmentsContainer_ACU, $autoUpdateThresholdInput_ACU, $autoUpdateTokenThresholdInput_ACU, $autoUpdateFrequencyInput_ACU, $updateBatchSizeInput_ACU, $maxConcurrentGroupsInput_ACU, $skipUpdateFloorsInput_ACU, $retainRecentLayersInput_ACU, $tableMaxRetriesInput_ACU, $manualExtraHintCheckbox_ACU } from '../state/ui-refs';
+import { saveSettingsAndNotify_ACU, loadSettingsAndRefreshUI_ACU } from '../components/settings-ui-helpers';
+import { checkAutoMergeTrigger_ACU, prepareAutoMergeBatches_ACU, executeAutoMergeBatch_ACU, finalizeAutoMerge_ACU } from '../../service/summary/merge-logic';
 import { processUpdates_ACU } from './update-process';
 import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
-import { loadAllChatMessages_ACU, refreshMergedDataAndNotify_ACU } from '../../service/worldbook/pipeline';
+import { loadAllChatMessages_ACU } from '../../service/worldbook/pipeline';
+import { refreshMergedDataAndNotifyWithUI_ACU } from '../components/pipeline-ui-helpers';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { escapeHtml_ACU } from '../../shared/html-helpers';
+import { topLevelWindow_ACU } from '../../shared/env';
 import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
 import { executeContentOptimization_ACU } from '../components/optimization-ui';
 import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers-remaining';
@@ -154,14 +157,14 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
     if ($customApiModelSelect_ACU && $customApiModelSelect_ACU.find(`option[value="${escapeHtml_ACU(model)}"]`).length === 0) {
         $customApiModelSelect_ACU.append(`<option value="${escapeHtml_ACU(model)}">${escapeHtml_ACU(model)}</option>`);
     }
-    saveSettings_ACU();
+    saveSettingsAndNotify_ACU();
     showToastr_ACU('success', 'API配置已保存！');
     loadSettingsAndRefreshUI_ACU();
   }
 
   export function clearApiConfig_ACU() {
     Object.assign(settings_ACU.apiConfig, { url: '', apiKey: '', model: '', max_tokens: 120000, temperature: 0.9 });
-    saveSettings_ACU();
+    saveSettingsAndNotify_ACU();
     showToastr_ACU('info', 'API配置已清除！');
     loadSettingsAndRefreshUI_ACU();
   }
@@ -191,7 +194,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
       showToastr_ACU('success', `API预设 "${presetName}" 已保存。`);
     }
     
-    saveSettings_ACU();
+    saveSettingsAndNotify_ACU();
     refreshApiPresetSelectors_ACU();
     return true;
   }
@@ -207,7 +210,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
     settings_ACU.apiConfig = JSON.parse(JSON.stringify(preset.apiConfig));
     settings_ACU.tavernProfile = preset.tavernProfile;
     
-    saveSettings_ACU();
+    saveSettingsAndNotify_ACU();
     loadSettingsAndRefreshUI_ACU();
     showToastr_ACU('success', `已加载API预设 "${presetName}"。`);
     return true;
@@ -230,7 +233,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
       settings_ACU.plotApiPreset = '';
     }
     
-    saveSettings_ACU();
+    saveSettingsAndNotify_ACU();
     refreshApiPresetSelectors_ACU();
     showToastr_ACU('info', `API预设 "${presetName}" 已删除。`);
     return true;
@@ -320,14 +323,14 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
 
     // 保存为JSON数组格式
     settings_ACU.charCardPrompt = newPromptSegments;
-    saveSettings_ACU();
+    saveSettingsAndNotify_ACU();
     showToastr_ACU('success', '更新预设已保存！');
     loadSettingsAndRefreshUI_ACU(); // This will re-render from the saved data.
   }
 
   export function resetDefaultCharCardPrompt_ACU() {
     settings_ACU.charCardPrompt = DEFAULT_CHAR_CARD_PROMPT_ACU;
-    saveSettings_ACU();
+    saveSettingsAndNotify_ACU();
     showToastr_ACU('info', '更新预设已恢复为默认值！');
     // loadSettings will trigger renderPromptSegments_ACU which correctly handles the string default
     loadSettingsAndRefreshUI_ACU();
@@ -439,7 +442,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
 
     if (!isNaN(newT) && newT >= 0) {
       settings_ACU.autoUpdateThreshold = newT;
-      saveSettings_ACU();
+      saveSettingsAndNotify_ACU();
       if (!silent) {
         if (newT === 0) showToastr_ACU('success', '自动更新阈值已保存！标准表自动更新已禁用。');
         else showToastr_ACU('success', '自动更新阈值已保存！');
@@ -461,7 +464,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
 
     if (!isNaN(newT) && newT >= 0) {
       settings_ACU.autoUpdateTokenThreshold = newT;
-      saveSettings_ACU();
+      saveSettingsAndNotify_ACU();
       if (!silent) showToastr_ACU('success', '自动更新Token阈值已保存！');
       if (!skipReload) loadSettingsAndRefreshUI_ACU();
     } else {
@@ -481,7 +484,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
 
     if (!isNaN(newR) && newR >= 1 && newR <= 10) {
       settings_ACU.tableMaxRetries = newR;
-      saveSettings_ACU();
+      saveSettingsAndNotify_ACU();
       if (!silent) showToastr_ACU('success', '填表自动重试次数已保存！');
       if (!skipReload) loadSettingsAndRefreshUI_ACU();
     } else {
@@ -500,7 +503,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
 
     if (!isNaN(newF) && newF >= 1) {
       settings_ACU.autoUpdateFrequency = newF;
-      saveSettings_ACU();
+      saveSettingsAndNotify_ACU();
       if (!silent) showToastr_ACU('success', '自动更新频率已保存！');
       if (!skipReload) loadSettingsAndRefreshUI_ACU();
     } else {
@@ -521,7 +524,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
 
       if (!isNaN(newBatchSize) && newBatchSize >= 1) {
           settings_ACU.updateBatchSize = newBatchSize;
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           if (!silent) showToastr_ACU('success', '批处理大小已保存！');
           if (!skipReload) loadSettingsAndRefreshUI_ACU();
       } else {
@@ -541,7 +544,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
 
       if (!isNaN(newLimit) && newLimit >= 1) {
           settings_ACU.maxConcurrentGroups = newLimit;
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           if (!silent) showToastr_ACU('success', '最大并发数已保存！');
           if (!skipReload) loadSettingsAndRefreshUI_ACU();
       } else {
@@ -561,7 +564,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
  
        if (!isNaN(newSkip) && newSkip >= 0) {
            settings_ACU.skipUpdateFloors = newSkip;
-           saveSettings_ACU();
+           saveSettingsAndNotify_ACU();
            if (!silent) showToastr_ACU('success', '跳过更新楼层已保存！');
            if (!skipReload) loadSettingsAndRefreshUI_ACU();
        } else {
@@ -582,7 +585,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
        const newRetain = (!valStr || valStr.trim() === '' || isNaN(parsed)) ? 0 : Math.max(0, parsed);
 
        settings_ACU.retainRecentLayers = newRetain;
-       saveSettings_ACU();
+       saveSettingsAndNotify_ACU();
        if (!silent) {
            if (newRetain === 0) {
                showToastr_ACU('success', '保留层数已清空（将保留全部历史数据）！');
@@ -701,7 +704,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
 
       if (!isNaN(newSize) && newSize >= 100) {
           settings_ACU.importSplitSize = newSize;
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
           showToastr_ACU('success', '导入分割大小已保存！');
           loadSettingsAndRefreshUI_ACU();
       } else {
@@ -1241,16 +1244,31 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../service/runtime/helpers
         // [核心修复] 并发更新完成后统一刷新数据链条
         logDebug_ACU(`All group updates completed. Forcing data refresh...`);
         await loadAllChatMessages_ACU();
-        await refreshMergedDataAndNotify_ACU();
+        await refreshMergedDataAndNotifyWithUI_ACU();
         await new Promise(resolve => setTimeout(resolve, 500));
         
         _set_isAutoUpdatingCard_ACU(false);
         // 最后再刷新一次，确保 UI 状态最新
-        await refreshMergedDataAndNotify_ACU();
+        await refreshMergedDataAndNotifyWithUI_ACU();
 
         // [新增] 在自动更新全部完成后检测自动合并总结
         try {
-            await checkAndTriggerAutoMergeSummary_ACU();
+            const trigger = checkAutoMergeTrigger_ACU();
+            if (trigger.shouldTrigger) {
+                const prepared = prepareAutoMergeBatches_ACU({
+                    startIndex: 0, endIndex: trigger.mergeCount, targetCount: 1,
+                    batchSize: 5, promptTemplate: '', isAutoMode: true,
+                });
+                let acc = [];
+                for (let i = 0; i < prepared.batches.length; i++) {
+                    showToastr_ACU('info', `自动合并纪要进行中... (批次 ${i + 1}/${prepared.batches.length})`, { timeOut: 0, extendedTimeOut: 0, tapToDismiss: false });
+                    const batchResult = await executeAutoMergeBatch_ACU(prepared, prepared.batches[i], acc);
+                    acc = batchResult.accumulatedSummary;
+                }
+                await finalizeAutoMerge_ACU(prepared, acc);
+                showToastr_ACU('success', '自动合并纪要完成！');
+                try { (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate(); } catch (_) {}
+            }
             if (typeof updateCardUpdateStatusDisplay_ACU === 'function') updateCardUpdateStatusDisplay_ACU();
         } catch (e) {
             logWarn_ACU('自动合并总结检测失败:', e);

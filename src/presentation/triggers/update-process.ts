@@ -3,16 +3,18 @@
 
 import { abortAllActiveRequests_ACU, isAutoUpdatingCard_ACU, wasStoppedByUser_ACU, _set_isAutoUpdatingCard_ACU, _set_manualExtraHint_ACU, _set_wasStoppedByUser_ACU} from '../../service/runtime/state-manager';
 import { getManualSelectionFromUI_ACU } from '../components/table-selector';
-import { showToastr_ACU } from '../../service/runtime/toast-service';
+import { showToastr_ACU } from '../theme/toast';
 import { ACU_TOAST_CATEGORY_ACU } from '../../shared/constants';
 import { callCustomOpenAI_ACU } from '../../service/ai/prompt-builder';
-import { SillyTavern_API_ACU, coreApisAreReady_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, toastr_API_ACU, $statusMessageSpan_ACU, _set_currentJsonTableData_ACU} from '../../service/runtime/state-manager';
-import { checkAndTriggerAutoMergeSummary_ACU } from '../../service/summary/merge-logic';
+import { SillyTavern_API_ACU, coreApisAreReady_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, toastr_API_ACU, _set_currentJsonTableData_ACU} from '../../service/runtime/state-manager';
+import { $statusMessageSpan_ACU } from '../state/ui-refs';
+import { checkAutoMergeTrigger_ACU, prepareAutoMergeBatches_ACU, executeAutoMergeBatch_ACU, finalizeAutoMerge_ACU } from '../../service/summary/merge-logic';
 import { getChatSheetGuideDataForIsolationKey_ACU } from '../../service/template/chat-scope';
-import { loadAllChatMessages_ACU, refreshMergedDataAndNotify_ACU, updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
+import { loadAllChatMessages_ACU, updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
+import { refreshMergedDataAndNotifyWithUI_ACU } from '../components/pipeline-ui-helpers';
 import { topLevelWindow_ACU } from '../../shared/env';
 import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
-import { checkIfFirstTimeInit_ACU, saveIndependentTableToChatHistory_ACU } from '../../data/repositories/table-repo';
+import { checkIfFirstTimeInit_ACU, saveIndependentTableToChatHistory_ACU } from '../../service/table/table-service';
 import { bindTableFillStopButton_ACU, resetManualUpdateButton_ACU } from '../components/status-display';
 import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-display';
 import { collectManualExtraHint_ACU } from './settings-ui-sync';
@@ -285,7 +287,7 @@ export   async function handleManualUpdate_ACU() {
         // [修复] 在填表前先刷新数据，确保 currentJsonTableData_ACU 与聊天记录的指导表一致
         // 这解决了用户切换模板后回到聊天记录时，数据可能不一致的问题
         await loadAllChatMessages_ACU();
-        await refreshMergedDataAndNotify_ACU();
+        await refreshMergedDataAndNotifyWithUI_ACU();
         
         if (!currentJsonTableData_ACU) {
             showToastr_ACU('error', '数据库未加载。');
@@ -360,7 +362,7 @@ export   async function handleManualUpdate_ACU() {
                 return;
             }
             await loadAllChatMessages_ACU();
-            await refreshMergedDataAndNotify_ACU();
+            await refreshMergedDataAndNotifyWithUI_ACU();
         }
         _set_isAutoUpdatingCard_ACU(false);
         showToastr_ACU('success', '手动更新完成！', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.TABLE_OK });
@@ -370,7 +372,22 @@ export   async function handleManualUpdate_ACU() {
 
         // [新增] 在手动更新全部完成后检测自动合并总结
         try {
-            await checkAndTriggerAutoMergeSummary_ACU();
+            const trigger = checkAutoMergeTrigger_ACU();
+            if (trigger.shouldTrigger) {
+                const prepared = prepareAutoMergeBatches_ACU({
+                    startIndex: 0, endIndex: trigger.mergeCount, targetCount: 1,
+                    batchSize: 5, promptTemplate: '', isAutoMode: true,
+                });
+                let acc = [];
+                for (let i = 0; i < prepared.batches.length; i++) {
+                    showToastr_ACU('info', `自动合并纪要进行中... (批次 ${i + 1}/${prepared.batches.length})`, { timeOut: 0, extendedTimeOut: 0, tapToDismiss: false });
+                    const batchResult = await executeAutoMergeBatch_ACU(prepared, prepared.batches[i], acc);
+                    acc = batchResult.accumulatedSummary;
+                }
+                await finalizeAutoMerge_ACU(prepared, acc);
+                showToastr_ACU('success', '自动合并纪要完成！');
+                try { (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate(); } catch (_) {}
+            }
         } catch (e) {
             logWarn_ACU('自动合并总结检测失败:', e);
         }

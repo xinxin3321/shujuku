@@ -1,8 +1,9 @@
 import { DEFAULT_PLOT_SETTINGS_ACU } from '../../shared/defaults-json.js';
-import { activePlotEditorSettings_ACU, buildDefaultPlotPromptGroup_ACU, currentEditablePlotPresetState_ACU, currentPlotTaskEditorId_ACU, ensurePlotPromptGroup_ACU , _set_currentEditablePlotPresetState_ACU, _set_activePlotEditorSettings_ACU, _set_currentPlotTaskEditorId_ACU} from './plot-editors';
+import { activePlotEditorSettings_ACU, buildDefaultPlotPromptGroup_ACU, currentEditablePlotPresetState_ACU, currentPlotTaskEditorId_ACU, ensurePlotPromptGroup_ACU , _set_currentEditablePlotPresetState_ACU, _set_activePlotEditorSettings_ACU, _set_currentPlotTaskEditorId_ACU} from '../../service/plot/plot-state';
 import { showToastr_ACU } from '../theme/toast';
-import { SillyTavern_API_ACU, jQuery_API_ACU, toastr_API_ACU, $popupInstance_ACU, currentChatFileIdentifier_ACU, settings_ACU } from '../../service/runtime/state-manager';
-import { saveSettings_ACU } from '../../service/settings/settings-service';
+import { SillyTavern_API_ACU, jQuery_API_ACU, toastr_API_ACU, currentChatFileIdentifier_ACU, settings_ACU } from '../../service/runtime/state-manager';
+import { $popupInstance_ACU } from '../state/ui-refs';
+import { saveSettingsAndNotify_ACU } from './settings-ui-helpers';
 import { buildChatPlotScopeStateFromSettings_ACU, clearCurrentChatPlotScopeState_ACU, getCurrentChatPlotScopeState_ACU, sanitizePlotSettingsSnapshotForChat_ACU, setCurrentChatPlotScopeState_ACU } from '../../service/template/chat-scope';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { escapeHtml_ACU } from '../../shared/html-helpers';
@@ -10,6 +11,49 @@ import { cleanChatName_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, normalizeEx
 import { triggerAutomaticUpdateIfNeeded_ACU } from '../triggers/settings-ui-sync';
 import { cancelContentOptimization_ACU, contentOptimizationAbortRequested_ACU, ensureOptimizationNotCancelled_ACU, getLastOptimizationBase_ACU, optimizationProgressToast_ACU, performContentOptimization_ACU, setLastOptimizationBase_ACU, _set_optimizationProgressToast_ACU, _set_contentOptimizationAbortRequested_ACU } from '../../service/optimization/content-optimization';
 import { applyContextTagFilters_ACU } from '../../service/runtime/helpers-remaining';
+import { getActivePlotEditorSettings_ACU, getPlotPromptContentByIdFromSettings_ACU, setPlotPromptContentByIdForSettings_ACU, ensureLoopPromptsArray_ACU } from '../../service/plot/plot-logic';
+
+// re-export 从 service/plot/plot-logic —— 消除与 optimization-ui.ts 中的 37 个重复函数体
+export {
+  ensureLoopPromptsArray_ACU,
+  ensureTagRulesCompat_ACU,
+  getLegacyPromptFromThree_ACU,
+  getLegacyPromptTextsFromPromptGroup_ACU,
+  getPlotPromptGroupFromSource_ACU,
+  getPlotFinalDirectiveFromSource_ACU,
+  normalizePlotTask_ACU,
+  normalizePlotTasks_ACU,
+  syncLegacyPlotSettingsFromTask_ACU,
+  ensurePlotTasksCompat_ACU,
+  applyPlotPresetToSettings_ACU,
+  normalizePlotPresetSelectionValue_ACU,
+  isDefaultPlotPresetSelection_ACU,
+  ensurePlotPresetBindingsStore_ACU,
+  getPlotPresetBindingForChat_ACU,
+  clearPlotPresetBindingForChat_ACU,
+  findPlotPresetByName_ACU,
+  resolveActivePlotPresetName_ACU,
+  getCurrentRuntimePlotPresetName_ACU,
+  setCurrentEditablePlotPresetState_ACU,
+  syncCurrentEditablePlotPresetState_ACU,
+  getActivePlotEditorSettings_ACU,
+  setActivePlotEditorSettings_ACU,
+  getPlotGlobalRevision_ACU,
+  resetPlotSettingsToDefault_ACU,
+  replaceCurrentPlotSettingsWithSnapshot_ACU,
+  switchCurrentChatPlotPreset_ACU,
+  persistPlotPresetSelectionState_ACU,
+  applyGlobalPlotPresetSelectionForEditor_ACU,
+  normalizePlotPresetExcludeRules_ACU,
+  stripPlotPresetWorldbookEntrySelectionForExport_ACU,
+  ensurePlotPromptsArray_ACU,
+  getPlotPromptContentByIdFromSettings_ACU,
+  setPlotPromptContentByIdForSettings_ACU,
+  markPlotIntercept_ACU,
+  shouldSkipPlotIntercept_ACU,
+  getLastOptimizedMessageIndex_ACU,
+  DEFAULT_PRESET_OPTION_VALUE_ACU,
+} from '../../service/plot/plot-logic';
 /**
  * presentation/components/optimization-ui.ts — 正文优化 UI + 剧情推进 UI
  * 从 src/core/02_storage_and_profile.js:631~2772 迁移而来
@@ -70,7 +114,8 @@ import { applyContextTagFilters_ACU } from '../../service/runtime/helpers-remain
     jQuery_API_ACU('#acu-optimization-overlay-cancel').off('click.acu_opt_cancel').on('click.acu_opt_cancel', function(e) {
       e.preventDefault();
       e.stopPropagation();
-      cancelContentOptimization_ACU('正文优化已取消。');
+      const cancelResult = cancelContentOptimization_ACU('正文优化已取消。');
+      if (cancelResult.cancelled) showToastr_ACU('warning', cancelResult.reason);
       hideOptimizationOverlay_ACU();
       hideOptimizationProgressToast_ACU();
     });
@@ -91,7 +136,8 @@ import { applyContextTagFilters_ACU } from '../../service/runtime/helpers-remain
         jQuery_API_ACU('#acu-opt-stop-btn').off('click.acu_opt_cancel').on('click.acu_opt_cancel', function(e) {
           e.preventDefault();
           e.stopPropagation();
-          cancelContentOptimization_ACU('正文优化已取消。');
+          const cancelResult2 = cancelContentOptimization_ACU('正文优化已取消。');
+          if (cancelResult2.cancelled) showToastr_ACU('warning', cancelResult2.reason);
           hideOptimizationOverlay_ACU();
           hideOptimizationProgressToast_ACU();
           jQuery_API_ACU(this).closest('.toast').remove();
@@ -228,52 +274,6 @@ import { applyContextTagFilters_ACU } from '../../service/runtime/helpers-remain
     }
     const extra = chat[messageIndex].extra || {};
     return extra._acu_original_content || null;
-  }
-  
-  /**
-   * 获取最近一次被正文优化替换过的 AI 消息索引
-   * @returns {number} 消息索引，不存在返回 -1
-   */
-  export function getLastOptimizedMessageIndex_ACU() {
-    const chat = SillyTavern_API_ACU.chat || [];
-    const cachedBase = getLastOptimizationBase_ACU();
-
-    if (cachedBase?.messageId != null) {
-      const runtimeIndex = chat.findIndex(msg => msg && !msg.is_user && msg.message_id === cachedBase.messageId);
-      if (runtimeIndex >= 0) {
-        return runtimeIndex;
-      }
-    }
-
-    if (Number.isInteger(cachedBase?.messageIndex) && cachedBase.messageIndex >= 0 && chat[cachedBase.messageIndex] && !chat[cachedBase.messageIndex].is_user) {
-      return cachedBase.messageIndex;
-    }
-
-    let latestIndex = -1;
-    let latestTimestamp = -1;
-
-    for (let i = 0; i < chat.length; i++) {
-      const msg = chat[i];
-      if (!msg || msg.is_user) continue;
-      const extra = msg.extra || {};
-      const ts = Number(extra._acu_last_optimized_at || 0);
-      if (extra._acu_original_content && ts >= latestTimestamp) {
-        latestTimestamp = ts;
-        latestIndex = i;
-      }
-    }
-
-    if (latestIndex >= 0) {
-      const latestMessage = chat[latestIndex];
-      const latestExtra = latestMessage?.extra || {};
-      setLastOptimizationBase_ACU({
-        messageIndex: latestIndex,
-        messageId: latestMessage?.message_id ?? null,
-        baseContent: latestExtra._acu_original_content || latestMessage?.mes || ''
-      });
-    }
-
-    return latestIndex;
   }
 
   /**
@@ -1132,732 +1132,7 @@ import { applyContextTagFilters_ACU } from '../../service/runtime/helpers-remain
    * HTML转义
    */
 
-  // --- [剧情推进] 循环提示词兼容性处理：将旧字符串格式转换为数组格式 ---
-  export function ensureLoopPromptsArray_ACU(plotSettings) {
-    if (!plotSettings || !plotSettings.loopSettings) return;
-    const ls = plotSettings.loopSettings;
-    
-    // 如果 quickReplyContent 是字符串，转换为数组
-    if (typeof ls.quickReplyContent === 'string') {
-      const oldContent = ls.quickReplyContent.trim();
-      ls.quickReplyContent = oldContent ? [oldContent] : [];
-      ls.currentPromptIndex = 0;
-      logDebug_ACU('[剧情推进] 已迁移旧版循环提示词格式（字符串 -> 数组）');
-    }
-    
-    // 确保是数组
-    if (!Array.isArray(ls.quickReplyContent)) {
-      ls.quickReplyContent = [];
-    }
-    
-    // 确保 currentPromptIndex 存在且有效
-    if (typeof ls.currentPromptIndex !== 'number' || ls.currentPromptIndex < 0) {
-      ls.currentPromptIndex = 0;
-    }
-    
-    // 确保索引不超出范围
-    if (ls.quickReplyContent.length > 0 && ls.currentPromptIndex >= ls.quickReplyContent.length) {
-      ls.currentPromptIndex = 0;
-    }
-  }
-
-  // --- [剧情推进/填表] 标签规则兼容：旧字符串字段 -> 新规则数组 ---
-  export function ensureTagRulesCompat_ACU(targetSettings) {
-    if (!targetSettings || typeof targetSettings !== 'object') return;
-
-    targetSettings.tableContextExtractRules = normalizeExtractRules_ACU(
-      targetSettings.tableContextExtractRules,
-      targetSettings.tableContextExtractTags || '',
-    );
-    targetSettings.tableContextExcludeRules = normalizeExcludeRules_ACU(
-      targetSettings.tableContextExcludeRules,
-      targetSettings.tableContextExcludeTags || '',
-    );
-
-    const plot = targetSettings.plotSettings;
-    if (!plot || typeof plot !== 'object') return;
-
-    plot.contextExtractRules = normalizeExtractRules_ACU(
-      plot.contextExtractRules,
-      plot.contextExtractTags || '',
-    );
-    plot.contextExcludeRules = normalizeExcludeRules_ACU(
-      plot.contextExcludeRules,
-      plot.contextExcludeTags || '',
-    );
-
-    // 若当前配置为空，回填默认配置中的规则，确保 UI 可见默认规则
-    if ((!Array.isArray(plot.contextExtractRules) || plot.contextExtractRules.length === 0)
-      && (plot.contextExtractTags || '').trim() === '') {
-      plot.contextExtractRules = normalizeExtractRules_ACU(
-        DEFAULT_PLOT_SETTINGS_ACU.contextExtractRules,
-        DEFAULT_PLOT_SETTINGS_ACU.contextExtractTags || '',
-      );
-    }
-    if ((!Array.isArray(plot.contextExcludeRules) || plot.contextExcludeRules.length === 0)
-      && (plot.contextExcludeTags || '').trim() === '') {
-      plot.contextExcludeRules = normalizeExcludeRules_ACU(
-        DEFAULT_PLOT_SETTINGS_ACU.contextExcludeRules,
-        DEFAULT_PLOT_SETTINGS_ACU.contextExcludeTags || '',
-      );
-    }
-
-    ensurePlotTasksCompat_ACU(plot);
-
-    if (Array.isArray(plot.promptPresets)) {
-      plot.promptPresets = plot.promptPresets.map(preset => normalizePlotPresetExcludeRules_ACU(preset));
-    }
-  }
-
-  export function getLegacyPromptFromThree_ACU(prompts, id) {
-    if (!prompts) return '';
-    if (Array.isArray(prompts)) return (prompts.find(item => item && item.id === id)?.content) || '';
-    if (typeof prompts === 'object') return prompts[id] || '';
-    return '';
-  }
-
-  function looksLikePromptGroupSegments_ACU(arr) {
-    if (!Array.isArray(arr) || arr.length === 0) return false;
-    const first = arr[0];
-    return first && typeof first === 'object' && 'role' in first && 'content' in first && !('id' in first);
-  }
-
-  function getMainSlotFromPlotSegment_ACU(segment) {
-    if (!segment) return '';
-    const slot = String(segment.mainSlot || '').toUpperCase();
-    if (slot === 'A' || slot === 'B') return slot;
-    if (segment.isMain) return 'A';
-    if (segment.isMain2) return 'B';
-    return '';
-  }
-
-  export function getLegacyPromptTextsFromPromptGroup_ACU(promptGroup) {
-    const segments = Array.isArray(promptGroup) ? promptGroup : [];
-    return {
-      mainPrompt: (segments.find(segment => getMainSlotFromPlotSegment_ACU(segment) === 'A')?.content) || '',
-      systemPrompt: (segments.find(segment => getMainSlotFromPlotSegment_ACU(segment) === 'B')?.content) || '',
-    };
-  }
-
-  export function getPlotPromptGroupFromSource_ACU(source, { fallbackPromptGroup = null } = {}) {
-    if (Array.isArray(source?.promptGroup) && source.promptGroup.length > 0) {
-      return JSON.parse(JSON.stringify(source.promptGroup));
-    }
-    if (looksLikePromptGroupSegments_ACU(source?.prompts)) {
-      return JSON.parse(JSON.stringify(source.prompts));
-    }
-
-    const fallbackTexts = getLegacyPromptTextsFromPromptGroup_ACU(fallbackPromptGroup);
-    const legacyMain = source?.mainPrompt || getLegacyPromptFromThree_ACU(source?.prompts, 'mainPrompt') || fallbackTexts.mainPrompt || '';
-    const legacySystem = source?.systemPrompt || getLegacyPromptFromThree_ACU(source?.prompts, 'systemPrompt') || fallbackTexts.systemPrompt || '';
-    return buildDefaultPlotPromptGroup_ACU({ mainAContent: legacyMain, mainBContent: legacySystem });
-  }
-
-  export function getPlotFinalDirectiveFromSource_ACU(source) {
-    if (!source || typeof source !== 'object') return '';
-    return source.finalSystemDirective
-      || source.finalDirective
-      || getPlotPromptContentByIdFromSettings_ACU(source, 'finalSystemDirective')
-      || getLegacyPromptFromThree_ACU(source.prompts, 'finalSystemDirective')
-      || '';
-  }
-
-
-  export function normalizePlotTask_ACU(task, { index = 0, fallbackTask = null } = {}) {
-    const cloned = task && typeof task === 'object' ? JSON.parse(JSON.stringify(task)) : {};
-    const fallback = fallbackTask && typeof fallbackTask === 'object' ? fallbackTask : null;
-    const defaultId = `plotTask${index + 1}`;
-    const rawId = String(cloned.id || cloned.name || fallback?.id || defaultId).trim();
-    const taskId = rawId.replace(/[^\w-]+/g, '_') || defaultId;
-    const taskName = String(cloned.name || fallback?.name || `剧情任务${index + 1}`).trim() || `剧情任务${index + 1}`;
-    const promptGroup = getPlotPromptGroupFromSource_ACU(cloned, { fallbackPromptGroup: fallback?.promptGroup || null });
-
-    return {
-      id: taskId,
-      name: taskName,
-      enabled: cloned.enabled !== false,
-      promptGroup,
-      extractTags: typeof cloned.extractTags === 'string' ? cloned.extractTags : (fallback?.extractTags || ''),
-      finalDirectiveTemplate: typeof cloned.finalDirectiveTemplate === 'string' ? cloned.finalDirectiveTemplate : (fallback?.finalDirectiveTemplate || ''),
-      minLength: normalizeNonNegativeInteger_ACU(cloned.minLength, fallback?.minLength ?? 0),
-      maxRetries: normalizePositiveInteger_ACU(
-        cloned.maxRetries ?? cloned.loopSettings?.maxRetries,
-        fallback?.maxRetries ?? DEFAULT_PLOT_SETTINGS_ACU.loopSettings?.maxRetries ?? 3,
-      ),
-      mergeStrategy: typeof cloned.mergeStrategy === 'string' && cloned.mergeStrategy.trim()
-        ? cloned.mergeStrategy.trim()
-        : (fallback?.mergeStrategy || 'append'),
-      stage: normalizePositiveInteger_ACU(cloned.stage, fallback?.stage ?? 1),
-      order: normalizeNonNegativeInteger_ACU(cloned.order, fallback?.order ?? index),
-    };
-  }
-
-  function buildLegacyWrappedPlotTask_ACU(source, { taskId = 'defaultPlotTask', taskName = '默认任务', order = 0 } = {}) {
-    return normalizePlotTask_ACU({
-      id: taskId,
-      name: taskName,
-      enabled: true,
-      promptGroup: getPlotPromptGroupFromSource_ACU(source),
-      extractTags: typeof source?.extractTags === 'string' ? source.extractTags : '',
-      minLength: source?.minLength,
-      maxRetries: source?.loopSettings?.maxRetries,
-      mergeStrategy: 'append',
-      stage: 1,
-      order,
-    }, { index: order });
-  }
-
-  export function normalizePlotTasks_ACU(source, { fallbackTaskId = 'defaultPlotTask', fallbackTaskName = '默认任务' } = {}) {
-    const baseSource = source && typeof source === 'object' ? source : {};
-    const fallbackTask = buildLegacyWrappedPlotTask_ACU(baseSource, {
-      taskId: fallbackTaskId,
-      taskName: fallbackTaskName,
-      order: 0,
-    });
-    const rawTasks = Array.isArray(baseSource.plotTasks) && baseSource.plotTasks.length > 0
-      ? baseSource.plotTasks
-      : [fallbackTask];
-
-    return rawTasks
-      .map((task, index) => normalizePlotTask_ACU(task, {
-        index,
-        fallbackTask: { ...fallbackTask, order: index },
-      }))
-      .sort((a, b) => a.order - b.order);
-  }
-
-  export function syncLegacyPlotSettingsFromTask_ACU(plotSettings, task) {
-    if (!plotSettings || !task) return;
-    ensurePlotPromptsArray_ACU(plotSettings);
-
-    const normalizedPromptGroup = getPlotPromptGroupFromSource_ACU(task);
-    plotSettings.promptGroup = JSON.parse(JSON.stringify(normalizedPromptGroup));
-    plotSettings.extractTags = typeof task.extractTags === 'string' ? task.extractTags : '';
-    plotSettings.minLength = normalizeNonNegativeInteger_ACU(task.minLength, 0);
-
-    const legacyPromptTexts = getLegacyPromptTextsFromPromptGroup_ACU(normalizedPromptGroup);
-    setPlotPromptContentByIdForSettings_ACU(plotSettings, 'mainPrompt', legacyPromptTexts.mainPrompt || '');
-    setPlotPromptContentByIdForSettings_ACU(plotSettings, 'systemPrompt', legacyPromptTexts.systemPrompt || '');
-  }
-
-  function syncPrimaryPlotTaskFromLegacySettings_ACU(plotSettings) {
-    if (!plotSettings || typeof plotSettings !== 'object') return;
-    ensurePlotPromptGroup_ACU(plotSettings);
-    ensurePlotPromptsArray_ACU(plotSettings);
-
-    const legacyPromptTexts = getLegacyPromptTextsFromPromptGroup_ACU(plotSettings.promptGroup || []);
-    setPlotPromptContentByIdForSettings_ACU(plotSettings, 'mainPrompt', legacyPromptTexts.mainPrompt || '');
-    setPlotPromptContentByIdForSettings_ACU(plotSettings, 'systemPrompt', legacyPromptTexts.systemPrompt || '');
-
-    const normalizedTasks = normalizePlotTasks_ACU(plotSettings);
-    const primaryTaskIndex = normalizedTasks.findIndex(task => task && task.enabled !== false);
-    const targetIndex = primaryTaskIndex >= 0 ? primaryTaskIndex : 0;
-    const currentTask = normalizedTasks[targetIndex] || buildLegacyWrappedPlotTask_ACU(plotSettings, { order: targetIndex });
-
-    normalizedTasks[targetIndex] = normalizePlotTask_ACU({
-      ...currentTask,
-      promptGroup: JSON.parse(JSON.stringify(plotSettings.promptGroup || [])),
-      extractTags: plotSettings.extractTags,
-      minLength: plotSettings.minLength,
-      maxRetries: plotSettings.loopSettings?.maxRetries,
-      order: currentTask.order ?? targetIndex,
-    }, {
-      index: targetIndex,
-      fallbackTask: currentTask,
-    });
-
-    plotSettings.plotTasks = normalizedTasks;
-  }
-
-  export function ensurePlotTasksCompat_ACU(plotSettings, { persist = false, syncLegacy = true } = {}) {
-    if (!plotSettings || typeof plotSettings !== 'object') return;
-    const normalizedTasks = normalizePlotTasks_ACU(plotSettings);
-    plotSettings.plotTasks = normalizedTasks;
-
-    if (syncLegacy && normalizedTasks.length > 0) {
-      const primaryTask = normalizedTasks.find(task => task && task.enabled !== false) || normalizedTasks[0];
-      syncLegacyPlotSettingsFromTask_ACU(plotSettings, primaryTask);
-    }
-
-    if (persist) {
-      try { saveSettings_ACU(); } catch (e) {}
-    }
-  }
-
-  export function applyPlotPresetToSettings_ACU(plotSettings, preset) {
-    if (!plotSettings || !preset) {
-      return { normalizedPreset: null, promptGroup: [], finalDirective: '' };
-    }
-
-    const normalizedPreset = normalizePlotPresetExcludeRules_ACU(preset);
-    const finalDirective = getPlotFinalDirectiveFromSource_ACU(normalizedPreset);
-
-    ensurePlotPromptsArray_ACU(plotSettings);
-    ensureLoopPromptsArray_ACU(plotSettings);
-
-    plotSettings.plotTasks = normalizePlotTasks_ACU(normalizedPreset);
-    plotSettings.promptGroup = JSON.parse(JSON.stringify(getPlotPromptGroupFromSource_ACU(normalizedPreset)));
-    plotSettings.finalSystemDirective = finalDirective || '';
-    setPlotPromptContentByIdForSettings_ACU(plotSettings, 'finalSystemDirective', finalDirective || '');
-    plotSettings.rateMain = normalizedPreset.rateMain ?? 1.0;
-    plotSettings.ratePersonal = normalizedPreset.ratePersonal ?? 1.0;
-    plotSettings.rateErotic = normalizedPreset.rateErotic ?? 0;
-    plotSettings.rateCuckold = normalizedPreset.rateCuckold ?? 1.0;
-    plotSettings.recallCount = normalizedPreset.recallCount ?? 20;
-    plotSettings.extractTags = normalizedPreset.extractTags || '';
-    plotSettings.contextExtractRules = normalizeExtractRules_ACU(normalizedPreset.contextExtractRules, normalizedPreset.contextExtractTags || '');
-    plotSettings.contextExcludeRules = normalizeExcludeRules_ACU(normalizedPreset.contextExcludeRules, normalizedPreset.contextExcludeTags || '');
-    plotSettings.minLength = normalizedPreset.minLength ?? 0;
-    plotSettings.contextTurnCount = normalizedPreset.contextTurnCount ?? 3;
-    if (normalizedPreset.loopSettings) {
-      plotSettings.loopSettings = { ...plotSettings.loopSettings, ...normalizedPreset.loopSettings };
-    }
-
-    ensureLoopPromptsArray_ACU(plotSettings);
-    ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
-    plotSettings.finalSystemDirective = getPlotPromptContentByIdFromSettings_ACU(plotSettings, 'finalSystemDirective') || plotSettings.finalSystemDirective || '';
-
-    return {
-      normalizedPreset,
-      promptGroup: JSON.parse(JSON.stringify(plotSettings.promptGroup || [])),
-      finalDirective: getPlotPromptContentByIdFromSettings_ACU(plotSettings, 'finalSystemDirective') || '',
-    };
-  }
-
-  export const DEFAULT_PRESET_OPTION_VALUE_ACU = '__ACU_DEFAULT_PRESET__';
-
-  export function normalizePlotPresetSelectionValue_ACU(presetName) {
-    const normalizedName = String(presetName ?? '').trim();
-    return normalizedName === DEFAULT_PRESET_OPTION_VALUE_ACU ? '' : normalizedName;
-  }
-
-  export function isDefaultPlotPresetSelection_ACU(presetName) {
-    return normalizePlotPresetSelectionValue_ACU(presetName) === '';
-  }
-
-  export function ensurePlotPresetBindingsStore_ACU() {
-    if (!settings_ACU || typeof settings_ACU !== 'object') return {};
-    if (!settings_ACU.plotPresetBindings || typeof settings_ACU.plotPresetBindings !== 'object' || Array.isArray(settings_ACU.plotPresetBindings)) {
-      settings_ACU.plotPresetBindings = {};
-    }
-    return settings_ACU.plotPresetBindings;
-  }
-
-  function normalizePlotPresetBindingChatId_ACU(chatId = currentChatFileIdentifier_ACU) {
-    const normalizedChatId = cleanChatName_ACU(String(chatId ?? '').trim());
-    return (normalizedChatId && normalizedChatId !== 'unknown_chat_source') ? normalizedChatId : '';
-  }
-
-  function hasPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
-    const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
-    if (!normalizedChatId) return false;
-    return Object.prototype.hasOwnProperty.call(ensurePlotPresetBindingsStore_ACU(), normalizedChatId);
-  }
-
-  export function getPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
-    const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
-    if (!normalizedChatId) return null;
-
-    const bindingStore = ensurePlotPresetBindingsStore_ACU();
-    if (!Object.prototype.hasOwnProperty.call(bindingStore, normalizedChatId)) return null;
-
-    const rawBinding = bindingStore[normalizedChatId] || {};
-    const normalizedSource = ['inherit', 'ui', 'api'].includes(rawBinding.source) ? rawBinding.source : 'inherit';
-    const normalizedBinding = {
-      presetName: normalizePlotPresetSelectionValue_ACU(rawBinding.presetName),
-      source: normalizedSource,
-      isExplicit: rawBinding.isExplicit === true,
-      updatedAt: Number.isFinite(rawBinding.updatedAt) ? rawBinding.updatedAt : 0,
-    };
-
-    bindingStore[normalizedChatId] = normalizedBinding;
-    return normalizedBinding;
-  }
-
-  function setPlotPresetBindingForChat_ACU(chatId, presetName, { source = 'inherit', isExplicit = false } = {}) {
-    const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
-    if (!normalizedChatId) return null;
-
-    const normalizedSource = ['inherit', 'ui', 'api'].includes(source) ? source : 'inherit';
-    const binding = {
-      presetName: normalizePlotPresetSelectionValue_ACU(presetName),
-      source: normalizedSource,
-      isExplicit: isExplicit === true,
-      updatedAt: Date.now(),
-    };
-
-    ensurePlotPresetBindingsStore_ACU()[normalizedChatId] = binding;
-    return binding;
-  }
-
-  export function clearPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
-    const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
-    if (!normalizedChatId) return false;
-
-    const bindingStore = ensurePlotPresetBindingsStore_ACU();
-    if (!Object.prototype.hasOwnProperty.call(bindingStore, normalizedChatId)) return false;
-
-    delete bindingStore[normalizedChatId];
-    return true;
-  }
-
-  function getCurrentChatScopedPlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
-    const chatScopeState = getCurrentChatPlotScopeState_ACU();
-    if (chatScopeState) return normalizePlotPresetSelectionValue_ACU(chatScopeState.presetName || '');
-
-    const binding = getPlotPresetBindingForChat_ACU();
-    if (binding) return binding.presetName || '';
-    if (!fallbackToGlobal) return '';
-    return normalizePlotPresetSelectionValue_ACU(settings_ACU?.plotSettings?.lastUsedPresetName || '');
-  }
-
-  export function findPlotPresetByName_ACU(presetName) {
-    const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-    if (!normalizedPresetName) return null;
-
-    const presets = settings_ACU?.plotSettings?.promptPresets || [];
-    const targetPresetRaw = presets.find(p => p.name === normalizedPresetName);
-    return targetPresetRaw ? normalizePlotPresetExcludeRules_ACU(targetPresetRaw) : null;
-  }
-
-  export function resolveActivePlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
-    const chatScopeState = getCurrentChatPlotScopeState_ACU();
-    if (chatScopeState) {
-      return normalizePlotPresetSelectionValue_ACU(chatScopeState.presetName || '');
-    }
-
-    const binding = getPlotPresetBindingForChat_ACU();
-    if (binding) {
-      if (isDefaultPlotPresetSelection_ACU(binding.presetName)) {
-        return '';
-      }
-      const boundPreset = findPlotPresetByName_ACU(binding.presetName);
-      if (boundPreset) {
-        return boundPreset.name;
-      }
-    }
-
-    if (!fallbackToGlobal) {
-      return '';
-    }
-
-    const globalPresetName = normalizePlotPresetSelectionValue_ACU(settings_ACU?.plotSettings?.lastUsedPresetName || '');
-    if (isDefaultPlotPresetSelection_ACU(globalPresetName)) {
-      return '';
-    }
-
-    const globalPreset = findPlotPresetByName_ACU(globalPresetName);
-    return globalPreset ? globalPreset.name : '';
-  }
-
-  function normalizePlotEditorScope_ACU(scope = 'resolved') {
-    if (scope === 'chat') return 'chat';
-    if (scope === 'global') return 'global';
-    return 'resolved';
-  }
-
-  export function setCurrentEditablePlotPresetState_ACU(presetName, { scope = 'resolved', source = '' } = {}) {
-    _set_currentEditablePlotPresetState_ACU({
-      initialized: true,
-      presetName: normalizePlotPresetSelectionValue_ACU(presetName),
-      scope: normalizePlotEditorScope_ACU(scope),
-      source: String(source || ''),
-    });
-    return currentEditablePlotPresetState_ACU;
-  }
-
-  function getCurrentEditablePlotPresetName_ACU({ fallbackToResolved = true } = {}) {
-    if (currentEditablePlotPresetState_ACU?.initialized) {
-      return normalizePlotPresetSelectionValue_ACU(currentEditablePlotPresetState_ACU.presetName || '');
-    }
-    if (!fallbackToResolved) {
-      return '';
-    }
-    return resolveActivePlotPresetName_ACU({ fallbackToGlobal: true });
-  }
-
-  export function getCurrentRuntimePlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
-    return normalizePlotPresetSelectionValue_ACU(resolveActivePlotPresetName_ACU({ fallbackToGlobal }));
-  }
-
-  export function syncCurrentEditablePlotPresetState_ACU({ source = 'runtime_sync' } = {}) {
-    const chatScopeState = getCurrentChatPlotScopeState_ACU();
-    const binding = getPlotPresetBindingForChat_ACU();
-    const resolvedPresetName = resolveActivePlotPresetName_ACU({ fallbackToGlobal: true });
-    const scope = (chatScopeState || binding) ? 'chat' : 'global';
-    return setCurrentEditablePlotPresetState_ACU(resolvedPresetName, { scope, source });
-  }
-
-  export function getActivePlotEditorSettings_ACU({ fallbackToRuntime = true } = {}) {
-    const activeSettings = activePlotEditorSettings_ACU || (fallbackToRuntime ? settings_ACU?.plotSettings : null);
-    return activeSettings && typeof activeSettings === 'object' ? activeSettings : null;
-  }
-
-  export function setActivePlotEditorSettings_ACU(plotSettings) {
-    if (!plotSettings || typeof plotSettings !== 'object') {
-      _set_activePlotEditorSettings_ACU(null);
-      return null;
-    }
-
-    _set_activePlotEditorSettings_ACU(plotSettings);
-    ensurePlotPromptsArray_ACU(activePlotEditorSettings_ACU);
-    ensureLoopPromptsArray_ACU(activePlotEditorSettings_ACU);
-    ensurePlotTasksCompat_ACU(activePlotEditorSettings_ACU, { syncLegacy: true });
-    activePlotEditorSettings_ACU.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(activePlotEditorSettings_ACU);
-    setPlotPromptContentByIdForSettings_ACU(
-      activePlotEditorSettings_ACU,
-      'finalSystemDirective',
-      activePlotEditorSettings_ACU.finalSystemDirective || '',
-    );
-    return activePlotEditorSettings_ACU;
-  }
-
-  export function getPlotGlobalRevision_ACU() {
-    const rawRevision = settings_ACU?.plotSettings?.globalRevision;
-    return Number.isFinite(rawRevision) ? Math.max(0, Math.trunc(rawRevision)) : 0;
-  }
-
-  function cloneDefaultPlotSettingsForPreset_ACU() {
-    const defaults = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
-    ensurePlotPromptsArray_ACU(defaults);
-    ensureLoopPromptsArray_ACU(defaults);
-    ensurePlotTasksCompat_ACU(defaults, { syncLegacy: true });
-    return defaults;
-  }
-
-  function buildPlotSettingsPreviewFromPreset_ACU(presetName) {
-    const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-    const previewSettings = cloneDefaultPlotSettingsForPreset_ACU();
-
-    if (isDefaultPlotPresetSelection_ACU(normalizedPresetName)) {
-      resetPlotSettingsToDefault_ACU(previewSettings);
-    } else {
-      const targetPreset = findPlotPresetByName_ACU(normalizedPresetName);
-      if (!targetPreset) return null;
-      applyPlotPresetToSettings_ACU(previewSettings, targetPreset);
-    }
-
-    previewSettings.lastUsedPresetName = normalizedPresetName;
-    ensurePlotPromptsArray_ACU(previewSettings);
-    ensureLoopPromptsArray_ACU(previewSettings);
-    ensurePlotTasksCompat_ACU(previewSettings, { syncLegacy: true });
-    previewSettings.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(previewSettings);
-    setPlotPromptContentByIdForSettings_ACU(previewSettings, 'finalSystemDirective', previewSettings.finalSystemDirective || '');
-    return previewSettings;
-  }
-
-  export function resetPlotSettingsToDefault_ACU(plotSettings) {
-    if (!plotSettings || typeof plotSettings !== 'object') return null;
-
-    const preservedPromptPresets = Array.isArray(plotSettings.promptPresets)
-      ? JSON.parse(JSON.stringify(plotSettings.promptPresets))
-      : [];
-    const preservedLastUsedPresetName = normalizePlotPresetSelectionValue_ACU(plotSettings.lastUsedPresetName || '');
-    const preservedGlobalRevision = Number.isFinite(plotSettings.globalRevision)
-      ? Math.max(0, Math.trunc(plotSettings.globalRevision))
-      : 0;
-    const defaults = cloneDefaultPlotSettingsForPreset_ACU();
-
-    Object.keys(plotSettings).forEach(key => {
-      delete plotSettings[key];
-    });
-
-    Object.assign(plotSettings, defaults);
-    plotSettings.promptPresets = preservedPromptPresets;
-    plotSettings.lastUsedPresetName = preservedLastUsedPresetName;
-    plotSettings.globalRevision = preservedGlobalRevision;
-
-    ensurePlotPromptsArray_ACU(plotSettings);
-    ensureLoopPromptsArray_ACU(plotSettings);
-    ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
-    return plotSettings;
-  }
-
-  export function replaceCurrentPlotSettingsWithSnapshot_ACU(plotSettings, snapshot) {
-    if (!plotSettings || typeof plotSettings !== 'object') return null;
-    const normalizedSnapshot = sanitizePlotSettingsSnapshotForChat_ACU(snapshot);
-    if (!normalizedSnapshot) return null;
-
-    const preservedPromptPresets = Array.isArray(plotSettings.promptPresets)
-      ? JSON.parse(JSON.stringify(plotSettings.promptPresets))
-      : [];
-    const preservedLastUsedPresetName = normalizePlotPresetSelectionValue_ACU(plotSettings.lastUsedPresetName || '');
-    const preservedGlobalRevision = Number.isFinite(plotSettings.globalRevision)
-      ? Math.max(0, Math.trunc(plotSettings.globalRevision))
-      : 0;
-    const defaults = cloneDefaultPlotSettingsForPreset_ACU();
-
-    Object.keys(plotSettings).forEach(key => {
-      delete plotSettings[key];
-    });
-
-    Object.assign(plotSettings, defaults, normalizedSnapshot);
-    plotSettings.promptPresets = preservedPromptPresets;
-    plotSettings.lastUsedPresetName = preservedLastUsedPresetName;
-    plotSettings.globalRevision = preservedGlobalRevision;
-
-    ensurePlotPromptsArray_ACU(plotSettings);
-    ensureLoopPromptsArray_ACU(plotSettings);
-    ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
-    plotSettings.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(plotSettings);
-    setPlotPromptContentByIdForSettings_ACU(plotSettings, 'finalSystemDirective', plotSettings.finalSystemDirective || '');
-    return plotSettings;
-  }
-
-  function queueSaveCurrentChatPlotScope_ACU(source = 'ui_plot_scope') {
-    if (typeof SillyTavern_API_ACU?.saveChat !== 'function') return;
-    Promise.resolve()
-      .then(() => SillyTavern_API_ACU.saveChat())
-      .catch(error => logWarn_ACU(`[剧情推进] 保存聊天级预设快照失败(${source}):`, error));
-  }
-
-  export function switchCurrentChatPlotPreset_ACU(presetName, { source = 'ui', refreshUi = false, save = true } = {}) {
-    if (!settings_ACU?.plotSettings) return false;
-
-    const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-    const hadLegacyChatScopeSnapshot = !!getCurrentChatPlotScopeState_ACU();
-    if (hadLegacyChatScopeSnapshot) {
-      clearCurrentChatPlotScopeState_ACU();
-    }
-
-    const bindingSource = String(source || '').startsWith('api') ? 'api' : 'ui';
-    let result = null;
-
-    if (isDefaultPlotPresetSelection_ACU(normalizedPresetName)) {
-      clearPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU);
-
-      const inheritedGlobalPresetName = normalizePlotPresetSelectionValue_ACU(settings_ACU.plotSettings.lastUsedPresetName || '');
-      const inheritedGlobalPreset = findPlotPresetByName_ACU(inheritedGlobalPresetName);
-      if (inheritedGlobalPreset) {
-        applyPlotPresetToSettings_ACU(settings_ACU.plotSettings, inheritedGlobalPreset);
-      } else {
-        resetPlotSettingsToDefault_ACU(settings_ACU.plotSettings);
-      }
-
-      _set_currentPlotTaskEditorId_ACU('');
-      setCurrentEditablePlotPresetState_ACU(inheritedGlobalPresetName, {
-        scope: 'chat',
-        source,
-      });
-      result = {
-        presetName: '',
-        isDefault: true,
-        followsGlobal: true,
-        preset: inheritedGlobalPreset || null,
-        activePresetName: inheritedGlobalPresetName,
-      };
-    } else {
-      const targetPreset = findPlotPresetByName_ACU(normalizedPresetName);
-      if (!targetPreset) {
-        return false;
-      }
-
-      applyPlotPresetToSettings_ACU(settings_ACU.plotSettings, targetPreset);
-      setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, targetPreset.name, {
-        source: bindingSource,
-        isExplicit: true,
-      });
-      _set_currentPlotTaskEditorId_ACU('');
-      setCurrentEditablePlotPresetState_ACU(targetPreset.name, {
-        scope: 'chat',
-        source,
-      });
-      result = {
-        presetName: targetPreset.name,
-        isDefault: false,
-        followsGlobal: false,
-        preset: targetPreset,
-        activePresetName: targetPreset.name,
-      };
-    }
-
-    if (save) {
-      saveSettings_ACU();
-      if (hadLegacyChatScopeSnapshot) {
-        queueSaveCurrentChatPlotScope_ACU(`${bindingSource}_clear_legacy_plot_scope`);
-      }
-    }
-
-    if ($popupInstance_ACU && refreshUi) {
-      schedulePlotSettingsUiRefresh_ACU(settings_ACU.plotSettings);
-    }
-
-    return result;
-  }
-
-  export function persistPlotPresetSelectionState_ACU(presetName, { source = 'ui', updateGlobal = false, save = true, persistChatScope = !updateGlobal } = {}) {
-    const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-    let shouldSaveChat = false;
-
-    if (updateGlobal && settings_ACU?.plotSettings) {
-      settings_ACU.plotSettings.lastUsedPresetName = normalizedPresetName;
-    } else if (persistChatScope && settings_ACU?.plotSettings) {
-      const plotScopeState = buildChatPlotScopeStateFromSettings_ACU(settings_ACU.plotSettings, {
-        presetName: normalizedPresetName,
-        source,
-        originGlobalName: normalizePlotPresetSelectionValue_ACU(settings_ACU.plotSettings.lastUsedPresetName || ''),
-        originGlobalRevision: getPlotGlobalRevision_ACU(),
-        updatedAt: Date.now(),
-      });
-      if (plotScopeState) {
-        setCurrentChatPlotScopeState_ACU(plotScopeState, { reason: `plot_scope_${source}` });
-        shouldSaveChat = true;
-      }
-      setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, normalizedPresetName, {
-        source,
-        isExplicit: source !== 'inherit',
-      });
-    } else {
-      setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, normalizedPresetName, {
-        source,
-        isExplicit: source !== 'inherit',
-      });
-    }
-
-    if (save) {
-      saveSettings_ACU();
-      if (shouldSaveChat && typeof SillyTavern_API_ACU?.saveChat === 'function') {
-        Promise.resolve()
-          .then(() => SillyTavern_API_ACU.saveChat())
-          .catch(error => logWarn_ACU('[剧情推进] 保存聊天级预设快照失败:', error));
-      }
-    }
-
-    return normalizedPresetName;
-  }
-
-  export function applyGlobalPlotPresetSelectionForEditor_ACU(presetName, { source = 'ui', refreshUi = false, save = true } = {}) {
-    if (!settings_ACU?.plotSettings) return false;
-
-    const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-    const previewSettings = buildPlotSettingsPreviewFromPreset_ACU(normalizedPresetName);
-    if (!previewSettings) {
-      return false;
-    }
-
-    _set_currentPlotTaskEditorId_ACU('');
-    setCurrentEditablePlotPresetState_ACU(normalizedPresetName, {
-      scope: 'global',
-      source,
-    });
-
-    persistPlotPresetSelectionState_ACU(normalizedPresetName, {
-      source,
-      updateGlobal: true,
-      save,
-      persistChatScope: false,
-    });
- 
-    if ($popupInstance_ACU && refreshUi) {
-      schedulePlotSettingsUiRefresh_ACU(previewSettings);
-    }
- 
-    return {
-      presetName: normalizedPresetName,
-      isDefault: isDefaultPlotPresetSelection_ACU(normalizedPresetName),
-      previewSettings,
-    };
-  }
+  // === 以下为 presentation 层独有的 UI 函数（DOM 操作/渲染）===
 
   function schedulePlotSettingsUiRefresh_ACU(plotSettingsOverride = null) {
     if (!$popupInstance_ACU || !$popupInstance_ACU.length) return;
@@ -1876,31 +1151,6 @@ import { applyContextTagFilters_ACU } from '../../service/runtime/helpers-remain
     }
  
     setTimeout(runRefresh, 0);
-  }
- 
-  export function normalizePlotPresetExcludeRules_ACU(preset) {
-    if (!preset || typeof preset !== 'object') return preset;
-    const cloned = JSON.parse(JSON.stringify(preset));
-    cloned.contextExtractRules = normalizeExtractRules_ACU(cloned.contextExtractRules, cloned.contextExtractTags || '');
-    cloned.contextExcludeRules = normalizeExcludeRules_ACU(cloned.contextExcludeRules, cloned.contextExcludeTags || '');
-    cloned.plotTasks = normalizePlotTasks_ACU(cloned);
-    cloned.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(cloned);
-    ensurePlotTasksCompat_ACU(cloned, { syncLegacy: true });
-    setPlotPromptContentByIdForSettings_ACU(cloned, 'finalSystemDirective', cloned.finalSystemDirective || '');
-    // 新格式保存：不再继续写入旧字段
-    delete cloned.contextExtractTags;
-    delete cloned.contextExcludeTags;
-    return cloned;
-  }
-
-  export function stripPlotPresetWorldbookEntrySelectionForExport_ACU(preset) {
-    const normalizedPreset = normalizePlotPresetExcludeRules_ACU(preset);
-    if (!normalizedPreset || typeof normalizedPreset !== 'object') return normalizedPreset;
-    const exportPreset = JSON.parse(JSON.stringify(normalizedPreset));
-    if (exportPreset.plotWorldbookConfig && typeof exportPreset.plotWorldbookConfig === 'object') {
-      delete exportPreset.plotWorldbookConfig.enabledEntries;
-    }
-    return exportPreset;
   }
 
   export function renderExcludeRuleRows_ACU(containerSelector, rules, { startPlaceholder = '开始词', endPlaceholder = '结束词', fallbackRules = [] } = {}) {
@@ -1956,53 +1206,8 @@ import { applyContextTagFilters_ACU } from '../../service/runtime/helpers-remain
     return normalizeExcludeRules_ACU(collected, '');
   }
 
-  // --- [剧情推进] Prompt 辅助：兼容 prompts(数组/旧对象) 并以 id 读写 ---
-  export function ensurePlotPromptsArray_ACU(plotSettings) {
-    if (!plotSettings) return;
-    const p = plotSettings.prompts;
-
-    // 已是数组：补齐必要项即可
-    if (Array.isArray(p)) {
-      const required = [
-        { id: 'mainPrompt', role: 'system', name: '主系统提示词 (通用)' },
-        { id: 'systemPrompt', role: 'user', name: '拦截任务详细指令' },
-        { id: 'finalSystemDirective', role: 'system', name: '最终注入指令 (Storyteller Directive)' },
-      ];
-      required.forEach(req => {
-        if (!p.some(x => x && x.id === req.id)) {
-          p.push({ ...req, content: '', deletable: false });
-        }
-      });
-      return;
-    }
-
-    // 旧对象结构：{ mainPrompt, systemPrompt, finalSystemDirective }
-    const legacy = (p && typeof p === 'object') ? p : {};
-    plotSettings.prompts = [
-      { id: 'mainPrompt', name: '主系统提示词 (通用)', role: 'system', content: legacy.mainPrompt || '', deletable: false },
-      { id: 'systemPrompt', name: '拦截任务详细指令', role: 'user', content: legacy.systemPrompt || '', deletable: false },
-      { id: 'finalSystemDirective', name: '最终注入指令 (Storyteller Directive)', role: 'system', content: legacy.finalSystemDirective || '', deletable: false },
-    ];
-  }
-
-  export function getPlotPromptContentByIdFromSettings_ACU(plotSettings, promptId) {
-    if (!plotSettings) return '';
-    ensurePlotPromptsArray_ACU(plotSettings);
-    const arr = plotSettings.prompts || [];
-    const item = arr.find(p => p && p.id === promptId);
-    return item?.content || '';
-  }
-
   function getPlotPromptContentById_ACU(promptId) {
     return getPlotPromptContentByIdFromSettings_ACU(settings_ACU?.plotSettings, promptId);
-  }
-
-  export function setPlotPromptContentByIdForSettings_ACU(plotSettings, promptId, content) {
-    if (!plotSettings) return;
-    ensurePlotPromptsArray_ACU(plotSettings);
-    const arr = plotSettings.prompts || [];
-    const item = arr.find(p => p && p.id === promptId);
-    if (item) item.content = content ?? '';
   }
 
   function setPlotPromptContentById_ACU(promptId, content) {
@@ -2084,7 +1289,7 @@ import { applyContextTagFilters_ACU } from '../../service/runtime/helpers-remain
 
     plotSettings.loopSettings.quickReplyContent = prompts;
     plotSettings.loopSettings.currentPromptIndex = 0; // 重置索引
-    saveSettings_ACU();
+    saveSettingsAndNotify_ACU();
   }
 
   // --- [剧情推进] 临时替换"AI指令预设"(settings_ACU.charCardPrompt)，并在生成结束后恢复 ---
@@ -2092,18 +1297,6 @@ import { applyContextTagFilters_ACU } from '../../service/runtime/helpers-remain
   let plotPromptOverrideBackup_ACU = null;
 
   // [剧情推进] 去重锁：避免同一次发送被 TavernHelper.generate 钩子 + GENERATION_AFTER_COMMANDS 双重处理导致重复 toast/误报失败
-  let lastPlotInterception_ACU = { text: '', ts: 0 };
-  export function markPlotIntercept_ACU(text) {
-      lastPlotInterception_ACU = { text: String(text || ''), ts: Date.now() };
-  }
-  export function shouldSkipPlotIntercept_ACU(text, windowMs = 5000) {
-      const t = String(text || '');
-      if (!t) return false;
-      const age = Date.now() - (lastPlotInterception_ACU?.ts || 0);
-      if (age < 0 || age > windowMs) return false;
-      return t === String(lastPlotInterception_ACU?.text || '');
-  }
-
   function buildPlotModifiedCharCardPrompt_ACU(original) {
     const originalArr = Array.isArray(original)
       ? original

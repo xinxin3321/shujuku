@@ -1,5 +1,5 @@
 import { DEFAULT_MERGE_SUMMARY_PROMPT_ACU } from '../../shared/defaults-json.js';
-import { getCurrentWorldbookConfig_ACU } from '../../data/repositories/character-settings-repo';
+import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-service';
 import { renderPromptSegments_ACU } from './plot-editors';
 import { renderImportTableSelector_ACU, renderManualTableSelector_ACU } from './table-selector';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
@@ -8,6 +8,8 @@ import { normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shar
 import { renderExcludeRuleRows_ACU } from './optimization-ui';
 import { populateInjectionTargetSelector_ACU, updateWorldbookSourceView_ACU } from './worldbook-selector';
 import { updateApiModeView_ACU, updateApiStatusDisplay_ACU, updateCustomApiInputsState_ACU } from '../triggers/settings-ui-sync';
+import { jQuery_API_ACU } from '../../service/runtime/state-manager';
+import { $popupInstance_ACU, $statusMessageSpan_ACU, $manualUpdateCardButton_ACU, $customApiUrlInput_ACU, $customApiKeyInput_ACU, $maxTokensInput_ACU, $temperatureInput_ACU, $customApiModelInput_ACU, $customApiModelSelect_ACU, $charCardPromptSegmentsContainer_ACU, $autoUpdateThresholdInput_ACU, $autoUpdateFrequencyInput_ACU, $autoUpdateTokenThresholdInput_ACU, $updateBatchSizeInput_ACU, $maxConcurrentGroupsInput_ACU, $skipUpdateFloorsInput_ACU, $retainRecentLayersInput_ACU, $autoUpdateEnabledCheckbox_ACU, $standardizedTableFillEnabledCheckbox_ACU, $toastMuteEnabledCheckbox_ACU, $promptTemplateEnabledCheckbox_ACU, $tableEditLastPairOnlyCheckbox_ACU, $tableMaxRetriesInput_ACU, $useMainApiCheckbox_ACU, $streamingEnabledCheckbox_ACU, $manualTableSelector_ACU, $importTableSelector_ACU, _assignUIPlaceholders_ACU } from '../state/ui-refs';
 // status-display.ts — 对应源文件有跨文件依赖，保留在原位
 
   // [T172] 可视化编辑器刷新通知（从 service/worldbook/pipeline.ts 提取）
@@ -18,7 +20,7 @@ import { updateApiModeView_ACU, updateApiStatusDisplay_ACU, updateCustomApiInput
   // [T173] 填表状态消息更新
   function updateTableFillStatus_ACU(text) {
     if (!$statusMessageSpan_ACU && $popupInstance_ACU)
-        $statusMessageSpan_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-status-message`);
+        _assignUIPlaceholders_ACU({ $statusMessageSpan_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-status-message`) });
     if ($statusMessageSpan_ACU) $statusMessageSpan_ACU.text(text);
   }
 

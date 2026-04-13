@@ -1,29 +1,30 @@
 import { TABLE_TEMPLATE_ACU } from '../../shared/defaults-json.js';
-import { getCurrentWorldbookConfig_ACU } from '../../data/repositories/character-settings-repo';
-import { globalMeta_ACU, saveGlobalMeta_ACU } from '../../data/repositories/profile-repo';
-import { deriveTemplatePresetNameForImport_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../data/repositories/template-preset-repo';
+import { deriveTemplatePresetNameForImport_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
 import { openAutoCardPopup_ACU } from '../pages/main-popup';
 import { openNewVisualizer_ACU } from '../pages/visualizer';
 import { handleTxtImportAndSplit_ACU } from '../components/import-status-ui';
 import { isAutoUpdatingCard_ACU, _set_isAutoUpdatingCard_ACU } from '../../service/runtime/state-manager';
-import { showToastr_ACU } from '../../service/runtime/toast-service';
+import { showToastr_ACU } from '../theme/toast';
 import { ACU_TOAST_CATEGORY_ACU } from '../../shared/constants';
 import { getApiConfigByPreset_ACU } from '../../service/ai/api-call';
 import { handleApiResponse_ACU } from '../../service/ai/prompt-builder';
 import { importCombinedSettings_ACU } from '../triggers/admin-ui';
 import { clearImportLocalStorage_ACU, clearImportedEntries_ACU, deleteImportedEntries_ACU, handleInjectImportedTxtSelected_ACU } from '../triggers/import-process';
 import { SillyTavern_API_ACU, TavernHelper_API_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU } from '../../service/runtime/state-manager';
-import { saveSettings_ACU } from '../../service/settings/settings-service';
+import { getCurrentWorldbookConfig_ACU, setZeroTkOccupyMode_ACU } from '../../service/settings/settings-service';
+import { saveSettingsAndNotify_ACU } from '../components/settings-ui-helpers';
 import { handleManualUpdate_ACU, proceedWithCardUpdate_ACU, saveCurrentDataForTable_ACU } from '../triggers/update-process';
 import { getSortedSheetKeys_ACU, overwriteChatSheetGuideFromTemplate_ACU, sanitizeChatSheetsObject_ACU, sanitizeSheetForStorage_ACU } from '../../service/template/chat-scope';
-import { deleteAllGeneratedEntries_ACU, loadAllChatMessages_ACU, refreshMergedDataAndNotify_ACU, updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
+import { deleteAllGeneratedEntries_ACU, loadAllChatMessages_ACU, updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
+import { refreshMergedDataAndNotifyWithUI_ACU } from '../components/pipeline-ui-helpers';
 import { topLevelWindow_ACU } from '../../shared/env';
 import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
-import { saveIndependentTableToChatHistory_ACU } from '../../data/repositories/table-repo';
+import { saveIndependentTableToChatHistory_ACU } from '../../service/table/table-service';
 import { handleInjectSplitEntriesFull_ACU, handleInjectSplitEntriesStandard_ACU, handleInjectSplitEntriesSummary_ACU } from '../components/import-status-ui';
 import { getCurrentRuntimePlotPresetName_ACU, normalizePlotPresetExcludeRules_ACU, switchCurrentChatPlotPreset_ACU } from '../../service/plot/plot-logic';
 import { reoptimizeMessage_ACU } from '../components/optimization-ui';
-import { applyTemplatePresetToCurrent_ACU, applyTemplateSnapshotToScope_ACU, listTemplatePresetNames_ACU, normalizeTemplateOperationScope_ACU, parseImportedTemplateData_ACU, refreshTemplatePresetSelectInUI_ACU, upsertTemplatePreset_ACU } from '../../service/template/template-preset-service';
+import { applyTemplatePresetToCurrent_ACU, applyTemplateSnapshotToScope_ACU, listTemplatePresetNames_ACU, normalizeTemplateOperationScope_ACU, parseImportedTemplateData_ACU, upsertTemplatePreset_ACU } from '../../service/template/template-preset-service';
+import { refreshTemplatePresetSelectInUI_ACU } from '../components/template-preset-ui';
 import { exportCurrentJsonData_ACU, exportTableTemplate_ACU, importTableTemplate_ACU, overrideLatestLayerWithTemplate_ACU, resetAllToDefaults_ACU, resetTableTemplate_ACU } from '../triggers/data-admin-ui';
 import { deleteApiPreset_ACU, loadApiPreset_ACU, saveApiPreset_ACU } from '../triggers/settings-ui-sync';
 import { exportCombinedSettings_ACU, handleManualMergeSummary_ACU } from '../triggers/update-trigger';
@@ -31,7 +32,7 @@ import { cancelContentOptimization_ACU } from '../../service/optimization/conten
 import { fillFirstLayerWithTemplateData_ACU, formatJsonToReadable_ACU, getEffectiveAutoUpdateThreshold_ACU, getTableLocksForSheet_ACU, isSpecialIndexLockEnabled_ACU, saveTableLocksForSheet_ACU, setSpecialIndexLockEnabled_ACU, toggleCellLock_ACU, toggleColLock_ACU, toggleRowLock_ACU } from '../../service/runtime/helpers-remaining';
 import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-engine';
 /**
- * service/runtime/api-registry.ts — DatabaseAPI_ACU 对外 API 注册
+ * presentation/bootstrap/api-registry.ts — AutoCardUpdaterAPI 对外 API 注册
  * 从 src/core/03_runtime_api.js 整体迁移。
  */
 
@@ -177,7 +178,7 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
                 }
                 
                 // [修复] 使用统一的刷新函数，确保数据合并和UI更新正确
-                await refreshMergedDataAndNotify_ACU();
+                await refreshMergedDataAndNotifyWithUI_ACU();
                 return true;
             } else {
                 throw new Error('导入的JSON缺少关键结构 (mate, sheet_*)。');
@@ -273,7 +274,7 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
     // 用于前端完成数据写入后，强制触发一次完整的数据合并和世界书更新
     refreshDataAndWorldbook: async function() {
         try {
-            await refreshMergedDataAndNotify_ACU();
+            await refreshMergedDataAndNotifyWithUI_ACU();
             logDebug_ACU('refreshDataAndWorldbook: Data refreshed and worldbook updated successfully.');
             return true;
         } catch (e) {
@@ -293,7 +294,9 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
 
     cancelContentOptimization: function(reason) {
         try {
-            return cancelContentOptimization_ACU(reason);
+            const result = cancelContentOptimization_ACU(reason);
+            if (result.cancelled) showToastr_ACU('warning', result.reason);
+            return result.cancelled;
         } catch (e) {
             logError_ACU('cancelContentOptimization failed:', e);
             return false;
@@ -315,14 +318,8 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
     // 注意：由于UI已经改成“0TK占用模式”，推荐改用 setZeroTkOccupyMode(mode)。
     setOutlineEntryEnabled: async function(enabled) {
         try {
-            const cfg = getCurrentWorldbookConfig_ACU();
-            cfg.outlineEntryEnabled = !!enabled;
-            // 同步到新字段（新语义：mode=true => enabled=false）
-            cfg.zeroTkOccupyMode = (cfg.outlineEntryEnabled === false);
-            settings_ACU.zeroTkOccupyModeDefault = cfg.zeroTkOccupyMode;
-            globalMeta_ACU.zeroTkOccupyModeGlobal = cfg.zeroTkOccupyMode;
-            saveGlobalMeta_ACU();
-            saveSettings_ACU();
+            const isEnabled = !!enabled;
+            setZeroTkOccupyMode_ACU(!isEnabled); // outlineEntryEnabled=true 等价于 zeroTkOccupyMode=false
             if (currentJsonTableData_ACU) {
                 const { outlineTable } = formatJsonToReadable_ACU(currentJsonTableData_ACU);
                 await updateOutlineTableEntry_ACU(outlineTable, false);
@@ -337,14 +334,7 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
     // [新增] 设置 0TK占用模式：true=世界书条目禁用；false=世界书条目启用
     setZeroTkOccupyMode: async function(modeEnabled) {
         try {
-            const cfg = getCurrentWorldbookConfig_ACU();
-            cfg.zeroTkOccupyMode = !!modeEnabled;
-            // 兼容旧字段
-            cfg.outlineEntryEnabled = !cfg.zeroTkOccupyMode;
-            settings_ACU.zeroTkOccupyModeDefault = cfg.zeroTkOccupyMode;
-            globalMeta_ACU.zeroTkOccupyModeGlobal = cfg.zeroTkOccupyMode;
-            saveGlobalMeta_ACU();
-            saveSettings_ACU();
+            setZeroTkOccupyMode_ACU(!!modeEnabled);
             if (currentJsonTableData_ACU) {
                 const { outlineTable } = formatJsonToReadable_ACU(currentJsonTableData_ACU);
                 await updateOutlineTableEntry_ACU(outlineTable, false);
@@ -386,7 +376,6 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
             const result = await applyTemplatePresetToCurrent_ACU(name, {
                 source: 'api',
                 updateGlobal: normalizedScope === 'global',
-                refreshUi: false,
                 save: true,
                 persistChatScope: normalizedScope === 'chat',
             });
@@ -823,7 +812,7 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
                     }
                     
                     // 触发世界书刷新
-                    await refreshMergedDataAndNotify_ACU();
+                    await refreshMergedDataAndNotifyWithUI_ACU();
                     logDebug_ACU(`updateRow: Worldbook refreshed after saving [${tableName}]`);
                 } else {
                     // 回退：使用旧方法保存
@@ -941,12 +930,9 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
                 }
                 
                 if (tableLatestFloorIndex !== -1) {
-                    // [修复] 外部导入模式下不保存到聊天记录
-                    if (true) {
-                        logDebug_ACU(`insertRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
-                        await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
-                        await refreshMergedDataAndNotify_ACU();
-                    }
+                    logDebug_ACU(`insertRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
+                    await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
+                    await refreshMergedDataAndNotifyWithUI_ACU();
                     logDebug_ACU(`insertRow: Worldbook refreshed after saving [${tableName}]`);
                 } else {
                     logDebug_ACU(`insertRow: No AI floor found, falling back to saveCurrentDataForTable_ACU`);
@@ -1061,12 +1047,9 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
                 }
                 
                 if (tableLatestFloorIndex !== -1) {
-                    // [修复] 外部导入模式下不保存到聊天记录
-                    if (true) {
-                        logDebug_ACU(`deleteRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
-                        await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
-                        await refreshMergedDataAndNotify_ACU();
-                    }
+                    logDebug_ACU(`deleteRow: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
+                    await saveIndependentTableToChatHistory_ACU(tableLatestFloorIndex, [targetSheetKey], [targetSheetKey], true);
+                    await refreshMergedDataAndNotifyWithUI_ACU();
                     logDebug_ACU(`deleteRow: Worldbook refreshed after saving [${tableName}]`);
                 } else {
                     logDebug_ACU(`deleteRow: No AI floor found, falling back to saveCurrentDataForTable_ACU`);
@@ -1128,7 +1111,6 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
 
             const result = switchCurrentChatPlotPreset_ACU(presetName, {
                 source: 'api',
-                refreshUi: false,
                 save: true,
             });
 
@@ -1159,7 +1141,6 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
 
             const result = switchCurrentChatPlotPreset_ACU(presetName, {
                 source: 'api',
-                refreshUi: false,
                 save: true,
             });
 
@@ -1248,7 +1229,6 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
                 scope: normalizedScope,
                 source: normalizedScope === 'chat' ? 'api_import_template_chat' : 'api_import_template_global',
                 presetName: normalizedPresetName,
-                refreshUi: false,
                 save: true,
                 persistChatScope: normalizedScope === 'chat',
             });
@@ -1340,7 +1320,7 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
             }
 
             settings_ACU.plotSettings.promptPresets = presets;
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
 
             let switchedCurrentChat = false;
             // 如果需要，导入到全局预设库后再切换当前对话使用该预设
@@ -1487,8 +1467,17 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
                         source: 'game_init',
                         registerPreset: true,
                     });
-                    if (fillResult) {
+                    if (fillResult && typeof fillResult === 'object' && fillResult.success) {
                         result.templateInjected = true;
+                        // UI 刷新：通知前端楼层更新 + 表格面板刷新
+                        if (fillResult.messageIndex != null) {
+                            if (SillyTavern_API_ACU?.eventSource?.emit && SillyTavern_API_ACU?.eventTypes?.MESSAGE_UPDATED) {
+                                SillyTavern_API_ACU.eventSource.emit(SillyTavern_API_ACU.eventTypes.MESSAGE_UPDATED, fillResult.messageIndex);
+                            }
+                            if ((topLevelWindow_ACU as any)?.AutoCardUpdaterAPI) {
+                                (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
+                            }
+                        }
                         logDebug_ACU('[游戏初始化] 数据库模板注入成功（包含种子数据）');
                     } else {
                         // 回退到旧方式（仅写入指导表）
@@ -1548,7 +1537,7 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
             
             // 步骤3: 保存设置并刷新
             try {
-                saveSettings_ACU();
+                saveSettingsAndNotify_ACU();
                 if ((topLevelWindow_ACU as any).AutoCardUpdaterAPI && (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate) {
                     (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
                 }
@@ -1625,7 +1614,7 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
                 settings_ACU.autoUpdateTokenThreshold = Math.floor(params.autoUpdateTokenThreshold);
             }
 
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
             logDebug_ACU('Update config params saved:', params);
             return true;
         } catch (e) {
@@ -1676,7 +1665,7 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
             
             settings_ACU.manualSelectedTables = validKeys;
             settings_ACU.hasManualSelection = true;
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
             
             logDebug_ACU('Manual selected tables updated:', validKeys);
             return true;
@@ -1694,7 +1683,7 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
         try {
             settings_ACU.manualSelectedTables = [];
             settings_ACU.hasManualSelection = false;
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
             logDebug_ACU('Manual selected tables cleared');
             return true;
         } catch (e) {
@@ -1744,7 +1733,7 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
             // 空字符串表示使用当前配置
             if (presetName === '') {
                 settings_ACU.tableApiPreset = '';
-                saveSettings_ACU();
+                saveSettingsAndNotify_ACU();
                 logDebug_ACU('Table API preset cleared (use current config)');
                 return true;
             }
@@ -1758,7 +1747,7 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
             }
 
             settings_ACU.tableApiPreset = presetName;
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
             logDebug_ACU(`Table API preset set to: ${presetName}`);
             return true;
         } catch (e) {
@@ -1790,7 +1779,7 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
             // 空字符串表示使用当前配置
             if (presetName === '') {
                 settings_ACU.plotApiPreset = '';
-                saveSettings_ACU();
+                saveSettingsAndNotify_ACU();
                 logDebug_ACU('Plot API preset cleared (use current config)');
                 return true;
             }
@@ -1804,7 +1793,7 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
             }
 
             settings_ACU.plotApiPreset = presetName;
-            saveSettings_ACU();
+            saveSettingsAndNotify_ACU();
             logDebug_ACU(`Plot API preset set to: ${presetName}`);
             return true;
         } catch (e) {
@@ -2047,290 +2036,5 @@ import { updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-e
         }
     }
 };
-
-
-const DatabaseAPI_ACU = {
-    /**
-     * 调用AI生成内容（使用数据库当前配置的API）
-     * @param {Array} messages - 消息数组，格式: [{role: 'system'|'user'|'assistant', content: '...'}]
-     * @param {Object} options - 可选配置 { max_tokens: number }
-     * @returns {Promise<string|null>} AI返回的文本内容，失败返回null
-     */
-    callAI: async function(messages, options: any = {}) {
-        try {
-            if (!Array.isArray(messages) || messages.length === 0) {
-                logError_ACU('callAI: messages must be a non-empty array');
-                return null;
-            }
-
-            logDebug_ACU('[callAI] Calling AI with', messages.length, 'messages');
-            
-            const effectiveApiConfig = settings_ACU.apiConfig || {};
-            const maxTokens = options.max_tokens || effectiveApiConfig.max_tokens || 4096;
-            
-            // 使用数据库当前的API配置调用AI
-            if (settings_ACU.apiMode === 'tavern') {
-                // 使用酒馆Profile
-                const profileId = settings_ACU.tavernProfile;
-                const response = await SillyTavern_API_ACU.ConnectionManagerRequestService.sendRequest(
-                    profileId, messages, maxTokens
-                );
-                if (response && response.result && response.result.choices && response.result.choices[0]) {
-                    return response.result.choices[0].message.content;
-                }
-                // 尝试其他响应格式
-                if (response && typeof response.content === 'string') {
-                    return response.content;
-                }
-                logError_ACU('[callAI] Invalid response from Tavern API:', response);
-                return null;
-            } else {
-                // 使用自定义API
-                if (effectiveApiConfig.useMainApi) {
-                    // 使用酒馆主API（流式传输）
-                    if (typeof TavernHelper_API_ACU?.generateRaw === 'function') {
-                        const response = await TavernHelper_API_ACU.generateRaw({
-                            ordered_prompts: messages,
-                            should_stream: settings_ACU.streamingEnabled || false
-                        });
-                        if (typeof response === 'string') {
-                            return response.trim();
-                        }
-                        logError_ACU('[callAI] Main API did not return string');
-                        return null;
-                    }
-                    logError_ACU('[callAI] TavernHelper.generateRaw not available');
-                    return null;
-                } else {
-                    // 使用独立API配置 - 使用完整的请求格式
-                    if (!effectiveApiConfig.url || !effectiveApiConfig.model) {
-                        logError_ACU('[callAI] Custom API URL or model not configured');
-                        return null;
-                    }
-                    
-                    const url = `/api/backends/chat-completions/generate`;
-                    const body = JSON.stringify({
-                        "messages": messages,
-                        "model": effectiveApiConfig.model,
-                        "temperature": effectiveApiConfig.temperature || 1.0,
-                        "top_p": effectiveApiConfig.top_p || 0.9,
-                        "max_tokens": maxTokens,
-                        "stream": settings_ACU.streamingEnabled || false,
-                        "chat_completion_source": "custom",
-                        "group_names": [],
-                        "include_reasoning": false,
-                        "reasoning_effort": "medium",
-                        "enable_web_search": false,
-                        "request_images": false,
-                        "custom_prompt_post_processing": "strict",
-                        "reverse_proxy": effectiveApiConfig.url,
-                        "proxy_password": "",
-                        "custom_url": effectiveApiConfig.url,
-                        "custom_include_headers": effectiveApiConfig.apiKey ?
-                            `Authorization: Bearer ${effectiveApiConfig.apiKey}` : ""
-                    });
-                    
-                    const headers = {
-                        ...SillyTavern.getRequestHeaders(),
-                        'Content-Type': 'application/json'
-                    };
-                    const res = await fetch(url, { method: 'POST', headers, body });
-                    
-                    if (!res.ok) {
-                        const errTxt = await res.text();
-                        logError_ACU('[callAI] API request failed:', res.status, errTxt);
-                        return null;
-                    }
-                    
-                    // 根据streamingEnabled设置选择响应处理方式
-                    const content = await handleApiResponse_ACU(res);
-                    if (content) {
-                        return content;
-                    }
-                    logError_ACU('[callAI] Invalid response from custom API');
-                    return null;
-                }
-            }
-        } catch (e) {
-            logError_ACU('[callAI] Failed:', e);
-            return null;
-        }
-    },
-
-    /**
-     * 获取最近剧情上下文（从聊天记录，仅AI消息）
-     * @param {number} maxTurns - 最大回合数，默认3
-     * @returns {string} 剧情上下文文本
-     */
-    getStoryContext: function(maxTurns = 3) {
-        try {
-            const chat = SillyTavern_API_ACU?.chat;
-            if (!Array.isArray(chat) || chat.length === 0) {
-                return '';
-            }
-
-            const aiMessages = [];
-            let turnCount = 0;
-
-            for (let i = chat.length - 1; i >= 0 && turnCount < maxTurns; i--) {
-                const msg = chat[i];
-                if (msg && !msg.is_user && msg.mes) {
-                    aiMessages.unshift(msg.mes);
-                    turnCount++;
-                }
-            }
-
-            return aiMessages.join('\n\n');
-        } catch (e) {
-            logError_ACU('getStoryContext failed:', e);
-            return '';
-        }
-    },
-
-    /**
-     * 调用AI生成内容（使用数据库当前配置的API）
-     * @param {Array} messages - 消息数组，格式: [{role: 'system'|'user'|'assistant', content: '...'}]
-     * @param {Object} options - 可选配置 { max_tokens: number }
-     * @returns {Promise<string|null>} AI返回的文本内容，失败返回null
-     */
-    // @ts-ignore — 旧代码重复属性
-    callAI: async function(messages, options: any = {}) {
-        try {
-            if (!Array.isArray(messages) || messages.length === 0) {
-                logError_ACU('callAI: messages must be a non-empty array');
-                return null;
-            }
-
-            logDebug_ACU('[callAI] Calling AI with', messages.length, 'messages');
-            
-            const effectiveApiConfig = settings_ACU.apiConfig || {};
-            const maxTokens = options.max_tokens || effectiveApiConfig.max_tokens || 4096;
-            
-            // 使用数据库当前的API配置调用AI
-            if (settings_ACU.apiMode === 'tavern') {
-                // 使用酒馆Profile
-                const profileId = settings_ACU.tavernProfile;
-                const response = await SillyTavern_API_ACU.ConnectionManagerRequestService.sendRequest(
-                    profileId, messages, maxTokens
-                );
-                if (response && response.result && response.result.choices && response.result.choices[0]) {
-                    return response.result.choices[0].message.content;
-                }
-                // 尝试其他响应格式
-                if (response && typeof response.content === 'string') {
-                    return response.content;
-                }
-                logError_ACU('[callAI] Invalid response from Tavern API:', response);
-                return null;
-            } else {
-                // 使用自定义API
-                if (effectiveApiConfig.useMainApi) {
-                    // 使用酒馆主API（流式传输）
-                    if (typeof TavernHelper_API_ACU?.generateRaw === 'function') {
-                        const response = await TavernHelper_API_ACU.generateRaw({
-                            ordered_prompts: messages,
-                            should_stream: settings_ACU.streamingEnabled || false
-                        });
-                        if (typeof response === 'string') {
-                            return response.trim();
-                        }
-                        logError_ACU('[callAI] Main API did not return string');
-                        return null;
-                    }
-                    logError_ACU('[callAI] TavernHelper.generateRaw not available');
-                    return null;
-                } else {
-                    // 使用独立API配置 - 使用完整的请求格式（流式传输）
-                    if (!effectiveApiConfig.url || !effectiveApiConfig.model) {
-                        logError_ACU('[callAI] Custom API URL or model not configured');
-                        return null;
-                    }
-                    
-                    const url = `/api/backends/chat-completions/generate`;
-                    const body = JSON.stringify({
-                        "messages": messages,
-                        "model": effectiveApiConfig.model,
-                        "temperature": effectiveApiConfig.temperature || 1.0,
-                        "top_p": effectiveApiConfig.top_p || 0.9,
-                        "max_tokens": maxTokens,
-                        "stream": settings_ACU.streamingEnabled || false,
-                        "chat_completion_source": "custom",
-                        "group_names": [],
-                        "include_reasoning": false,
-                        "reasoning_effort": "medium",
-                        "enable_web_search": false,
-                        "request_images": false,
-                        "custom_prompt_post_processing": "strict",
-                        "reverse_proxy": effectiveApiConfig.url,
-                        "proxy_password": "",
-                        "custom_url": effectiveApiConfig.url,
-                        "custom_include_headers": effectiveApiConfig.apiKey ?
-                            `Authorization: Bearer ${effectiveApiConfig.apiKey}` : ""
-                    });
-                    
-                    const headers = {
-                        ...SillyTavern.getRequestHeaders(),
-                        'Content-Type': 'application/json'
-                    };
-                    const res = await fetch(url, { method: 'POST', headers, body });
-                    
-                    if (res.ok) {
-                        // 处理流式响应
-                        const reader = res.body.getReader();
-                        const decoder = new TextDecoder();
-                        let fullContent = '';
-                        let buffer = '';
-                        
-                        while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
-                            
-                            buffer += decoder.decode(value, { stream: true });
-                            const lines = buffer.split('\n');
-                            buffer = lines.pop() || '';
-                            
-                            for (const line of lines) {
-                                if (line.startsWith('data: ')) {
-                                    const data = line.slice(6);
-                                    if (data === '[DONE]') continue;
-                                    try {
-                                        const json = JSON.parse(data);
-                                        const content = json.choices?.[0]?.delta?.content || '';
-                                        fullContent += content;
-                                    } catch (e) {
-                                        // 忽略解析错误
-                                    }
-                                }
-                            }
-                        }
-                        
-                        if (fullContent) {
-                            return fullContent;
-                        }
-                        // 尝试非流式响应格式
-                        try {
-                            const text = await res.text();
-                            const json = JSON.parse(text);
-                            const content = json.choices?.[0]?.message?.content || json.response || json.text;
-                            if (content) {
-                                return content;
-                            }
-                        } catch (e) {
-                            // 忽略
-                        }
-                    }
-                    const errTxt = await res.text();
-                    logError_ACU('[callAI] API request failed:', res.status, errTxt);
-                    return null;
-                }
-            }
-        } catch (e) {
-            logError_ACU('[callAI] Failed:', e);
-            return null;
-        }
-    }
-  };
-  // --- [核心改造] 结束 ---
-
 
   // Toast 变量已迁移到 service/runtime/toast-service.ts

@@ -2,7 +2,7 @@
 // 从 04_shared_helpers.js 迁入
 
 import { handleApiResponse_ACU } from './prompt-builder';
-import { SillyTavern_API_ACU, settings_ACU } from '../runtime/state-manager';
+import { SillyTavern_API_ACU, TavernHelper_API_ACU, settings_ACU } from '../runtime/state-manager';
 import { logDebug_ACU, logWarn_ACU } from '../../shared/utils';
 
 export   async function callApi_ACU(messages, apiSettings, abortSignal = null) {

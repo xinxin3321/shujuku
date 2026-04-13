@@ -9,13 +9,6 @@ import { normalizeIsolationCode_ACU } from '../../shared/data-constants';
 import { globalMeta_ACU, saveGlobalMeta_ACU, readProfileSettingsFromStorage_ACU, writeProfileSettingsToStorage_ACU, readProfileTemplateFromStorage_ACU, writeProfileTemplateToStorage_ACU, sanitizeSettingsForProfileSave_ACU } from './profile-repo';
 import { TABLE_TEMPLATE_ACU, DEFAULT_TABLE_TEMPLATE_ACU } from '../../shared/defaults-json.js';
 
-// 注入点：由 service 层在启动时设置
-let _settingsRef: () => any = () => ({});
-export function _injectIsolationRepoDeps(getSettings: () => any) {
-  _settingsRef = getSettings;
-}
-
-
 
 export const MAX_DATA_ISOLATION_HISTORY = 20;
 
@@ -59,13 +52,13 @@ export function removeDataIsolationHistory_ACU(code: string, { save = true } = {
     if (save) saveGlobalMeta_ACU();
 }
 
-export function ensureProfileExists_ACU(code: string, { seedFromCurrent = true } = {}): void {
+export function ensureProfileExists_ACU(code: string, { seedFromCurrent = true, settings = {} as any } = {}): void {
     const c = normalizeIsolationCode_ACU(code);
     const hasSettings = !!readProfileSettingsFromStorage_ACU(c);
     const hasTemplate = !!readProfileTemplateFromStorage_ACU(c);
 
     if (!hasSettings) {
-        const seed = seedFromCurrent ? sanitizeSettingsForProfileSave_ACU(_settingsRef()) : {};
+        const seed = seedFromCurrent ? sanitizeSettingsForProfileSave_ACU(settings) : {};
         seed.dataIsolationCode = c;
         try { writeProfileSettingsToStorage_ACU(c, seed); } catch (e) { logWarn_ACU('[Profile] seed settings failed:', e); }
     }

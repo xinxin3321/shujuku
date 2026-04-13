@@ -1,13 +1,12 @@
-import { getCurrentWorldbookConfig_ACU } from '../../data/repositories/character-settings-repo';
+import { getCurrentWorldbookConfig_ACU } from '../settings/settings-service';
 import { CHAT_SHEET_GUIDE_FIELD_ACU } from '../../data/storage/chat-history';
-import { showToastr_ACU } from '../runtime/toast-service';
 import { SillyTavern_API_ACU, TavernHelper_API_ACU, allChatMessages_ACU, currentChatFileIdentifier_ACU, currentJsonTableData_ACU, lastTotalAiMessages_ACU, settings_ACU , _set_currentJsonTableData_ACU, _set_currentChatFileIdentifier_ACU, _set_allChatMessages_ACU, _set_lastTotalAiMessages_ACU} from '../runtime/state-manager';
 import { applyTemplateScopeForCurrentChat_ACU, loadSettings_ACU, saveSettings_ACU } from '../settings/settings-service';
 import { getSortedSheetKeys_ACU } from '../template/chat-scope';
 import { loadAllChatMessages_ACU } from './pipeline';
 import { topLevelWindow_ACU } from '../../shared/env';
 import { cleanChatName_ACU, getChatFirstLayerMessage_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
-import { loadOrCreateJsonTableFromChatHistory_ACU } from '../../data/repositories/table-repo';
+import { loadOrCreateJsonTableFromChatHistory_ACU } from '../table/table-service';
 import { getImportBatchPrefix_ACU } from '../../shared/constants';
 import { formatJsonToReadable_ACU, maybeLiftWorldbookSuppression_ACU, mergeAllIndependentTables_ACU, shouldSuppressWorldbookInjection_ACU } from '../runtime/helpers-remaining';
 /**
@@ -679,8 +678,6 @@ import { formatJsonToReadable_ACU, maybeLiftWorldbookSuppression_ACU, mergeAllIn
       if (changedAny) {
           await SillyTavern_API_ACU.saveChat();
           try { await loadAllChatMessages_ACU(); } catch (e) {}
-          // 通知前端刷新
-          if ((topLevelWindow_ACU as any).AutoCardUpdaterAPI) (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
       }
       return { changed: changedAny, changedCount };
   }
@@ -1136,7 +1133,6 @@ import { formatJsonToReadable_ACU, maybeLiftWorldbookSuppression_ACU, mergeAllIn
                 }, globalFixedIndexPlacement);
                 await TavernHelper_API_ACU.createLorebookEntries(primaryLorebookName, [newDb2Entry]);
                 logDebug_ACU('Global readable lorebook entry not found. Created a new one.');
-                showToastr_ACU('success', `已创建全局可读数据库条目。`);
             }
 
             // [新增] 创建 WrapperStart 条目

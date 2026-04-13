@@ -1,6 +1,5 @@
 import { DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU } from '../../shared/defaults-json.js';
-import { showToastr_ACU } from '../runtime/toast-service';
-import { SillyTavern_API_ACU, currentJsonTableData_ACU, settings_ACU } from '../runtime/state-manager';
+import { SillyTavern_API_ACU, TavernHelper_API_ACU, currentJsonTableData_ACU, settings_ACU } from '../runtime/state-manager';
 import { topLevelWindow_ACU } from '../../shared/env';
 import { applyOptimizations_ACU } from '../../shared/text-optimization';
 import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
@@ -94,9 +93,9 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
 
     try {
       // $U: 用户设定描述 (persona_description)
-      const stContext = window.SillyTavern?.getContext?.();
+      const stContext = (topLevelWindow_ACU as any)?.SillyTavern?.getContext?.();
       placeholders.$U = stContext?.powerUserSettings?.persona_description
-        || window.power_user?.persona_description
+        || (topLevelWindow_ACU as any)?.power_user?.persona_description
         || SillyTavern_API_ACU?.powerUserSettings?.persona_description
         || '';
       logDebug_ACU('[正文优化] $U 用户设定:', placeholders.$U ? '成功' : '(空)');
@@ -106,7 +105,7 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
 
     try {
       // $C: 角色描述 (char_description)
-      const stContext = window.SillyTavern?.getContext?.();
+      const stContext = (topLevelWindow_ACU as any)?.SillyTavern?.getContext?.();
       let character = null;
       if (TavernHelper_API_ACU?.getCharData) {
         character = TavernHelper_API_ACU.getCharData('current');
@@ -114,7 +113,7 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
       if (!character) {
         character = SillyTavern_API_ACU?.characters?.[SillyTavern_API_ACU?.this_chid]
           || stContext?.characters?.[stContext?.characterId]
-          || (typeof characters !== 'undefined' && typeof this_chid !== 'undefined' ? characters[this_chid] : null);
+          || ((globalThis as any).characters?.[(globalThis as any).this_chid] ?? null);
       }
       placeholders.$C = character?.description
         || character?.data?.description
@@ -136,7 +135,7 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
    * @param {string} options.userMessage - 用户消息（用于占位符）
    * @returns {Promise<object>} 优化结果 { success, optimizations, summary, optimizedContent }
    */
-   export async function performContentOptimization_ACU(content, options = {}) {
+   export async function performContentOptimization_ACU(content: any, options: any = {}) {
      const config = settings_ACU.contentOptimizationSettings || {};
      const maxLength = config.maxOptimizations || 10;
      const currentLoop = options.currentLoop || 1;
@@ -210,8 +209,8 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
      
      for (let attempt = 1; attempt <= maxRetries; attempt++) {
        try {
-         logDebug_ACU(`[正文优化] 调用AI API... (尝试 ${attempt}/${maxRetries})`);
-         responseContent = await topLevelWindow_ACU.AutoCardUpdaterAPI.callAI(messages, {
+        logDebug_ACU(`[正文优化] 调用AI API... (尝试 ${attempt}/${maxRetries})`);
+        responseContent = await (topLevelWindow_ACU as any).AutoCardUpdaterAPI.callAI(messages, {
            presetName: apiPreset
          });
          
@@ -284,7 +283,7 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
          
          try {
            logDebug_ACU(`[正文优化] 重新调用AI API以获取更干净的优化结果... (尝试 ${parseAttempt + 1}/${maxRetries})`);
-           parseRetryResponseContent = await topLevelWindow_ACU.AutoCardUpdaterAPI.callAI(messages, {
+           parseRetryResponseContent = await (topLevelWindow_ACU as any).AutoCardUpdaterAPI.callAI(messages, {
              presetName: apiPreset
            });
            if (!parseRetryResponseContent) {
@@ -620,7 +619,7 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
   export let optimizationProgressToast_ACU = null;
   let lastOptimizedMessageMeta_ACU = null;
 
-  export function setLastOptimizationBase_ACU(payload = {}) {
+  export function setLastOptimizationBase_ACU(payload: any = {}) {
     const cache = {
       messageIndex: Number.isInteger(payload.messageIndex) ? payload.messageIndex : -1,
       messageId: payload.messageId ?? null,
@@ -632,7 +631,7 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
 
     try {
       const targetWindow = topLevelWindow_ACU || window;
-      targetWindow.__ACU_LAST_OPTIMIZATION_BASE__ = cache;
+      (targetWindow as any).__ACU_LAST_OPTIMIZATION_BASE__ = cache;
     } catch (error) {
       logDebug_ACU('[正文优化] 写入浏览器侧正文优化基础缓存失败（window）:', error);
     }
@@ -653,7 +652,7 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
 
     try {
       const targetWindow = topLevelWindow_ACU || window;
-      const windowCache = targetWindow.__ACU_LAST_OPTIMIZATION_BASE__;
+      const windowCache = (targetWindow as any).__ACU_LAST_OPTIMIZATION_BASE__;
       if (windowCache?.baseContent) {
         lastOptimizedMessageMeta_ACU = windowCache;
         return windowCache;
@@ -681,13 +680,11 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
   /**
    * 取消正文优化
    * @param {string} reason - 取消原因
-   * @returns {boolean} 是否执行了取消
+   * @returns {{ cancelled: boolean; reason: string }}
    */
-  export function cancelContentOptimization_ACU(reason = '正文优化已由用户终止。') {
+  export function cancelContentOptimization_ACU(reason = '正文优化已由用户终止。'): { cancelled: boolean; reason: string } {
     contentOptimizationAbortRequested_ACU = true;
-    // hideOptimizationOverlay / hideOptimizationProgressToast 由 presentation 层调用方执行
-    showToastr_ACU('warning', reason);
-    return true;
+    return { cancelled: true, reason };
   }
 
   /**

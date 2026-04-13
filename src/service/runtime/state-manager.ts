@@ -16,35 +16,8 @@ export {
   _set_SillyTavern_API_ACU, _set_TavernHelper_API_ACU, _set_jQuery_API_ACU, _set_toastr_API_ACU
 } from '../../shared/host-api';
 
-// ═══ 从 presentation/state/ui-refs.ts re-export ═══
-export {
-  $popupInstance_ACU, _set_$popupInstance_ACU, _assignUIPlaceholders_ACU,
-  $apiConfigSectionToggle_ACU, $apiConfigAreaDiv_ACU,
-  $customApiUrlInput_ACU, $customApiKeyInput_ACU,
-  $customApiModelInput_ACU, $customApiModelSelect_ACU,
-  $maxTokensInput_ACU, $temperatureInput_ACU,
-  $loadModelsButton_ACU, $saveApiConfigButton_ACU, $clearApiConfigButton_ACU,
-  $apiStatusDisplay_ACU,
-  $charCardPromptToggle_ACU, $charCardPromptAreaDiv_ACU,
-  $charCardPromptSegmentsContainer_ACU,
-  $saveCharCardPromptButton_ACU, $resetCharCardPromptButton_ACU,
-  $plotPromptSegmentsContainer_ACU, $plotTaskListContainer_ACU,
-  $autoUpdateThresholdInput_ACU, $saveAutoUpdateThresholdButton_ACU,
-  $autoUpdateTokenThresholdInput_ACU, $saveAutoUpdateTokenThresholdButton_ACU,
-  $autoUpdateFrequencyInput_ACU, $saveAutoUpdateFrequencyButton_ACU,
-  $updateBatchSizeInput_ACU, $saveUpdateBatchSizeButton_ACU,
-  $maxConcurrentGroupsInput_ACU,
-  $autoUpdateEnabledCheckbox_ACU, $standardizedTableFillEnabledCheckbox_ACU,
-  $toastMuteEnabledCheckbox_ACU, $promptTemplateEnabledCheckbox_ACU,
-  $tableEditLastPairOnlyCheckbox_ACU, $tableMaxRetriesInput_ACU,
-  $manualUpdateCardButton_ACU, $statusMessageSpan_ACU,
-  $cardUpdateStatusDisplay_ACU, $useMainApiCheckbox_ACU,
-  $streamingEnabledCheckbox_ACU, $manualExtraHintCheckbox_ACU,
-  $skipUpdateFloorsInput_ACU, $saveSkipUpdateFloorsButton_ACU,
-  $retainRecentLayersInput_ACU, $saveRetainRecentLayersButton_ACU,
-  $manualTableSelector_ACU, $manualTableSelectAll_ACU, $manualTableSelectNone_ACU,
-  $importTableSelector_ACU, $importTableSelectAll_ACU, $importTableSelectNone_ACU
-} from '../../presentation/state/ui-refs';
+// ═══ ui-refs re-export 已移除（P5）═══
+// 消费方应直接从 presentation/state/ui-refs import $xxx 变量
 
 // ═══ 业务状态 + 门控逻辑（保留在本文件） ═══
 
@@ -54,7 +27,6 @@ import { SillyTavern_API_ACU } from '../../shared/host-api';
 
 export const NEW_MESSAGE_DEBOUNCE_DELAY_ACU = 500;
 
-export const TABLE_ORDER_FIELD_ACU = 'orderNo';
 export let pendingBaseStatePlacement_ACU = false;
 export let suppressWorldbookInjectionInGreeting_ACU = false;
 
@@ -89,50 +61,6 @@ export const generationGate_ACU = {
 
 export function markUserSendIntent_ACU() {
   generationGate_ACU.lastUserSendIntentAt = Date.now();
-}
-
-export function installSendIntentCaptureHooks_ACU() {
-  try {
-    const parentDoc = SillyTavern_API_ACU?.Chat?.document
-      ? SillyTavern_API_ACU.Chat.document
-      : (window.parent || window).document;
-    const doc = parentDoc || document;
-
-    if (!(window as any).__ACU_sendIntentHooksInstalled) {
-      (window as any).__ACU_sendIntentHooksInstalled = { send: false, enter: false };
-    }
-
-    const sendBtn = doc.getElementById('send_but');
-    if (sendBtn && !(window as any).__ACU_sendIntentHooksInstalled.send) {
-      sendBtn.addEventListener('click', () => markUserSendIntent_ACU(), true);
-      sendBtn.addEventListener('pointerup', () => markUserSendIntent_ACU(), true);
-      sendBtn.addEventListener('touchend', () => markUserSendIntent_ACU(), true);
-      (window as any).__ACU_sendIntentHooksInstalled.send = true;
-    }
-
-    const ta = doc.getElementById('send_textarea');
-    if (ta && !(window as any).__ACU_sendIntentHooksInstalled.enter) {
-      ta.addEventListener('keydown', (e) => {
-        try {
-          const key = e.key || e.code;
-          if ((key === 'Enter' || key === 'NumpadEnter') && !e.shiftKey) {
-            markUserSendIntent_ACU();
-          }
-        } catch (err) {}
-      }, true);
-      (window as any).__ACU_sendIntentHooksInstalled.enter = true;
-    }
-
-    if ((!sendBtn || !ta) && !(window as any).__ACU_sendIntentHooksRetryScheduled) {
-      (window as any).__ACU_sendIntentHooksRetryScheduled = true;
-      setTimeout(() => {
-        (window as any).__ACU_sendIntentHooksRetryScheduled = false;
-        installSendIntentCaptureHooks_ACU();
-      }, 1200);
-    }
-  } catch (e) {
-    // ignore
-  }
 }
 
 export function isRecentUserSendIntent_ACU() {
@@ -282,14 +210,6 @@ export let isAutoUpdatingCard_ACU = false;
 export let wasStoppedByUser_ACU = false;
 export let newMessageDebounceTimer_ACU: any = null;
 export let currentAbortController_ACU: any = null;
-export let activePlotEditorSettings_ACU: any = null;
-export let currentPlotTaskEditorId_ACU = '';
-export let currentEditablePlotPresetState_ACU: any = {
-  initialized: false,
-  presetName: '',
-  scope: 'resolved',
-  source: '',
-};
 export let plotTaskEditorAutoSaveTimer_ACU: any = null;
 export let activeAbortControllers_ACU = new Set<any>();
 export let manualExtraHint_ACU = '';
@@ -311,7 +231,4 @@ export function _set_currentAbortController_ACU(v: any) { currentAbortController
 export function _set_isAutoUpdatingCard_ACU(v: any) { isAutoUpdatingCard_ACU = v; }
 export function _set_manualExtraHint_ACU(v: any) { manualExtraHint_ACU = v; }
 export function _set_wasStoppedByUser_ACU(v: any) { wasStoppedByUser_ACU = v; }
-export function _set_currentEditablePlotPresetState_ACU(v: any) { currentEditablePlotPresetState_ACU = v; }
-export function _set_activePlotEditorSettings_ACU(v: any) { activePlotEditorSettings_ACU = v; }
-export function _set_currentPlotTaskEditorId_ACU(v: any) { currentPlotTaskEditorId_ACU = v; }
 export function _set_newMessageDebounceTimer_ACU(v: any) { newMessageDebounceTimer_ACU = v; }

@@ -1,10 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-// data/repositories/template-preset-repo.ts — 模板预设纯数据工具函数
-// 从 02_storage_and_profile.js 行 18~101 迁入
+// shared/template-preset-utils.ts — 模板预设纯工具函数 & 常量
+// 从 data/repositories/template-preset-repo.ts 搬入（纯函数/常量部分）
 // ═══════════════════════════════════════════════════════════════
-
-import { SillyTavern_API_ACU, TavernHelper_API_ACU } from '../../shared/host-api';
-import { persistSettingsToStorage_ACU } from '../storage/config-storage';
 
 export const DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU = '__ACU_DEFAULT_TEMPLATE_PRESET__';
 
@@ -27,16 +24,6 @@ export function getCurrentTemplatePresetName_ACU(settings_ACU: any, { requireExi
     return presetName;
 }
 
-export function persistCurrentTemplatePresetName_ACU(settings_ACU: any, presetName: any, { save = true } = {}): string {
-    if (!settings_ACU || typeof settings_ACU !== 'object') return '';
-    const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
-    settings_ACU.currentTemplatePresetName = normalizedPresetName;
-    if (save) {
-        persistSettingsToStorage_ACU(settings_ACU);
-    }
-    return normalizedPresetName;
-}
-
 export function derivePresetNameFromFilename_ACU(filename: any): string {
     const raw = String(filename || '').trim();
     if (!raw) return '';
@@ -45,15 +32,22 @@ export function derivePresetNameFromFilename_ACU(filename: any): string {
     return base;
 }
 
+/**
+ * 获取当前角色卡名称（依赖宿主 API）
+ * 注意：此函数读取 window 全局状态，放在 shared 层是因为它不执行任何持久化操作
+ */
 export function getCurrentCharacterCardName_ACU(): string {
     try {
         const stContext = (window as any).SillyTavern?.getContext?.();
+        // 使用 shared/host-api 的引用——但为了避免循环依赖，直接从 window 读
         let character = null;
-        if (TavernHelper_API_ACU?.getCharData) {
-            character = TavernHelper_API_ACU.getCharData('current');
+        const TavernHelper_API = (window as any).TavernHelper;
+        const SillyTavern_API = (window as any).SillyTavern?.getContext?.();
+        if (TavernHelper_API?.getCharData) {
+            character = TavernHelper_API.getCharData('current');
         }
         if (!character) {
-            character = SillyTavern_API_ACU?.characters?.[SillyTavern_API_ACU?.this_chid]
+            character = SillyTavern_API?.characters?.[SillyTavern_API?.characterId]
                 || stContext?.characters?.[stContext?.characterId]
                 || (typeof (window as any).characters !== 'undefined' && typeof (window as any).this_chid !== 'undefined' ? (window as any).characters[(window as any).this_chid] : null);
         }
@@ -61,7 +55,7 @@ export function getCurrentCharacterCardName_ACU(): string {
             character?.name
             || character?.data?.name
             || stContext?.name2
-            || SillyTavern_API_ACU?.name2
+            || SillyTavern_API?.name2
             || ''
         ).trim();
     } catch (e) {
@@ -86,6 +80,6 @@ export function deriveTemplatePresetNameForImport_ACU({ presetName = '', filenam
 
 export function sanitizeFilenameComponent_ACU(name: any): string {
     const s = String(name || '').trim();
-    const out = s.replace(/[\\\/:*?"<>|]+/g, '_').replace(/\s+/g, ' ').trim();
+    const out = s.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, ' ').trim();
     return out.length > 80 ? out.slice(0, 80).trim() : out;
 }

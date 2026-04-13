@@ -2,13 +2,14 @@ import { renderVisualizerMain_ACU, saveVisualizerChanges_ACU } from './visualize
 import { renderVisualizerSidebar_ACU } from './visualizer-sidebar';
 import { showToastr_ACU } from '../theme/toast';
 import { toggleACUTheme_ACU } from '../window/window-styles';
-import { currentJsonTableData_ACU , _set_currentJsonTableData_ACU} from '../../service/runtime/state-manager';
+import { closeACUWindow, createACUWindow, ACU_WindowManager } from '../window/window-system';
+import { currentJsonTableData_ACU , _set_currentJsonTableData_ACU, jQuery_API_ACU} from '../../service/runtime/state-manager';
 import { getSortedSheetKeys_ACU, reorderDataBySheetKeys_ACU } from '../../service/template/chat-scope';
 import { loadAllChatMessages_ACU } from '../../service/worldbook/pipeline';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { escapeHtml_ACU } from '../../shared/html-helpers';
 import { logDebug_ACU, logWarn_ACU } from '../../shared/utils';
-import { getActiveTemplatePresetMeta_ACU } from '../components/template-preset-ui';
+import { getActiveTemplatePresetMeta_ACU } from '../../service/template/template-preset-service';
 import { mergeAllIndependentTables_ACU } from '../../service/runtime/helpers-remaining';
 // visualizer.ts
 // 从 06_visualizer.js 整体迁入
@@ -1306,15 +1307,16 @@ import { mergeAllIndependentTables_ACU } from '../../service/runtime/helpers-rem
   `;
 
   // Internal state for visualizer
-  let _acuVisState = {
+  export let _acuVisState: any = {
       currentSheetKey: null,
       mode: 'data', // 'data' or 'config'
       tempData: null, // Deep copy of currentJsonTableData_ACU
-      deletedSheetKeys: [] // 在可视化编辑器中删除的表格key列表（保存时追溯全聊天记录做彻底清理）
+      sheetOrder: null as string[] | null, // 有序表格键列表
+      deletedSheetKeys: [] as string[] // 在可视化编辑器中删除的表格key列表
   };
 
   // [核心重构] 定义全局刷新函数，确保无论何时调用都能从本地数据（聊天记录）中获取最新数据并刷新UI
-  window.ACU_Visualizer_Refresh = async function() {
+  (window as any).ACU_Visualizer_Refresh = async function() {
       if (!jQuery_API_ACU('#acu-visualizer-content').length && !ACU_WindowManager.isOpen(`${SCRIPT_ID_PREFIX_ACU}-visualizer-window`)) return;
       
       // 1. 尝试从聊天记录重新构建完整数据
@@ -1448,7 +1450,7 @@ import { mergeAllIndependentTables_ACU } from '../../service/runtime/helpers-rem
               $window.find('#acu-vis-theme-btn').on('click', function(e) {
                   e.preventDefault();
                   e.stopPropagation();
-                  const nextTheme = toggleACUTheme_ACU();
+                  const nextTheme = toggleACUTheme_ACU(document);
                   const nextLabel = nextTheme === 'silk' ? '墨纸' : '素纱';
                   $window.find('#acu-vis-theme-btn .acu-theme-toggle-text').text(nextLabel);
               });
@@ -1456,8 +1458,8 @@ import { mergeAllIndependentTables_ACU } from '../../service/runtime/helpers-rem
               // [核心重构] 绑定事件以支持旧的触发方式，但实际逻辑委托给全局函数
               jQuery_API_ACU(document).off('acu-visualizer-refresh-data');
               jQuery_API_ACU(document).on('acu-visualizer-refresh-data', () => {
-                  if (typeof window.ACU_Visualizer_Refresh === 'function') {
-                      window.ACU_Visualizer_Refresh();
+                  if (typeof (window as any).ACU_Visualizer_Refresh === 'function') {
+                      (window as any).ACU_Visualizer_Refresh();
                   }
               });
 

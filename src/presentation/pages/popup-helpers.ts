@@ -1,14 +1,15 @@
 import { DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU } from '../../shared/defaults-json.js';
 import { flushCurrentPlotTaskEditorState_ACU, loadCurrentPlotTaskToUI_ACU, renderPlotTaskList_ACU } from '../components/plot-editors';
 import { showToastr_ACU } from '../theme/toast';
-import { loopState_ACU, settings_ACU } from '../../service/runtime/state-manager';
-import { saveSettings_ACU } from '../../service/settings/settings-service';
+import { loopState_ACU, settings_ACU, jQuery_API_ACU } from '../../service/runtime/state-manager';
+import { saveSettingsAndNotify_ACU } from '../components/settings-ui-helpers';
 import { getCurrentChatPlotScopeState_ACU } from '../../service/template/chat-scope';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { escapeHtml_ACU } from '../../shared/html-helpers';
 import { normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shared/utils';
 import { DEFAULT_PRESET_OPTION_VALUE_ACU, applyGlobalPlotPresetSelectionForEditor_ACU, applyPlotPresetToSettings_ACU, ensureLoopPromptsArray_ACU, ensurePlotPromptsArray_ACU, ensurePlotTasksCompat_ACU, findPlotPresetByName_ACU, getActivePlotEditorSettings_ACU, getCurrentRuntimePlotPresetName_ACU, getLegacyPromptTextsFromPromptGroup_ACU, getPlotPresetBindingForChat_ACU, getPlotPromptContentByIdFromSettings_ACU, getPlotPromptGroupFromSource_ACU, normalizePlotPresetExcludeRules_ACU, normalizePlotPresetSelectionValue_ACU, normalizePlotTasks_ACU, persistPlotPresetSelectionState_ACU, readExcludeRulesFromRows_ACU, renderExcludeRuleRows_ACU, renderLoopPromptsList_ACU, resolveActivePlotPresetName_ACU, setActivePlotEditorSettings_ACU, setCurrentEditablePlotPresetState_ACU, setPlotPromptContentByIdForSettings_ACU } from '../components/optimization-ui';
 import { getDefaultPlotContextExcludeRules_ACU, getDefaultPlotContextExtractRules_ACU } from '../../service/runtime/helpers-remaining';
+import { $popupInstance_ACU, $plotPromptSegmentsContainer_ACU, $plotTaskListContainer_ACU, _assignUIPlaceholders_ACU } from '../state/ui-refs';
 /**
  * presentation/pages/popup-helpers.ts — 主弹窗辅助函数
  * 从 main-popup.ts 拆出（原 openAutoCardPopup_ACU 内嵌函数）
@@ -21,8 +22,10 @@ import { getDefaultPlotContextExcludeRules_ACU, getDefaultPlotContextExtractRule
     export function loadPlotSettingsToUI_ACU(plotSettingsOverride = null) {
       if (!$popupInstance_ACU) return;
  
-      $plotPromptSegmentsContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompt-segments-container`);
-      $plotTaskListContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-list`);
+      _assignUIPlaceholders_ACU({
+        $plotPromptSegmentsContainer_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompt-segments-container`),
+        $plotTaskListContainer_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-list`),
+      });
  
       const plotSettings = setActivePlotEditorSettings_ACU(plotSettingsOverride || settings_ACU.plotSettings);
       if (!plotSettings) return;
@@ -141,7 +144,7 @@ import { getDefaultPlotContextExcludeRules_ACU, getDefaultPlotContextExtractRule
       }
 
       settings_ACU.contentOptimizationSettings.promptPresets = presets;
-      saveSettings_ACU();
+      saveSettingsAndNotify_ACU();
       loadOptimizationPresetSelect_ACU();
 
       // 选中新创建的预设
@@ -269,22 +272,22 @@ import { getDefaultPlotContextExcludeRules_ACU, getDefaultPlotContextExtractRule
 
       // 绑定输入事件
       $container.find('.optimization-prompt-segment-role').on('change', function() {
-        const idx = parseInt($(this).data('index'), 10);
+        const idx = parseInt(jQuery_API_ACU(this).data('index'), 10);
         const segments = getOptimizationPromptGroupFromUI_ACU();
         if (segments[idx]) {
-          segments[idx].role = $(this).val();
+          segments[idx].role = jQuery_API_ACU(this).val();
           settings_ACU.contentOptimizationSettings.promptGroup = segments;
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
         }
       });
 
       $container.find('.optimization-prompt-segment-content').on('input change', function() {
-        const idx = parseInt($(this).data('index'), 10);
+        const idx = parseInt(jQuery_API_ACU(this).data('index'), 10);
         const segments = getOptimizationPromptGroupFromUI_ACU();
         if (segments[idx]) {
-          segments[idx].content = $(this).val();
+          segments[idx].content = jQuery_API_ACU(this).val();
           settings_ACU.contentOptimizationSettings.promptGroup = segments;
-          saveSettings_ACU();
+          saveSettingsAndNotify_ACU();
         }
       });
     }
@@ -299,7 +302,7 @@ import { getDefaultPlotContextExcludeRules_ACU, getDefaultPlotContextExtractRule
       const $segments = $popupInstance_ACU.find('.optimization-prompt-segment');
 
       $segments.each(function() {
-        const $seg = $(this);
+        const $seg = jQuery_API_ACU(this);
         const index = parseInt($seg.data('index'), 10);
         const role = $seg.find('.optimization-prompt-segment-role').val();
         const content = $seg.find('.optimization-prompt-segment-content').val();
@@ -454,7 +457,6 @@ import { getDefaultPlotContextExcludeRules_ACU, getDefaultPlotContextExtractRule
       const presetName = preset.name || '默认预设';
       const result = applyGlobalPlotPresetSelectionForEditor_ACU(preset.name || '', {
         source: 'ui_global_load',
-        refreshUi: true,
         save: true,
       });
 
@@ -496,7 +498,7 @@ import { getDefaultPlotContextExcludeRules_ACU, getDefaultPlotContextExtractRule
         quickReplyContent: (() => {
           const prompts = [];
           $popupInstance_ACU.find('.loop-prompt-textarea').each(function() {
-            const content = $(this).val()?.trim() || '';
+            const content = jQuery_API_ACU(this).val()?.trim() || '';
             if (content) prompts.push(content);
           });
           return prompts;
@@ -563,7 +565,7 @@ import { getDefaultPlotContextExcludeRules_ACU, getDefaultPlotContextExtractRule
         source: 'ui_global_save_as_new',
       });
       persistPlotPresetSelectionState_ACU(name, { source: 'ui_global_save_as_new', updateGlobal: true, save: false });
-      saveSettings_ACU();
+      saveSettingsAndNotify_ACU();
 
       loadPlotPresetSelect_ACU();
       $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-global-preset-select`).val(name);

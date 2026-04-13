@@ -3,7 +3,8 @@ import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { escapeHtml_ACU } from '../../shared/html-helpers';
 import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU } from '../../shared/utils';
-import { getActiveTemplatePresetMeta_ACU } from './template-preset-ui';
+import { getActiveTemplatePresetMeta_ACU } from '../../service/template/template-preset-service';
+import { $popupInstance_ACU, $cardUpdateStatusDisplay_ACU } from '../state/ui-refs';
 /**
  * presentation/components/update-status-display.ts — 运行时状态/更新显示 UI
  * 从 features/runtime/01_runtime_state.js 迁移而来
@@ -160,7 +161,7 @@ import { getActiveTemplatePresetMeta_ACU } from './template-preset-ui';
             triggerFloor = '无';
             // 仍可展示“未记录楼层/上次更新”，便于用户观察数据变化
             if (foundInHistory) {
-                unrecorded = totalAiMessages - lastUpdatedAiFloor;
+                unrecorded = String(totalAiMessages - lastUpdatedAiFloor);
                 effectiveUnrecorded = '—';
             } else {
                 unrecorded = '—';
@@ -170,13 +171,13 @@ import { getActiveTemplatePresetMeta_ACU } from './template-preset-ui';
         } else if (foundInHistory) {
             // [修复] UI显示逻辑同步修正
             // 触发楼层 = 上次更新楼层 + 频率 + 跳过楼层
-            triggerFloor = lastUpdatedAiFloor + frequency + skipFloors;
+            triggerFloor = String(lastUpdatedAiFloor + frequency + skipFloors);
             
             // 显示给用户的未记录楼层：直接展示物理差值
-            unrecorded = totalAiMessages - lastUpdatedAiFloor;
+            unrecorded = String(totalAiMessages - lastUpdatedAiFloor);
             
             // 有效积累楼层（用于判断进度）：减去跳过楼层
-            effectiveUnrecorded = Math.max(0, (totalAiMessages - skipFloors) - lastUpdatedAiFloor);
+            effectiveUnrecorded = String(Math.max(0, (totalAiMessages - skipFloors) - lastUpdatedAiFloor));
             
             isReady = effectiveUnrecorded >= frequency;
             
