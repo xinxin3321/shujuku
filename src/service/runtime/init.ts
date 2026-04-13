@@ -9,7 +9,7 @@ import { _injectTableRepoDeps } from '../../data/repositories/table-repo';
 import { DEFAULT_PLOT_SETTINGS_ACU } from '../../data/models/defaults-json.js';
 import { addAutoCardMenuItem_ACU } from '../../presentation/bootstrap/startup';
 import { newMessageDebounceTimer_ACU, _set_newMessageDebounceTimer_ACU} from './state-manager';
-import { showToastr_ACU } from '../../presentation/theme/toast';
+import { showToastr_ACU } from './toast-service';
 import { attemptToLoadCoreApis_ACU } from '../../presentation/triggers/settings-ui-sync';
 import { handleChatCompletionReady_ACU, loadPresetAndCleanCharacterData_ACU, stopAutoLoop_ACU } from './helpers-remaining';
 import { SillyTavern_API_ACU, currentChatFileIdentifier_ACU, generationGate_ACU, installSendIntentCaptureHooks_ACU, isProcessing_Plot_ACU, isQuietLikeGeneration_ACU, isRecentUserSendIntent_ACU, loopState_ACU, recordGenerationContext_ACU, recordLastUserSend_ACU, settings_ACU, shouldProcessAutoTableUpdateForGenerationEnded_ACU, shouldProcessPlotForGeneration_ACU, _set_isProcessing_Plot_ACU} from './state-manager';

@@ -3,7 +3,7 @@
 
 import { getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../data/repositories/template-preset-repo';
 import { renderPromptSegments_ACU } from '../../presentation/components/plot-editors';
-import { showToastr_ACU } from '../../presentation/theme/toast';
+import { showToastr_ACU } from '../runtime/toast-service';
 import { settings_ACU } from '../runtime/state-manager';
 import { saveSettings_ACU } from '../settings/settings-service';
 import { sanitizeChatSheetsObject_ACU } from '../template/chat-scope';

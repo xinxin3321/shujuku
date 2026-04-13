@@ -3,7 +3,8 @@
 
 import { abortAllActiveRequests_ACU, isAutoUpdatingCard_ACU, wasStoppedByUser_ACU, _set_isAutoUpdatingCard_ACU, _set_manualExtraHint_ACU, _set_wasStoppedByUser_ACU} from '../runtime/state-manager';
 import { getManualSelectionFromUI_ACU } from '../../presentation/components/table-selector';
-import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../../presentation/theme/toast';
+import { showToastr_ACU } from '../runtime/toast-service';
+import { ACU_TOAST_CATEGORY_ACU } from '../../shared/constants';
 import { callCustomOpenAI_ACU } from '../ai/prompt-builder';
 import { SillyTavern_API_ACU, coreApisAreReady_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, toastr_API_ACU, $statusMessageSpan_ACU, _set_currentJsonTableData_ACU} from '../runtime/state-manager';
 import { checkAndTriggerAutoMergeSummary_ACU } from '../summary/merge-logic';

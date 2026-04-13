@@ -19,7 +19,7 @@ import { configIdbCacheLoaded_ACU, ensureConfigIdbCacheLoaded_ACU, getConfigStor
 import { ensureTagRulesCompat_ACU } from '../plot/plot-logic';
 import { syncAllSettingsToUI_ACU } from '../../presentation/components/status-display';
 import { getDefaultTemplateSnapshot_ACU, getTemplatePreset_ACU } from '../template/template-preset-service';
-import { showToastr_ACU } from '../../presentation/theme/toast';
+import { showToastr_ACU } from '../runtime/toast-service';
 import { buildDefaultContentOptimizationPromptGroup_ACU } from '../optimization/content-optimization';
 import { currentChatFileIdentifier_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_settings_ACU} from '../runtime/state-manager';
 import { getCurrentChatTemplateScopeState_ACU, getGlobalTemplateSnapshotForCurrentProfile_ACU, migrateLegacyTemplateScopeForCurrentChat_ACU, normalizeTemplateScopeIsolationKey_ACU, sanitizeChatSheetsObject_ACU, sanitizeTemplateSnapshotForChat_ACU } from '../template/chat-scope';

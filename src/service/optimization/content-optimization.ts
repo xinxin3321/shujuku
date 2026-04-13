@@ -1,5 +1,5 @@
 import { DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU } from '../../data/models/defaults-json.js';
-import { showToastr_ACU } from '../../presentation/theme/toast';
+import { showToastr_ACU } from '../runtime/toast-service';
 import { SillyTavern_API_ACU, currentJsonTableData_ACU, settings_ACU } from '../runtime/state-manager';
 import { topLevelWindow_ACU } from '../../shared/env';
 import { applyOptimizations_ACU } from '../../shared/text-optimization';

@@ -22,3 +22,23 @@ export const POPUP_ID_ACU = `${SCRIPT_ID_PREFIX_ACU}-popup`;
 
 /** 菜单项 ID */
 export const MENU_ITEM_ID_ACU = `${SCRIPT_ID_PREFIX_ACU}-menu-item`;
+
+// ═══ 从 import-status-ui.ts 迁移的纯常量/纯函数 ═══
+export const IMPORTED_ENTRY_PREFIX_ACU = 'TavernDB-ACU-ImportedTxt-';
+export function getImportStablePrefix_ACU() { return '外部导入-'; }
+export function getImportBatchPrefix_ACU() { return getImportStablePrefix_ACU(); }
+export function getImportJsonStorageComment_ACU(modeSuffix = '-Selected') {
+    const IMPORT_PREFIX = '外部导入-';
+    return `${IMPORT_PREFIX}TavernDB-ACU-ImportedJsonData${modeSuffix}`;
+}
+
+// ═══ 从 toast.ts 迁移的纯常量 ═══
+export const ACU_TOAST_CATEGORY_ACU = {
+    ERROR: 'error',
+    TABLE_OK: 'table_ok',
+    PLAN_OK: 'plan_ok',
+    PLANNING: 'planning',
+    MANUAL_TABLE: 'manual_table',
+    MERGE_TABLE: 'merge_table',
+    IMPORT: 'import',
+};

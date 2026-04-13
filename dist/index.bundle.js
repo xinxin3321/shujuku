@@ -31,6 +31,24 @@
     const POPUP_ID_ACU = `${SCRIPT_ID_PREFIX_ACU}-popup`;
     /** 菜单项 ID */
     const MENU_ITEM_ID_ACU = `${SCRIPT_ID_PREFIX_ACU}-menu-item`;
+    // ═══ 从 import-status-ui.ts 迁移的纯常量/纯函数 ═══
+    const IMPORTED_ENTRY_PREFIX_ACU$1 = 'TavernDB-ACU-ImportedTxt-';
+    function getImportStablePrefix_ACU$1() { return '外部导入-'; }
+    function getImportBatchPrefix_ACU$1() { return getImportStablePrefix_ACU$1(); }
+    function getImportJsonStorageComment_ACU$1(modeSuffix = '-Selected') {
+        const IMPORT_PREFIX = '外部导入-';
+        return `${IMPORT_PREFIX}TavernDB-ACU-ImportedJsonData${modeSuffix}`;
+    }
+    // ═══ 从 toast.ts 迁移的纯常量 ═══
+    const ACU_TOAST_CATEGORY_ACU = {
+        ERROR: 'error',
+        TABLE_OK: 'table_ok',
+        PLAN_OK: 'plan_ok',
+        PLANNING: 'planning',
+        MANUAL_TABLE: 'manual_table',
+        MERGE_TABLE: 'merge_table',
+        IMPORT: 'import',
+    };
 
     /**
      * shared/env.ts — 运行时环境检测与存储策略
@@ -1741,6 +1759,304 @@ $CONTENT
         return getCurrentCharSettings_ACU().worldbookConfig;
     }
 
+    // toast-service.ts — toast 通知服务
+    // 从 presentation/theme/toast.ts 迁移核心逻辑到 service 层
+    // presentation/theme/toast.ts 改为 re-export 本文件
+    // toast 相关状态
+    const ACU_TOAST_TITLE_ACU = '星·数据库';
+    const _acuToastDedup_ACU = new Map(); // key -> ts
+    let _acuToastStyleInjected_ACU = false;
+    function _set__acuToastStyleInjected_ACU(v) { _acuToastStyleInjected_ACU = v; }
+    function ensureAcuToastStylesInjected_ACU() {
+        if (_acuToastStyleInjected_ACU)
+            return;
+        try {
+            const doc = topLevelWindow_ACU?.document || document;
+            const styleId = `${SCRIPT_ID_PREFIX_ACU}-acu-toast-style`;
+            if (doc.getElementById(styleId)) {
+                _acuToastStyleInjected_ACU = true;
+                return;
+            }
+            const style = doc.createElement('style');
+            style.id = styleId;
+            style.textContent = `
+      /* ACU Toast Theme (古典中国风 - scoped to .acu-toast) */
+      #toast-container .acu-toast.toast {
+        --toast-accent: #7d4940;
+        --toast-bg: #24221f;
+        --toast-text: #c1b9ad;
+        --toast-border: #36332e;
+        --toast-font: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
+      }
+      body.acu-theme-silk #toast-container .acu-toast.toast {
+        --toast-accent: #8a6b5e;
+        --toast-bg: #f4f1eb;
+        --toast-text: #3d3629;
+        --toast-border: #d4cfc4;
+      }
+      .acu-toast.toast {
+        font-family: var(--toast-font) !important;
+        font-weight: 500 !important;
+        font-size: 14px !important;
+        letter-spacing: 0.2px;
+        --acu-toast-accent: var(--toast-accent);
+        background: var(--toast-bg) !important;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E") !important;
+        color: var(--toast-text) !important;
+        border: 1px solid var(--toast-border) !important;
+        border-radius: 2px !important;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.35) !important;
+        padding: 12px 14px 12px 50px !important;
+        width: min(420px, calc(100vw - 24px)) !important;
+        opacity: 1 !important;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        position: relative !important;
+        overflow: hidden !important;
+        border-left: 3px solid var(--toast-accent) !important;
+      }
+      #toast-container .acu-toast.toast,
+      #toast-container .acu-toast.toast.toast-success,
+      #toast-container .acu-toast.toast.toast-info,
+      #toast-container .acu-toast.toast.toast-warning,
+      #toast-container .acu-toast.toast.toast-error {
+        background: var(--toast-bg) !important;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E") !important;
+        opacity: 1 !important;
+      }
+      #toast-container .acu-toast.toast .toast-title,
+      #toast-container .acu-toast.toast .toast-message {
+        background: transparent !important;
+      }
+      .acu-toast.toast,
+      .acu-toast.toast.toast-success,
+      .acu-toast.toast.toast-info,
+      .acu-toast.toast.toast-warning,
+      .acu-toast.toast.toast-error {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E") !important;
+        background-repeat: repeat !important;
+        background-position: 0 0 !important;
+      }
+      #toast-container .acu-toast.toast::before {
+        content: "i" !important;
+        position: absolute;
+        left: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 26px;
+        height: 26px;
+        border-radius: 2px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 400;
+        font-size: 14px;
+        font-family: var(--toast-font);
+        color: var(--toast-bg);
+        background: var(--toast-accent);
+        border: none;
+        box-shadow: none;
+      }
+      #toast-container .acu-toast.acu-toast--success::before { content: "达" !important; }
+      #toast-container .acu-toast.acu-toast--info::before { content: "知" !important; }
+      #toast-container .acu-toast.acu-toast--warning::before { content: "警" !important; }
+      #toast-container .acu-toast.acu-toast--error::before { content: "误" !important; }
+      .acu-toast.acu-toast--success { --acu-toast-accent: #5a8a5a; }
+      .acu-toast.acu-toast--info { --acu-toast-accent: #8a6b5e; }
+      .acu-toast.acu-toast--warning { --acu-toast-accent: #b08a5a; }
+      .acu-toast.acu-toast--error { --acu-toast-accent: #8a5a5a; }
+      .acu-toast.toast .toast-title {
+        font-weight: 650 !important;
+        letter-spacing: 0.4px;
+        margin-bottom: 4px !important;
+        opacity: 1;
+        text-shadow: none;
+        font-family: var(--toast-font);
+      }
+      .acu-toast.toast .toast-message {
+        line-height: 1.55;
+        color: var(--toast-text) !important;
+        text-shadow: none;
+        font-family: var(--toast-font);
+        font-weight: 500 !important;
+        font-size: 13px !important;
+      }
+      .acu-toast.toast .toast-close-button {
+        color: var(--toast-text) !important;
+        text-shadow: none !important;
+        opacity: 0.6 !important;
+        font-size: 18px;
+        right: 8px;
+        top: 8px;
+      }
+      .acu-toast.toast .toast-close-button:hover {
+        opacity: 1 !important;
+      }
+      .acu-toast.toast .toast-progress {
+        background: var(--toast-accent) !important;
+      }
+      .acu-toast.acu-toast--success { border-color: rgba(90,138,90,0.5) !important; }
+      .acu-toast.acu-toast--info { border-color: rgba(138,107,94,0.5) !important; }
+      .acu-toast.acu-toast--warning { border-color: rgba(176,138,90,0.5) !important; }
+      .acu-toast.acu-toast--error { border-color: rgba(138,90,90,0.5) !important; }
+      .acu-toast .qrf-abort-btn {
+        padding: 4px 12px !important;
+        border-radius: 1px !important;
+        border: 1px solid var(--toast-accent) !important;
+        background: transparent !important;
+        color: var(--toast-text) !important;
+        font-weight: 600 !important;
+        font-family: var(--toast-font) !important;
+        cursor: pointer !important;
+        font-size: 0.85em;
+      }
+      .acu-toast .qrf-abort-btn:hover {
+        background: var(--toast-accent) !important;
+        color: var(--toast-bg) !important;
+      }
+      @media (max-width: 520px) {
+        #toast-container .acu-toast.toast {
+          width: min(320px, calc(100vw - 16px)) !important;
+          padding: 10px 12px 10px 42px !important;
+        }
+        #toast-container .acu-toast.toast::before {
+          left: 9px;
+          width: 22px;
+          height: 22px;
+          font-size: 12px;
+        }
+        .acu-toast.toast .toast-title {
+          font-size: 13px !important;
+          margin-bottom: 3px !important;
+        }
+        .acu-toast.toast .toast-message {
+          font-size: 12px !important;
+          line-height: 1.45 !important;
+        }
+        .acu-toast.toast .toast-close-button {
+          font-size: 16px;
+          right: 6px;
+          top: 6px;
+        }
+        .acu-toast .qrf-abort-btn {
+          padding: 3px 10px !important;
+          font-size: 12px !important;
+        }
+      }
+    `;
+            doc.head.appendChild(style);
+            _acuToastStyleInjected_ACU = true;
+        }
+        catch (e) {
+            _acuToastStyleInjected_ACU = true;
+        }
+    }
+    function _acuNormalizeToastArgs_ACU(type, message, titleOrOptions = {}, maybeOptions = {}) {
+        let title = ACU_TOAST_TITLE_ACU;
+        let options = {};
+        if (typeof titleOrOptions === 'string') {
+            title = titleOrOptions || title;
+            options = (maybeOptions && typeof maybeOptions === 'object') ? maybeOptions : {};
+        }
+        else {
+            options = (titleOrOptions && typeof titleOrOptions === 'object') ? titleOrOptions : {};
+        }
+        const defaultTimeOut = type === 'success' ? 2500 :
+            type === 'info' ? 2500 :
+                type === 'warning' ? 3500 :
+                    type === 'error' ? 5000 : 2500;
+        const isNarrow = (() => {
+            try {
+                const w = (topLevelWindow_ACU && typeof topLevelWindow_ACU.innerWidth === 'number')
+                    ? topLevelWindow_ACU.innerWidth
+                    : window.innerWidth;
+                return w <= 520;
+            }
+            catch (e) {
+                return false;
+            }
+        })();
+        const finalOptions = {
+            escapeHtml: false,
+            closeButton: true,
+            progressBar: true,
+            newestOnTop: true,
+            timeOut: defaultTimeOut,
+            extendedTimeOut: 1000,
+            tapToDismiss: true,
+            toastClass: `toast acu-toast acu-toast--${type}`,
+            positionClass: isNarrow ? 'toast-top-center' : 'toast-top-right',
+            ...options,
+        };
+        return { title, finalOptions };
+    }
+    function _acuShouldShowToast_ACU(type, title, message, options = {}) {
+        try {
+            if (!settings_ACU?.toastMuteEnabled)
+                return true;
+            if (String(type).toLowerCase() === 'error')
+                return true;
+            const cat = options?.acuToastCategory || null;
+            const allow = new Set([
+                ACU_TOAST_CATEGORY_ACU.ERROR,
+                ACU_TOAST_CATEGORY_ACU.TABLE_OK,
+                ACU_TOAST_CATEGORY_ACU.PLAN_OK,
+                ACU_TOAST_CATEGORY_ACU.PLANNING,
+                ACU_TOAST_CATEGORY_ACU.MANUAL_TABLE,
+                ACU_TOAST_CATEGORY_ACU.MERGE_TABLE,
+                ACU_TOAST_CATEGORY_ACU.IMPORT,
+            ]);
+            if (cat && allow.has(cat))
+                return true;
+            try {
+                const raw = `${title || ''}\n${message || ''}`;
+                const text = String(raw)
+                    .replace(/<[^>]*>/g, '')
+                    .replace(/\s+/g, ' ')
+                    .toLowerCase();
+                const t = String(type).toLowerCase();
+                const has = (s) => text.includes(String(s).toLowerCase());
+                if (has('正在规划'))
+                    return true;
+                if (t === 'success' && (has('填表') || has('规划')))
+                    return true;
+                if (t === 'success' && (has('更新') && has('成功')))
+                    return true;
+                const allowKeywords = ['手动填表', '手动更新', '合并', '外部导入', '导入', '注入'];
+                if (allowKeywords.some(k => has(k)))
+                    return true;
+            }
+            catch (e) { }
+            return false;
+        }
+        catch (e) {
+            return true;
+        }
+    }
+    function showToastr_ACU(type, message, titleOrOptions = {}, maybeOptions = {}) {
+        if (!toastr_API_ACU$1) {
+            logDebug_ACU(`Toastr (${type}): ${message}`);
+            return null;
+        }
+        ensureAcuToastStylesInjected_ACU();
+        const { title, finalOptions } = _acuNormalizeToastArgs_ACU(type, message, titleOrOptions, maybeOptions);
+        if (!_acuShouldShowToast_ACU(type, title, message, finalOptions))
+            return null;
+        try {
+            const key = `${type}|${title}|${String(message).replace(/<[^>]*>/g, '').slice(0, 120)}`;
+            const now = Date.now();
+            const last = _acuToastDedup_ACU.get(key) || 0;
+            if (now - last < 1200)
+                return null;
+            _acuToastDedup_ACU.set(key, now);
+        }
+        catch (e) { }
+        return toastr_API_ACU$1[type](message, title, finalOptions);
+    }
+
+    // toast.ts — presentation 层的 toast re-export 门面
+    // 核心逻辑已迁移到 service/runtime/toast-service.ts
+
     /**
      * shared/html-helpers.ts — HTML 工具函数
      *
@@ -1760,6 +2076,551 @@ $CONTENT
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
     }
+
+    // plot-editors.ts
+    // 从 02_shared_editors_and_selectors.js 整体迁入
+    function renderPromptSegments_ACU(segments) {
+        if (!$charCardPromptSegmentsContainer_ACU)
+            return;
+        $charCardPromptSegmentsContainer_ACU.empty();
+        // 确保 segments 是一个数组
+        if (!Array.isArray(segments)) {
+            // 如果不是数组，尝试解析。如果解析失败或内容为空，则创建一个默认的段落。
+            let parsedSegments;
+            try {
+                if (typeof segments === 'string' && segments.trim()) {
+                    parsedSegments = JSON.parse(segments);
+                }
+            }
+            catch (e) {
+                logWarn_ACU('Could not parse charCardPrompt as JSON. Treating as a single text block.', segments);
+            }
+            if (!Array.isArray(parsedSegments) || parsedSegments.length === 0) {
+                // 解析失败或结果不是有效数组，则将原始输入（如果是字符串）放入一个默认段落
+                const content = (typeof segments === 'string' && segments.trim()) ? segments : DEFAULT_CHAR_CARD_PROMPT_ACU;
+                parsedSegments = [{ role: 'assistant', content: content, deletable: false }];
+            }
+            segments = parsedSegments;
+        }
+        // 如果渲染后还是空数组，则添加一个不可删除的默认段落
+        if (segments.length === 0) {
+            segments.push({ role: 'assistant', content: DEFAULT_CHAR_CARD_PROMPT_ACU, deletable: false });
+        }
+        segments.forEach((segment, index) => {
+            const roleUpper = String(segment?.role || '').toUpperCase();
+            const roleLower = String(segment?.role || '').toLowerCase();
+            const mainSlot = (segment && (String(segment.mainSlot || '').toUpperCase() || (segment.isMain ? 'A' : (segment.isMain2 ? 'B' : '')))) || '';
+            const isMainA = mainSlot === 'A';
+            const isMainB = mainSlot === 'B';
+            const isMainPrompt = isMainA || isMainB;
+            const borderColor = isMainA ? 'var(--accent-primary)' : (isMainB ? '#ffb74d' : '');
+            const segmentId = `${SCRIPT_ID_PREFIX_ACU}-prompt-segment-${index}`;
+            const segmentHtml = `
+              <div class="prompt-segment" id="${segmentId}" data-main-slot="${escapeHtml_ACU(mainSlot)}" ${isMainPrompt ? `style="border-left: 3px solid ${borderColor};"` : ''}>
+                  <div class="prompt-segment-toolbar">
+                      <div style="display:flex; align-items:center; gap:8px;">
+                          <select class="prompt-segment-role">
+                              <option value="assistant" ${roleUpper === 'AI' || roleUpper === 'ASSISTANT' || roleLower === 'assistant' ? 'selected' : ''}>AI</option>
+                              <option value="SYSTEM" ${roleUpper === 'SYSTEM' || roleLower === 'system' ? 'selected' : ''}>系统</option>
+                              <option value="USER" ${roleUpper === 'USER' || roleLower === 'user' ? 'selected' : ''}>用户</option>
+                          </select>
+                          <label style="display:flex; align-items:center; gap:6px; font-size:0.8em; cursor:pointer; user-select:none;" title="用于运行时替换/合并注入的主提示词槽位。A/B 均不可删除；剧情推进会优先覆盖 A(系统) + B(用户)。">
+                              <span style="opacity:0.85;">主提示词</span>
+                              <select class="prompt-segment-main-slot" style="font-size:0.85em;">
+                                  <option value="" ${!isMainPrompt ? 'selected' : ''}>普通</option>
+                                  <option value="A" ${isMainA ? 'selected' : ''}>A(建议System)</option>
+                                  <option value="B" ${isMainB ? 'selected' : ''}>B(建议User)</option>
+                              </select>
+                          </label>
+                      </div>
+                      <button class="prompt-segment-delete-btn" data-index="${index}" style="${isMainPrompt ? 'display:none;' : ''}">-</button>
+                  </div>
+                  <textarea class="prompt-segment-content" rows="4">${escapeHtml_ACU(segment.content)}</textarea>
+              </div>
+          `;
+            $charCardPromptSegmentsContainer_ACU.append(segmentHtml);
+        });
+    }
+    function getCharCardPromptFromUI_ACU() {
+        if (!$charCardPromptSegmentsContainer_ACU)
+            return [];
+        const segments = [];
+        $charCardPromptSegmentsContainer_ACU.find('.prompt-segment').each(function () {
+            const $segment = $(this);
+            const role = $segment.find('.prompt-segment-role').val();
+            const content = $segment.find('.prompt-segment-content').val();
+            const mainSlotRaw = $segment.find('.prompt-segment-main-slot').val();
+            const mainSlot = String(mainSlotRaw || '').toUpperCase();
+            const isMainA = mainSlot === 'A';
+            const isMainB = mainSlot === 'B';
+            // 主提示词A/B不可删除
+            const isDeletable = (isMainA || isMainB) ? false : true;
+            const segmentData = { role: role, content: content, deletable: isDeletable };
+            if (isMainA) {
+                segmentData.mainSlot = 'A';
+                segmentData.isMain = true; // 兼容旧逻辑
+            }
+            else if (isMainB) {
+                segmentData.mainSlot = 'B';
+                segmentData.isMain2 = true; // 兼容旧逻辑（若有）
+            }
+            segments.push(segmentData);
+        });
+        return segments;
+    }
+    // --- [剧情推进] 独立提示词组（段落编辑器） ---
+    // 说明：
+    // - 用途：规划请求（callApi_ACU 的 messages）完全来自 plotSettings.promptGroup，不再“运行时替换”数据库更新预设的 A/B 段落。
+    // - 兼容：若用户只有旧的三段 prompts(main/system/final)，则会自动迁移生成一份 promptGroup（只在首次缺失时发生）。
+    function buildDefaultPlotPromptGroup_ACU({ mainAContent = '', mainBContent = '' } = {}) {
+        // [重要] 现在从独立的 DEFAULT_PLOT_PROMPT_GROUP_ACU 获取默认结构，不再从填表提示词合并
+        const src = DEFAULT_PLOT_PROMPT_GROUP_ACU;
+        const base = Array.isArray(src)
+            ? JSON.parse(JSON.stringify(src))
+            : (typeof src === 'string' && src.trim() ? [{ role: 'USER', content: src, deletable: false, mainSlot: 'A', isMain: true }] : []);
+        const getMainSlot = seg => {
+            if (!seg)
+                return '';
+            const slot = String(seg.mainSlot || '').toUpperCase();
+            if (slot === 'A' || slot === 'B')
+                return slot;
+            if (seg.isMain)
+                return 'A';
+            if (seg.isMain2)
+                return 'B';
+            return '';
+        };
+        let aIdx = base.findIndex(s => getMainSlot(s) === 'A');
+        let bIdx = base.findIndex(s => getMainSlot(s) === 'B');
+        if (aIdx === -1) {
+            base.unshift({ role: 'SYSTEM', content: '', deletable: false, mainSlot: 'A', isMain: true });
+            aIdx = 0;
+        }
+        if (bIdx === -1) {
+            base.splice(aIdx + 1, 0, { role: 'USER', content: '', deletable: false, mainSlot: 'B', isMain2: true });
+            bIdx = aIdx + 1;
+        }
+        // 如果传入了自定义内容，则覆盖默认内容
+        if (mainAContent && base[aIdx])
+            base[aIdx].content = String(mainAContent);
+        if (mainBContent && base[bIdx])
+            base[bIdx].content = String(mainBContent);
+        return base;
+    }
+    function getLegacyPlotPromptContent_ACU(plotSettings, promptId) {
+        try {
+            const p = plotSettings?.prompts;
+            if (!p)
+                return '';
+            if (Array.isArray(p)) {
+                const item = p.find(x => x && x.id === promptId);
+                return item?.content || '';
+            }
+            // 旧对象结构：{ mainPrompt, systemPrompt, finalSystemDirective }
+            if (typeof p === 'object')
+                return p[promptId] || '';
+        }
+        catch (e) { }
+        return '';
+    }
+    function ensurePlotPromptGroup_ACU(plotSettings, { persist = false } = {}) {
+        if (!plotSettings)
+            return;
+        if (Array.isArray(plotSettings.promptGroup) && plotSettings.promptGroup.length > 0)
+            return;
+        // 默认来源：优先用旧三段 prompts 的 main/system；否则用默认值。
+        const legacyMain = getLegacyPlotPromptContent_ACU(plotSettings, 'mainPrompt') || (DEFAULT_PLOT_SETTINGS_ACU?.prompts?.[0]?.content || '');
+        const legacySystem = getLegacyPlotPromptContent_ACU(plotSettings, 'systemPrompt') || (DEFAULT_PLOT_SETTINGS_ACU?.prompts?.[1]?.content || '');
+        plotSettings.promptGroup = buildDefaultPlotPromptGroup_ACU({
+            mainAContent: legacyMain,
+            mainBContent: legacySystem,
+        });
+        if (persist) {
+            try {
+                saveSettings_ACU();
+            }
+            catch (e) { }
+        }
+    }
+    function renderPlotPromptSegments_ACU(segments) {
+        if ((!$plotPromptSegmentsContainer_ACU || !$plotPromptSegmentsContainer_ACU.length) && $popupInstance_ACU) {
+            $plotPromptSegmentsContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompt-segments-container`);
+        }
+        if (!$plotPromptSegmentsContainer_ACU || !$plotPromptSegmentsContainer_ACU.length)
+            return;
+        $plotPromptSegmentsContainer_ACU.empty();
+        // 确保 segments 是一个数组
+        if (!Array.isArray(segments)) {
+            segments = [];
+        }
+        if (segments.length === 0) {
+            const activeSettings = getActivePlotEditorSettings_ACU() || settings_ACU?.plotSettings;
+            ensurePlotPromptGroup_ACU(activeSettings);
+            segments = JSON.parse(JSON.stringify(activeSettings?.promptGroup || []));
+        }
+        const getMainSlot = seg => {
+            if (!seg)
+                return '';
+            const slot = String(seg.mainSlot || '').toUpperCase();
+            if (slot === 'A' || slot === 'B')
+                return slot;
+            if (seg.isMain)
+                return 'A';
+            if (seg.isMain2)
+                return 'B';
+            return '';
+        };
+        segments.forEach((segment, index) => {
+            const roleUpper = String(segment?.role || '').toUpperCase();
+            const roleLower = String(segment?.role || '').toLowerCase();
+            const mainSlot = getMainSlot(segment);
+            const isMainA = mainSlot === 'A';
+            const isMainB = mainSlot === 'B';
+            const isMainPrompt = isMainA || isMainB;
+            const borderColor = isMainA ? 'var(--accent-primary)' : (isMainB ? '#ffb74d' : '');
+            const segmentId = `${SCRIPT_ID_PREFIX_ACU}-plot-prompt-segment-${index}`;
+            const segmentHtml = `
+              <div class="plot-prompt-segment" id="${segmentId}" data-main-slot="${escapeHtml_ACU(mainSlot)}" ${isMainPrompt ? `style="border-left: 3px solid ${borderColor};"` : ''}>
+                  <div class="plot-prompt-segment-toolbar">
+                      <div style="display:flex; align-items:center; gap:8px;">
+                          <select class="plot-prompt-segment-role">
+                              <option value="assistant" ${roleUpper === 'AI' || roleUpper === 'ASSISTANT' || roleLower === 'assistant' ? 'selected' : ''}>AI</option>
+                              <option value="SYSTEM" ${roleUpper === 'SYSTEM' || roleLower === 'system' ? 'selected' : ''}>系统</option>
+                              <option value="USER" ${roleUpper === 'USER' || roleLower === 'user' ? 'selected' : ''}>用户</option>
+                          </select>
+                          <label style="display:flex; align-items:center; gap:6px; font-size:0.8em; cursor:pointer; user-select:none;" title="用于兼容旧预设的A/B槽位。A/B 均不可删除；但运行时不会再对其进行自动替换，完全由本提示词组决定。">
+                              <span style="opacity:0.85;">主提示词</span>
+                              <select class="plot-prompt-segment-main-slot" style="font-size:0.85em;">
+                                  <option value="" ${!isMainPrompt ? 'selected' : ''}>普通</option>
+                                  <option value="A" ${isMainA ? 'selected' : ''}>A(建议System)</option>
+                                  <option value="B" ${isMainB ? 'selected' : ''}>B(建议User)</option>
+                              </select>
+                          </label>
+                      </div>
+                      <button class="plot-prompt-segment-delete-btn" data-index="${index}" style="${isMainPrompt ? 'display:none;' : ''}">-</button>
+                  </div>
+                  <textarea class="plot-prompt-segment-content" rows="4">${escapeHtml_ACU(segment.content)}</textarea>
+              </div>
+          `;
+            $plotPromptSegmentsContainer_ACU.append(segmentHtml);
+        });
+    }
+    function getPlotPromptGroupFromUI_ACU() {
+        if (!$plotPromptSegmentsContainer_ACU)
+            return [];
+        const segments = [];
+        $plotPromptSegmentsContainer_ACU.find('.plot-prompt-segment').each(function () {
+            const $segment = $(this);
+            const role = $segment.find('.plot-prompt-segment-role').val();
+            const content = $segment.find('.plot-prompt-segment-content').val();
+            const mainSlotRaw = $segment.find('.plot-prompt-segment-main-slot').val();
+            const mainSlot = String(mainSlotRaw || '').toUpperCase();
+            const isMainA = mainSlot === 'A';
+            const isMainB = mainSlot === 'B';
+            // 主提示词A/B不可删除
+            const isDeletable = (isMainA || isMainB) ? false : true;
+            const segmentData = { role: role, content: content, deletable: isDeletable };
+            if (isMainA) {
+                segmentData.mainSlot = 'A';
+                segmentData.isMain = true;
+            }
+            else if (isMainB) {
+                segmentData.mainSlot = 'B';
+                segmentData.isMain2 = true;
+            }
+            segments.push(segmentData);
+        });
+        return segments;
+    }
+    function normalizePlotTaskListForEditor_ACU(tasks) {
+        return (Array.isArray(tasks) ? tasks : []).map((task, index) => normalizePlotTask_ACU({
+            ...(task || {}),
+            order: index,
+        }, {
+            index,
+            fallbackTask: task || null,
+        }));
+    }
+    function getPrimaryPlotTask_ACU(plotSettings) {
+        const tasks = Array.isArray(plotSettings?.plotTasks) ? plotSettings.plotTasks : normalizePlotTasks_ACU(plotSettings);
+        return tasks.find(task => task && task.enabled !== false) || tasks[0] || null;
+    }
+    function syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings) {
+        if (!plotSettings || typeof plotSettings !== 'object')
+            return null;
+        const primaryTask = getPrimaryPlotTask_ACU(plotSettings);
+        if (primaryTask) {
+            syncLegacyPlotSettingsFromTask_ACU(plotSettings, primaryTask);
+        }
+        return primaryTask;
+    }
+    function getCurrentPlotTaskEditorState_ACU(plotSettings = settings_ACU?.plotSettings, { autoSelect = true } = {}) {
+        if (!plotSettings || typeof plotSettings !== 'object') {
+            return { tasks: [], selectedTask: null, selectedIndex: -1 };
+        }
+        ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: false });
+        const tasks = Array.isArray(plotSettings.plotTasks) ? plotSettings.plotTasks : [];
+        if (!tasks.length) {
+            currentPlotTaskEditorId_ACU = '';
+            return { tasks: [], selectedTask: null, selectedIndex: -1 };
+        }
+        let selectedIndex = tasks.findIndex(task => task && task.id === currentPlotTaskEditorId_ACU);
+        if (selectedIndex === -1 && autoSelect) {
+            const fallbackTask = tasks.find(task => task && task.enabled !== false) || tasks[0];
+            selectedIndex = tasks.indexOf(fallbackTask);
+            currentPlotTaskEditorId_ACU = fallbackTask?.id || '';
+        }
+        const selectedTask = selectedIndex >= 0 ? tasks[selectedIndex] : null;
+        if (selectedTask?.id) {
+            currentPlotTaskEditorId_ACU = selectedTask.id;
+        }
+        return { tasks, selectedTask, selectedIndex };
+    }
+    function renderPlotTaskList_ACU(plotSettings = getActivePlotEditorSettings_ACU()) {
+        if (!$popupInstance_ACU)
+            return;
+        if (!$plotTaskListContainer_ACU || !$plotTaskListContainer_ACU.length) {
+            $plotTaskListContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-list`);
+        }
+        if (!$plotTaskListContainer_ACU || !$plotTaskListContainer_ACU.length)
+            return;
+        const { tasks, selectedTask } = getCurrentPlotTaskEditorState_ACU(plotSettings, { autoSelect: true });
+        $plotTaskListContainer_ACU.empty();
+        if (!tasks.length) {
+            $plotTaskListContainer_ACU.append('<div class="notes" style="padding: 10px 12px;">暂无剧情任务</div>');
+            return;
+        }
+        tasks.forEach((task, index) => {
+            const isSelected = selectedTask?.id === task.id;
+            const enabledText = task.enabled !== false ? '启用' : '停用';
+            const enabledColor = task.enabled !== false ? 'var(--green)' : 'var(--red)';
+            const stageNo = normalizePositiveInteger_ACU(task?.stage, 1);
+            const itemHtml = `
+              <button type="button" class="button acu-plot-task-item ${isSelected ? 'acu-plot-task-item--active' : ''}" data-task-id="${escapeHtml_ACU(task.id)}" style="display:flex; width:100%; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; padding:10px 12px; text-align:left; border:${isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border_color_light)'}; background:${isSelected ? 'color-mix(in srgb, var(--accent-primary) 12%, var(--background_default))' : 'var(--background_default)'}; border-radius:8px;">
+                  <span style="display:flex; flex-direction:column; gap:4px; min-width:0;">
+                      <span style="font-weight:600; color:var(--text_primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${index + 1}. ${escapeHtml_ACU(task.name || task.id || `剧情任务${index + 1}`)}</span>
+                      <span class="notes" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">阶段：${stageNo} · 标签：${escapeHtml_ACU(task.extractTags || '(未设置)')}</span>
+                  </span>
+                  <span style="flex-shrink:0; font-size:0.8em; color:${enabledColor};">${enabledText}${isSelected ? ' · 编辑中' : ''}</span>
+              </button>
+          `;
+            $plotTaskListContainer_ACU.append(itemHtml);
+        });
+    }
+    function loadCurrentPlotTaskToUI_ACU(plotSettings = getActivePlotEditorSettings_ACU()) {
+        if (!$popupInstance_ACU)
+            return;
+        const { selectedTask } = getCurrentPlotTaskEditorState_ACU(plotSettings, { autoSelect: true });
+        if (!selectedTask) {
+            renderPlotPromptSegments_ACU(JSON.parse(JSON.stringify(getPlotPromptGroupFromSource_ACU(plotSettings))));
+            $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-name`).val('');
+            $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-enabled`).prop('checked', true);
+            $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-extract-tags`).val('');
+            $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-min-length`).val(plotSettings?.minLength ?? 0);
+            $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-stage`).val(1);
+            $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-max-retries`).val(plotSettings?.loopSettings?.maxRetries ?? DEFAULT_PLOT_SETTINGS_ACU.loopSettings?.maxRetries ?? 3);
+            return;
+        }
+        renderPlotPromptSegments_ACU(JSON.parse(JSON.stringify(selectedTask.promptGroup || [])));
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-name`).val(selectedTask.name || '');
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-enabled`).prop('checked', selectedTask.enabled !== false);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-extract-tags`).val(selectedTask.extractTags || '');
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-min-length`).val(selectedTask.minLength ?? 0);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-stage`).val(normalizePositiveInteger_ACU(selectedTask.stage, 1));
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-max-retries`).val(selectedTask.maxRetries ?? DEFAULT_PLOT_SETTINGS_ACU.loopSettings?.maxRetries ?? 3);
+    }
+    function saveCurrentPlotTaskFromUI_ACU({ silent = false, renderTaskList = false, persist = true } = {}) {
+        if (!$popupInstance_ACU)
+            return null;
+        const plotSettings = getActivePlotEditorSettings_ACU();
+        if (!plotSettings)
+            return null;
+        const { tasks, selectedTask, selectedIndex } = getCurrentPlotTaskEditorState_ACU(plotSettings, { autoSelect: true });
+        if (!selectedTask || selectedIndex < 0)
+            return null;
+        const taskNameRaw = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-name`).val();
+        const taskExtractTagsRaw = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-extract-tags`).val();
+        const taskMinLengthRaw = parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-min-length`).val(), 10);
+        const taskStageRaw = parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-stage`).val(), 10);
+        const taskMaxRetriesRaw = parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-max-retries`).val(), 10);
+        const updatedTask = normalizePlotTask_ACU({
+            ...selectedTask,
+            name: String(taskNameRaw || '').trim() || selectedTask.name || `剧情任务${selectedIndex + 1}`,
+            enabled: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-enabled`).is(':checked'),
+            promptGroup: getPlotPromptGroupFromUI_ACU(),
+            extractTags: String(taskExtractTagsRaw || ''),
+            minLength: Number.isFinite(taskMinLengthRaw) ? taskMinLengthRaw : selectedTask.minLength,
+            stage: Number.isFinite(taskStageRaw) && taskStageRaw > 0
+                ? taskStageRaw
+                : selectedTask.stage,
+            maxRetries: Number.isFinite(taskMaxRetriesRaw) && taskMaxRetriesRaw > 0
+                ? taskMaxRetriesRaw
+                : selectedTask.maxRetries,
+            order: selectedTask.order ?? selectedIndex,
+        }, {
+            index: selectedIndex,
+            fallbackTask: selectedTask,
+        });
+        const nextTasks = normalizePlotTaskListForEditor_ACU(tasks.map((task, index) => index === selectedIndex ? updatedTask : task));
+        plotSettings.plotTasks = nextTasks;
+        currentPlotTaskEditorId_ACU = updatedTask.id;
+        syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings);
+        if (persist)
+            saveSettings_ACU();
+        if (renderTaskList)
+            renderPlotTaskList_ACU(plotSettings);
+        if (!silent)
+            showToastr_ACU('success', '当前剧情任务已保存。');
+        return updatedTask;
+    }
+    function flushCurrentPlotTaskEditorState_ACU({ renderTaskList = false, persist = true } = {}) {
+        clearTimeout(plotTaskEditorAutoSaveTimer_ACU);
+        return saveCurrentPlotTaskFromUI_ACU({ silent: true, renderTaskList, persist });
+    }
+    function buildNewPlotTaskForUI_ACU(plotSettings = getActivePlotEditorSettings_ACU()) {
+        const tasks = Array.isArray(plotSettings?.plotTasks) ? plotSettings.plotTasks : [];
+        const defaultStage = normalizePositiveInteger_ACU(tasks[tasks.length - 1]?.stage, 1);
+        let serial = tasks.length + 1;
+        let taskId = `plotTask${serial}`;
+        while (tasks.some(task => task && task.id === taskId)) {
+            serial += 1;
+            taskId = `plotTask${serial}`;
+        }
+        return normalizePlotTask_ACU({
+            id: taskId,
+            name: `剧情任务${tasks.length + 1}`,
+            enabled: true,
+            promptGroup: buildDefaultPlotPromptGroup_ACU(),
+            extractTags: DEFAULT_PLOT_SETTINGS_ACU.extractTags || '',
+            minLength: 0,
+            stage: defaultStage,
+            maxRetries: plotSettings?.loopSettings?.maxRetries ?? DEFAULT_PLOT_SETTINGS_ACU.loopSettings?.maxRetries ?? 3,
+            order: tasks.length,
+        }, { index: tasks.length });
+    }
+    function schedulePlotTaskAutoSave_ACU({ renderTaskList = true } = {}) {
+        clearTimeout(plotTaskEditorAutoSaveTimer_ACU);
+        plotTaskEditorAutoSaveTimer_ACU = setTimeout(() => {
+            saveCurrentPlotTaskFromUI_ACU({ silent: true, renderTaskList, persist: true });
+        }, 300);
+    }
+    function selectPlotTaskForEditing_ACU(taskId, { saveCurrent = true } = {}) {
+        const plotSettings = getActivePlotEditorSettings_ACU();
+        if (!plotSettings || !taskId)
+            return;
+        if (saveCurrent) {
+            saveCurrentPlotTaskFromUI_ACU({ silent: true, renderTaskList: false, persist: true });
+        }
+        currentPlotTaskEditorId_ACU = String(taskId);
+        renderPlotTaskList_ACU(plotSettings);
+        loadCurrentPlotTaskToUI_ACU(plotSettings);
+    }
+    function addPlotTaskFromUI_ACU() {
+        const plotSettings = getActivePlotEditorSettings_ACU();
+        if (!plotSettings)
+            return;
+        saveCurrentPlotTaskFromUI_ACU({ silent: true, renderTaskList: false, persist: true });
+        const nextTasks = normalizePlotTaskListForEditor_ACU([
+            ...(Array.isArray(plotSettings.plotTasks) ? plotSettings.plotTasks : []),
+            buildNewPlotTaskForUI_ACU(plotSettings),
+        ]);
+        plotSettings.plotTasks = nextTasks;
+        currentPlotTaskEditorId_ACU = nextTasks[nextTasks.length - 1]?.id || currentPlotTaskEditorId_ACU;
+        syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings);
+        saveSettings_ACU();
+        renderPlotTaskList_ACU(plotSettings);
+        loadCurrentPlotTaskToUI_ACU(plotSettings);
+        showToastr_ACU('success', '已新增一个剧情任务。');
+    }
+    function deleteCurrentPlotTaskFromUI_ACU() {
+        const plotSettings = getActivePlotEditorSettings_ACU();
+        if (!plotSettings)
+            return;
+        const { tasks, selectedTask, selectedIndex } = getCurrentPlotTaskEditorState_ACU(plotSettings, { autoSelect: true });
+        if (!selectedTask || selectedIndex < 0)
+            return;
+        if (tasks.length <= 1) {
+            showToastr_ACU('warning', '至少需要保留一个剧情任务。');
+            return;
+        }
+        if (!confirm(`确定要删除剧情任务“${selectedTask.name || selectedTask.id}”吗？`)) {
+            return;
+        }
+        const nextTasks = normalizePlotTaskListForEditor_ACU(tasks.filter((_, index) => index !== selectedIndex));
+        const fallbackIndex = Math.min(selectedIndex, nextTasks.length - 1);
+        plotSettings.plotTasks = nextTasks;
+        currentPlotTaskEditorId_ACU = nextTasks[fallbackIndex]?.id || nextTasks[0]?.id || '';
+        syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings);
+        saveSettings_ACU();
+        renderPlotTaskList_ACU(plotSettings);
+        loadCurrentPlotTaskToUI_ACU(plotSettings);
+        showToastr_ACU('success', '剧情任务已删除。');
+    }
+    function moveCurrentPlotTask_ACU(direction) {
+        const plotSettings = getActivePlotEditorSettings_ACU();
+        if (!plotSettings)
+            return;
+        const { tasks, selectedTask, selectedIndex } = getCurrentPlotTaskEditorState_ACU(plotSettings, { autoSelect: true });
+        if (!selectedTask || selectedIndex < 0)
+            return;
+        const offset = direction === 'up' ? -1 : 1;
+        const targetIndex = selectedIndex + offset;
+        if (targetIndex < 0 || targetIndex >= tasks.length)
+            return;
+        saveCurrentPlotTaskFromUI_ACU({ silent: true, renderTaskList: false, persist: true });
+        const reordered = [...plotSettings.plotTasks];
+        const [movedTask] = reordered.splice(selectedIndex, 1);
+        reordered.splice(targetIndex, 0, movedTask);
+        plotSettings.plotTasks = normalizePlotTaskListForEditor_ACU(reordered);
+        currentPlotTaskEditorId_ACU = movedTask?.id || currentPlotTaskEditorId_ACU;
+        syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings);
+        saveSettings_ACU();
+        renderPlotTaskList_ACU(plotSettings);
+        loadCurrentPlotTaskToUI_ACU(plotSettings);
+    }
+    let isAutoUpdatingCard_ACU = false; // Tracks if an update is in progress
+    let wasStoppedByUser_ACU = false; // [新增] 标记更新是否被用户手动终止
+    let newMessageDebounceTimer_ACU = null;
+    let currentAbortController_ACU = null; // [新增] 用于中止正在进行的AI请求
+    let activePlotEditorSettings_ACU = null;
+    let currentPlotTaskEditorId_ACU = '';
+    let currentEditablePlotPresetState_ACU = {
+        initialized: false,
+        presetName: '',
+        scope: 'resolved',
+        source: '',
+    };
+    let plotTaskEditorAutoSaveTimer_ACU = null;
+    let activeAbortControllers_ACU = new Set(); // [新增] 并发请求的 AbortController 集合
+    let manualExtraHint_ACU = ''; // [新增] 手动更新时的额外提示词（一次性）
+    function trackAbortController_ACU(controller) {
+        if (controller)
+            activeAbortControllers_ACU.add(controller);
+    }
+    function untrackAbortController_ACU(controller) {
+        if (controller)
+            activeAbortControllers_ACU.delete(controller);
+    }
+    function abortAllActiveRequests_ACU() {
+        activeAbortControllers_ACU.forEach(controller => {
+            try {
+                controller.abort();
+            }
+            catch (e) {
+                // ignore
+            }
+        });
+        activeAbortControllers_ACU.clear();
+    }
+    // --- [新增] 内部保存函数：保存单个表格的数据到聊天历史 ---
+    function _set_currentAbortController_ACU(v) { currentAbortController_ACU = v; }
+    function _set_isAutoUpdatingCard_ACU(v) { isAutoUpdatingCard_ACU = v; }
+    function _set_manualExtraHint_ACU(v) { manualExtraHint_ACU = v; }
+    function _set_wasStoppedByUser_ACU(v) { wasStoppedByUser_ACU = v; }
+    function _set_currentEditablePlotPresetState_ACU(v) { currentEditablePlotPresetState_ACU = v; }
+    function _set_activePlotEditorSettings_ACU(v) { activePlotEditorSettings_ACU = v; }
+    function _set_currentPlotTaskEditorId_ACU(v) { currentPlotTaskEditorId_ACU = v; }
+    function _set_newMessageDebounceTimer_ACU(v) { newMessageDebounceTimer_ACU = v; }
 
     // service/ai/api-call.ts — AI 调用编排（剧情推进用）
     // 从 04_shared_helpers.js 迁入
@@ -1886,6 +2747,184 @@ $CONTENT
             }
         }
     }
+
+    // table-selector.ts
+    // 从 04_table_selectors.js 整体迁入
+    function renderManualTableSelector_ACU() {
+        if (!$manualTableSelector_ACU || !$manualTableSelector_ACU.length || !currentJsonTableData_ACU$1)
+            return;
+        const availableKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU$1);
+        if (availableKeys.length === 0) {
+            $manualTableSelector_ACU.html('<div class="notes">暂无表格可选。</div>');
+            return;
+        }
+        const resolvedSelection = getSelectedManualSheetKeys_ACU();
+        const selectedSet = new Set(resolvedSelection);
+        if (!Array.isArray(settings_ACU.manualSelectedTables) || JSON.stringify(settings_ACU.manualSelectedTables) !== JSON.stringify(resolvedSelection)) {
+            settings_ACU.manualSelectedTables = resolvedSelection;
+            saveSettings_ACU();
+        }
+        let html = '<div class="acu-table-selector" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;max-height:240px;overflow:auto;padding:8px;border:1px solid var(--border-normal);border-radius:8px;background:var(--bg-secondary);">';
+        availableKeys.forEach(key => {
+            const name = currentJsonTableData_ACU$1[key]?.name || key;
+            const checked = selectedSet.has(key) ? 'checked' : '';
+            html += `<label style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border-normal);border-radius:6px;background:var(--bg-primary);">
+              <input type="checkbox" data-key="${key}" ${checked} style="margin:0;width:14px;height:14px;flex-shrink:0;">
+              <span style="flex:1;word-break:break-all;font-weight:600;">${escapeHtml_ACU(name)}</span>
+          </label>`;
+        });
+        html += '</div>';
+        $manualTableSelector_ACU.html(html);
+        $manualTableSelector_ACU.off('change', 'input[type="checkbox"]').on('change', 'input[type="checkbox"]', function () {
+            const checkedKeys = [];
+            $manualTableSelector_ACU.find('input[type="checkbox"]:checked').each(function () {
+                const key = jQuery_API_ACU(this).data('key');
+                if (key)
+                    checkedKeys.push(key);
+            });
+            settings_ACU.manualSelectedTables = checkedKeys;
+            settings_ACU.hasManualSelection = true;
+            saveSettings_ACU();
+        });
+    }
+    // 优先从当前UI读取勾选的表，若UI未渲染则回退到已保存选择
+    function getManualSelectionFromUI_ACU() {
+        if ($manualTableSelector_ACU && $manualTableSelector_ACU.length) {
+            const keys = [];
+            $manualTableSelector_ACU.find('input[type="checkbox"]:checked').each(function () {
+                const k = jQuery_API_ACU(this).data('key');
+                if (k)
+                    keys.push(k);
+            });
+            if (keys.length > 0 || settings_ACU.hasManualSelection) {
+                // 如果读取到选择，或曾经明确选择过，则同步到设置
+                settings_ACU.manualSelectedTables = keys;
+                settings_ACU.hasManualSelection = true;
+                saveSettings_ACU();
+                return keys;
+            }
+        }
+        return getSelectedManualSheetKeys_ACU();
+    }
+    // =========================
+    // [外部导入] 注入表格自选（与手动填表一致，但独立存储到 settings_ACU.importSelectedTables）
+    // =========================
+    function getImportBaseTableData_ACU() {
+        // 优先用“模板表结构”（外部导入的数据库就是从模板重建的）
+        try {
+            const templateData = parseTableTemplateJson_ACU({ stripSeedRows: true });
+            if (templateData)
+                return templateData;
+        }
+        catch (e) {
+            // ignore
+        }
+        // 回退：如果模板解析失败，至少用当前内存数据渲染列表
+        return currentJsonTableData_ACU$1 || null;
+    }
+    function getSelectedImportSheetKeys_ACU() {
+        const base = getImportBaseTableData_ACU();
+        if (!base)
+            return [];
+        const availableKeys = getSortedSheetKeys_ACU(base);
+        const saved = Array.isArray(settings_ACU.importSelectedTables) ? settings_ACU.importSelectedTables : [];
+        // 未曾手动选择过：默认全选
+        if (!settings_ACU.hasImportTableSelection)
+            return availableKeys;
+        const validSaved = saved.filter(k => availableKeys.includes(k));
+        return validSaved;
+    }
+    function renderImportTableSelector_ACU() {
+        if (!$importTableSelector_ACU || !$importTableSelector_ACU.length)
+            return;
+        const base = getImportBaseTableData_ACU();
+        if (!base) {
+            $importTableSelector_ACU.html('<div class="notes">尚未加载表格结构。</div>');
+            return;
+        }
+        const availableKeys = getSortedSheetKeys_ACU(base);
+        if (availableKeys.length === 0) {
+            $importTableSelector_ACU.html('<div class="notes">暂无表格可选。</div>');
+            return;
+        }
+        const resolvedSelection = getSelectedImportSheetKeys_ACU();
+        const selectedSet = new Set(resolvedSelection);
+        if (!Array.isArray(settings_ACU.importSelectedTables) || JSON.stringify(settings_ACU.importSelectedTables) !== JSON.stringify(resolvedSelection)) {
+            settings_ACU.importSelectedTables = resolvedSelection;
+            saveSettings_ACU();
+        }
+        let html = '<div class="acu-table-selector" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;max-height:240px;overflow:auto;padding:8px;border:1px solid var(--border-normal);border-radius:8px;background:var(--bg-secondary);">';
+        availableKeys.forEach(key => {
+            const name = base[key]?.name || key;
+            const checked = selectedSet.has(key) ? 'checked' : '';
+            html += `<label style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border-normal);border-radius:6px;background:var(--bg-primary);">
+              <input type="checkbox" data-key="${key}" ${checked} style="margin:0;width:14px;height:14px;flex-shrink:0;">
+              <span style="flex:1;word-break:break-all;font-weight:600;">${escapeHtml_ACU(name)}</span>
+          </label>`;
+        });
+        html += '</div>';
+        $importTableSelector_ACU.html(html);
+        $importTableSelector_ACU.off('change', 'input[type="checkbox"]').on('change', 'input[type="checkbox"]', function () {
+            const checkedKeys = [];
+            $importTableSelector_ACU.find('input[type="checkbox"]:checked').each(function () {
+                const key = jQuery_API_ACU(this).data('key');
+                if (key)
+                    checkedKeys.push(key);
+            });
+            settings_ACU.importSelectedTables = checkedKeys;
+            settings_ACU.hasImportTableSelection = true;
+            saveSettings_ACU();
+        });
+    }
+    function getImportSelectionFromUI_ACU() {
+        if ($importTableSelector_ACU && $importTableSelector_ACU.length) {
+            const keys = [];
+            $importTableSelector_ACU.find('input[type="checkbox"]:checked').each(function () {
+                const k = jQuery_API_ACU(this).data('key');
+                if (k)
+                    keys.push(k);
+            });
+            if (keys.length > 0 || settings_ACU.hasImportTableSelection) {
+                settings_ACU.importSelectedTables = keys;
+                settings_ACU.hasImportTableSelection = true;
+                saveSettings_ACU();
+                return keys;
+            }
+        }
+        return getSelectedImportSheetKeys_ACU();
+    }
+    function handleImportSelectAll_ACU() {
+        const base = getImportBaseTableData_ACU();
+        if (!base)
+            return;
+        const keys = getSortedSheetKeys_ACU(base);
+        settings_ACU.importSelectedTables = keys;
+        settings_ACU.hasImportTableSelection = true;
+        saveSettings_ACU();
+        renderImportTableSelector_ACU();
+    }
+    function handleImportSelectNone_ACU() {
+        settings_ACU.importSelectedTables = [];
+        settings_ACU.hasImportTableSelection = true;
+        saveSettings_ACU();
+        renderImportTableSelector_ACU();
+    }
+    function handleManualSelectAll_ACU() {
+        if (!currentJsonTableData_ACU$1)
+            return;
+        const keys = getSortedSheetKeys_ACU(currentJsonTableData_ACU$1);
+        settings_ACU.manualSelectedTables = keys;
+        settings_ACU.hasManualSelection = true;
+        saveSettings_ACU();
+        renderManualTableSelector_ACU();
+    }
+    function handleManualSelectNone_ACU() {
+        settings_ACU.manualSelectedTables = [];
+        settings_ACU.hasManualSelection = true;
+        saveSettings_ACU();
+        renderManualTableSelector_ACU();
+    }
+    // [新增] 统一的手动更新函数（支持按表选择，优先使用模板参数）
 
     /**
      * presentation/components/update-status-display.ts — 运行时状态/更新显示 UI
@@ -3909,7 +4948,7 @@ $CONTENT
         const worldbookConfig = getCurrentWorldbookConfig_ACU();
         const zeroTkOccupyMode = worldbookConfig?.zeroTkOccupyMode === true;
         const outlineEntryEnabled = !zeroTkOccupyMode;
-        const IMPORT_PREFIX = getImportBatchPrefix_ACU();
+        const IMPORT_PREFIX = getImportBatchPrefix_ACU$1();
         // [修改] 加入隔离标识前缀
         const isoPrefix = getIsolationPrefix_ACU();
         const baseComment = isImport ? `${IMPORT_PREFIX}TavernDB-ACU-OutlineTable` : 'TavernDB-ACU-OutlineTable';
@@ -4029,7 +5068,7 @@ $CONTENT
             logWarn_ACU('Cannot update summary entries: No injection target lorebook set.');
             return;
         }
-        const IMPORT_PREFIX = getImportBatchPrefix_ACU();
+        const IMPORT_PREFIX = getImportBatchPrefix_ACU$1();
         // [修改] 加入隔离标识前缀
         const isoPrefix = getIsolationPrefix_ACU();
         const baseSummaryPrefix = isImport ? `${IMPORT_PREFIX}总结条目` : '总结条目';
@@ -4235,7 +5274,7 @@ $CONTENT
         const primaryLorebookName = targetLorebookOverride || await getInjectionTargetLorebook_ACU();
         if (primaryLorebookName) {
             try {
-                const IMPORT_PREFIX = getImportBatchPrefix_ACU();
+                const IMPORT_PREFIX = getImportBatchPrefix_ACU$1();
                 // [修改] 加入隔离标识前缀
                 const isoPrefix = getIsolationPrefix_ACU();
                 const baseReadableComment = isImport ? `${IMPORT_PREFIX}TavernDB-ACU-ReadableDataTable` : 'TavernDB-ACU-ReadableDataTable';
@@ -4526,7 +5565,7 @@ $CONTENT
         const primaryLorebookName = await getInjectionTargetLorebook_ACU();
         if (!primaryLorebookName)
             return;
-        const IMPORT_PREFIX = getImportBatchPrefix_ACU();
+        const IMPORT_PREFIX = getImportBatchPrefix_ACU$1();
         const isoPrefix = getIsolationPrefix_ACU();
         // [修复] 外部导入的自定义导出条目必须加外部导入前缀，避免被当作普通注入条目/或被清理逻辑误删
         // [修改] 外部导入时只使用"外部导入-"前缀，不再包含"TavernDB-ACU-CustomExport-"
@@ -5225,7 +6264,7 @@ $CONTENT
             logWarn_ACU('Cannot update important persons entries: No injection target lorebook set.');
             return;
         }
-        const IMPORT_PREFIX = getImportBatchPrefix_ACU();
+        const IMPORT_PREFIX = getImportBatchPrefix_ACU$1();
         // [修改] 加入隔离标识前缀
         const isoPrefix = getIsolationPrefix_ACU();
         const basePersonEntryPrefix = isImport ? `${IMPORT_PREFIX}重要人物条目` : '重要人物条目';
@@ -9702,7 +10741,7 @@ $CONTENT
         const primaryLorebookName = targetLorebookOverride || await getInjectionTargetLorebook_ACU();
         if (primaryLorebookName) {
             try {
-                const IMPORT_PREFIX = getImportBatchPrefix_ACU();
+                const IMPORT_PREFIX = getImportBatchPrefix_ACU$1();
                 // [修改] 加入隔离标识前缀
                 const isoPrefix = getIsolationPrefix_ACU();
                 const baseReadableComment = isImport ? `${IMPORT_PREFIX}TavernDB-ACU-ReadableDataTable` : 'TavernDB-ACU-ReadableDataTable';
@@ -10279,7 +11318,7 @@ $CONTENT
         if (!rawComment)
             return false;
         const normalizedComment = rawComment.replace(/^ACU-\[[^\]]+\]-/, '');
-        return normalizedComment.startsWith(getImportStablePrefix_ACU());
+        return normalizedComment.startsWith(getImportStablePrefix_ACU$1());
     }
     function getWorldbookCommentInfo_ACU(entry) {
         const rawComment = String(entry?.comment || entry?.name || '').trim();
@@ -14247,183 +15286,6476 @@ $CONTENT
         return validSaved;
     }
 
-    // table-selector.ts
-    // 从 04_table_selectors.js 整体迁入
-    function renderManualTableSelector_ACU() {
-        if (!$manualTableSelector_ACU || !$manualTableSelector_ACU.length || !currentJsonTableData_ACU$1)
-            return;
-        const availableKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU$1);
-        if (availableKeys.length === 0) {
-            $manualTableSelector_ACU.html('<div class="notes">暂无表格可选。</div>');
-            return;
-        }
-        const resolvedSelection = getSelectedManualSheetKeys_ACU();
-        const selectedSet = new Set(resolvedSelection);
-        if (!Array.isArray(settings_ACU.manualSelectedTables) || JSON.stringify(settings_ACU.manualSelectedTables) !== JSON.stringify(resolvedSelection)) {
-            settings_ACU.manualSelectedTables = resolvedSelection;
-            saveSettings_ACU();
-        }
-        let html = '<div class="acu-table-selector" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;max-height:240px;overflow:auto;padding:8px;border:1px solid var(--border-normal);border-radius:8px;background:var(--bg-secondary);">';
-        availableKeys.forEach(key => {
-            const name = currentJsonTableData_ACU$1[key]?.name || key;
-            const checked = selectedSet.has(key) ? 'checked' : '';
-            html += `<label style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border-normal);border-radius:6px;background:var(--bg-primary);">
-              <input type="checkbox" data-key="${key}" ${checked} style="margin:0;width:14px;height:14px;flex-shrink:0;">
-              <span style="flex:1;word-break:break-all;font-weight:600;">${escapeHtml_ACU(name)}</span>
-          </label>`;
-        });
-        html += '</div>';
-        $manualTableSelector_ACU.html(html);
-        $manualTableSelector_ACU.off('change', 'input[type="checkbox"]').on('change', 'input[type="checkbox"]', function () {
-            const checkedKeys = [];
-            $manualTableSelector_ACU.find('input[type="checkbox"]:checked').each(function () {
-                const key = jQuery_API_ACU(this).data('key');
-                if (key)
-                    checkedKeys.push(key);
-            });
-            settings_ACU.manualSelectedTables = checkedKeys;
-            settings_ACU.hasManualSelection = true;
-            saveSettings_ACU();
-        });
+    /**
+     * 正文优化纯逻辑函数
+     *
+     * 纯文本处理工具。
+     * 用于正文优化功能中的段落匹配、标点处理和优化应用。
+     */
+    /**
+     * 去除文本中的标点符号和空白，只保留文字和数字
+     */
+    function removePunctuation_ACU(text) {
+        if (!text)
+            return '';
+        return text.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '');
     }
-    // 优先从当前UI读取勾选的表，若UI未渲染则回退到已保存选择
-    function getManualSelectionFromUI_ACU() {
-        if ($manualTableSelector_ACU && $manualTableSelector_ACU.length) {
-            const keys = [];
-            $manualTableSelector_ACU.find('input[type="checkbox"]:checked').each(function () {
-                const k = jQuery_API_ACU(this).data('key');
-                if (k)
-                    keys.push(k);
-            });
-            if (keys.length > 0 || settings_ACU.hasManualSelection) {
-                // 如果读取到选择，或曾经明确选择过，则同步到设置
-                settings_ACU.manualSelectedTables = keys;
-                settings_ACU.hasManualSelection = true;
-                saveSettings_ACU();
-                return keys;
+    /**
+     * 从文本中提取关键词（简单的分词，取前N个有意义的词）
+     */
+    function extractKeywords_ACU(text, count = 5) {
+        if (!text)
+            return [];
+        const cleanText = removePunctuation_ACU(text);
+        const keywords = [];
+        for (let len = 4; len >= 2; len--) {
+            for (let i = 0; i <= cleanText.length - len; i++) {
+                const word = cleanText.substring(i, i + len);
+                if (!keywords.includes(word)) {
+                    keywords.push(word);
+                    if (keywords.length >= count)
+                        break;
+                }
+            }
+            if (keywords.length >= count)
+                break;
+        }
+        return keywords;
+    }
+    /**
+     * 将去除标点后的位置映射回原始文本位置
+     */
+    function mapCleanPositionToOriginal_ACU(originalContent, cleanStart, cleanEnd) {
+        let cleanIndex = 0;
+        let originalStart = -1;
+        let originalEnd = -1;
+        for (let i = 0; i < originalContent.length; i++) {
+            const char = originalContent[i];
+            const isWordChar = /[\u4e00-\u9fa5a-zA-Z0-9]/.test(char);
+            if (isWordChar) {
+                if (cleanIndex === cleanStart) {
+                    originalStart = i;
+                }
+                if (cleanIndex === cleanEnd - 1) {
+                    originalEnd = i + 1;
+                    break;
+                }
+                cleanIndex++;
             }
         }
-        return getSelectedManualSheetKeys_ACU();
+        if (originalEnd === -1 && originalStart !== -1) {
+            originalEnd = originalContent.length;
+        }
+        return { start: originalStart, end: originalEnd };
     }
-    // =========================
-    // [外部导入] 注入表格自选（与手动填表一致，但独立存储到 settings_ACU.importSelectedTables）
-    // =========================
-    function getImportBaseTableData_ACU() {
-        // 优先用“模板表结构”（外部导入的数据库就是从模板重建的）
+    /**
+     * 新的段落匹配算法：去除标点后，比较开头、结尾和关键词
+     */
+    function findParagraphMatch_ACU(originalText, fullContent) {
+        const exactIndex = fullContent.indexOf(originalText);
+        if (exactIndex !== -1) {
+            return { start: exactIndex, end: exactIndex + originalText.length, method: '精确匹配' };
+        }
+        const cleanOriginal = removePunctuation_ACU(originalText);
+        const cleanContent = removePunctuation_ACU(fullContent);
+        if (cleanOriginal.length < 10) {
+            return { start: -1, end: -1, method: null };
+        }
+        const prefixLen = Math.max(3, Math.min(10, Math.floor(cleanOriginal.length / 4)));
+        const suffixLen = Math.max(3, Math.min(10, Math.floor(cleanOriginal.length / 4)));
+        const originalPrefix = cleanOriginal.substring(0, prefixLen);
+        const originalSuffix = cleanOriginal.substring(cleanOriginal.length - suffixLen);
+        const keywords = extractKeywords_ACU(originalText, 5);
+        let searchStart = 0;
+        let bestMatch = null;
+        let bestScore = 0;
+        while (searchStart < cleanContent.length) {
+            const prefixIndex = cleanContent.indexOf(originalPrefix, searchStart);
+            if (prefixIndex === -1)
+                break;
+            const minLen = Math.floor(cleanOriginal.length * 0.5);
+            const maxLen = Math.floor(cleanOriginal.length * 1.5);
+            for (let len = minLen; len <= maxLen && prefixIndex + len + suffixLen <= cleanContent.length; len++) {
+                const candidateSuffixPos = prefixIndex + len - suffixLen;
+                const candidateSuffix = cleanContent.substring(candidateSuffixPos, candidateSuffixPos + suffixLen);
+                if (candidateSuffix === originalSuffix) {
+                    const candidateText = cleanContent.substring(prefixIndex, prefixIndex + len);
+                    let matchedKeywords = 0;
+                    for (const kw of keywords) {
+                        if (candidateText.includes(kw)) {
+                            matchedKeywords++;
+                        }
+                    }
+                    const score = matchedKeywords / keywords.length;
+                    if (score >= 0.4 && score > bestScore) {
+                        bestScore = score;
+                        bestMatch = {
+                            cleanStart: prefixIndex,
+                            cleanEnd: prefixIndex + len,
+                            score: score,
+                            matchedKeywords: matchedKeywords,
+                            totalKeywords: keywords.length,
+                        };
+                        break;
+                    }
+                }
+            }
+            searchStart = prefixIndex + 1;
+        }
+        if (bestMatch) {
+            const mappedResult = mapCleanPositionToOriginal_ACU(fullContent, bestMatch.cleanStart, bestMatch.cleanEnd);
+            return {
+                start: mappedResult.start,
+                end: mappedResult.end,
+                method: `关键词匹配 (${(bestMatch.score * 100).toFixed(0)}%关键词匹配)`,
+            };
+        }
+        return { start: -1, end: -1, method: null };
+    }
+    /**
+     * 移除字符串两端的标点符号
+     */
+    function trimPunctuation_ACU(text) {
+        if (!text)
+            return { trimmed: '', prefix: '', suffix: '' };
+        let prefix = '';
+        let suffix = '';
+        let trimmed = text;
+        const prefixMatch = trimmed.match(/^[^\u4e00-\u9fa5a-zA-Z0-9]+/);
+        if (prefixMatch) {
+            prefix = prefixMatch[0];
+            trimmed = trimmed.substring(prefix.length);
+        }
+        const suffixMatch = trimmed.match(/[^\u4e00-\u9fa5a-zA-Z0-9]+$/);
+        if (suffixMatch) {
+            suffix = suffixMatch[0];
+            trimmed = trimmed.substring(0, trimmed.length - suffix.length);
+        }
+        return { trimmed, prefix, suffix };
+    }
+    /**
+     * 处理单引号
+     */
+    function processSingleQuotes_ACU(text) {
+        if (!text)
+            return text;
+        let result = text;
+        result = result.replace(/\u2018([^\u2019]*)\u2019/g, (match, content, offset, string) => {
+            const endPos = offset + match.length;
+            const afterMatch = string.substring(endPos).trim();
+            if (afterMatch === '' || /^[^\u4e00-\u9fa5a-zA-Z0-9]*$/.test(afterMatch)) {
+                return `\u201C${content}`;
+            }
+            else {
+                return `\u201C${content}\u201D`;
+            }
+        });
+        result = result.replace(/'([^']*)'/g, (match, content, offset, string) => {
+            const endPos = offset + match.length;
+            const afterMatch = string.substring(endPos).trim();
+            if (afterMatch === '' || /^[^\u4e00-\u9fa5a-zA-Z0-9]*$/.test(afterMatch)) {
+                return `\u201C${content}`;
+            }
+            else {
+                return `\u201C${content}\u201D`;
+            }
+        });
+        return result;
+    }
+    /**
+     * 应用优化到正文
+     */
+    function applyOptimizations_ACU(originalContent, optimizations) {
+        let result = originalContent;
+        let appliedCount = 0;
+        let failedCount = 0;
+        const failedItems = [];
+        for (let i = 0; i < optimizations.length; i++) {
+            const opt = optimizations[i];
+            if (opt.type === 'replace' && opt.original && opt.optimized) {
+                let replaced = false;
+                const match = findParagraphMatch_ACU(opt.original, result);
+                if (match.start !== -1) {
+                    const matchedText = result.substring(match.start, match.end);
+                    const originalPunct = trimPunctuation_ACU(matchedText);
+                    const optimizedPunct = trimPunctuation_ACU(opt.optimized);
+                    let finalContent = originalPunct.prefix + optimizedPunct.trimmed + originalPunct.suffix;
+                    finalContent = processSingleQuotes_ACU(finalContent);
+                    result = result.substring(0, match.start) + finalContent + result.substring(match.end);
+                    replaced = true;
+                    logDebug_ACU(`[正文优化] 优化项 ${i + 1} 使用${match.method}成功，位置: ${match.start}-${match.end}`);
+                }
+                if (replaced) {
+                    appliedCount++;
+                }
+                else {
+                    failedCount++;
+                    failedItems.push({
+                        index: i + 1,
+                        original: opt.original.substring(0, 100) + (opt.original.length > 100 ? '...' : ''),
+                        plan: opt.plan || opt.reason || '未说明',
+                    });
+                    logDebug_ACU(`[正文优化] 优化项 ${i + 1} 匹配失败，原文片段: "${opt.original.substring(0, 50)}..."`);
+                }
+            }
+        }
+        logDebug_ACU(`[正文优化] 替换统计: 成功 ${appliedCount}/${optimizations.length}，失败 ${failedCount}`);
+        if (failedItems.length > 0) {
+            console.warn('[正文优化] 以下优化项未能应用:', failedItems);
+        }
+        return result;
+    }
+
+    /**
+     * service/optimization/content-optimization.ts — 正文优化服务逻辑
+     * 从 src/core/02_storage_and_profile.js:630~1325 迁移而来。
+     */
+    function buildDefaultContentOptimizationPromptGroup_ACU({ mainContent = '' } = {}) {
+        const src = DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU;
+        const base = Array.isArray(src) ? JSON.parse(JSON.stringify(src)) : [];
+        // 如果提供了主内容，替换 $CONTENT 占位符
+        if (mainContent) {
+            base.forEach(item => {
+                if (item.content && typeof item.content === 'string') {
+                    item.content = item.content.replace(/\$CONTENT/g, mainContent);
+                }
+            });
+        }
+        return base;
+    }
+    // --- [正文优化] 核心函数 ---
+    /**
+     * 获取正文优化使用的占位符内容
+     * @param {string} userMessage - 用户消息（用于$8占位符）
+     * @returns {Promise<object>} 占位符内容映射
+     */
+    async function getOptimizationPlaceholders_ACU(userMessage = '') {
+        const placeholders = {
+            $1: '', // 世界书内容
+            $5: '', // 纪要表/总体大纲表内容
+            $6: '', // 上一轮剧情规划数据
+            $7: '', // 前文上下文
+            $8: userMessage, // 本轮用户输入
+            $U: '', // 用户设定描述
+            $C: '' // 角色描述
+        };
         try {
-            const templateData = parseTableTemplateJson_ACU({ stripSeedRows: true });
-            if (templateData)
-                return templateData;
+            // $1: 世界书内容（使用剧情推进的世界书读取逻辑）
+            const plotSettings = settings_ACU.plotSettings || {};
+            placeholders.$1 = await getWorldbookContentForPlot_ACU(plotSettings, userMessage, '');
+            // [新增] 对世界书内容进行随机数处理
+            placeholders.$1 = parseRandomTags_ACU(placeholders.$1);
+            placeholders.$1 = replaceRandomVariables_ACU(placeholders.$1);
+            logDebug_ACU('[正文优化] $1 世界书内容:', placeholders.$1 ? `长度=${placeholders.$1.length}` : '(空)');
+        }
+        catch (e) {
+            logWarn_ACU('[正文优化] 获取世界书内容失败:', e);
+        }
+        try {
+            // $5: 纪要表/总体大纲表内容
+            if (currentJsonTableData_ACU$1 && typeof currentJsonTableData_ACU$1 === 'object') {
+                const summaryIndexResult = formatSummaryIndexForPlot_ACU(currentJsonTableData_ACU$1);
+                if (summaryIndexResult.success) {
+                    placeholders.$5 = summaryIndexResult.content;
+                }
+                else {
+                    placeholders.$5 = formatOutlineTableForPlot_ACU(currentJsonTableData_ACU$1);
+                }
+                logDebug_ACU('[正文优化] $5 纪要表内容:', placeholders.$5 ? `长度=${placeholders.$5.length}` : '(空)');
+            }
+        }
+        catch (e) {
+            logWarn_ACU('[正文优化] 获取纪要表内容失败:', e);
+        }
+        try {
+            // $6: 上一轮剧情规划数据
+            placeholders.$6 = getPlotFromHistory_ACU() || '';
+            logDebug_ACU('[正文优化] $6 上轮规划数据:', placeholders.$6 ? `长度=${placeholders.$6.length}` : '(空)');
+        }
+        catch (e) {
+            logWarn_ACU('[正文优化] 获取上轮规划数据失败:', e);
+        }
+        try {
+            // $7: 前文上下文（仅AI输出）
+            const chat = SillyTavern_API_ACU.chat || [];
+            const contextMessages = chat
+                .filter(msg => !msg.is_user)
+                .slice(-10) // 最近10条AI消息
+                .map(msg => `assistant："${msg.mes || ''}"`)
+                .join('\n');
+            placeholders.$7 = contextMessages ? `以下是前文的故事发展（AI输出）：\n${contextMessages}` : '';
+            logDebug_ACU('[正文优化] $7 前文上下文:', placeholders.$7 ? `长度=${placeholders.$7.length}` : '(空)');
+        }
+        catch (e) {
+            logWarn_ACU('[正文优化] 获取前文上下文失败:', e);
+        }
+        try {
+            // $U: 用户设定描述 (persona_description)
+            const stContext = window.SillyTavern?.getContext?.();
+            placeholders.$U = stContext?.powerUserSettings?.persona_description
+                || window.power_user?.persona_description
+                || SillyTavern_API_ACU?.powerUserSettings?.persona_description
+                || '';
+            logDebug_ACU('[正文优化] $U 用户设定:', placeholders.$U ? '成功' : '(空)');
+        }
+        catch (e) {
+            logWarn_ACU('[正文优化] 获取用户设定失败:', e);
+        }
+        try {
+            // $C: 角色描述 (char_description)
+            const stContext = window.SillyTavern?.getContext?.();
+            let character = null;
+            if (TavernHelper_API_ACU?.getCharData) {
+                character = TavernHelper_API_ACU.getCharData('current');
+            }
+            if (!character) {
+                character = SillyTavern_API_ACU?.characters?.[SillyTavern_API_ACU?.this_chid]
+                    || stContext?.characters?.[stContext?.characterId]
+                    || (typeof characters !== 'undefined' && typeof this_chid !== 'undefined' ? characters[this_chid] : null);
+            }
+            placeholders.$C = character?.description
+                || character?.data?.description
+                || stContext?.name2_description
+                || '';
+            logDebug_ACU('[正文优化] $C 角色描述:', placeholders.$C ? '成功' : '(空)');
+        }
+        catch (e) {
+            logWarn_ACU('[正文优化] 获取角色描述失败:', e);
+        }
+        return placeholders;
+    }
+    /**
+     * 执行正文优化
+     * @param {string} content - 需要优化的正文内容
+     * @param {object} options - 优化选项
+     * @param {number} options.currentLoop - 当前循环次数
+     * @param {string} options.userMessage - 用户消息（用于占位符）
+     * @returns {Promise<object>} 优化结果 { success, optimizations, summary, optimizedContent }
+     */
+    async function performContentOptimization_ACU(content, options = {}) {
+        const config = settings_ACU.contentOptimizationSettings || {};
+        const maxLength = config.maxOptimizations || 10;
+        const currentLoop = options.currentLoop || 1;
+        const totalLoops = config.loopCount || 1;
+        const maxRetries = config.retryCount || 3;
+        logDebug_ACU(`[正文优化] 开始执行正文优化，循环 ${currentLoop}/${totalLoops}，原始内容长度:`, content.length);
+        // 1. 获取占位符内容
+        const placeholders = await getOptimizationPlaceholders_ACU(options.userMessage || '');
+        // 2. 构建提示词消息
+        const promptGroup = config.promptGroup && config.promptGroup.length > 0
+            ? config.promptGroup
+            : DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU;
+        // 替换占位符并转换role为小写（某些API如豆包只接受小写role）
+        const messages = JSON.parse(JSON.stringify(promptGroup));
+        messages.forEach(item => {
+            if (item.content && typeof item.content === 'string') {
+                // 替换 $CONTENT 占位符
+                item.content = item.content.replace(/\$CONTENT/g, content);
+                // 替换剧情推进占位符
+                for (const [key, value] of Object.entries(placeholders)) {
+                    if (value && typeof value === 'string') {
+                        const regex = new RegExp(`\\${key}`, 'g');
+                        item.content = item.content.replace(regex, value);
+                    }
+                }
+                // [新增] 条件模板支持：随机数、计算变量、条件判断
+                // 1. 解析随机数标签
+                item.content = parseRandomTags_ACU(item.content);
+                // 2. 替换随机数变量引用
+                item.content = replaceRandomVariables_ACU(item.content);
+                // 3. 解析计算变量标签
+                const contextForCalc = { allTablesJson: currentJsonTableData_ACU$1 };
+                item.content = parseCalcTags_ACU(item.content, contextForCalc);
+                // 4. 解析最大值变量标签
+                item.content = parseMaxTags_ACU(item.content, contextForCalc);
+                // 5. 解析最小值变量标签
+                item.content = parseMinTags_ACU(item.content, contextForCalc);
+                // 6. 替换计算变量引用
+                item.content = replaceCalcVariables_ACU(item.content);
+                // 7. 替换最大值变量引用
+                item.content = replaceMaxVariables_ACU(item.content);
+                // 8. 替换最小值变量引用
+                item.content = replaceMinVariables_ACU(item.content);
+                // 9. 解析条件模板
+                const latestAiContentForConditional = getLatestAIMessageContent_ACU();
+                const latestPlotContentForConditional = getPlotFromHistory_ACU();
+                const contextForIf = {
+                    seedContent: latestAiContentForConditional,
+                    allTablesJson: currentJsonTableData_ACU$1,
+                    plotContent: latestPlotContentForConditional
+                };
+                item.content = parseIfBlockRecursive_ACU(item.content, contextForIf, 0);
+            }
+            // 转换role为小写
+            if (item.role && typeof item.role === 'string') {
+                item.role = item.role.toLowerCase();
+            }
+        });
+        // 3. 调用AI API（带自动重试）
+        const apiPreset = config.apiPreset || '';
+        logDebug_ACU(`[正文优化] 使用API预设: ${apiPreset || '当前配置'}`);
+        let lastError = null;
+        let responseContent = null;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                logDebug_ACU(`[正文优化] 调用AI API... (尝试 ${attempt}/${maxRetries})`);
+                responseContent = await topLevelWindow_ACU.AutoCardUpdaterAPI.callAI(messages, {
+                    presetName: apiPreset
+                });
+                if (responseContent) {
+                    // API调用成功，跳出重试循环
+                    break;
+                }
+                // 空响应视为失败
+                lastError = new Error('AI API 返回空响应');
+                logDebug_ACU(`[正文优化] API返回空响应，尝试 ${attempt}/${maxRetries}`);
+            }
+            catch (error) {
+                lastError = error;
+                logError_ACU(`[正文优化] API调用失败 (尝试 ${attempt}/${maxRetries}):`, error);
+                if (attempt < maxRetries) {
+                    // 等待一段时间后重试（指数退避：1秒、2秒、4秒...）
+                    const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+                    logDebug_ACU(`[正文优化] 等待 ${delayMs}ms 后重试...`);
+                    await new Promise(resolve => setTimeout(resolve, delayMs));
+                }
+            }
+        }
+        // 检查是否所有重试都失败
+        if (!responseContent) {
+            logError_ACU(`[正文优化] 所有重试均失败 (${maxRetries}次)`);
+            return {
+                success: false,
+                error: lastError ? lastError.message : 'API调用失败，已达到最大重试次数',
+                retryExhausted: true
+            };
+        }
+        let parseRetryResponseContent = responseContent;
+        let parseLastError = null;
+        for (let parseAttempt = 1; parseAttempt <= maxRetries; parseAttempt++) {
+            try {
+                // 4. 解析优化结果
+                const parsed = parseOptimizationResponse_ACU(parseRetryResponseContent, maxLength);
+                if (!parsed.success) {
+                    throw new Error(parsed.error || '解析失败');
+                }
+                // 5. 应用优化到正文
+                const optimizedContent = applyOptimizations_ACU(content, parsed.optimizations);
+                logDebug_ACU(`[正文优化] 循环 ${currentLoop}/${totalLoops} 完成，共 ${parsed.optimizations.length} 个优化项`);
+                return {
+                    success: true,
+                    optimizations: parsed.optimizations,
+                    summary: parsed.summary,
+                    optimizedContent: optimizedContent
+                };
+            }
+            catch (error) {
+                parseLastError = error;
+                logError_ACU(`[正文优化] 解析/应用失败 (尝试 ${parseAttempt}/${maxRetries}):`, error);
+                if (parseAttempt >= maxRetries) {
+                    break;
+                }
+                const delayMs = Math.min(1000 * Math.pow(2, parseAttempt - 1), 10000);
+                logDebug_ACU(`[正文优化] 等待 ${delayMs}ms 后重新请求优化结果...`);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+                try {
+                    logDebug_ACU(`[正文优化] 重新调用AI API以获取更干净的优化结果... (尝试 ${parseAttempt + 1}/${maxRetries})`);
+                    parseRetryResponseContent = await topLevelWindow_ACU.AutoCardUpdaterAPI.callAI(messages, {
+                        presetName: apiPreset
+                    });
+                    if (!parseRetryResponseContent) {
+                        throw new Error('重试请求未返回有效内容');
+                    }
+                }
+                catch (retryError) {
+                    parseLastError = retryError;
+                    logError_ACU(`[正文优化] 解析失败后的重新请求失败 (尝试 ${parseAttempt + 1}/${maxRetries}):`, retryError);
+                    if (parseAttempt >= maxRetries - 1) {
+                        break;
+                    }
+                }
+            }
+        }
+        return { success: false, error: parseLastError?.message || '解析失败' };
+    }
+    /**
+     * 获取正文优化使用的API配置
+     */
+    async function getOptimizationApiConfig_ACU(presetName) {
+        if (presetName && settings_ACU.apiPresets) {
+            const preset = settings_ACU.apiPresets.find(p => p.name === presetName);
+            if (preset) {
+                if (preset.apiMode === 'tavern') {
+                    return {
+                        apiMode: 'tavern',
+                        tavernProfile: preset.tavernProfile
+                    };
+                }
+                else {
+                    return {
+                        apiMode: 'custom',
+                        apiConfig: preset.apiConfig
+                    };
+                }
+            }
+        }
+        // 使用当前默认配置
+        return {
+            apiMode: settings_ACU.apiMode,
+            apiConfig: settings_ACU.apiConfig,
+            tavernProfile: settings_ACU.tavernProfile
+        };
+    }
+    /**
+     * 解析AI返回的优化响应
+     * @param {string} responseContent - AI返回的内容
+     * @param {number} maxOptimizations - 最大优化项数
+     * @returns {object} { success, optimizations, summary, error }
+     */
+    function parseOptimizationResponse_ACU(responseContent, maxOptimizations = 10) {
+        function extractBalancedJsonObject_ACU(text) {
+            const start = text.indexOf('{');
+            if (start < 0)
+                return '';
+            let depth = 0;
+            let inString = false;
+            let escaped = false;
+            for (let i = start; i < text.length; i++) {
+                const ch = text[i];
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+                if (ch === '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (ch === '"') {
+                    inString = !inString;
+                    continue;
+                }
+                if (inString)
+                    continue;
+                if (ch === '{')
+                    depth++;
+                if (ch === '}') {
+                    depth--;
+                    if (depth === 0) {
+                        return text.slice(start, i + 1);
+                    }
+                }
+            }
+            return text.slice(start);
+        }
+        function sanitizeOptimizationJson_ACU(jsonStr) {
+            if (!jsonStr)
+                return '';
+            let sanitized = String(jsonStr)
+                .replace(/^```json\s*/i, '')
+                .replace(/^```\s*/i, '')
+                .replace(/\s*```$/i, '')
+                .replace(/[\u201C\u201D]/g, '"')
+                .replace(/[\u2018\u2019]/g, "'")
+                .replace(/^[^\{]*?(\{)/s, '$1')
+                .trim();
+            sanitized = extractBalancedJsonObject_ACU(sanitized) || sanitized;
+            sanitized = sanitized
+                .replace(/,\s*([}\]])/g, '$1')
+                .replace(/\r\n/g, '\n')
+                .replace(/\r/g, '\n');
+            return sanitized;
+        }
+        function normalizeOptimizationItem_ACU(opt) {
+            if (!opt || typeof opt !== 'object')
+                return null;
+            const type = typeof opt.type === 'string' ? opt.type.trim() : 'replace';
+            const original = typeof opt.original === 'string' ? opt.original.trim() : '';
+            const optimized = typeof opt.optimized === 'string' ? opt.optimized.trim() : '';
+            const plan = [opt.plan, opt.reason, opt.strategy, opt.description, opt.note]
+                .find(value => typeof value === 'string' && value.trim())?.trim() || '';
+            if (type !== 'replace' || !original || !optimized) {
+                return null;
+            }
+            return {
+                type: 'replace',
+                original,
+                plan,
+                optimized
+            };
+        }
+        function extractStringField_ACU(source, fieldName) {
+            if (typeof source !== 'string' || !fieldName)
+                return '';
+            const fieldPattern = new RegExp(`"${fieldName}"\\s*:\\s*"`);
+            const match = fieldPattern.exec(source);
+            if (!match)
+                return '';
+            let i = match.index + match[0].length;
+            let result = '';
+            let escaped = false;
+            while (i < source.length) {
+                const ch = source[i];
+                if (escaped) {
+                    result += ch;
+                    escaped = false;
+                    i++;
+                    continue;
+                }
+                if (ch === '\\') {
+                    result += ch;
+                    escaped = true;
+                    i++;
+                    continue;
+                }
+                if (ch === '"') {
+                    break;
+                }
+                result += ch;
+                i++;
+            }
+            return result
+                .replace(/\\n/g, '\n')
+                .replace(/\\r/g, '\r')
+                .replace(/\\t/g, '\t')
+                .replace(/\\"/g, '"')
+                .replace(/\\\\/g, '\\');
+        }
+        function salvageOptimizationResponse_ACU(rawText) {
+            if (typeof rawText !== 'string' || !rawText.trim())
+                return null;
+            const containerText = extractBalancedJsonObject_ACU(rawText) || rawText;
+            const arrayMatch = containerText.match(/"optimizations"\s*:\s*\[/);
+            if (!arrayMatch)
+                return null;
+            const arrayStart = containerText.indexOf('[', arrayMatch.index);
+            if (arrayStart < 0)
+                return null;
+            let depth = 0;
+            let inString = false;
+            let escaped = false;
+            let arrayEnd = -1;
+            for (let i = arrayStart; i < containerText.length; i++) {
+                const ch = containerText[i];
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+                if (ch === '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (ch === '"') {
+                    inString = !inString;
+                    continue;
+                }
+                if (inString)
+                    continue;
+                if (ch === '[')
+                    depth++;
+                if (ch === ']') {
+                    depth--;
+                    if (depth === 0) {
+                        arrayEnd = i;
+                        break;
+                    }
+                }
+            }
+            if (arrayEnd < 0)
+                return null;
+            const arrayContent = containerText.slice(arrayStart + 1, arrayEnd);
+            const objects = [];
+            let objStart = -1;
+            depth = 0;
+            inString = false;
+            escaped = false;
+            for (let i = 0; i < arrayContent.length; i++) {
+                const ch = arrayContent[i];
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+                if (ch === '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (ch === '"') {
+                    inString = !inString;
+                    continue;
+                }
+                if (inString)
+                    continue;
+                if (ch === '{') {
+                    if (depth === 0)
+                        objStart = i;
+                    depth++;
+                }
+                else if (ch === '}') {
+                    depth--;
+                    if (depth === 0 && objStart >= 0) {
+                        objects.push(arrayContent.slice(objStart, i + 1));
+                        objStart = -1;
+                    }
+                }
+            }
+            const planFieldCandidates = ['plan', 'reason', 'strategy', 'description', 'note'];
+            const optimizations = objects
+                .map(objText => {
+                const fallbackPlan = planFieldCandidates
+                    .map(field => extractStringField_ACU(objText, field))
+                    .find(value => value && value.trim()) || '';
+                return normalizeOptimizationItem_ACU({
+                    type: extractStringField_ACU(objText, 'type') || 'replace',
+                    original: extractStringField_ACU(objText, 'original'),
+                    plan: fallbackPlan,
+                    optimized: extractStringField_ACU(objText, 'optimized')
+                });
+            })
+                .filter(Boolean)
+                .slice(0, maxOptimizations);
+            if (!optimizations.length)
+                return null;
+            return {
+                success: true,
+                optimizations,
+                summary: extractStringField_ACU(containerText, 'summary') || ''
+            };
+        }
+        try {
+            let jsonStr = responseContent;
+            const jsonMatch = responseContent.match(/```json\s*([\s\S]*?)\s*```/i);
+            if (jsonMatch) {
+                jsonStr = jsonMatch[1];
+            }
+            else {
+                jsonStr = extractBalancedJsonObject_ACU(responseContent) || responseContent;
+            }
+            const sanitizedJson = sanitizeOptimizationJson_ACU(jsonStr);
+            const parsed = JSON.parse(sanitizedJson);
+            if (!parsed || !Array.isArray(parsed.optimizations)) {
+                return { success: false, error: '响应格式错误：缺少 optimizations 数组' };
+            }
+            const optimizations = parsed.optimizations
+                .slice(0, maxOptimizations)
+                .map(normalizeOptimizationItem_ACU)
+                .filter(Boolean);
+            return {
+                success: true,
+                optimizations,
+                summary: typeof parsed.summary === 'string' ? parsed.summary : ''
+            };
+        }
+        catch (error) {
+            const salvaged = salvageOptimizationResponse_ACU(responseContent);
+            if (salvaged) {
+                logDebug_ACU('[正文优化] JSON标准解析失败，已使用容错提取恢复优化结果');
+                return salvaged;
+            }
+            logError_ACU('[正文优化] JSON解析失败:', error);
+            return { success: false, error: 'JSON解析失败: ' + error.message };
+        }
+    }
+    let contentOptimizationAbortRequested_ACU = false;
+    let optimizationProgressToast_ACU = null;
+    let lastOptimizedMessageMeta_ACU = null;
+    function setLastOptimizationBase_ACU(payload = {}) {
+        const cache = {
+            messageIndex: Number.isInteger(payload.messageIndex) ? payload.messageIndex : -1,
+            messageId: payload.messageId ?? null,
+            baseContent: typeof payload.baseContent === 'string' ? payload.baseContent : '',
+            updatedAt: Date.now()
+        };
+        lastOptimizedMessageMeta_ACU = cache;
+        try {
+            const targetWindow = topLevelWindow_ACU || window;
+            targetWindow.__ACU_LAST_OPTIMIZATION_BASE__ = cache;
+        }
+        catch (error) {
+            logDebug_ACU('[正文优化] 写入浏览器侧正文优化基础缓存失败（window）:', error);
+        }
+        try {
+            localStorage.setItem('ACU_LAST_OPTIMIZATION_BASE', JSON.stringify(cache));
+        }
+        catch (error) {
+            logDebug_ACU('[正文优化] 写入浏览器侧正文优化基础缓存失败（localStorage）:', error);
+        }
+        return cache;
+    }
+    function getLastOptimizationBase_ACU() {
+        if (lastOptimizedMessageMeta_ACU?.baseContent) {
+            return lastOptimizedMessageMeta_ACU;
+        }
+        try {
+            const targetWindow = topLevelWindow_ACU || window;
+            const windowCache = targetWindow.__ACU_LAST_OPTIMIZATION_BASE__;
+            if (windowCache?.baseContent) {
+                lastOptimizedMessageMeta_ACU = windowCache;
+                return windowCache;
+            }
+        }
+        catch (error) {
+            logDebug_ACU('[正文优化] 读取浏览器侧正文优化基础缓存失败（window）:', error);
+        }
+        try {
+            const raw = localStorage.getItem('ACU_LAST_OPTIMIZATION_BASE');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed?.baseContent) {
+                    lastOptimizedMessageMeta_ACU = parsed;
+                    return parsed;
+                }
+            }
+        }
+        catch (error) {
+            logDebug_ACU('[正文优化] 读取浏览器侧正文优化基础缓存失败（localStorage）:', error);
+        }
+        return null;
+    }
+    /**
+     * 取消正文优化
+     * @param {string} reason - 取消原因
+     * @returns {boolean} 是否执行了取消
+     */
+    function cancelContentOptimization_ACU(reason = '正文优化已由用户终止。') {
+        contentOptimizationAbortRequested_ACU = true;
+        hideOptimizationOverlay_ACU();
+        hideOptimizationProgressToast_ACU();
+        showToastr_ACU('warning', reason);
+        return true;
+    }
+    /**
+     * 检查正文优化是否已被取消
+     */
+    function ensureOptimizationNotCancelled_ACU() {
+        if (contentOptimizationAbortRequested_ACU) {
+            throw new Error('用户终止正文优化');
+        }
+    }
+    /**
+     * 显示无感替换遮罩
+     * @param {string} message - 显示的消息
+     */
+    function _set_optimizationProgressToast_ACU(v) { optimizationProgressToast_ACU = v; }
+    function _set_contentOptimizationAbortRequested_ACU(v) { contentOptimizationAbortRequested_ACU = v; }
+
+    /**
+     * presentation/components/optimization-ui.ts — 正文优化 UI + 剧情推进 UI
+     * 从 src/core/02_storage_and_profile.js:631~2772 迁移而来
+     */
+    // --- [正文优化] 构建默认提示词组 ---
+    function showOptimizationOverlay_ACU(message = '正在优化正文...') {
+        // 移除已存在的遮罩
+        hideOptimizationOverlay_ACU();
+        const overlayHtml = `
+      <div id="acu-optimization-overlay" style="
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.7);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        z-index: 99999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 16px;
+      ">
+        <div style="
+          width: 50px;
+          height: 50px;
+          border: 3px solid rgba(255, 255, 255, 0.3);
+          border-top-color: #7bb7ff;
+          border-radius: 50%;
+          animation: acu-spin 1s linear infinite;
+        "></div>
+        <div style="
+          color: rgba(255, 255, 255, 0.9);
+          font-size: 16px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        ">${message}</div>
+        <button id="acu-optimization-overlay-cancel" style="
+          padding: 10px 18px;
+          border: 1px solid rgba(255, 193, 7, 0.7);
+          background: transparent;
+          color: #ffc107;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 14px;
+        ">取消优化</button>
+      </div>
+      <style>
+        @keyframes acu-spin {
+          to { transform: rotate(360deg); }
+        }
+      </style>
+    `;
+        jQuery_API_ACU$1('body').append(overlayHtml);
+        jQuery_API_ACU$1('#acu-optimization-overlay-cancel').off('click.acu_opt_cancel').on('click.acu_opt_cancel', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelContentOptimization_ACU('正文优化已取消。');
+        });
+    }
+    /**
+     * 显示正文优化进度提示框（无遮罩模式）
+     * @param {string} message - 提示消息
+     */
+    function showOptimizationProgressToast_ACU(message = '正在进行正文优化...') {
+        hideOptimizationProgressToast_ACU();
+        const stopButtonHtml = `<button id="acu-opt-stop-btn" style="border: 1px solid #ffc107; color: #ffc107; background: transparent; padding: 5px 10px; border-radius: 4px; cursor: pointer; float: right; margin-left: 15px; font-size: 0.9em; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#ffc107'; this.style.color='#1a1d24';" onmouseout="this.style.backgroundColor='transparent'; this.style.color='#ffc107';">取消优化</button>`;
+        _set_optimizationProgressToast_ACU(showToastr_ACU('info', `<div>${message}${stopButtonHtml}</div>`, {
+            timeOut: 0,
+            extendedTimeOut: 0,
+            tapToDismiss: false,
+            onShown: function () {
+                jQuery_API_ACU$1('#acu-opt-stop-btn').off('click.acu_opt_cancel').on('click.acu_opt_cancel', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    cancelContentOptimization_ACU('正文优化已取消。');
+                    jQuery_API_ACU$1(this).closest('.toast').remove();
+                });
+            }
+        }));
+    }
+    /**
+     * 隐藏正文优化进度提示框
+     */
+    function hideOptimizationProgressToast_ACU() {
+        if (optimizationProgressToast_ACU && toastr_API_ACU$1) {
+            toastr_API_ACU$1.clear(optimizationProgressToast_ACU);
+        }
+        _set_optimizationProgressToast_ACU(null);
+    }
+    /**
+     * 隐藏无感替换遮罩
+     */
+    function hideOptimizationOverlay_ACU() {
+        jQuery_API_ACU$1('#acu-optimization-overlay').remove();
+    }
+    /**
+     * 替换酒馆消息内容
+     * @param {number} messageIndex - 消息索引
+     * @param {string} newContent - 新内容
+     */
+    async function replaceChatMessage_ACU(messageIndex, newContent, options = {}) {
+        try {
+            logDebug_ACU(`[正文优化] replaceChatMessage_ACU 开始执行, messageIndex=${messageIndex}, newContent长度=${newContent?.length || 0}`);
+            const chat = SillyTavern_API_ACU.chat;
+            if (!chat || !chat[messageIndex]) {
+                logError_ACU('[正文优化] 消息不存在, chat存在=', !!chat, 'messageIndex=', messageIndex);
+                throw new Error('消息不存在');
+            }
+            const oldContent = chat[messageIndex].mes;
+            logDebug_ACU(`[正文优化] 原内容长度: ${oldContent?.length || 0}, 新内容长度: ${newContent?.length || 0}`);
+            // [新增] 保存原始内容到 extra 字段，用于"重新优化"功能
+            // 只有当 extra._acu_original_content 不存在时才保存（避免覆盖最初的原始内容）
+            const extra = chat[messageIndex].extra || {};
+            if (!extra._acu_original_content) {
+                extra._acu_original_content = options.originalContent ?? oldContent;
+                logDebug_ACU(`[正文优化] 保存原始内容到 extra._acu_original_content，长度: ${extra._acu_original_content?.length || 0}`);
+            }
+            extra._acu_last_optimized_at = Date.now();
+            extra._acu_last_optimized_message_id = chat[messageIndex].message_id;
+            setLastOptimizationBase_ACU({
+                messageIndex,
+                messageId: chat[messageIndex].message_id,
+                baseContent: extra._acu_original_content || options.originalContent || oldContent || ''
+            });
+            // [修复] 使用酒馆的 setChatMessages API 来更新消息内容，确保渲染及时生效
+            // 该 API 会自动处理渲染，无需手动触发 MESSAGE_UPDATED 事件
+            // refresh: 'affected' 会触发被影响楼层的重新渲染
+            if (typeof SillyTavern_API_ACU.setChatMessages === 'function') {
+                logDebug_ACU('[正文优化] 使用 setChatMessages API 更新消息...');
+                await SillyTavern_API_ACU.setChatMessages([{ message_id: chat[messageIndex].message_id, mes: newContent, extra: extra }], { refresh: 'affected' });
+                logDebug_ACU('[正文优化] 消息已通过 setChatMessages API 更新');
+            }
+            else {
+                // 降级方案：如果 setChatMessages 不可用，使用原有逻辑
+                logDebug_ACU('[正文优化] setChatMessages API 不可用，使用降级方案...');
+                // 修改消息内容
+                chat[messageIndex].mes = newContent;
+                chat[messageIndex].extra = extra;
+                // 验证修改是否成功
+                const verifyContent = chat[messageIndex].mes;
+                logDebug_ACU(`[正文优化] 修改后验证 - 内容长度: ${verifyContent?.length || 0}, 是否匹配: ${verifyContent === newContent}`);
+                // 保存聊天
+                if (typeof SillyTavern_API_ACU.saveChat === 'function') {
+                    logDebug_ACU('[正文优化] 正在保存聊天...');
+                    await SillyTavern_API_ACU.saveChat();
+                    logDebug_ACU('[正文优化] 聊天已保存');
+                }
+                else {
+                    logDebug_ACU('[正文优化] saveChat 函数不存在');
+                }
+                // 触发消息更新事件（使用正确的eventTypes常量）
+                if (SillyTavern_API_ACU?.eventSource?.emit && SillyTavern_API_ACU?.eventTypes?.MESSAGE_UPDATED) {
+                    logDebug_ACU('[正文优化] 触发 MESSAGE_UPDATED 事件 (新API)');
+                    SillyTavern_API_ACU.eventSource.emit(SillyTavern_API_ACU.eventTypes.MESSAGE_UPDATED, messageIndex);
+                }
+                else if (SillyTavern_API_ACU.eventSource) {
+                    logDebug_ACU('[正文优化] 触发 MESSAGE_UPDATED 事件 (旧API)');
+                    SillyTavern_API_ACU.eventSource.emit('MESSAGE_UPDATED', messageIndex);
+                }
+                else {
+                    logDebug_ACU('[正文优化] eventSource 不存在，无法触发更新事件');
+                }
+            }
+            logDebug_ACU(`[正文优化] 消息 ${messageIndex} 已更新完成`);
+            return true;
+        }
+        catch (error) {
+            logError_ACU('[正文优化] 替换消息失败:', error);
+            return false;
+        }
+    }
+    /**
+     * 获取消息的原始内容（用于重新优化）
+     * @param {number} messageIndex - 消息索引
+     * @returns {string|null} 原始内容，如果不存在则返回 null
+     */
+    function getOriginalContent_ACU(messageIndex) {
+        const cachedBase = getLastOptimizationBase_ACU();
+        if (cachedBase?.baseContent) {
+            const chat = SillyTavern_API_ACU.chat || [];
+            if (cachedBase.messageId != null) {
+                const matchedIndex = chat.findIndex(msg => msg && !msg.is_user && msg.message_id === cachedBase.messageId);
+                if (matchedIndex === messageIndex) {
+                    return cachedBase.baseContent;
+                }
+            }
+            if (cachedBase.messageIndex === messageIndex) {
+                return cachedBase.baseContent;
+            }
+        }
+        const chat = SillyTavern_API_ACU.chat;
+        if (!chat || !chat[messageIndex]) {
+            return null;
+        }
+        const extra = chat[messageIndex].extra || {};
+        return extra._acu_original_content || null;
+    }
+    /**
+     * 获取最近一次被正文优化替换过的 AI 消息索引
+     * @returns {number} 消息索引，不存在返回 -1
+     */
+    function getLastOptimizedMessageIndex_ACU() {
+        const chat = SillyTavern_API_ACU.chat || [];
+        const cachedBase = getLastOptimizationBase_ACU();
+        if (cachedBase?.messageId != null) {
+            const runtimeIndex = chat.findIndex(msg => msg && !msg.is_user && msg.message_id === cachedBase.messageId);
+            if (runtimeIndex >= 0) {
+                return runtimeIndex;
+            }
+        }
+        if (Number.isInteger(cachedBase?.messageIndex) && cachedBase.messageIndex >= 0 && chat[cachedBase.messageIndex] && !chat[cachedBase.messageIndex].is_user) {
+            return cachedBase.messageIndex;
+        }
+        let latestIndex = -1;
+        let latestTimestamp = -1;
+        for (let i = 0; i < chat.length; i++) {
+            const msg = chat[i];
+            if (!msg || msg.is_user)
+                continue;
+            const extra = msg.extra || {};
+            const ts = Number(extra._acu_last_optimized_at || 0);
+            if (extra._acu_original_content && ts >= latestTimestamp) {
+                latestTimestamp = ts;
+                latestIndex = i;
+            }
+        }
+        if (latestIndex >= 0) {
+            const latestMessage = chat[latestIndex];
+            const latestExtra = latestMessage?.extra || {};
+            setLastOptimizationBase_ACU({
+                messageIndex: latestIndex,
+                messageId: latestMessage?.message_id ?? null,
+                baseContent: latestExtra._acu_original_content || latestMessage?.mes || ''
+            });
+        }
+        return latestIndex;
+    }
+    /**
+     * 重新优化消息
+     * @param {number} messageIndex - 消息索引
+     * @returns {Promise<boolean>} 是否成功
+     */
+    async function reoptimizeMessage_ACU(messageIndex) {
+        const config = settings_ACU.contentOptimizationSettings || {};
+        _set_contentOptimizationAbortRequested_ACU(false);
+        // 检查是否启用
+        if (!config.enabled) {
+            showToastr_ACU('warning', '正文优化功能未启用');
+            return false;
+        }
+        const chat = SillyTavern_API_ACU.chat;
+        if (!chat || !chat[messageIndex]) {
+            showToastr_ACU('error', '消息不存在');
+            return false;
+        }
+        const message = chat[messageIndex];
+        // 跳过用户消息
+        if (message.is_user) {
+            showToastr_ACU('warning', '无法优化用户消息');
+            return false;
+        }
+        // 获取原始内容
+        const originalContent = getOriginalContent_ACU(messageIndex) || message.mes;
+        if (!originalContent) {
+            showToastr_ACU('error', '无法获取消息内容');
+            return false;
+        }
+        logDebug_ACU(`[重新优化] 开始重新优化消息 ${messageIndex}，内容长度: ${originalContent.length}`);
+        if (config.seamlessMode) {
+            showOptimizationOverlay_ACU('正在重新优化正文...');
+        }
+        else {
+            showOptimizationProgressToast_ACU('正在进行正文优化（重新优化）...');
+        }
+        try {
+            ensureOptimizationNotCancelled_ACU();
+            const result = await performContentOptimization_ACU(originalContent, {
+                currentLoop: 1,
+                userMessage: ''
+            });
+            hideOptimizationOverlay_ACU();
+            hideOptimizationProgressToast_ACU();
+            if (contentOptimizationAbortRequested_ACU) {
+                return false;
+            }
+            if (!result.success) {
+                showToastr_ACU('error', `重新优化失败: ${result.error || '未知错误'}`);
+                return false;
+            }
+            if (!result.optimizations || result.optimizations.length === 0) {
+                showToastr_ACU('info', '原文已足够好，无需优化');
+                return true;
+            }
+            showReoptimizationDialog_ACU(messageIndex, result, originalContent);
+            return true;
+        }
+        catch (error) {
+            hideOptimizationOverlay_ACU();
+            hideOptimizationProgressToast_ACU();
+            if (contentOptimizationAbortRequested_ACU || error?.message === '用户终止正文优化') {
+                logDebug_ACU('[重新优化] 用户已取消正文优化');
+                return false;
+            }
+            logError_ACU('[重新优化] 执行出错:', error);
+            showToastr_ACU('error', `重新优化失败: ${error.message}`);
+            return false;
+        }
+        finally {
+            hideOptimizationOverlay_ACU();
+            hideOptimizationProgressToast_ACU();
+            _set_contentOptimizationAbortRequested_ACU(false);
+        }
+    }
+    /**
+     * 显示重新优化对话框
+     * @param {number} messageIndex - 消息索引
+     * @param {object} result - 优化结果
+     * @param {string} originalContent - 原始内容
+     */
+    function showReoptimizationDialog_ACU(messageIndex, result, originalContent) {
+        const dialogHtml = `
+      <div class="acu-optimization-dialog acu-dialog-classic" style="
+        position: fixed;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--acu-bg-0, #24221f);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+        border: 1px solid var(--acu-border, #36332e);
+        border-radius: 2px;
+        padding: 20px;
+        max-width: 800px;
+        width: calc(100% - 20px);
+        max-height: calc(90vh - 20px);
+        overflow-y: auto;
+        z-index: 100000;
+        color: var(--acu-text, #c1b9ad);
+        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
+        box-sizing: border-box;
+      ">
+        <h3 style="margin: 0 0 8px 0; color: var(--acu-accent, #7d4940); font-size: 1.1em; letter-spacing: 1px;">🔄 重新优化结果</h3>
+        <p style="margin: 0 0 12px 0; color: var(--acu-text-dim, #8a8075);">${result.summary}</p>
+        <div class="optimization-list" style="margin-bottom: 16px; max-height: 400px; overflow-y: auto;">
+          ${result.optimizations.map((opt, i) => `
+            <div class="optimization-item" style="
+              background: rgba(0, 0, 0, 0.2);
+              border-radius: 1px;
+              padding: 12px;
+              margin-bottom: 8px;
+              border-left: 2px solid var(--acu-border, #36332e);
+            ">
+              <div style="color: var(--acu-text-dim, #8a8075); margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
+                <strong>原文：</strong>${escapeHtml_ACU(opt.original.substring(0, 200))}${opt.original.length > 200 ? '...' : ''}
+              </div>
+              <div style="color: var(--acu-text, #c1b9ad); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(125, 73, 64, 0.1); border-radius: 1px; border-left: 2px solid var(--acu-accent, #7d4940);">
+                <strong>修改方案：</strong>${escapeHtml_ACU(opt.plan || opt.reason || '未说明')}
+              </div>
+              <div style="color: #6a8a6a;">
+                <strong>优化：</strong>${escapeHtml_ACU(opt.optimized.substring(0, 200))}${opt.optimized.length > 200 ? '...' : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding-bottom: 10px;">
+          <button id="acu-opt-cancel" style="
+            padding: 8px 16px;
+            border: 1px solid var(--acu-border, #36332e);
+            background: transparent;
+            color: var(--acu-text-dim, #8a8075);
+            border-radius: 1px;
+            cursor: pointer;
+            min-width: 80px;
+            flex-shrink: 0;
+            font-family: inherit;
+          ">取消</button>
+          <button id="acu-opt-reoptimize" style="
+            padding: 8px 16px;
+            border: 1px solid var(--acu-accent, #7d4940);
+            background: transparent;
+            color: var(--acu-accent, #7d4940);
+            border-radius: 1px;
+            cursor: pointer;
+            min-width: 100px;
+            flex-shrink: 0;
+            font-family: inherit;
+          ">🔄 再次优化</button>
+          <button id="acu-opt-apply" style="
+            padding: 8px 16px;
+            border: none;
+            background: var(--acu-accent, #7d4940);
+            color: var(--acu-bg-0, #24221f);
+            border-radius: 1px;
+            cursor: pointer;
+            font-weight: 600;
+            min-width: 100px;
+            flex-shrink: 0;
+            font-family: inherit;
+          ">应用优化</button>
+        </div>
+      </div>
+      <div id="acu-opt-backdrop" style="
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 99999;
+      "></div>
+    `;
+        jQuery_API_ACU$1('body').append(dialogHtml);
+        // 绑定取消事件
+        jQuery_API_ACU$1('#acu-opt-cancel, #acu-opt-backdrop').on('click', function () {
+            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
+        });
+        // 绑定再次优化事件
+        jQuery_API_ACU$1('#acu-opt-reoptimize').on('click', async function () {
+            jQuery_API_ACU$1(this).prop('disabled', true).text('优化中...');
+            // 关闭当前对话框
+            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
+            // 重新优化（使用原始内容）
+            await reoptimizeMessage_ACU(messageIndex);
+        });
+        // 绑定应用事件
+        jQuery_API_ACU$1('#acu-opt-apply').on('click', async function () {
+            jQuery_API_ACU$1(this).prop('disabled', true).text('应用中...');
+            const success = await replaceChatMessage_ACU(messageIndex, result.optimizedContent, { originalContent: getOriginalContent_ACU(messageIndex) || originalContent });
+            if (success) {
+                jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
+                showToastr_ACU('success', '优化已应用');
+            }
+            else {
+                jQuery_API_ACU$1(this).prop('disabled', false).text('应用优化');
+                showToastr_ACU('error', '应用失败');
+            }
+        });
+    }
+    /**
+     * 执行正文优化流程（在GENERATION_ENDED后调用）
+     * @param {number} messageIndex - AI消息索引
+     * @returns {Promise<boolean>} 是否成功
+     */
+    async function executeContentOptimization_ACU(messageIndex) {
+        const config = settings_ACU.contentOptimizationSettings || {};
+        _set_contentOptimizationAbortRequested_ACU(false);
+        // 检查是否启用
+        if (!config.enabled) {
+            return false;
+        }
+        const chat = SillyTavern_API_ACU.chat;
+        if (!chat || !chat[messageIndex]) {
+            return false;
+        }
+        const message = chat[messageIndex];
+        // 跳过用户消息
+        if (message.is_user) {
+            return false;
+        }
+        let content = message.mes || '';
+        setLastOptimizationBase_ACU({
+            messageIndex,
+            messageId: message.message_id,
+            baseContent: content
+        });
+        // [新增] 获取用户消息（用于$8占位符）
+        let userMessage = '';
+        for (let i = messageIndex - 1; i >= 0; i--) {
+            if (chat[i] && chat[i].is_user) {
+                userMessage = chat[i].mes || '';
+                break;
+            }
+        }
+        const extractTags = (config.extractTags || '').trim();
+        const extractRules = config.extractRules || [];
+        const excludeTags = (config.excludeTags || '').trim();
+        const excludeRules = config.excludeRules || [];
+        let processedContent = applyContextTagFilters_ACU(content, {
+            extractTags,
+            extractRules,
+            excludeTags,
+            excludeRules
+        });
+        const minLength = config.minLength || 100;
+        if (processedContent.length < minLength) {
+            logDebug_ACU(`[正文优化] 处理后正文长度 ${processedContent.length} 小于最小阈值 ${minLength}，跳过优化`);
+            return false;
+        }
+        const loopCount = config.loopCount || 1;
+        logDebug_ACU(`[正文优化] 开始优化消息 ${messageIndex}，原始长度 ${content.length}，处理后长度 ${processedContent.length}，循环次数: ${loopCount}`);
+        if (config.seamlessMode) {
+            showOptimizationOverlay_ACU(loopCount > 1 ? `正在优化正文 (1/${loopCount})...` : '正在优化正文...');
+        }
+        else {
+            showOptimizationProgressToast_ACU(loopCount > 1 ? `正在进行正文优化 (1/${loopCount})...` : '正在进行正文优化...');
+        }
+        try {
+            ensureOptimizationNotCancelled_ACU();
+            if (config.autoApply || config.seamlessMode) {
+                let currentContent = content;
+                let totalOptimizations = [];
+                let finalOptimizedContent = content;
+                for (let loop = 1; loop <= loopCount; loop++) {
+                    ensureOptimizationNotCancelled_ACU();
+                    logDebug_ACU(`[正文优化] 执行第 ${loop}/${loopCount} 轮优化`);
+                    if (config.seamlessMode && loopCount > 1) {
+                        showOptimizationOverlay_ACU(`正在优化正文 (${loop}/${loopCount})...`);
+                    }
+                    else if (!config.seamlessMode) {
+                        showOptimizationProgressToast_ACU(`正在进行正文优化 (${loop}/${loopCount})...`);
+                    }
+                    const result = await performContentOptimization_ACU(currentContent, {
+                        currentLoop: loop,
+                        userMessage: userMessage
+                    });
+                    ensureOptimizationNotCancelled_ACU();
+                    if (!result.success) {
+                        logDebug_ACU(`[正文优化] 第 ${loop} 轮优化失败:`, result.error);
+                        if (loop === 1) {
+                            if (config.seamlessMode) {
+                                hideOptimizationOverlay_ACU();
+                            }
+                            else {
+                                hideOptimizationProgressToast_ACU();
+                            }
+                            return false;
+                        }
+                        break;
+                    }
+                    if (!result.optimizations || result.optimizations.length === 0) {
+                        logDebug_ACU(`[正文优化] 第 ${loop} 轮无需优化，原文已足够好`);
+                        if (loop === 1) {
+                            if (config.seamlessMode) {
+                                hideOptimizationOverlay_ACU();
+                            }
+                            else {
+                                hideOptimizationProgressToast_ACU();
+                            }
+                            return true;
+                        }
+                        break;
+                    }
+                    totalOptimizations = totalOptimizations.concat(result.optimizations);
+                    finalOptimizedContent = result.optimizedContent;
+                    currentContent = result.optimizedContent;
+                    logDebug_ACU(`[正文优化] 第 ${loop} 轮完成，本轮 ${result.optimizations.length} 个优化项，累计 ${totalOptimizations.length} 个`);
+                }
+                if (totalOptimizations.length === 0) {
+                    logDebug_ACU('[正文优化] 所有轮次均无需优化');
+                    if (config.seamlessMode) {
+                        hideOptimizationOverlay_ACU();
+                    }
+                    else {
+                        hideOptimizationProgressToast_ACU();
+                    }
+                    return true;
+                }
+                await replaceChatMessage_ACU(messageIndex, finalOptimizedContent);
+                if (config.seamlessMode) {
+                    hideOptimizationOverlay_ACU();
+                }
+                else {
+                    hideOptimizationProgressToast_ACU();
+                }
+                if (config.showDiff && !config.seamlessMode) {
+                    showOptimizationDiff_ACU(messageIndex, {
+                        optimizations: totalOptimizations,
+                        summary: `共 ${loopCount} 轮优化，累计 ${totalOptimizations.length} 处改进`,
+                        optimizedContent: finalOptimizedContent
+                    });
+                }
+                else {
+                    showToastr_ACU('success', `正文优化完成，共 ${loopCount} 轮优化，累计 ${totalOptimizations.length} 处改进`);
+                }
+                return true;
+            }
+            else {
+                hideOptimizationProgressToast_ACU();
+                return await executeContentOptimizationWithConfirm_ACU(messageIndex, content, userMessage, loopCount);
+            }
+        }
+        catch (error) {
+            if (contentOptimizationAbortRequested_ACU || error?.message === '用户终止正文优化') {
+                logDebug_ACU('[正文优化] 用户已取消正文优化');
+                return false;
+            }
+            logError_ACU('[正文优化] 执行出错:', error);
+            if (config.seamlessMode) {
+                hideOptimizationOverlay_ACU();
+            }
+            else {
+                hideOptimizationProgressToast_ACU();
+            }
+            return false;
+        }
+        finally {
+            hideOptimizationOverlay_ACU();
+            hideOptimizationProgressToast_ACU();
+            _set_contentOptimizationAbortRequested_ACU(false);
+        }
+    }
+    /**
+     * 执行正文优化（手动确认模式，逐轮确认）
+     * @param {number} messageIndex - 消息索引
+     * @param {string} content - 原始内容
+     * @param {string} userMessage - 用户消息
+     * @param {number} totalLoops - 总循环次数
+     * @param {number} currentLoop - 当前循环次数（内部使用）
+     * @param {string} currentContent - 当前内容（内部使用）
+     * @param {Array} totalOptimizations - 累计优化项（内部使用）
+     * @returns {Promise<boolean>} 是否成功
+     */
+    async function executeContentOptimizationWithConfirm_ACU(messageIndex, content, userMessage, totalLoops, currentLoop = 1, currentContent = null, totalOptimizations = []) {
+        // 使用传入的当前内容，或者原始内容
+        let workingContent = currentContent !== null ? currentContent : content;
+        logDebug_ACU(`[正文优化-手动确认] 执行第 ${currentLoop}/${totalLoops} 轮优化`);
+        // 执行优化
+        const result = await performContentOptimization_ACU(workingContent, {
+            currentLoop: currentLoop,
+            userMessage: userMessage
+        });
+        if (!result.success) {
+            logDebug_ACU(`[正文优化-手动确认] 第 ${currentLoop} 轮优化失败:`, result.error);
+            // 如果是第一轮就失败，显示错误
+            if (currentLoop === 1) {
+                showToastr_ACU('error', `正文优化失败: ${result.error}`);
+                return false;
+            }
+            // 如果是后续轮次失败，使用之前的结果触发填表
+            await triggerAutomaticUpdateIfNeeded_ACU();
+            return true;
+        }
+        // 检查是否有实际优化
+        if (!result.optimizations || result.optimizations.length === 0) {
+            logDebug_ACU(`[正文优化-手动确认] 第 ${currentLoop} 轮无需优化，原文已足够好`);
+            // 如果没有优化项，检查是否还有下一轮
+            if (currentLoop < totalLoops) {
+                // 继续下一轮（使用当前内容）
+                return await executeContentOptimizationWithConfirm_ACU(messageIndex, content, userMessage, totalLoops, currentLoop + 1, workingContent, totalOptimizations);
+            }
+            else {
+                // 所有轮次完成，触发填表
+                if (totalOptimizations.length > 0) {
+                    showToastr_ACU('success', `正文优化完成，共 ${totalLoops} 轮优化，累计 ${totalOptimizations.length} 处改进`);
+                }
+                else {
+                    showToastr_ACU('info', '正文无需优化');
+                }
+                await triggerAutomaticUpdateIfNeeded_ACU();
+                return true;
+            }
+        }
+        // 累积优化项
+        const newTotalOptimizations = totalOptimizations.concat(result.optimizations);
+        // 显示对比对话框
+        return new Promise((resolve) => {
+            showOptimizationDiffDialogForLoop_ACU(messageIndex, {
+                optimizations: result.optimizations,
+                summary: `第 ${currentLoop}/${totalLoops} 轮优化，本轮 ${result.optimizations.length} 处改进`,
+                optimizedContent: result.optimizedContent,
+                currentLoop: currentLoop,
+                totalLoops: totalLoops,
+                totalOptimizations: newTotalOptimizations
+            }, async (action) => {
+                if (action === 'apply') {
+                    // 用户确认应用
+                    if (currentLoop < totalLoops) {
+                        // 还有下一轮，继续优化
+                        const nextResult = await executeContentOptimizationWithConfirm_ACU(messageIndex, content, userMessage, totalLoops, currentLoop + 1, result.optimizedContent, newTotalOptimizations);
+                        resolve(nextResult);
+                    }
+                    else {
+                        // 所有轮次完成，应用最终结果并触发填表
+                        await replaceChatMessage_ACU(messageIndex, result.optimizedContent);
+                        showToastr_ACU('success', `正文优化完成，共 ${totalLoops} 轮优化，累计 ${newTotalOptimizations.length} 处改进`);
+                        await triggerAutomaticUpdateIfNeeded_ACU();
+                        resolve(true);
+                    }
+                }
+                else if (action === 'skip') {
+                    // 用户跳过本轮，但继续下一轮
+                    if (currentLoop < totalLoops) {
+                        const nextResult = await executeContentOptimizationWithConfirm_ACU(messageIndex, content, userMessage, totalLoops, currentLoop + 1, workingContent, // 使用未优化的内容
+                        totalOptimizations // 不累积本轮优化项
+                        );
+                        resolve(nextResult);
+                    }
+                    else {
+                        // 最后一轮跳过
+                        if (totalOptimizations.length > 0) {
+                            // 如果有之前的优化，应用之前的结果
+                            // 注意：这里需要应用之前累积的优化内容
+                            await triggerAutomaticUpdateIfNeeded_ACU();
+                            showToastr_ACU('success', `正文优化完成，共 ${totalLoops} 轮优化，累计 ${totalOptimizations.length} 处改进`);
+                        }
+                        else {
+                            showToastr_ACU('info', '正文优化已跳过');
+                        }
+                        await triggerAutomaticUpdateIfNeeded_ACU();
+                        resolve(true);
+                    }
+                }
+                else {
+                    // 用户取消，结束优化流程
+                    await triggerAutomaticUpdateIfNeeded_ACU();
+                    resolve(true);
+                }
+            });
+        });
+    }
+    /**
+     * 显示优化对比对话框（支持循环优化）
+     */
+    function showOptimizationDiffDialogForLoop_ACU(messageIndex, result, callback) {
+        const isLastLoop = result.currentLoop >= result.totalLoops;
+        const applyButtonText = isLastLoop ? '应用并完成' : '应用并继续';
+        const originalContent = getOriginalContent_ACU(messageIndex) || result.optimizedContent;
+        const dialogHtml = `
+      <div class="acu-optimization-dialog acu-dialog-classic" style="
+        position: fixed;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--acu-bg-0, #24221f);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+        border: 1px solid var(--acu-border, #36332e);
+        border-radius: 2px;
+        padding: 20px;
+        max-width: 800px;
+        width: calc(100% - 20px);
+        max-height: calc(90vh - 20px);
+        overflow-y: auto;
+        z-index: 100000;
+        color: var(--acu-text, #c1b9ad);
+        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
+        box-sizing: border-box;
+      ">
+        <h3 style="margin: 0 0 8px 0; color: var(--acu-accent, #7d4940); font-size: 1.1em; letter-spacing: 1px;">正文替换建议</h3>
+        <p style="margin: 0 0 12px 0; color: var(--acu-text-dim, #8a8075);">${result.summary}</p>
+        ${result.totalLoops > 1 ? `<p style="margin: 0 0 12px 0; color: var(--acu-text-mute, #6a6055); font-size: 12px;">进度: 第 ${result.currentLoop}/${result.totalLoops} 轮</p>` : ''}
+        <div class="optimization-list" style="margin-bottom: 16px; max-height: 400px; overflow-y: auto;">
+          ${result.optimizations.map((opt, i) => `
+            <div class="optimization-item" style="
+              background: rgba(0, 0, 0, 0.2);
+              border-radius: 1px;
+              padding: 12px;
+              margin-bottom: 8px;
+              border-left: 2px solid var(--acu-border, #36332e);
+            ">
+              <div style="color: var(--acu-text-dim, #8a8075); margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
+                <strong>原文：</strong>${escapeHtml_ACU(opt.original.substring(0, 200))}${opt.original.length > 200 ? '...' : ''}
+              </div>
+              <div style="color: var(--acu-text, #c1b9ad); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(125, 73, 64, 0.1); border-radius: 1px; border-left: 2px solid var(--acu-accent, #7d4940);">
+                <strong>修改方案：</strong>${escapeHtml_ACU(opt.plan || opt.reason || '未说明')}
+              </div>
+              <div style="color: #6a8a6a;">
+                <strong>优化：</strong>${escapeHtml_ACU(opt.optimized.substring(0, 200))}${opt.optimized.length > 200 ? '...' : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding-bottom: 10px;">
+          <button id="acu-opt-cancel" style="
+            padding: 8px 16px;
+            border: 1px solid var(--acu-border, #36332e);
+            background: transparent;
+            color: var(--acu-text-dim, #8a8075);
+            border-radius: 1px;
+            cursor: pointer;
+            min-width: 80px;
+            flex-shrink: 0;
+            font-family: inherit;
+          ">取消优化</button>
+          ${!isLastLoop ? `
+          <button id="acu-opt-skip" style="
+            padding: 8px 16px;
+            border: 1px solid var(--acu-border, #36332e);
+            background: transparent;
+            color: var(--acu-text-dim, #8a8075);
+            border-radius: 1px;
+            cursor: pointer;
+            min-width: 80px;
+            flex-shrink: 0;
+            font-family: inherit;
+          ">跳过本轮</button>
+          ` : ''}
+          <button id="acu-opt-reoptimize" style="
+            padding: 8px 16px;
+            border: 1px solid var(--acu-accent, #7d4940);
+            background: transparent;
+            color: var(--acu-accent, #7d4940);
+            border-radius: 1px;
+            cursor: pointer;
+            min-width: 100px;
+            flex-shrink: 0;
+            font-family: inherit;
+          ">🔄 重新优化</button>
+          <button id="acu-opt-apply" style="
+            padding: 8px 16px;
+            border: none;
+            background: var(--acu-accent, #7d4940);
+            color: var(--acu-bg-0, #24221f);
+            border-radius: 1px;
+            cursor: pointer;
+            font-weight: 600;
+            min-width: 100px;
+            flex-shrink: 0;
+            font-family: inherit;
+          ">${applyButtonText}</button>
+        </div>
+      </div>
+      <div id="acu-opt-backdrop" style="
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 99999;
+      "></div>
+    `;
+        jQuery_API_ACU$1('body').append(dialogHtml);
+        // 绑定取消事件
+        jQuery_API_ACU$1('#acu-opt-cancel, #acu-opt-backdrop').on('click', function () {
+            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
+            callback('cancel');
+        });
+        // 绑定跳过事件（仅非最后一轮显示）
+        jQuery_API_ACU$1('#acu-opt-skip').on('click', function () {
+            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
+            callback('skip');
+        });
+        // 绑定重新优化事件
+        jQuery_API_ACU$1('#acu-opt-reoptimize').on('click', async function () {
+            jQuery_API_ACU$1(this).prop('disabled', true).text('优化中...');
+            // 关闭当前对话框
+            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
+            // 获取原始内容并重新优化
+            const originalContent = getOriginalContent_ACU(messageIndex) || result.optimizedContent;
+            logDebug_ACU(`[正文优化] 用户点击重新优化，messageIndex=${messageIndex}`);
+            // 重新优化
+            await reoptimizeMessage_ACU(messageIndex);
+            // 触发回调，结束当前优化流程
+            callback('cancel');
+        });
+        // 绑定应用事件
+        jQuery_API_ACU$1('#acu-opt-apply').on('click', async function () {
+            jQuery_API_ACU$1(this).prop('disabled', true).text('处理中...');
+            logDebug_ACU(`[正文优化] 用户点击应用，isLastLoop=${isLastLoop}, messageIndex=${messageIndex}`);
+            logDebug_ACU(`[正文优化] optimizedContent长度: ${result.optimizedContent?.length || 0}`);
+            // 如果是最后一轮，先应用优化
+            if (isLastLoop) {
+                logDebug_ACU(`[正文优化] 准备调用 replaceChatMessage_ACU...`);
+                const success = await replaceChatMessage_ACU(messageIndex, result.optimizedContent, { originalContent: getOriginalContent_ACU(messageIndex) || originalContent });
+                logDebug_ACU(`[正文优化] replaceChatMessage_ACU 返回: ${success}`);
+                if (!success) {
+                    jQuery_API_ACU$1(this).prop('disabled', false).text(applyButtonText);
+                    showToastr_ACU('error', '应用失败');
+                    return;
+                }
+            }
+            else {
+                logDebug_ACU(`[正文优化] 非最后一轮，跳过应用，直接回调`);
+            }
+            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
+            callback('apply');
+        });
+    }
+    /**
+     * 显示优化对比对话框
+     */
+    function showOptimizationDiffDialog_ACU(messageIndex, result) {
+        const originalContent = getOriginalContent_ACU(messageIndex) || result.optimizedContent;
+        const dialogHtml = `
+      <div class="acu-optimization-dialog acu-dialog-classic" style="
+        position: fixed;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--acu-bg-0, #24221f);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+        border: 1px solid var(--acu-border, #36332e);
+        border-radius: 2px;
+        padding: 20px;
+        max-width: 800px;
+        width: calc(100% - 20px);
+        max-height: calc(90vh - 20px);
+        overflow-y: auto;
+        z-index: 100000;
+        color: var(--acu-text, #c1b9ad);
+        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
+        box-sizing: border-box;
+      ">
+        <h3 style="margin: 0 0 16px 0; color: var(--acu-accent, #7d4940); font-size: 1.1em; letter-spacing: 1px;">正文替换建议</h3>
+        <p style="margin: 0 0 12px 0; color: var(--acu-text-dim, #8a8075);">${result.summary || `共 ${result.optimizations.length} 处替换建议`}</p>
+        <div class="optimization-list" style="margin-bottom: 16px;">
+          ${result.optimizations.map((opt, i) => `
+            <div class="optimization-item" style="
+              background: rgba(0, 0, 0, 0.2);
+              border-radius: 1px;
+              padding: 12px;
+              margin-bottom: 8px;
+              border-left: 2px solid var(--acu-border, #36332e);
+            ">
+              <div style="color: var(--acu-text-dim, #8a8075); margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
+                <strong>原文：</strong>${escapeHtml_ACU(opt.original.substring(0, 200))}${opt.original.length > 200 ? '...' : ''}
+              </div>
+              <div style="color: var(--acu-text, #c1b9ad); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(125, 73, 64, 0.1); border-radius: 1px; border-left: 2px solid var(--acu-accent, #7d4940);">
+                <strong>修改方案：</strong>${escapeHtml_ACU(opt.plan || opt.reason || '未说明')}
+              </div>
+              <div style="color: #6a8a6a;">
+                <strong>优化：</strong>${escapeHtml_ACU(opt.optimized.substring(0, 200))}${opt.optimized.length > 200 ? '...' : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding-bottom: 10px;">
+          <button id="acu-opt-cancel" style="
+            padding: 8px 16px;
+            border: 1px solid var(--acu-border, #36332e);
+            background: transparent;
+            color: var(--acu-text-dim, #8a8075);
+            border-radius: 1px;
+            cursor: pointer;
+            min-width: 80px;
+            flex-shrink: 0;
+            font-family: inherit;
+          ">取消</button>
+          <button id="acu-opt-reoptimize" style="
+            padding: 8px 16px;
+            border: 1px solid var(--acu-accent, #7d4940);
+            background: transparent;
+            color: var(--acu-accent, #7d4940);
+            border-radius: 1px;
+            cursor: pointer;
+            min-width: 100px;
+            flex-shrink: 0;
+            font-family: inherit;
+          ">🔄 重新优化</button>
+          <button id="acu-opt-apply" style="
+            padding: 8px 16px;
+            border: none;
+            background: var(--acu-accent, #7d4940);
+            color: var(--acu-bg-0, #24221f);
+            border-radius: 1px;
+            cursor: pointer;
+            font-weight: 600;
+            min-width: 100px;
+            flex-shrink: 0;
+            font-family: inherit;
+          ">应用优化</button>
+        </div>
+      </div>
+      <div id="acu-opt-backdrop" style="
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 99999;
+      "></div>
+    `;
+        jQuery_API_ACU$1('body').append(dialogHtml);
+        // 绑定事件
+        jQuery_API_ACU$1('#acu-opt-cancel, #acu-opt-backdrop').on('click', function () {
+            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
+        });
+        // 绑定重新优化事件
+        jQuery_API_ACU$1('#acu-opt-reoptimize').on('click', async function () {
+            jQuery_API_ACU$1(this).prop('disabled', true).text('优化中...');
+            // 关闭当前对话框
+            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
+            logDebug_ACU(`[正文优化] 用户点击重新优化，messageIndex=${messageIndex}`);
+            // 重新优化
+            await reoptimizeMessage_ACU(messageIndex);
+        });
+        jQuery_API_ACU$1('#acu-opt-apply').on('click', async function () {
+            jQuery_API_ACU$1(this).prop('disabled', true).text('应用中...');
+            const success = await replaceChatMessage_ACU(messageIndex, result.optimizedContent, { originalContent: getOriginalContent_ACU(messageIndex) || originalContent });
+            if (success) {
+                jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
+                showToastr_ACU('success', '优化已应用');
+                // [新增] 手动确认模式下，应用优化后触发填表
+                logDebug_ACU('[正文优化] 手动确认模式：应用优化后触发填表...');
+                await triggerAutomaticUpdateIfNeeded_ACU();
+            }
+            else {
+                jQuery_API_ACU$1(this).prop('disabled', false).text('应用优化');
+                showToastr_ACU('error', '应用失败');
+            }
+        });
+        // [新增] 取消时也触发填表（使用原文）
+        jQuery_API_ACU$1('#acu-opt-cancel').on('click', async function () {
+            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
+            logDebug_ACU('[正文优化] 手动确认模式：用户取消优化，触发填表...');
+            await triggerAutomaticUpdateIfNeeded_ACU();
+        });
+    }
+    /**
+     * 显示优化结果摘要
+     */
+    function showOptimizationDiff_ACU(messageIndex, result) {
+        const message = `正文替换完成，共 ${result.optimizations.length} 处改进`;
+        const reoptButtonHtml = `<button id="acu-opt-toast-reoptimize" style="border: 1px solid var(--acu-accent, #7d4940); color: var(--acu-accent, #7d4940); background: transparent; padding: 5px 10px; border-radius: 1px; cursor: pointer; float: right; margin-left: 15px; font-size: 0.85em; font-family: inherit;" onmouseover="this.style.backgroundColor='var(--acu-accent, #7d4940); color: var(--acu-bg-0, #24221f);'" onmouseout="this.style.backgroundColor='transparent'; this.style.color='var(--acu-accent, #7d4940);'">🔄 重新优化</button>`;
+        const html = result.summary
+            ? `<div>${message}${reoptButtonHtml}<br><small style="opacity:0.7">${result.summary}</small></div>`
+            : `<div>${message}${reoptButtonHtml}</div>`;
+        const toast = showToastr_ACU('success', html, {
+            timeOut: 10000,
+            extendedTimeOut: 3000,
+            tapToDismiss: false,
+            onShown: function () {
+                jQuery_API_ACU$1('#acu-opt-toast-reoptimize').off('click.acu_reopt').on('click.acu_reopt', async function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    jQuery_API_ACU$1(this).prop('disabled', true).text('优化中...');
+                    if (toast && toastr_API_ACU$1)
+                        toastr_API_ACU$1.clear(toast);
+                    await reoptimizeMessage_ACU(messageIndex);
+                });
+            }
+        });
+    }
+    /**
+     * HTML转义
+     */
+    // --- [剧情推进] 循环提示词兼容性处理：将旧字符串格式转换为数组格式 ---
+    function ensureLoopPromptsArray_ACU(plotSettings) {
+        if (!plotSettings || !plotSettings.loopSettings)
+            return;
+        const ls = plotSettings.loopSettings;
+        // 如果 quickReplyContent 是字符串，转换为数组
+        if (typeof ls.quickReplyContent === 'string') {
+            const oldContent = ls.quickReplyContent.trim();
+            ls.quickReplyContent = oldContent ? [oldContent] : [];
+            ls.currentPromptIndex = 0;
+            logDebug_ACU('[剧情推进] 已迁移旧版循环提示词格式（字符串 -> 数组）');
+        }
+        // 确保是数组
+        if (!Array.isArray(ls.quickReplyContent)) {
+            ls.quickReplyContent = [];
+        }
+        // 确保 currentPromptIndex 存在且有效
+        if (typeof ls.currentPromptIndex !== 'number' || ls.currentPromptIndex < 0) {
+            ls.currentPromptIndex = 0;
+        }
+        // 确保索引不超出范围
+        if (ls.quickReplyContent.length > 0 && ls.currentPromptIndex >= ls.quickReplyContent.length) {
+            ls.currentPromptIndex = 0;
+        }
+    }
+    // --- [剧情推进/填表] 标签规则兼容：旧字符串字段 -> 新规则数组 ---
+    function ensureTagRulesCompat_ACU(targetSettings) {
+        if (!targetSettings || typeof targetSettings !== 'object')
+            return;
+        targetSettings.tableContextExtractRules = normalizeExtractRules_ACU(targetSettings.tableContextExtractRules, targetSettings.tableContextExtractTags || '');
+        targetSettings.tableContextExcludeRules = normalizeExcludeRules_ACU(targetSettings.tableContextExcludeRules, targetSettings.tableContextExcludeTags || '');
+        const plot = targetSettings.plotSettings;
+        if (!plot || typeof plot !== 'object')
+            return;
+        plot.contextExtractRules = normalizeExtractRules_ACU(plot.contextExtractRules, plot.contextExtractTags || '');
+        plot.contextExcludeRules = normalizeExcludeRules_ACU(plot.contextExcludeRules, plot.contextExcludeTags || '');
+        // 若当前配置为空，回填默认配置中的规则，确保 UI 可见默认规则
+        if ((!Array.isArray(plot.contextExtractRules) || plot.contextExtractRules.length === 0)
+            && (plot.contextExtractTags || '').trim() === '') {
+            plot.contextExtractRules = normalizeExtractRules_ACU(DEFAULT_PLOT_SETTINGS_ACU.contextExtractRules, DEFAULT_PLOT_SETTINGS_ACU.contextExtractTags || '');
+        }
+        if ((!Array.isArray(plot.contextExcludeRules) || plot.contextExcludeRules.length === 0)
+            && (plot.contextExcludeTags || '').trim() === '') {
+            plot.contextExcludeRules = normalizeExcludeRules_ACU(DEFAULT_PLOT_SETTINGS_ACU.contextExcludeRules, DEFAULT_PLOT_SETTINGS_ACU.contextExcludeTags || '');
+        }
+        ensurePlotTasksCompat_ACU(plot);
+        if (Array.isArray(plot.promptPresets)) {
+            plot.promptPresets = plot.promptPresets.map(preset => normalizePlotPresetExcludeRules_ACU(preset));
+        }
+    }
+    function getLegacyPromptFromThree_ACU(prompts, id) {
+        if (!prompts)
+            return '';
+        if (Array.isArray(prompts))
+            return (prompts.find(item => item && item.id === id)?.content) || '';
+        if (typeof prompts === 'object')
+            return prompts[id] || '';
+        return '';
+    }
+    function looksLikePromptGroupSegments_ACU(arr) {
+        if (!Array.isArray(arr) || arr.length === 0)
+            return false;
+        const first = arr[0];
+        return first && typeof first === 'object' && 'role' in first && 'content' in first && !('id' in first);
+    }
+    function getMainSlotFromPlotSegment_ACU(segment) {
+        if (!segment)
+            return '';
+        const slot = String(segment.mainSlot || '').toUpperCase();
+        if (slot === 'A' || slot === 'B')
+            return slot;
+        if (segment.isMain)
+            return 'A';
+        if (segment.isMain2)
+            return 'B';
+        return '';
+    }
+    function getLegacyPromptTextsFromPromptGroup_ACU(promptGroup) {
+        const segments = Array.isArray(promptGroup) ? promptGroup : [];
+        return {
+            mainPrompt: (segments.find(segment => getMainSlotFromPlotSegment_ACU(segment) === 'A')?.content) || '',
+            systemPrompt: (segments.find(segment => getMainSlotFromPlotSegment_ACU(segment) === 'B')?.content) || '',
+        };
+    }
+    function getPlotPromptGroupFromSource_ACU(source, { fallbackPromptGroup = null } = {}) {
+        if (Array.isArray(source?.promptGroup) && source.promptGroup.length > 0) {
+            return JSON.parse(JSON.stringify(source.promptGroup));
+        }
+        if (looksLikePromptGroupSegments_ACU(source?.prompts)) {
+            return JSON.parse(JSON.stringify(source.prompts));
+        }
+        const fallbackTexts = getLegacyPromptTextsFromPromptGroup_ACU(fallbackPromptGroup);
+        const legacyMain = source?.mainPrompt || getLegacyPromptFromThree_ACU(source?.prompts, 'mainPrompt') || fallbackTexts.mainPrompt || '';
+        const legacySystem = source?.systemPrompt || getLegacyPromptFromThree_ACU(source?.prompts, 'systemPrompt') || fallbackTexts.systemPrompt || '';
+        return buildDefaultPlotPromptGroup_ACU({ mainAContent: legacyMain, mainBContent: legacySystem });
+    }
+    function getPlotFinalDirectiveFromSource_ACU(source) {
+        if (!source || typeof source !== 'object')
+            return '';
+        return source.finalSystemDirective
+            || source.finalDirective
+            || getPlotPromptContentByIdFromSettings_ACU(source, 'finalSystemDirective')
+            || getLegacyPromptFromThree_ACU(source.prompts, 'finalSystemDirective')
+            || '';
+    }
+    function normalizePlotTask_ACU(task, { index = 0, fallbackTask = null } = {}) {
+        const cloned = task && typeof task === 'object' ? JSON.parse(JSON.stringify(task)) : {};
+        const fallback = fallbackTask && typeof fallbackTask === 'object' ? fallbackTask : null;
+        const defaultId = `plotTask${index + 1}`;
+        const rawId = String(cloned.id || cloned.name || fallback?.id || defaultId).trim();
+        const taskId = rawId.replace(/[^\w-]+/g, '_') || defaultId;
+        const taskName = String(cloned.name || fallback?.name || `剧情任务${index + 1}`).trim() || `剧情任务${index + 1}`;
+        const promptGroup = getPlotPromptGroupFromSource_ACU(cloned, { fallbackPromptGroup: fallback?.promptGroup || null });
+        return {
+            id: taskId,
+            name: taskName,
+            enabled: cloned.enabled !== false,
+            promptGroup,
+            extractTags: typeof cloned.extractTags === 'string' ? cloned.extractTags : (fallback?.extractTags || ''),
+            finalDirectiveTemplate: typeof cloned.finalDirectiveTemplate === 'string' ? cloned.finalDirectiveTemplate : (fallback?.finalDirectiveTemplate || ''),
+            minLength: normalizeNonNegativeInteger_ACU(cloned.minLength, fallback?.minLength ?? 0),
+            maxRetries: normalizePositiveInteger_ACU(cloned.maxRetries ?? cloned.loopSettings?.maxRetries, fallback?.maxRetries ?? DEFAULT_PLOT_SETTINGS_ACU.loopSettings?.maxRetries ?? 3),
+            mergeStrategy: typeof cloned.mergeStrategy === 'string' && cloned.mergeStrategy.trim()
+                ? cloned.mergeStrategy.trim()
+                : (fallback?.mergeStrategy || 'append'),
+            stage: normalizePositiveInteger_ACU(cloned.stage, fallback?.stage ?? 1),
+            order: normalizeNonNegativeInteger_ACU(cloned.order, fallback?.order ?? index),
+        };
+    }
+    function buildLegacyWrappedPlotTask_ACU(source, { taskId = 'defaultPlotTask', taskName = '默认任务', order = 0 } = {}) {
+        return normalizePlotTask_ACU({
+            id: taskId,
+            name: taskName,
+            enabled: true,
+            promptGroup: getPlotPromptGroupFromSource_ACU(source),
+            extractTags: typeof source?.extractTags === 'string' ? source.extractTags : '',
+            minLength: source?.minLength,
+            maxRetries: source?.loopSettings?.maxRetries,
+            mergeStrategy: 'append',
+            stage: 1,
+            order,
+        }, { index: order });
+    }
+    function normalizePlotTasks_ACU(source, { fallbackTaskId = 'defaultPlotTask', fallbackTaskName = '默认任务' } = {}) {
+        const baseSource = source && typeof source === 'object' ? source : {};
+        const fallbackTask = buildLegacyWrappedPlotTask_ACU(baseSource, {
+            taskId: fallbackTaskId,
+            taskName: fallbackTaskName,
+            order: 0,
+        });
+        const rawTasks = Array.isArray(baseSource.plotTasks) && baseSource.plotTasks.length > 0
+            ? baseSource.plotTasks
+            : [fallbackTask];
+        return rawTasks
+            .map((task, index) => normalizePlotTask_ACU(task, {
+            index,
+            fallbackTask: { ...fallbackTask, order: index },
+        }))
+            .sort((a, b) => a.order - b.order);
+    }
+    function syncLegacyPlotSettingsFromTask_ACU(plotSettings, task) {
+        if (!plotSettings || !task)
+            return;
+        ensurePlotPromptsArray_ACU(plotSettings);
+        const normalizedPromptGroup = getPlotPromptGroupFromSource_ACU(task);
+        plotSettings.promptGroup = JSON.parse(JSON.stringify(normalizedPromptGroup));
+        plotSettings.extractTags = typeof task.extractTags === 'string' ? task.extractTags : '';
+        plotSettings.minLength = normalizeNonNegativeInteger_ACU(task.minLength, 0);
+        const legacyPromptTexts = getLegacyPromptTextsFromPromptGroup_ACU(normalizedPromptGroup);
+        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'mainPrompt', legacyPromptTexts.mainPrompt || '');
+        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'systemPrompt', legacyPromptTexts.systemPrompt || '');
+    }
+    function syncPrimaryPlotTaskFromLegacySettings_ACU(plotSettings) {
+        if (!plotSettings || typeof plotSettings !== 'object')
+            return;
+        ensurePlotPromptGroup_ACU(plotSettings);
+        ensurePlotPromptsArray_ACU(plotSettings);
+        const legacyPromptTexts = getLegacyPromptTextsFromPromptGroup_ACU(plotSettings.promptGroup || []);
+        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'mainPrompt', legacyPromptTexts.mainPrompt || '');
+        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'systemPrompt', legacyPromptTexts.systemPrompt || '');
+        const normalizedTasks = normalizePlotTasks_ACU(plotSettings);
+        const primaryTaskIndex = normalizedTasks.findIndex(task => task && task.enabled !== false);
+        const targetIndex = primaryTaskIndex >= 0 ? primaryTaskIndex : 0;
+        const currentTask = normalizedTasks[targetIndex] || buildLegacyWrappedPlotTask_ACU(plotSettings, { order: targetIndex });
+        normalizedTasks[targetIndex] = normalizePlotTask_ACU({
+            ...currentTask,
+            promptGroup: JSON.parse(JSON.stringify(plotSettings.promptGroup || [])),
+            extractTags: plotSettings.extractTags,
+            minLength: plotSettings.minLength,
+            maxRetries: plotSettings.loopSettings?.maxRetries,
+            order: currentTask.order ?? targetIndex,
+        }, {
+            index: targetIndex,
+            fallbackTask: currentTask,
+        });
+        plotSettings.plotTasks = normalizedTasks;
+    }
+    function ensurePlotTasksCompat_ACU(plotSettings, { persist = false, syncLegacy = true } = {}) {
+        if (!plotSettings || typeof plotSettings !== 'object')
+            return;
+        const normalizedTasks = normalizePlotTasks_ACU(plotSettings);
+        plotSettings.plotTasks = normalizedTasks;
+        if (syncLegacy && normalizedTasks.length > 0) {
+            const primaryTask = normalizedTasks.find(task => task && task.enabled !== false) || normalizedTasks[0];
+            syncLegacyPlotSettingsFromTask_ACU(plotSettings, primaryTask);
+        }
+        if (persist) {
+            try {
+                saveSettings_ACU();
+            }
+            catch (e) { }
+        }
+    }
+    function applyPlotPresetToSettings_ACU(plotSettings, preset) {
+        if (!plotSettings || !preset) {
+            return { normalizedPreset: null, promptGroup: [], finalDirective: '' };
+        }
+        const normalizedPreset = normalizePlotPresetExcludeRules_ACU(preset);
+        const finalDirective = getPlotFinalDirectiveFromSource_ACU(normalizedPreset);
+        ensurePlotPromptsArray_ACU(plotSettings);
+        ensureLoopPromptsArray_ACU(plotSettings);
+        plotSettings.plotTasks = normalizePlotTasks_ACU(normalizedPreset);
+        plotSettings.promptGroup = JSON.parse(JSON.stringify(getPlotPromptGroupFromSource_ACU(normalizedPreset)));
+        plotSettings.finalSystemDirective = finalDirective || '';
+        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'finalSystemDirective', finalDirective || '');
+        plotSettings.rateMain = normalizedPreset.rateMain ?? 1.0;
+        plotSettings.ratePersonal = normalizedPreset.ratePersonal ?? 1.0;
+        plotSettings.rateErotic = normalizedPreset.rateErotic ?? 0;
+        plotSettings.rateCuckold = normalizedPreset.rateCuckold ?? 1.0;
+        plotSettings.recallCount = normalizedPreset.recallCount ?? 20;
+        plotSettings.extractTags = normalizedPreset.extractTags || '';
+        plotSettings.contextExtractRules = normalizeExtractRules_ACU(normalizedPreset.contextExtractRules, normalizedPreset.contextExtractTags || '');
+        plotSettings.contextExcludeRules = normalizeExcludeRules_ACU(normalizedPreset.contextExcludeRules, normalizedPreset.contextExcludeTags || '');
+        plotSettings.minLength = normalizedPreset.minLength ?? 0;
+        plotSettings.contextTurnCount = normalizedPreset.contextTurnCount ?? 3;
+        if (normalizedPreset.loopSettings) {
+            plotSettings.loopSettings = { ...plotSettings.loopSettings, ...normalizedPreset.loopSettings };
+        }
+        ensureLoopPromptsArray_ACU(plotSettings);
+        ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
+        plotSettings.finalSystemDirective = getPlotPromptContentByIdFromSettings_ACU(plotSettings, 'finalSystemDirective') || plotSettings.finalSystemDirective || '';
+        return {
+            normalizedPreset,
+            promptGroup: JSON.parse(JSON.stringify(plotSettings.promptGroup || [])),
+            finalDirective: getPlotPromptContentByIdFromSettings_ACU(plotSettings, 'finalSystemDirective') || '',
+        };
+    }
+    const DEFAULT_PRESET_OPTION_VALUE_ACU = '__ACU_DEFAULT_PRESET__';
+    function normalizePlotPresetSelectionValue_ACU(presetName) {
+        const normalizedName = String(presetName ?? '').trim();
+        return normalizedName === DEFAULT_PRESET_OPTION_VALUE_ACU ? '' : normalizedName;
+    }
+    function isDefaultPlotPresetSelection_ACU(presetName) {
+        return normalizePlotPresetSelectionValue_ACU(presetName) === '';
+    }
+    function ensurePlotPresetBindingsStore_ACU() {
+        if (!settings_ACU || typeof settings_ACU !== 'object')
+            return {};
+        if (!settings_ACU.plotPresetBindings || typeof settings_ACU.plotPresetBindings !== 'object' || Array.isArray(settings_ACU.plotPresetBindings)) {
+            settings_ACU.plotPresetBindings = {};
+        }
+        return settings_ACU.plotPresetBindings;
+    }
+    function normalizePlotPresetBindingChatId_ACU(chatId = currentChatFileIdentifier_ACU) {
+        const normalizedChatId = cleanChatName_ACU(String(chatId ?? '').trim());
+        return (normalizedChatId && normalizedChatId !== 'unknown_chat_source') ? normalizedChatId : '';
+    }
+    function hasPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
+        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
+        if (!normalizedChatId)
+            return false;
+        return Object.prototype.hasOwnProperty.call(ensurePlotPresetBindingsStore_ACU(), normalizedChatId);
+    }
+    function getPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
+        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
+        if (!normalizedChatId)
+            return null;
+        const bindingStore = ensurePlotPresetBindingsStore_ACU();
+        if (!Object.prototype.hasOwnProperty.call(bindingStore, normalizedChatId))
+            return null;
+        const rawBinding = bindingStore[normalizedChatId] || {};
+        const normalizedSource = ['inherit', 'ui', 'api'].includes(rawBinding.source) ? rawBinding.source : 'inherit';
+        const normalizedBinding = {
+            presetName: normalizePlotPresetSelectionValue_ACU(rawBinding.presetName),
+            source: normalizedSource,
+            isExplicit: rawBinding.isExplicit === true,
+            updatedAt: Number.isFinite(rawBinding.updatedAt) ? rawBinding.updatedAt : 0,
+        };
+        bindingStore[normalizedChatId] = normalizedBinding;
+        return normalizedBinding;
+    }
+    function setPlotPresetBindingForChat_ACU(chatId, presetName, { source = 'inherit', isExplicit = false } = {}) {
+        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
+        if (!normalizedChatId)
+            return null;
+        const normalizedSource = ['inherit', 'ui', 'api'].includes(source) ? source : 'inherit';
+        const binding = {
+            presetName: normalizePlotPresetSelectionValue_ACU(presetName),
+            source: normalizedSource,
+            isExplicit: isExplicit === true,
+            updatedAt: Date.now(),
+        };
+        ensurePlotPresetBindingsStore_ACU()[normalizedChatId] = binding;
+        return binding;
+    }
+    function clearPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
+        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
+        if (!normalizedChatId)
+            return false;
+        const bindingStore = ensurePlotPresetBindingsStore_ACU();
+        if (!Object.prototype.hasOwnProperty.call(bindingStore, normalizedChatId))
+            return false;
+        delete bindingStore[normalizedChatId];
+        return true;
+    }
+    function getCurrentChatScopedPlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
+        const chatScopeState = getCurrentChatPlotScopeState_ACU();
+        if (chatScopeState)
+            return normalizePlotPresetSelectionValue_ACU(chatScopeState.presetName || '');
+        const binding = getPlotPresetBindingForChat_ACU();
+        if (binding)
+            return binding.presetName || '';
+        if (!fallbackToGlobal)
+            return '';
+        return normalizePlotPresetSelectionValue_ACU(settings_ACU?.plotSettings?.lastUsedPresetName || '');
+    }
+    function findPlotPresetByName_ACU(presetName) {
+        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
+        if (!normalizedPresetName)
+            return null;
+        const presets = settings_ACU?.plotSettings?.promptPresets || [];
+        const targetPresetRaw = presets.find(p => p.name === normalizedPresetName);
+        return targetPresetRaw ? normalizePlotPresetExcludeRules_ACU(targetPresetRaw) : null;
+    }
+    function resolveActivePlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
+        const chatScopeState = getCurrentChatPlotScopeState_ACU();
+        if (chatScopeState) {
+            return normalizePlotPresetSelectionValue_ACU(chatScopeState.presetName || '');
+        }
+        const binding = getPlotPresetBindingForChat_ACU();
+        if (binding) {
+            if (isDefaultPlotPresetSelection_ACU(binding.presetName)) {
+                return '';
+            }
+            const boundPreset = findPlotPresetByName_ACU(binding.presetName);
+            if (boundPreset) {
+                return boundPreset.name;
+            }
+        }
+        if (!fallbackToGlobal) {
+            return '';
+        }
+        const globalPresetName = normalizePlotPresetSelectionValue_ACU(settings_ACU?.plotSettings?.lastUsedPresetName || '');
+        if (isDefaultPlotPresetSelection_ACU(globalPresetName)) {
+            return '';
+        }
+        const globalPreset = findPlotPresetByName_ACU(globalPresetName);
+        return globalPreset ? globalPreset.name : '';
+    }
+    function normalizePlotEditorScope_ACU(scope = 'resolved') {
+        if (scope === 'chat')
+            return 'chat';
+        if (scope === 'global')
+            return 'global';
+        return 'resolved';
+    }
+    function setCurrentEditablePlotPresetState_ACU(presetName, { scope = 'resolved', source = '' } = {}) {
+        _set_currentEditablePlotPresetState_ACU({
+            initialized: true,
+            presetName: normalizePlotPresetSelectionValue_ACU(presetName),
+            scope: normalizePlotEditorScope_ACU(scope),
+            source: String(source || ''),
+        });
+        return currentEditablePlotPresetState_ACU;
+    }
+    function getCurrentEditablePlotPresetName_ACU({ fallbackToResolved = true } = {}) {
+        if (currentEditablePlotPresetState_ACU?.initialized) {
+            return normalizePlotPresetSelectionValue_ACU(currentEditablePlotPresetState_ACU.presetName || '');
+        }
+        if (!fallbackToResolved) {
+            return '';
+        }
+        return resolveActivePlotPresetName_ACU({ fallbackToGlobal: true });
+    }
+    function getCurrentRuntimePlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
+        return normalizePlotPresetSelectionValue_ACU(resolveActivePlotPresetName_ACU({ fallbackToGlobal }));
+    }
+    function syncCurrentEditablePlotPresetState_ACU({ source = 'runtime_sync' } = {}) {
+        const chatScopeState = getCurrentChatPlotScopeState_ACU();
+        const binding = getPlotPresetBindingForChat_ACU();
+        const resolvedPresetName = resolveActivePlotPresetName_ACU({ fallbackToGlobal: true });
+        const scope = (chatScopeState || binding) ? 'chat' : 'global';
+        return setCurrentEditablePlotPresetState_ACU(resolvedPresetName, { scope, source });
+    }
+    function getActivePlotEditorSettings_ACU({ fallbackToRuntime = true } = {}) {
+        const activeSettings = activePlotEditorSettings_ACU || (fallbackToRuntime ? settings_ACU?.plotSettings : null);
+        return activeSettings && typeof activeSettings === 'object' ? activeSettings : null;
+    }
+    function setActivePlotEditorSettings_ACU(plotSettings) {
+        if (!plotSettings || typeof plotSettings !== 'object') {
+            _set_activePlotEditorSettings_ACU(null);
+            return null;
+        }
+        _set_activePlotEditorSettings_ACU(plotSettings);
+        ensurePlotPromptsArray_ACU(activePlotEditorSettings_ACU);
+        ensureLoopPromptsArray_ACU(activePlotEditorSettings_ACU);
+        ensurePlotTasksCompat_ACU(activePlotEditorSettings_ACU, { syncLegacy: true });
+        activePlotEditorSettings_ACU.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(activePlotEditorSettings_ACU);
+        setPlotPromptContentByIdForSettings_ACU(activePlotEditorSettings_ACU, 'finalSystemDirective', activePlotEditorSettings_ACU.finalSystemDirective || '');
+        return activePlotEditorSettings_ACU;
+    }
+    function getPlotGlobalRevision_ACU() {
+        const rawRevision = settings_ACU?.plotSettings?.globalRevision;
+        return Number.isFinite(rawRevision) ? Math.max(0, Math.trunc(rawRevision)) : 0;
+    }
+    function cloneDefaultPlotSettingsForPreset_ACU() {
+        const defaults = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
+        ensurePlotPromptsArray_ACU(defaults);
+        ensureLoopPromptsArray_ACU(defaults);
+        ensurePlotTasksCompat_ACU(defaults, { syncLegacy: true });
+        return defaults;
+    }
+    function buildPlotSettingsPreviewFromPreset_ACU(presetName) {
+        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
+        const previewSettings = cloneDefaultPlotSettingsForPreset_ACU();
+        if (isDefaultPlotPresetSelection_ACU(normalizedPresetName)) {
+            resetPlotSettingsToDefault_ACU(previewSettings);
+        }
+        else {
+            const targetPreset = findPlotPresetByName_ACU(normalizedPresetName);
+            if (!targetPreset)
+                return null;
+            applyPlotPresetToSettings_ACU(previewSettings, targetPreset);
+        }
+        previewSettings.lastUsedPresetName = normalizedPresetName;
+        ensurePlotPromptsArray_ACU(previewSettings);
+        ensureLoopPromptsArray_ACU(previewSettings);
+        ensurePlotTasksCompat_ACU(previewSettings, { syncLegacy: true });
+        previewSettings.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(previewSettings);
+        setPlotPromptContentByIdForSettings_ACU(previewSettings, 'finalSystemDirective', previewSettings.finalSystemDirective || '');
+        return previewSettings;
+    }
+    function resetPlotSettingsToDefault_ACU(plotSettings) {
+        if (!plotSettings || typeof plotSettings !== 'object')
+            return null;
+        const preservedPromptPresets = Array.isArray(plotSettings.promptPresets)
+            ? JSON.parse(JSON.stringify(plotSettings.promptPresets))
+            : [];
+        const preservedLastUsedPresetName = normalizePlotPresetSelectionValue_ACU(plotSettings.lastUsedPresetName || '');
+        const preservedGlobalRevision = Number.isFinite(plotSettings.globalRevision)
+            ? Math.max(0, Math.trunc(plotSettings.globalRevision))
+            : 0;
+        const defaults = cloneDefaultPlotSettingsForPreset_ACU();
+        Object.keys(plotSettings).forEach(key => {
+            delete plotSettings[key];
+        });
+        Object.assign(plotSettings, defaults);
+        plotSettings.promptPresets = preservedPromptPresets;
+        plotSettings.lastUsedPresetName = preservedLastUsedPresetName;
+        plotSettings.globalRevision = preservedGlobalRevision;
+        ensurePlotPromptsArray_ACU(plotSettings);
+        ensureLoopPromptsArray_ACU(plotSettings);
+        ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
+        return plotSettings;
+    }
+    function replaceCurrentPlotSettingsWithSnapshot_ACU(plotSettings, snapshot) {
+        if (!plotSettings || typeof plotSettings !== 'object')
+            return null;
+        const normalizedSnapshot = sanitizePlotSettingsSnapshotForChat_ACU(snapshot);
+        if (!normalizedSnapshot)
+            return null;
+        const preservedPromptPresets = Array.isArray(plotSettings.promptPresets)
+            ? JSON.parse(JSON.stringify(plotSettings.promptPresets))
+            : [];
+        const preservedLastUsedPresetName = normalizePlotPresetSelectionValue_ACU(plotSettings.lastUsedPresetName || '');
+        const preservedGlobalRevision = Number.isFinite(plotSettings.globalRevision)
+            ? Math.max(0, Math.trunc(plotSettings.globalRevision))
+            : 0;
+        const defaults = cloneDefaultPlotSettingsForPreset_ACU();
+        Object.keys(plotSettings).forEach(key => {
+            delete plotSettings[key];
+        });
+        Object.assign(plotSettings, defaults, normalizedSnapshot);
+        plotSettings.promptPresets = preservedPromptPresets;
+        plotSettings.lastUsedPresetName = preservedLastUsedPresetName;
+        plotSettings.globalRevision = preservedGlobalRevision;
+        ensurePlotPromptsArray_ACU(plotSettings);
+        ensureLoopPromptsArray_ACU(plotSettings);
+        ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
+        plotSettings.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(plotSettings);
+        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'finalSystemDirective', plotSettings.finalSystemDirective || '');
+        return plotSettings;
+    }
+    function queueSaveCurrentChatPlotScope_ACU(source = 'ui_plot_scope') {
+        if (typeof SillyTavern_API_ACU?.saveChat !== 'function')
+            return;
+        Promise.resolve()
+            .then(() => SillyTavern_API_ACU.saveChat())
+            .catch(error => logWarn_ACU(`[剧情推进] 保存聊天级预设快照失败(${source}):`, error));
+    }
+    function switchCurrentChatPlotPreset_ACU(presetName, { source = 'ui', refreshUi = false, save = true } = {}) {
+        if (!settings_ACU?.plotSettings)
+            return false;
+        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
+        const hadLegacyChatScopeSnapshot = !!getCurrentChatPlotScopeState_ACU();
+        if (hadLegacyChatScopeSnapshot) {
+            clearCurrentChatPlotScopeState_ACU();
+        }
+        const bindingSource = String(source || '').startsWith('api') ? 'api' : 'ui';
+        let result = null;
+        if (isDefaultPlotPresetSelection_ACU(normalizedPresetName)) {
+            clearPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU);
+            const inheritedGlobalPresetName = normalizePlotPresetSelectionValue_ACU(settings_ACU.plotSettings.lastUsedPresetName || '');
+            const inheritedGlobalPreset = findPlotPresetByName_ACU(inheritedGlobalPresetName);
+            if (inheritedGlobalPreset) {
+                applyPlotPresetToSettings_ACU(settings_ACU.plotSettings, inheritedGlobalPreset);
+            }
+            else {
+                resetPlotSettingsToDefault_ACU(settings_ACU.plotSettings);
+            }
+            _set_currentPlotTaskEditorId_ACU('');
+            setCurrentEditablePlotPresetState_ACU(inheritedGlobalPresetName, {
+                scope: 'chat',
+                source,
+            });
+            result = {
+                presetName: '',
+                isDefault: true,
+                followsGlobal: true,
+                preset: inheritedGlobalPreset || null,
+                activePresetName: inheritedGlobalPresetName,
+            };
+        }
+        else {
+            const targetPreset = findPlotPresetByName_ACU(normalizedPresetName);
+            if (!targetPreset) {
+                return false;
+            }
+            applyPlotPresetToSettings_ACU(settings_ACU.plotSettings, targetPreset);
+            setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, targetPreset.name, {
+                source: bindingSource,
+                isExplicit: true,
+            });
+            _set_currentPlotTaskEditorId_ACU('');
+            setCurrentEditablePlotPresetState_ACU(targetPreset.name, {
+                scope: 'chat',
+                source,
+            });
+            result = {
+                presetName: targetPreset.name,
+                isDefault: false,
+                followsGlobal: false,
+                preset: targetPreset,
+                activePresetName: targetPreset.name,
+            };
+        }
+        if (save) {
+            saveSettings_ACU();
+            if (hadLegacyChatScopeSnapshot) {
+                queueSaveCurrentChatPlotScope_ACU(`${bindingSource}_clear_legacy_plot_scope`);
+            }
+        }
+        if ($popupInstance_ACU$1 && refreshUi) {
+            schedulePlotSettingsUiRefresh_ACU(settings_ACU.plotSettings);
+        }
+        return result;
+    }
+    function persistPlotPresetSelectionState_ACU(presetName, { source = 'ui', updateGlobal = false, save = true, persistChatScope = !updateGlobal } = {}) {
+        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
+        let shouldSaveChat = false;
+        if (updateGlobal && settings_ACU?.plotSettings) {
+            settings_ACU.plotSettings.lastUsedPresetName = normalizedPresetName;
+        }
+        else if (persistChatScope && settings_ACU?.plotSettings) {
+            const plotScopeState = buildChatPlotScopeStateFromSettings_ACU(settings_ACU.plotSettings, {
+                presetName: normalizedPresetName,
+                source,
+                originGlobalName: normalizePlotPresetSelectionValue_ACU(settings_ACU.plotSettings.lastUsedPresetName || ''),
+                originGlobalRevision: getPlotGlobalRevision_ACU(),
+                updatedAt: Date.now(),
+            });
+            if (plotScopeState) {
+                setCurrentChatPlotScopeState_ACU(plotScopeState, { reason: `plot_scope_${source}` });
+                shouldSaveChat = true;
+            }
+            setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, normalizedPresetName, {
+                source,
+                isExplicit: source !== 'inherit',
+            });
+        }
+        else {
+            setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, normalizedPresetName, {
+                source,
+                isExplicit: source !== 'inherit',
+            });
+        }
+        if (save) {
+            saveSettings_ACU();
+            if (shouldSaveChat && typeof SillyTavern_API_ACU?.saveChat === 'function') {
+                Promise.resolve()
+                    .then(() => SillyTavern_API_ACU.saveChat())
+                    .catch(error => logWarn_ACU('[剧情推进] 保存聊天级预设快照失败:', error));
+            }
+        }
+        return normalizedPresetName;
+    }
+    function applyGlobalPlotPresetSelectionForEditor_ACU(presetName, { source = 'ui', refreshUi = false, save = true } = {}) {
+        if (!settings_ACU?.plotSettings)
+            return false;
+        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
+        const previewSettings = buildPlotSettingsPreviewFromPreset_ACU(normalizedPresetName);
+        if (!previewSettings) {
+            return false;
+        }
+        _set_currentPlotTaskEditorId_ACU('');
+        setCurrentEditablePlotPresetState_ACU(normalizedPresetName, {
+            scope: 'global',
+            source,
+        });
+        persistPlotPresetSelectionState_ACU(normalizedPresetName, {
+            source,
+            updateGlobal: true,
+            save,
+            persistChatScope: false,
+        });
+        if ($popupInstance_ACU$1 && refreshUi) {
+            schedulePlotSettingsUiRefresh_ACU(previewSettings);
+        }
+        return {
+            presetName: normalizedPresetName,
+            isDefault: isDefaultPlotPresetSelection_ACU(normalizedPresetName),
+            previewSettings,
+        };
+    }
+    function schedulePlotSettingsUiRefresh_ACU(plotSettingsOverride = null) {
+        if (!$popupInstance_ACU$1 || !$popupInstance_ACU$1.length)
+            return;
+        const refreshTarget = plotSettingsOverride || getActivePlotEditorSettings_ACU();
+        const $targetPopup = $popupInstance_ACU$1;
+        const runRefresh = () => {
+            if (!$popupInstance_ACU$1 || !$popupInstance_ACU$1.length)
+                return;
+            if (!$targetPopup || !$targetPopup.length)
+                return;
+            $targetPopup.triggerHandler('acu_plot_settings_refresh', [refreshTarget]);
+        };
+        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => window.requestAnimationFrame(runRefresh));
+            return;
+        }
+        setTimeout(runRefresh, 0);
+    }
+    function normalizePlotPresetExcludeRules_ACU(preset) {
+        if (!preset || typeof preset !== 'object')
+            return preset;
+        const cloned = JSON.parse(JSON.stringify(preset));
+        cloned.contextExtractRules = normalizeExtractRules_ACU(cloned.contextExtractRules, cloned.contextExtractTags || '');
+        cloned.contextExcludeRules = normalizeExcludeRules_ACU(cloned.contextExcludeRules, cloned.contextExcludeTags || '');
+        cloned.plotTasks = normalizePlotTasks_ACU(cloned);
+        cloned.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(cloned);
+        ensurePlotTasksCompat_ACU(cloned, { syncLegacy: true });
+        setPlotPromptContentByIdForSettings_ACU(cloned, 'finalSystemDirective', cloned.finalSystemDirective || '');
+        // 新格式保存：不再继续写入旧字段
+        delete cloned.contextExtractTags;
+        delete cloned.contextExcludeTags;
+        return cloned;
+    }
+    function stripPlotPresetWorldbookEntrySelectionForExport_ACU(preset) {
+        const normalizedPreset = normalizePlotPresetExcludeRules_ACU(preset);
+        if (!normalizedPreset || typeof normalizedPreset !== 'object')
+            return normalizedPreset;
+        const exportPreset = JSON.parse(JSON.stringify(normalizedPreset));
+        if (exportPreset.plotWorldbookConfig && typeof exportPreset.plotWorldbookConfig === 'object') {
+            delete exportPreset.plotWorldbookConfig.enabledEntries;
+        }
+        return exportPreset;
+    }
+    function renderExcludeRuleRows_ACU(containerSelector, rules, { startPlaceholder = '开始词', endPlaceholder = '结束词', fallbackRules = [] } = {}) {
+        if (!$popupInstance_ACU$1)
+            return;
+        const $container = $popupInstance_ACU$1.find(containerSelector);
+        if (!$container.length)
+            return;
+        let normalized = normalizeExcludeRules_ACU(rules, '');
+        if (normalized.length === 0 && Array.isArray(fallbackRules) && fallbackRules.length > 0) {
+            normalized = normalizeExcludeRules_ACU(fallbackRules, '');
+        }
+        $container.empty();
+        const appendRow = (rule = {}) => {
+            const rowHtml = `
+        <div class="acu-exclude-rule-row" style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
+          <input type="text" class="text_pole acu-exclude-rule-start" placeholder="${escapeHtml_ACU(startPlaceholder)}" style="flex:1;" value="${escapeHtml_ACU(rule.start || '')}">
+          <input type="text" class="text_pole acu-exclude-rule-end" placeholder="${escapeHtml_ACU(endPlaceholder)}" style="flex:1;" value="${escapeHtml_ACU(rule.end || '')}">
+          <button type="button" class="button acu-exclude-rule-delete" title="删除规则" style="padding:4px 8px;">删除</button>
+        </div>
+      `;
+            $container.append(rowHtml);
+        };
+        const rows = normalized.length > 0 ? normalized : [{ start: '', end: '' }];
+        rows.forEach(rule => appendRow(rule));
+    }
+    function appendExcludeRuleRow_ACU(containerSelector, { startPlaceholder = '开始词', endPlaceholder = '结束词' } = {}) {
+        if (!$popupInstance_ACU$1)
+            return;
+        const $container = $popupInstance_ACU$1.find(containerSelector);
+        if (!$container.length)
+            return;
+        const rowHtml = `
+      <div class="acu-exclude-rule-row" style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
+        <input type="text" class="text_pole acu-exclude-rule-start" placeholder="${escapeHtml_ACU(startPlaceholder)}" style="flex:1;" value="">
+        <input type="text" class="text_pole acu-exclude-rule-end" placeholder="${escapeHtml_ACU(endPlaceholder)}" style="flex:1;" value="">
+        <button type="button" class="button acu-exclude-rule-delete" title="删除规则" style="padding:4px 8px;">删除</button>
+      </div>
+    `;
+        $container.append(rowHtml);
+    }
+    function readExcludeRulesFromRows_ACU(containerSelector) {
+        if (!$popupInstance_ACU$1)
+            return [];
+        const $container = $popupInstance_ACU$1.find(containerSelector);
+        if (!$container.length)
+            return [];
+        const collected = [];
+        $container.find('.acu-exclude-rule-row').each(function () {
+            const start = String(jQuery_API_ACU$1(this).find('.acu-exclude-rule-start').val() || '').trim();
+            const end = String(jQuery_API_ACU$1(this).find('.acu-exclude-rule-end').val() || '').trim();
+            if (start && end)
+                collected.push({ start, end });
+        });
+        return normalizeExcludeRules_ACU(collected, '');
+    }
+    // --- [剧情推进] Prompt 辅助：兼容 prompts(数组/旧对象) 并以 id 读写 ---
+    function ensurePlotPromptsArray_ACU(plotSettings) {
+        if (!plotSettings)
+            return;
+        const p = plotSettings.prompts;
+        // 已是数组：补齐必要项即可
+        if (Array.isArray(p)) {
+            const required = [
+                { id: 'mainPrompt', role: 'system', name: '主系统提示词 (通用)' },
+                { id: 'systemPrompt', role: 'user', name: '拦截任务详细指令' },
+                { id: 'finalSystemDirective', role: 'system', name: '最终注入指令 (Storyteller Directive)' },
+            ];
+            required.forEach(req => {
+                if (!p.some(x => x && x.id === req.id)) {
+                    p.push({ ...req, content: '', deletable: false });
+                }
+            });
+            return;
+        }
+        // 旧对象结构：{ mainPrompt, systemPrompt, finalSystemDirective }
+        const legacy = (p && typeof p === 'object') ? p : {};
+        plotSettings.prompts = [
+            { id: 'mainPrompt', name: '主系统提示词 (通用)', role: 'system', content: legacy.mainPrompt || '', deletable: false },
+            { id: 'systemPrompt', name: '拦截任务详细指令', role: 'user', content: legacy.systemPrompt || '', deletable: false },
+            { id: 'finalSystemDirective', name: '最终注入指令 (Storyteller Directive)', role: 'system', content: legacy.finalSystemDirective || '', deletable: false },
+        ];
+    }
+    function getPlotPromptContentByIdFromSettings_ACU(plotSettings, promptId) {
+        if (!plotSettings)
+            return '';
+        ensurePlotPromptsArray_ACU(plotSettings);
+        const arr = plotSettings.prompts || [];
+        const item = arr.find(p => p && p.id === promptId);
+        return item?.content || '';
+    }
+    function getPlotPromptContentById_ACU(promptId) {
+        return getPlotPromptContentByIdFromSettings_ACU(settings_ACU?.plotSettings, promptId);
+    }
+    function setPlotPromptContentByIdForSettings_ACU(plotSettings, promptId, content) {
+        if (!plotSettings)
+            return;
+        ensurePlotPromptsArray_ACU(plotSettings);
+        const arr = plotSettings.prompts || [];
+        const item = arr.find(p => p && p.id === promptId);
+        if (item)
+            item.content = content ?? '';
+    }
+    function setPlotPromptContentById_ACU(promptId, content) {
+        setPlotPromptContentByIdForSettings_ACU(settings_ACU?.plotSettings, promptId, content);
+    }
+    // --- [剧情推进] 循环提示词列表渲染和管理 ---
+    function renderLoopPromptsList_ACU(plotSettingsOverride = null) {
+        const $container = $popupInstance_ACU$1.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompts-container`);
+        if (!$container.length)
+            return;
+        const plotSettings = plotSettingsOverride || getActivePlotEditorSettings_ACU();
+        if (!plotSettings)
+            return;
+        ensureLoopPromptsArray_ACU(plotSettings);
+        const prompts = plotSettings.loopSettings.quickReplyContent || [];
+        $container.empty();
+        if (prompts.length === 0) {
+            $container.html('<div style="padding: 20px; text-align: center; color: var(--text_secondary); border: 1px dashed var(--border_color_light); border-radius: 6px;">暂无提示词，点击上方"添加提示词"按钮添加</div>');
+            return;
+        }
+        prompts.forEach((prompt, index) => {
+            const $item = jQuery_API_ACU$1('<div>', {
+                class: 'loop-prompt-item',
+                style: 'display: flex; gap: 8px; align-items: flex-start; padding: 10px; background: var(--background_light); border: 1px solid var(--border_color_light); border-radius: 6px;'
+            });
+            const $content = jQuery_API_ACU$1('<div>', {
+                style: 'flex: 1; display: flex; flex-direction: column; gap: 6px;'
+            });
+            $content.append(jQuery_API_ACU$1('<div>', {
+                style: 'display: flex; align-items: center; gap: 8px;'
+            }).append(jQuery_API_ACU$1('<span>', {
+                style: 'font-size: 0.85em; color: var(--text_secondary); font-weight: 500;',
+                text: `提示词 #${index + 1}`
+            })));
+            const $textarea = jQuery_API_ACU$1('<textarea>', {
+                class: 'loop-prompt-textarea text_pole',
+                'data-index': index,
+                rows: 2,
+                placeholder: '输入循环提示词内容...',
+                style: 'resize: vertical; width: 100%;',
+                text: prompt || ''
+            });
+            $content.append($textarea);
+            const $deleteBtn = jQuery_API_ACU$1('<button>', {
+                type: 'button',
+                class: 'loop-prompt-delete-btn button',
+                'data-index': index,
+                style: 'padding: 6px 10px; color: var(--danger); background: transparent; border: 1px solid var(--danger); border-radius: 4px; cursor: pointer; flex-shrink: 0;',
+                title: '删除此提示词',
+                html: '<i class="fa-solid fa-trash"></i>'
+            });
+            $item.append($content).append($deleteBtn);
+            $container.append($item);
+        });
+    }
+    function saveLoopPromptsFromUI_ACU() {
+        const plotSettings = getActivePlotEditorSettings_ACU();
+        if (!plotSettings)
+            return;
+        ensureLoopPromptsArray_ACU(plotSettings);
+        const prompts = [];
+        $popupInstance_ACU$1.find('.loop-prompt-textarea').each(function () {
+            const content = jQuery_API_ACU$1(this).val()?.trim() || '';
+            if (content) {
+                prompts.push(content);
+            }
+        });
+        plotSettings.loopSettings.quickReplyContent = prompts;
+        plotSettings.loopSettings.currentPromptIndex = 0; // 重置索引
+        saveSettings_ACU();
+    }
+    // --- [剧情推进] 临时替换"AI指令预设"(settings_ACU.charCardPrompt)，并在生成结束后恢复 ---
+    let plotPromptOverrideActive_ACU = false;
+    let plotPromptOverrideBackup_ACU = null;
+    // [剧情推进] 去重锁：避免同一次发送被 TavernHelper.generate 钩子 + GENERATION_AFTER_COMMANDS 双重处理导致重复 toast/误报失败
+    let lastPlotInterception_ACU = { text: '', ts: 0 };
+    function markPlotIntercept_ACU(text) {
+        lastPlotInterception_ACU = { text: String(text || ''), ts: Date.now() };
+    }
+    function shouldSkipPlotIntercept_ACU(text, windowMs = 5000) {
+        const t = String(text || '');
+        if (!t)
+            return false;
+        const age = Date.now() - (lastPlotInterception_ACU?.ts || 0);
+        if (age < 0 || age > windowMs)
+            return false;
+        return t === String(lastPlotInterception_ACU?.text || '');
+    }
+    function buildPlotModifiedCharCardPrompt_ACU(original) {
+        const originalArr = Array.isArray(original)
+            ? original
+            : (typeof original === 'string' ? [{ role: 'USER', content: original }] : []);
+        const cloned = JSON.parse(JSON.stringify(originalArr));
+        const plotMain = (getPlotPromptContentById_ACU('mainPrompt') || '').trim();
+        const plotTask = (getPlotPromptContentById_ACU('systemPrompt') || '').trim();
+        if (!plotMain && !plotTask)
+            return cloned;
+        const getMainSlot = seg => {
+            if (!seg)
+                return '';
+            const slot = String(seg.mainSlot || '').toUpperCase();
+            if (slot === 'A' || slot === 'B')
+                return slot;
+            if (seg.isMain)
+                return 'A'; // 兼容旧字段
+            if (seg.isMain2)
+                return 'B'; // 兼容旧字段（若存在）
+            return '';
+        };
+        // 简化逻辑：只替换内容，不插入、不改role、不改结构
+        // 1) 定位主提示词A/B：优先 mainSlot，其次旧 isMain/isMain2
+        let mainAIdx = cloned.findIndex(p => getMainSlot(p) === 'A');
+        let mainBIdx = cloned.findIndex(p => getMainSlot(p) === 'B');
+        if (plotMain && mainAIdx !== -1 && cloned[mainAIdx]) {
+            cloned[mainAIdx].content = plotMain;
+        }
+        if (plotTask && mainBIdx !== -1 && cloned[mainBIdx]) {
+            cloned[mainBIdx].content = plotTask;
+        }
+        return cloned;
+    }
+    function applyPlotPromptOverride_ACU() {
+        if (plotPromptOverrideActive_ACU)
+            return;
+        if (!settings_ACU?.plotSettings?.enabled)
+            return;
+        const plotMain = (getPlotPromptContentById_ACU('mainPrompt') || '').trim();
+        const plotTask = (getPlotPromptContentById_ACU('systemPrompt') || '').trim();
+        if (!plotMain && !plotTask)
+            return;
+        plotPromptOverrideBackup_ACU = settings_ACU.charCardPrompt;
+        settings_ACU.charCardPrompt = buildPlotModifiedCharCardPrompt_ACU(plotPromptOverrideBackup_ACU);
+        plotPromptOverrideActive_ACU = true;
+        logDebug_ACU('[剧情推进] 已临时替换AI指令预设（charCardPrompt）。');
+    }
+    function restorePlotPromptOverride_ACU() {
+        if (!plotPromptOverrideActive_ACU)
+            return;
+        settings_ACU.charCardPrompt = plotPromptOverrideBackup_ACU;
+        plotPromptOverrideBackup_ACU = null;
+        plotPromptOverrideActive_ACU = false;
+        logDebug_ACU('[剧情推进] 已恢复AI指令预设（charCardPrompt）。');
+    }
+
+    /**
+     * service/plot/plot-logic.ts — 剧情推进纯逻辑函数
+     *
+     * 从 presentation/components/optimization-ui.ts 中提取的纯计算/数据处理函数。
+     * 这些函数不操作 DOM，可以被 service 层和 presentation 层共同引用。
+     *
+     * 注意：此文件只包含纯逻辑，不 import presentation 层任何模块。
+     */
+    // Re-export 所有纯逻辑函数（当前先做 re-export 桥接，后续逐步搬移函数体）
+    // 这样 service 层可以立即改为从此处 import，不需要等函数体全部搬完
+
+    // ═══════════════════════════════════════════════════════════════
+    // service/settings/settings-service.ts — 设置加载/保存编排
+    // 从 04_shared_helpers.js 迁入
+    //
+    // 这两个函数混合了数据读写 + UI 同步 + 运行时状态操作，
+    // 属于 service 层（业务编排），不是纯 data 层。
+    // ═══════════════════════════════════════════════════════════════
+    function saveSettings_ACU() {
+        // 数据层：纯存储持久化
+        persistSettingsToStorage_ACU(settings_ACU);
+        // service 层补充：存储状态检查 + UI 通知
+        try {
+            const store = (getConfigStorage_ACU)();
+            if (store && !store._isTavern) {
+                if ((isIndexedDbAvailable_ACU)()) {
+                    try {
+                        showToastr_ACU('info', '当前未连接酒馆设置：已保存到 IndexedDB（仅本浏览器可用）。', { timeOut: 6000 });
+                    }
+                    catch (e) { }
+                }
+                else {
+                    try {
+                        showToastr_ACU('warning', '⚠️ 当前未连接酒馆设置且 IndexedDB 不可用，本次修改刷新后会丢失。', { timeOut: 8000 });
+                    }
+                    catch (e) { }
+                }
+                void (initTavernSettingsBridge_ACU)();
+            }
+        }
+        catch (error) {
+            logError_ACU('Failed to save settings:', error);
+            showToastr_ACU('error', '保存设置时发生浏览器存储错误。');
+        }
+    }
+    function loadSettings_ACU() {
+        // 确保酒馆设置桥接已就绪（best-effort，不阻塞）
+        void initTavernSettingsBridge_ACU();
+        // 尝试预载 IndexedDB 配置缓存（best-effort，不阻塞）
+        void ensureConfigIdbCacheLoaded_ACU().then(() => {
+            if (pendingSettingsReloadFromIdb_ACU) {
+                _set_pendingSettingsReloadFromIdb_ACU(false);
+                loadSettings_ACU();
+            }
+        });
+        // 可选迁移：把旧 localStorage 的设置/模板搬迁到酒馆设置（迁移开关默认为 false）
+        migrateKeyToTavernStorageIfNeeded_ACU(STORAGE_KEY_ALL_SETTINGS_ACU);
+        migrateKeyToTavernStorageIfNeeded_ACU(STORAGE_KEY_CUSTOM_TEMPLATE_ACU);
+        // 1) 读取全局元信息（跨标识共享：标识列表/当前标识）
+        loadGlobalMeta_ACU();
+        const store = getConfigStorage_ACU();
+        const legacySettingsJson = store?.getItem?.(STORAGE_KEY_ALL_SETTINGS_ACU);
+        if (!legacySettingsJson && !configIdbCacheLoaded_ACU && isIndexedDbAvailable_ACU()) {
+            if (!pendingSettingsReloadFromIdb_ACU) {
+                _set_pendingSettingsReloadFromIdb_ACU(true);
+                void ensureConfigIdbCacheLoaded_ACU().then(() => {
+                    if (pendingSettingsReloadFromIdb_ACU) {
+                        _set_pendingSettingsReloadFromIdb_ACU(false);
+                        loadSettings_ACU();
+                    }
+                });
+            }
+        }
+        const legacySettingsObj = legacySettingsJson ? safeJsonParse_ACU(legacySettingsJson, null) : null;
+        const legacyCode = normalizeIsolationCode_ACU(legacySettingsObj?.dataIsolationCode || '');
+        // 2) 一次性迁移：旧版"单份设置/单份模板" -> 当前标识对应 profile
+        if (!globalMeta_ACU.migratedLegacySingleStore && (legacySettingsObj || store?.getItem?.(STORAGE_KEY_CUSTOM_TEMPLATE_ACU))) {
+            const targetCode = legacyCode; // 旧版 code 就是当时的隔离标识
+            const hasProfileSettings = !!readProfileSettingsFromStorage_ACU(targetCode);
+            const hasProfileTemplate = !!readProfileTemplateFromStorage_ACU(targetCode);
+            try {
+                if (!hasProfileSettings && legacySettingsObj) {
+                    const toSave = sanitizeSettingsForProfileSave_ACU(legacySettingsObj);
+                    toSave.dataIsolationCode = targetCode;
+                    writeProfileSettingsToStorage_ACU(targetCode, toSave);
+                }
+                if (!hasProfileTemplate) {
+                    const legacyTemplate = store?.getItem?.(STORAGE_KEY_CUSTOM_TEMPLATE_ACU);
+                    if (legacyTemplate && String(legacyTemplate).trim()) {
+                        writeProfileTemplateToStorage_ACU(targetCode, legacyTemplate);
+                    }
+                }
+                // 同步迁移"标识列表"到 globalMeta（跨标识共享）
+                if (Array.isArray(legacySettingsObj?.dataIsolationHistory)) {
+                    globalMeta_ACU.isolationCodeList = legacySettingsObj.dataIsolationHistory;
+                }
+                if (targetCode) {
+                    globalMeta_ACU.activeIsolationCode = targetCode;
+                    // 确保 active 在列表里
+                    globalMeta_ACU.isolationCodeList = [targetCode, ...(globalMeta_ACU.isolationCodeList || [])];
+                }
+                normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
+                globalMeta_ACU.migratedLegacySingleStore = true;
+                saveGlobalMeta_ACU();
+                // 迁移完成后移除 legacy 键，避免后续反复读取造成混乱
+                try {
+                    store?.removeItem?.(STORAGE_KEY_ALL_SETTINGS_ACU);
+                }
+                catch (e) { }
+                try {
+                    store?.removeItem?.(STORAGE_KEY_CUSTOM_TEMPLATE_ACU);
+                }
+                catch (e) { }
+                logDebug_ACU(`[Profile] Migrated legacy single-store -> profile: ${targetCode || '(default)'}`);
+            }
+            catch (e) {
+                logWarn_ACU('[Profile] Legacy migration failed (will keep legacy keys):', e);
+            }
+        }
+        // 3) 决定本次启动要加载的标识 code（优先 globalMeta.active，其次 legacyCode）
+        const activeCode = normalizeIsolationCode_ACU(globalMeta_ACU.activeIsolationCode || legacyCode || '');
+        globalMeta_ACU.activeIsolationCode = activeCode;
+        if (activeCode)
+            addDataIsolationHistory_ACU(activeCode, { save: false });
+        normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
+        saveGlobalMeta_ACU();
+        // 4) 加载模板（按标识 profile）
+        loadTemplateFromStorage_ACU(activeCode);
+        // 5) 加载设置（按标识 profile）
+        const defaultSettings = buildDefaultSettings_ACU();
+        try {
+            const savedSettings = readProfileSettingsFromStorage_ACU(activeCode);
+            if (savedSettings) {
+                // [迁移逻辑] 检查旧的顶层 worldbookConfig
+                if (savedSettings.worldbookConfig) {
+                    logDebug_ACU('Migrating legacy worldbookConfig to character-specific settings.');
+                    // 如果存在，并且没有 characterSettings，则创建一个
+                    if (!savedSettings.characterSettings) {
+                        savedSettings.characterSettings = {};
+                    }
+                    // 将旧配置迁移到 'default' 或一个通用的键下，以便初次加载时使用
+                    // 这里我们假设它应该成为所有未配置角色的基础，但为了简单起见，我们只处理当前角色
+                    const charId = currentChatFileIdentifier_ACU || 'default';
+                    if (!savedSettings.characterSettings[charId]) {
+                        savedSettings.characterSettings[charId] = { worldbookConfig: savedSettings.worldbookConfig };
+                    }
+                    // 删除顶层配置
+                    delete savedSettings.worldbookConfig;
+                }
+                // Deep merge saved settings into defaults to ensure new properties are added
+                _set_settings_ACU(deepMerge_ACU(defaultSettings, savedSettings));
+                // [剧情推进] 迁移/兜底：确保 plotWorldbookConfig 存在且结构完整
+                if (!settings_ACU.plotSettings)
+                    settings_ACU.plotSettings = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
+                if (!settings_ACU.plotSettings.plotWorldbookConfig) {
+                    // 兼容旧字段迁移：worldbookSource/selectedWorldbooks -> plotWorldbookConfig
+                    const legacySource = settings_ACU.plotSettings.worldbookSource || 'character';
+                    const legacyBooks = Array.isArray(settings_ACU.plotSettings.selectedWorldbooks) ? settings_ACU.plotSettings.selectedWorldbooks : [];
+                    settings_ACU.plotSettings.plotWorldbookConfig = buildDefaultPlotWorldbookConfig_ACU();
+                    settings_ACU.plotSettings.plotWorldbookConfig.source = (legacySource === 'manual') ? 'manual' : 'character';
+                    settings_ACU.plotSettings.plotWorldbookConfig.manualSelection = legacyBooks;
+                }
+                if (!settings_ACU.plotPresetBindings || typeof settings_ACU.plotPresetBindings !== 'object' || Array.isArray(settings_ACU.plotPresetBindings)) {
+                    settings_ACU.plotPresetBindings = {};
+                }
+                settings_ACU.currentTemplatePresetName = normalizeTemplatePresetSelectionValue_ACU(settings_ACU.currentTemplatePresetName || '');
+                if (typeof settings_ACU.plotSettings.lastUsedPresetName !== 'string') {
+                    settings_ACU.plotSettings.lastUsedPresetName = '';
+                }
+                // [Profile] 强制以 globalMeta.activeIsolationCode 作为当前标识
+                settings_ACU.dataIsolationCode = activeCode;
+                settings_ACU.dataIsolationEnabled = (activeCode !== '');
+                // 0TK 全局偏好：优先 globalMeta；若缺失则从旧 profile 字段迁移
+                if (typeof globalMeta_ACU.zeroTkOccupyModeGlobal === 'boolean') {
+                    settings_ACU.zeroTkOccupyModeDefault = (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
+                }
+                else {
+                    globalMeta_ACU.zeroTkOccupyModeGlobal = (settings_ACU.zeroTkOccupyModeDefault === true);
+                    saveGlobalMeta_ACU();
+                }
+                // 确保当前角色有配置
+                getCurrentCharSettings_ACU();
+            }
+            else {
+                // No saved settings, use the defaults
+                _set_settings_ACU(defaultSettings);
+                // [剧情推进] 默认兜底
+                if (!settings_ACU.plotSettings.plotWorldbookConfig) {
+                    settings_ACU.plotSettings.plotWorldbookConfig = buildDefaultPlotWorldbookConfig_ACU();
+                }
+                // [Profile] 强制以 globalMeta.activeIsolationCode 作为当前标识
+                settings_ACU.dataIsolationCode = activeCode;
+                settings_ACU.dataIsolationEnabled = (activeCode !== '');
+                if (typeof globalMeta_ACU.zeroTkOccupyModeGlobal === 'boolean') {
+                    settings_ACU.zeroTkOccupyModeDefault = (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
+                }
+                else {
+                    globalMeta_ACU.zeroTkOccupyModeGlobal = (settings_ACU.zeroTkOccupyModeDefault === true);
+                    saveGlobalMeta_ACU();
+                }
+            }
+        }
+        catch (error) {
+            logError_ACU('Failed to load or parse settings, using defaults:', error);
+            _set_settings_ACU(buildDefaultSettings_ACU());
+            settings_ACU.dataIsolationCode = activeCode;
+            settings_ACU.dataIsolationEnabled = (activeCode !== '');
+        }
+        // [兼容] 旧标签排除字段自动迁移为新规则组结构
+        ensureTagRulesCompat_ACU(settings_ACU);
+        if (!Number.isFinite(settings_ACU.maxConcurrentGroups) || settings_ACU.maxConcurrentGroups < 1) {
+            settings_ACU.maxConcurrentGroups = 1;
+        }
+        logDebug_ACU('Settings loaded:', settings_ACU);
+    }
+    // [拆分] loadSettings 的 presentation 版本：加载数据后刷新 UI
+    // presentation 层调用此版本；service 层内部调用上面的 loadSettings_ACU（不触发 UI）
+    function loadSettingsAndRefreshUI_ACU() {
+        loadSettings_ACU();
+        if (typeof syncAllSettingsToUI_ACU === 'function')
+            syncAllSettingsToUI_ACU(settings_ACU);
+    }
+    function loadTemplateFromStorage_ACU(codeOverride = null) {
+        const code = normalizeIsolationCode_ACU((codeOverride !== null && typeof codeOverride !== 'undefined')
+            ? codeOverride
+            : (settings_ACU?.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || ''));
+        // [更新参数哨兵迁移] 旧版本：0 表示"沿用UI"；新版本：-1 表示"沿用UI"，0 表示"禁用/不参与"（仅 updateFrequency 参与禁用语义）
+        function migrateTemplateUpdateConfigSentinel_ACU(templateObj) {
+            if (!templateObj || typeof templateObj !== 'object')
+                return { changed: false, obj: templateObj };
+            const mate = (templateObj.mate && typeof templateObj.mate === 'object') ? templateObj.mate : null;
+            const alreadyMigrated = !!(mate && mate.updateConfigUiSentinel === -1);
+            if (alreadyMigrated)
+                return { changed: false, obj: templateObj };
+            let changed = false;
+            const sheetKeys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
+            for (const k of sheetKeys) {
+                const sheet = templateObj[k];
+                if (!sheet || typeof sheet !== 'object')
+                    continue;
+                const uc = sheet.updateConfig;
+                if (!uc || typeof uc !== 'object')
+                    continue;
+                // sheet 级标记：用于聊天记录里的表格对象（没有 mate）也能识别新语义
+                if (uc.uiSentinel !== -1) {
+                    uc.uiSentinel = -1;
+                    changed = true;
+                }
+                for (const field of ['contextDepth', 'updateFrequency', 'batchSize', 'skipFloors']) {
+                    if (Object.prototype.hasOwnProperty.call(uc, field) && uc[field] === 0) {
+                        uc[field] = -1;
+                        changed = true;
+                    }
+                }
+            }
+            // 写入标记，避免后续把用户显式设置的 0(禁用) 再次误迁移
+            if (!templateObj.mate || typeof templateObj.mate !== 'object') {
+                templateObj.mate = { type: 'chatSheets', version: 1 };
+                changed = true;
+            }
+            else {
+                if (!templateObj.mate.type)
+                    templateObj.mate.type = 'chatSheets';
+                if (!templateObj.mate.version)
+                    templateObj.mate.version = 1;
+            }
+            if (templateObj.mate.updateConfigUiSentinel !== -1) {
+                templateObj.mate.updateConfigUiSentinel = -1;
+                changed = true;
+            }
+            return { changed, obj: templateObj };
+        }
+        try {
+            const savedTemplate = readProfileTemplateFromStorage_ACU(code);
+            if (savedTemplate) {
+                // [修复] 使用 safeJsonParse_ACU 静默处理解析失败，避免误报错误提示
+                const parsedTemplate = safeJsonParse_ACU(savedTemplate, null);
+                if (parsedTemplate && parsedTemplate.mate && Object.keys(parsedTemplate).some(k => k.startsWith('sheet_'))) {
+                    // [迁移] 0(沿用UI) -> -1(沿用UI)，并写入标记
+                    migrateTemplateUpdateConfigSentinel_ACU(parsedTemplate);
+                    // [Profile] 模板载入时先补齐/修复顺序编号，并回写（编号可随导出/导入迁移）
+                    const sheetKeys = Object.keys(parsedTemplate).filter(k => k.startsWith('sheet_'));
+                    ensureSheetOrderNumbers_ACU(parsedTemplate, { baseOrderKeys: sheetKeys, forceRebuild: false });
+                    // [瘦身] 无论是否 changed，都清洗模板（去掉 domain/type/enable/triggerSend*/config/customStyles 等冗余字段）
+                    const sanitizedTemplate = sanitizeChatSheetsObject_ACU(parsedTemplate, { ensureMate: true });
+                    _set_TABLE_TEMPLATE_ACU(JSON.stringify(sanitizedTemplate));
+                    writeProfileTemplateToStorage_ACU(code, TABLE_TEMPLATE_ACU);
+                    logDebug_ACU(`[Profile] Template loaded for code: ${code || '(default)'}`);
+                    return;
+                }
+                else if (parsedTemplate) {
+                    // 解析成功但格式不正确，静默回退到默认模板
+                    logDebug_ACU(`[Profile] Template format invalid for code: ${code || '(default)'}, using default.`);
+                }
+                // parsedTemplate 为 null 时表示解析失败，静默跳过（可能是旧的/其他标识的损坏数据）
+            }
+        }
+        catch (error) {
+            // 静默处理异常，避免误报错误提示困扰用户
+            logDebug_ACU('[Profile] Template load skipped due to error, using default.', error?.message || error);
+        }
+        // No valid template found -> default
+        _set_TABLE_TEMPLATE_ACU(DEFAULT_TABLE_TEMPLATE_ACU);
+        // [新机制] 默认模板也补齐一次编号（仅写入当前 profile，不改源码常量）
+        try {
+            const obj = JSON.parse(TABLE_TEMPLATE_ACU);
+            // 默认模板也写入哨兵标记（便于后续识别新语义）
+            try {
+                migrateTemplateUpdateConfigSentinel_ACU(obj);
+            }
+            catch (e) { }
+            const sheetKeys = Object.keys(obj).filter(k => k.startsWith('sheet_'));
+            if (ensureSheetOrderNumbers_ACU(obj, { baseOrderKeys: sheetKeys, forceRebuild: false })) {
+                const sanitizedTemplate = sanitizeChatSheetsObject_ACU(obj, { ensureMate: true });
+                _set_TABLE_TEMPLATE_ACU(JSON.stringify(sanitizedTemplate));
+            }
         }
         catch (e) {
             // ignore
         }
-        // 回退：如果模板解析失败，至少用当前内存数据渲染列表
-        return currentJsonTableData_ACU$1 || null;
-    }
-    function getSelectedImportSheetKeys_ACU() {
-        const base = getImportBaseTableData_ACU();
-        if (!base)
-            return [];
-        const availableKeys = getSortedSheetKeys_ACU(base);
-        const saved = Array.isArray(settings_ACU.importSelectedTables) ? settings_ACU.importSelectedTables : [];
-        // 未曾手动选择过：默认全选
-        if (!settings_ACU.hasImportTableSelection)
-            return availableKeys;
-        const validSaved = saved.filter(k => availableKeys.includes(k));
-        return validSaved;
-    }
-    function renderImportTableSelector_ACU() {
-        if (!$importTableSelector_ACU || !$importTableSelector_ACU.length)
-            return;
-        const base = getImportBaseTableData_ACU();
-        if (!base) {
-            $importTableSelector_ACU.html('<div class="notes">尚未加载表格结构。</div>');
-            return;
+        try {
+            writeProfileTemplateToStorage_ACU(code, TABLE_TEMPLATE_ACU);
         }
-        const availableKeys = getSortedSheetKeys_ACU(base);
-        if (availableKeys.length === 0) {
-            $importTableSelector_ACU.html('<div class="notes">暂无表格可选。</div>');
-            return;
-        }
-        const resolvedSelection = getSelectedImportSheetKeys_ACU();
-        const selectedSet = new Set(resolvedSelection);
-        if (!Array.isArray(settings_ACU.importSelectedTables) || JSON.stringify(settings_ACU.importSelectedTables) !== JSON.stringify(resolvedSelection)) {
-            settings_ACU.importSelectedTables = resolvedSelection;
-            saveSettings_ACU();
-        }
-        let html = '<div class="acu-table-selector" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;max-height:240px;overflow:auto;padding:8px;border:1px solid var(--border-normal);border-radius:8px;background:var(--bg-secondary);">';
-        availableKeys.forEach(key => {
-            const name = base[key]?.name || key;
-            const checked = selectedSet.has(key) ? 'checked' : '';
-            html += `<label style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border-normal);border-radius:6px;background:var(--bg-primary);">
-              <input type="checkbox" data-key="${key}" ${checked} style="margin:0;width:14px;height:14px;flex-shrink:0;">
-              <span style="flex:1;word-break:break-all;font-weight:600;">${escapeHtml_ACU(name)}</span>
-          </label>`;
-        });
-        html += '</div>';
-        $importTableSelector_ACU.html(html);
-        $importTableSelector_ACU.off('change', 'input[type="checkbox"]').on('change', 'input[type="checkbox"]', function () {
-            const checkedKeys = [];
-            $importTableSelector_ACU.find('input[type="checkbox"]:checked').each(function () {
-                const key = jQuery_API_ACU(this).data('key');
-                if (key)
-                    checkedKeys.push(key);
-            });
-            settings_ACU.importSelectedTables = checkedKeys;
-            settings_ACU.hasImportTableSelection = true;
-            saveSettings_ACU();
-        });
+        catch (e) { }
+        logDebug_ACU(`[Profile] No valid template found, default persisted for code: ${code || '(default)'}`);
     }
-    function getImportSelectionFromUI_ACU() {
-        if ($importTableSelector_ACU && $importTableSelector_ACU.length) {
-            const keys = [];
-            $importTableSelector_ACU.find('input[type="checkbox"]:checked').each(function () {
-                const k = jQuery_API_ACU(this).data('key');
-                if (k)
-                    keys.push(k);
-            });
-            if (keys.length > 0 || settings_ACU.hasImportTableSelection) {
-                settings_ACU.importSelectedTables = keys;
-                settings_ACU.hasImportTableSelection = true;
-                saveSettings_ACU();
-                return keys;
+    function buildDefaultSettings_ACU() {
+        return {
+            apiConfig: { url: '', apiKey: '', model: '', useMainApi: true, max_tokens: 60000, temperature: 1.0 },
+            apiMode: 'custom',
+            tavernProfile: '',
+            streamingEnabled: false, // [新增] 流式传输开关（默认关闭）
+            apiPresets: [],
+            tableApiPreset: '',
+            plotApiPreset: '',
+            charCardPrompt: DEFAULT_CHAR_CARD_PROMPT_ACU,
+            autoUpdateThreshold: DEFAULT_AUTO_UPDATE_THRESHOLD_ACU,
+            autoUpdateFrequency: DEFAULT_AUTO_UPDATE_FREQUENCY_ACU,
+            autoUpdateTokenThreshold: DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU,
+            updateBatchSize: 3,
+            maxConcurrentGroups: 1,
+            autoUpdateEnabled: true,
+            standardizedTableFillEnabled: true, // [新增] 规范填表功能
+            toastMuteEnabled: false,
+            // [剧情推进] 设置
+            plotSettings: JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU)),
+            plotPresetBindings: {}, // [剧情推进] 按聊天记录绑定剧情推进预设
+            currentTemplatePresetName: '', // [模板预设] 当前模板预设名，空表示默认预设
+            // [填表功能] 正文标签提取，从上下文中提取指定标签的内容发送给AI，User回复不受影响
+            tableContextExtractTags: '',
+            tableContextExtractRules: [],
+            // [填表功能] 正文标签排除：将指定标签内容从上下文中移除
+            tableContextExcludeTags: '',
+            tableContextExcludeRules: [],
+            // [填表功能] 仅识别最后一对 <tableEdit> 标签
+            tableEditLastPairOnly: true,
+            removeTags: '',
+            importSplitSize: 10000,
+            importPromptExcludeImportedWorldbookEntries: true, // [新增] 仅外部导入时，填表提示词中的世界书占位符屏蔽所有带"外部导入-"标签的条目
+            skipUpdateFloors: 0, // 跳过更新楼层（全局）
+            retainRecentLayers: 100, // [新增] 保留最近N层本地数据 (0或空=全部保留)
+            manualSelectedTables: [],
+            // [新增] 表格更新锁定（按聊天+隔离标签存储；仅对 updateRow 生效）
+            tableUpdateLocks: {},
+            // [新增] 总结表/总体大纲"编码索引列"特殊锁定（默认锁定）
+            specialIndexLocks: {},
+            // [新增] 0TK占用模式全局默认值：新对话会继承这个值
+            zeroTkOccupyModeDefault: false,
+            // [Profile] dataIsolationEnabled/code 由当前 profile 决定；history 走 globalMeta
+            dataIsolationCode: '',
+            dataIsolationHistory: [], // legacy 字段保留但不再持久化
+            characterSettings: {}, // Start with an empty object
+            knownCustomEntryNames: [], // [新增] 记录已创建的自定义条目名称，用于清理
+            mergeSummaryPrompt: DEFAULT_MERGE_SUMMARY_PROMPT_ACU, // [新增] 合并总结提示词
+            mergeTargetCount: 1, // [新增] 合并目标条数
+            mergeBatchSize: 5, // [新增] 合并批次大小
+            mergeStartIndex: 1, // [新增] 合并起始条数
+            mergeEndIndex: null, // [新增] 合并终止条数
+            autoMergeEnabled: false, // [新增] 是否开启自动合并总结
+            autoMergeThreshold: 20, // [新增] 自动合并总结楼层数
+            autoMergeReserve: 0, // [新增] 保留固定楼层数
+            deleteStartFloor: null, // [新增] 删除起始楼层 (null表示从头开始)
+            deleteEndFloor: null, // [新增] 删除终止楼层 (null表示到末尾)
+            // [新增] 酒馆提示词模板功能
+            promptTemplateSettings: {
+                enabled: true, // 总开关
+                maxNestingDepth: 10, // 最大嵌套深度
+                debugMode: false // 调试模式
+            },
+            // [新增] 正文优化功能
+            contentOptimizationSettings: {
+                enabled: false, // 是否启用正文优化
+                apiPreset: '', // 优化使用的API预设（为空则使用当前配置）
+                seamlessMode: true, // 无感替换模式：显示遮罩，优化完成后直接显示结果
+                autoApply: true, // 是否自动应用优化结果（关闭时显示对比让用户选择）
+                showDiff: true, // 是否显示优化对比（非无感模式下有效）
+                parallelMode: false, // 填表与正文替换并行执行（默认关闭）
+                minLength: 100, // 最小优化长度阈值
+                maxOptimizations: 10, // 单次最大优化项数
+                loopCount: 1, // 循环优化次数
+                retryCount: 3, // 自动重试次数（API调用失败时自动重试，默认3次）
+                extractTags: '', // 正文标签提取（从正文中提取指定标签内容进行优化）
+                extractRules: [], // 正文标签提取规则（结构化）
+                excludeTags: '', // 标签排除（优化时排除指定标签内容）
+                excludeRules: [], // 标签排除规则（结构化）
+                promptGroup: buildDefaultContentOptimizationPromptGroup_ACU(), // 提示词组（段落编辑器）
+                promptPresets: [], // 提示词组预设列表
+            },
+        };
+    }
+    function applyTemplateScopeForCurrentChat_ACU({ isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const migratedScopeState = migrateLegacyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
+        const scopeState = getCurrentChatTemplateScopeState_ACU({ isolationKey: normalizedKey }) || migratedScopeState;
+        const selectedPresetName = normalizeTemplatePresetSelectionValue_ACU(scopeState?.presetName || '');
+        let targetSnapshot = null;
+        if (scopeState?.mode === 'chat_override' && scopeState?.templateStr) {
+            targetSnapshot = sanitizeTemplateSnapshotForChat_ACU(scopeState.templateStr);
+        }
+        else if (scopeState?.mode === 'preset_link') {
+            if (selectedPresetName) {
+                targetSnapshot = sanitizeTemplateSnapshotForChat_ACU(getTemplatePreset_ACU(selectedPresetName)?.templateStr || null);
+            }
+            else {
+                targetSnapshot = getDefaultTemplateSnapshot_ACU();
             }
         }
-        return getSelectedImportSheetKeys_ACU();
+        if (!targetSnapshot?.templateStr) {
+            targetSnapshot = getGlobalTemplateSnapshotForCurrentProfile_ACU();
+        }
+        if (!targetSnapshot?.templateStr)
+            return null;
+        _set_TABLE_TEMPLATE_ACU(targetSnapshot.templateStr);
+        if (scopeState?.mode === 'chat_override' && scopeState?.templateStr) {
+            logDebug_ACU(`[TemplateScope] Applied chat template override for key [${normalizedKey || '默认'}].`);
+            return {
+                mode: 'chat_override',
+                isolationKey: normalizedKey,
+                presetName: scopeState.presetName || '',
+            };
+        }
+        if (scopeState?.mode === 'preset_link') {
+            logDebug_ACU(`[TemplateScope] Applied linked global preset for key [${normalizedKey || '默认'}]: ${selectedPresetName || '默认预设'}.`);
+            return {
+                mode: 'preset_link',
+                isolationKey: normalizedKey,
+                presetName: selectedPresetName,
+            };
+        }
+        logDebug_ACU(`[TemplateScope] Applied global template for key [${normalizedKey || '默认'}].`);
+        return {
+            mode: 'inherit_global',
+            isolationKey: normalizedKey,
+            presetName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
+        };
     }
-    function handleImportSelectAll_ACU() {
-        const base = getImportBaseTableData_ACU();
-        if (!base)
+    // [从 data/repositories/isolation-repo.ts 移入] 切换隔离 Profile（业务编排，不属于 data 层）
+    async function switchIsolationProfile_ACU(newCodeRaw) {
+        const newCode = normalizeIsolationCode_ACU(newCodeRaw);
+        const oldCode = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || '');
+        persistSettingsToStorage_ACU(settings_ACU);
+        loadGlobalMeta_ACU();
+        if (oldCode)
+            addDataIsolationHistory_ACU(oldCode, { save: false });
+        if (newCode)
+            addDataIsolationHistory_ACU(newCode, { save: false });
+        globalMeta_ACU.activeIsolationCode = newCode;
+        normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
+        saveGlobalMeta_ACU();
+        ensureProfileExists_ACU(newCode, { seedFromCurrent: true });
+        loadSettings_ACU();
+        applyTemplateScopeForCurrentChat_ACU({ isolationKey: newCode });
+    }
+
+    /**
+     * presentation/pages/popup-helpers.ts — 主弹窗辅助函数
+     * 从 main-popup.ts 拆出（原 openAutoCardPopup_ACU 内嵌函数）
+     */
+    // --- [剧情推进] 辅助函数 ---
+    /**
+     * 加载剧情推进设置到UI
+     */
+    function loadPlotSettingsToUI_ACU(plotSettingsOverride = null) {
+        if (!$popupInstance_ACU)
             return;
-        const keys = getSortedSheetKeys_ACU(base);
-        settings_ACU.importSelectedTables = keys;
-        settings_ACU.hasImportTableSelection = true;
-        saveSettings_ACU();
-        renderImportTableSelector_ACU();
-    }
-    function handleImportSelectNone_ACU() {
-        settings_ACU.importSelectedTables = [];
-        settings_ACU.hasImportTableSelection = true;
-        saveSettings_ACU();
-        renderImportTableSelector_ACU();
-    }
-    function handleManualSelectAll_ACU() {
-        if (!currentJsonTableData_ACU$1)
+        $plotPromptSegmentsContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompt-segments-container`);
+        $plotTaskListContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-list`);
+        const plotSettings = setActivePlotEditorSettings_ACU(plotSettingsOverride || settings_ACU.plotSettings);
+        if (!plotSettings)
             return;
-        const keys = getSortedSheetKeys_ACU(currentJsonTableData_ACU$1);
-        settings_ACU.manualSelectedTables = keys;
-        settings_ACU.hasManualSelection = true;
-        saveSettings_ACU();
-        renderManualTableSelector_ACU();
+        // 功能开关
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-enabled`).prop('checked', plotSettings.enabled);
+        renderPlotTaskList_ACU(plotSettings);
+        loadCurrentPlotTaskToUI_ACU(plotSettings);
+        // 最终注入指令
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-final-directive`).val(getPlotPromptContentByIdFromSettings_ACU(plotSettings, 'finalSystemDirective'));
+        // 匹配替换速率
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-main`).val(plotSettings.rateMain);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-personal`).val(plotSettings.ratePersonal);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-erotic`).val(plotSettings.rateErotic);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-cuckold`).val(plotSettings.rateCuckold);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-recall-count`).val(plotSettings.recallCount ?? 20);
+        // 循环设置
+        ensureLoopPromptsArray_ACU(plotSettings);
+        const loopSettings = plotSettings.loopSettings;
+        // 循环提示词现在使用数组，通过 renderLoopPromptsList_ACU 渲染
+        renderLoopPromptsList_ACU(plotSettings);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-tags`).val(loopSettings.loopTags || '');
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-delay`).val(loopSettings.loopDelay);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-total-duration`).val(loopSettings.loopTotalDuration);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-max-retries`).val(loopSettings.maxRetries);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-turn-count`).val(plotSettings.contextTurnCount);
+        renderExcludeRuleRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-extract-rules`, normalizeExtractRules_ACU(plotSettings.contextExtractRules, plotSettings.contextExtractTags || ''), {
+            startPlaceholder: '开始词（例如：<think）',
+            endPlaceholder: '结束词（例如：</think>）',
+            fallbackRules: getDefaultPlotContextExtractRules_ACU(),
+        });
+        renderExcludeRuleRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-exclude-rules`, normalizeExcludeRules_ACU(plotSettings.contextExcludeRules, plotSettings.contextExcludeTags || ''), {
+            startPlaceholder: '开始词（例如：<thinking）',
+            endPlaceholder: '结束词（例如：</thinking>）',
+            fallbackRules: getDefaultPlotContextExcludeRules_ACU(),
+        });
+        // 循环状态
+        updatePlotLoopStatusUI_ACU();
+        // 预设选择器
+        loadPlotPresetSelect_ACU();
     }
-    function handleManualSelectNone_ACU() {
-        settings_ACU.manualSelectedTables = [];
-        settings_ACU.hasManualSelection = true;
-        saveSettings_ACU();
-        renderManualTableSelector_ACU();
+    /**
+     * 加载正文替换预设选择器
+     */
+    function loadOptimizationPresetSelect_ACU() {
+        if (!$popupInstance_ACU)
+            return;
+        const $select = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-preset-select`);
+        const $deleteBtn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-delete-preset`);
+        if (!$select.length)
+            return;
+        const presets = settings_ACU.contentOptimizationSettings?.promptPresets || [];
+        const currentValue = $select.val();
+        $select.find('option:not(:first)').remove();
+        presets.forEach(preset => {
+            if (preset && preset.name) {
+                $select.append(`<option value="${preset.name}">${preset.name}</option>`);
+            }
+        });
+        // 恢复之前选中的值（如果还存在）
+        if (currentValue && presets.find(p => p.name === currentValue)) {
+            $select.val(currentValue);
+            if ($deleteBtn.length)
+                $deleteBtn.show();
+        }
+        else {
+            $select.val('');
+            if ($deleteBtn.length)
+                $deleteBtn.hide();
+        }
     }
-    // [新增] 统一的手动更新函数（支持按表选择，优先使用模板参数）
+    /**
+     * 另存为新的正文替换预设
+     */
+    function saveOptimizationPresetAsNew_ACU() {
+        const presetName = prompt('请输入新预设的名称：');
+        if (!presetName || !presetName.trim()) {
+            showToastr_ACU('warning', '预设名称不能为空。');
+            return;
+        }
+        const name = presetName.trim();
+        const presets = settings_ACU.contentOptimizationSettings.promptPresets || [];
+        const existingIndex = presets.findIndex(p => p.name === name);
+        if (existingIndex !== -1) {
+            if (!confirm(`预设 "${name}" 已存在。是否覆盖？`)) {
+                return;
+            }
+            presets[existingIndex] = {
+                name: name,
+                promptGroup: getOptimizationPromptGroupFromUI_ACU()
+            };
+            showToastr_ACU('success', `预设 "${name}" 已被覆盖。`);
+        }
+        else {
+            presets.push({
+                name: name,
+                promptGroup: getOptimizationPromptGroupFromUI_ACU()
+            });
+            showToastr_ACU('success', `预设 "${name}" 已成功创建。`);
+        }
+        settings_ACU.contentOptimizationSettings.promptPresets = presets;
+        saveSettings_ACU();
+        loadOptimizationPresetSelect_ACU();
+        // 选中新创建的预设
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-preset-select`).val(name);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-delete-preset`).show();
+    }
+    /**
+     * 加载正文替换设置到UI
+     */
+    function loadOptimizationSettingsToUI_ACU() {
+        if (!$popupInstance_ACU)
+            return;
+        const config = settings_ACU.contentOptimizationSettings || {};
+        // [隐藏功能] 只有当剧情推进最大重试次数为49时才显示正文替换标签
+        const plotMaxRetries = settings_ACU.plotSettings?.loopSettings?.maxRetries ?? 3;
+        const $optimizationTab = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-tab-optimization`);
+        if ($optimizationTab.length) {
+            if (plotMaxRetries === 49) {
+                $optimizationTab.show();
+            }
+            else {
+                $optimizationTab.hide();
+            }
+        }
+        // 功能开关
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-enabled`).prop('checked', !!config.enabled);
+        // API预设
+        const $apiPreset = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-api-preset`);
+        if ($apiPreset.length) {
+            $apiPreset.val(config.apiPreset || '');
+        }
+        // 基础设置
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-min-length`).val(config.minLength || 100);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-max-items`).val(config.maxOptimizations || 10);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-loop-count`).val(config.loopCount || 1);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-retry-count`).val(config.retryCount || 3);
+        // 优化模式
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-seamless-mode`).prop('checked', config.seamlessMode !== false);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-auto-apply`).prop('checked', config.autoApply !== false);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-show-diff`).prop('checked', config.showDiff !== false);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-parallel-mode`).prop('checked', config.parallelMode === true);
+        // 标签筛选设置
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-extract-tags`).val(config.extractTags || '');
+        // 加载标签提取规则
+        renderExcludeRuleRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-optimization-extract-rules`, config.extractRules || [], {
+            startPlaceholder: '开始词（例如：<think）',
+            endPlaceholder: '结束词（例如：</think）',
+        });
+        // 加载标签排除规则
+        renderExcludeRuleRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-optimization-exclude-rules`, config.excludeRules || [], {
+            startPlaceholder: '开始词（例如：<think）',
+            endPlaceholder: '结束词（例如：</think）',
+        });
+        // 加载预设选择器
+        loadOptimizationPresetSelect_ACU();
+        // 提示词组
+        const promptGroup = config.promptGroup && config.promptGroup.length > 0
+            ? config.promptGroup
+            : DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU;
+        renderOptimizationPromptSegments_ACU(promptGroup);
+    }
+    /**
+     * 渲染正文优化提示词段落
+     */
+    function renderOptimizationPromptSegments_ACU(segments) {
+        if (!$popupInstance_ACU)
+            return;
+        const $container = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-prompt-segments-container`);
+        if (!$container.length)
+            return;
+        $container.empty();
+        if (!Array.isArray(segments))
+            return;
+        segments.forEach((segment, index) => {
+            const isMain = segment.isMain || segment.mainSlot === 'A';
+            const isMain2 = segment.isMain2 || segment.mainSlot === 'B';
+            const deletable = segment.deletable !== false;
+            const segmentHtml = `
+          <div class="optimization-prompt-segment" data-index="${index}" style="
+            margin-bottom: 15px;
+            padding: 15px;
+            background: var(--background_default);
+            border-radius: 8px;
+            border: 1px solid var(--border_color_light);
+            ${isMain ? 'border-left: 3px solid var(--blue);' : ''}
+            ${isMain2 ? 'border-left: 3px solid var(--purple);' : ''}
+          ">
+            <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
+              <select class="optimization-prompt-segment-role text_pole" data-index="${index}" style="width: 120px;">
+                <option value="SYSTEM" ${segment.role === 'SYSTEM' ? 'selected' : ''}>SYSTEM</option>
+                <option value="USER" ${segment.role === 'USER' ? 'selected' : ''}>USER</option>
+                <option value="assistant" ${segment.role === 'assistant' ? 'selected' : ''}>assistant</option>
+              </select>
+              ${deletable ? `
+                <button type="button" class="optimization-prompt-segment-delete-btn button" data-index="${index}" style="margin-left: auto; padding: 4px 8px; font-size: 0.85em;">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              ` : ''}
+            </div>
+            <textarea class="optimization-prompt-segment-content text_pole" data-index="${index}" rows="6" placeholder="输入提示词内容..." style="resize: vertical; width: 100%;">${escapeHtml_ACU(segment.content || '')}</textarea>
+          </div>
+        `;
+            $container.append(segmentHtml);
+        });
+        // 绑定输入事件
+        $container.find('.optimization-prompt-segment-role').on('change', function () {
+            const idx = parseInt($(this).data('index'), 10);
+            const segments = getOptimizationPromptGroupFromUI_ACU();
+            if (segments[idx]) {
+                segments[idx].role = $(this).val();
+                settings_ACU.contentOptimizationSettings.promptGroup = segments;
+                saveSettings_ACU();
+            }
+        });
+        $container.find('.optimization-prompt-segment-content').on('input change', function () {
+            const idx = parseInt($(this).data('index'), 10);
+            const segments = getOptimizationPromptGroupFromUI_ACU();
+            if (segments[idx]) {
+                segments[idx].content = $(this).val();
+                settings_ACU.contentOptimizationSettings.promptGroup = segments;
+                saveSettings_ACU();
+            }
+        });
+    }
+    /**
+     * 从UI获取正文优化提示词组
+     */
+    function getOptimizationPromptGroupFromUI_ACU() {
+        if (!$popupInstance_ACU)
+            return [];
+        const segments = [];
+        const $segments = $popupInstance_ACU.find('.optimization-prompt-segment');
+        $segments.each(function () {
+            const $seg = $(this);
+            const index = parseInt($seg.data('index'), 10);
+            const role = $seg.find('.optimization-prompt-segment-role').val();
+            const content = $seg.find('.optimization-prompt-segment-content').val();
+            segments.push({
+                role: role || 'USER',
+                content: content || '',
+                deletable: true
+            });
+        });
+        return segments;
+    }
+    /**
+     * 更新剧情推进循环状态UI
+     */
+    function updatePlotLoopStatusUI_ACU() {
+        if (!$popupInstance_ACU)
+            return;
+        const $statusText = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-status-text`);
+        const $timerDisplay = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-timer-display`);
+        const $startBtn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-start-loop-btn`);
+        const $stopBtn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-stop-loop-btn`);
+        if (loopState_ACU.isLooping) {
+            $statusText.text('运行中').css('color', 'var(--green)');
+            $startBtn.hide();
+            $stopBtn.show();
+            $timerDisplay.show();
+        }
+        else {
+            $statusText.text('未运行').css('color', 'var(--red)');
+            $stopBtn.hide();
+            $startBtn.show();
+            $timerDisplay.hide().text('');
+        }
+    }
+    /**
+     * 加载剧情预设选择器
+     */
+    function getPlotPresetDisplayName_ACU(presetName) {
+        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
+        return normalizedPresetName || '默认预设';
+    }
+    function formatPlotScopeUpdatedAt_ACU$1(updatedAt) {
+        const ts = Number(updatedAt) || 0;
+        if (!ts)
+            return '';
+        try {
+            return new Date(ts).toLocaleString('zh-CN', { hour12: false });
+        }
+        catch (error) {
+            return '';
+        }
+    }
+    function populatePlotPresetSelectOptions_ACU($select, presets, { extraPresetName = '' } = {}) {
+        if (!$select || !$select.length)
+            return;
+        const normalizedExtraPresetName = normalizePlotPresetSelectionValue_ACU(extraPresetName);
+        const normalizedPresetNames = new Set();
+        $select.empty().append(`<option value="${DEFAULT_PRESET_OPTION_VALUE_ACU}">默认预设</option>`);
+        presets.forEach(preset => {
+            const presetName = normalizePlotPresetSelectionValue_ACU(preset?.name);
+            if (!presetName || normalizedPresetNames.has(presetName))
+                return;
+            normalizedPresetNames.add(presetName);
+            $select.append(`<option value="${escapeHtml_ACU(presetName)}">${escapeHtml_ACU(presetName)}</option>`);
+        });
+        if (normalizedExtraPresetName && !normalizedPresetNames.has(normalizedExtraPresetName)) {
+            $select.append(`<option value="${escapeHtml_ACU(normalizedExtraPresetName)}">${escapeHtml_ACU(normalizedExtraPresetName)}（仅当前聊天快照）</option>`);
+        }
+    }
+    function loadPlotPresetSelect_ACU() {
+        if (!$popupInstance_ACU || !settings_ACU?.plotSettings)
+            return;
+        const presets = settings_ACU.plotSettings.promptPresets || [];
+        const globalPresetName = normalizePlotPresetSelectionValue_ACU(settings_ACU.plotSettings.lastUsedPresetName || '');
+        const chatScopeState = getCurrentChatPlotScopeState_ACU();
+        const currentBinding = getPlotPresetBindingForChat_ACU();
+        const effectiveChatPresetName = resolveActivePlotPresetName_ACU({ fallbackToGlobal: true });
+        const explicitChatPresetName = normalizePlotPresetSelectionValue_ACU(currentBinding?.presetName || '');
+        const chatSelectedPresetName = normalizePlotPresetSelectionValue_ACU(explicitChatPresetName || chatScopeState?.presetName || '');
+        const $globalSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-global-preset-select`);
+        const $chatSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-chat-preset-select`);
+        const $globalDeleteBtn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-global-delete-preset`);
+        const $globalStatus = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-global-scope-status`);
+        const $chatStatus = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-chat-scope-status`);
+        const $chatOriginStatus = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-chat-origin-status`);
+        populatePlotPresetSelectOptions_ACU($globalSelect, presets);
+        populatePlotPresetSelectOptions_ACU($chatSelect, presets, { extraPresetName: chatSelectedPresetName });
+        if ($chatSelect.length) {
+            $chatSelect.find(`option[value="${DEFAULT_PRESET_OPTION_VALUE_ACU}"]`).text('跟随全局');
+        }
+        const hasGlobalPreset = !!globalPresetName && presets.some(p => normalizePlotPresetSelectionValue_ACU(p?.name) === globalPresetName);
+        const hasChatPreset = !!chatSelectedPresetName && $chatSelect.find(`option[value="${chatSelectedPresetName.replace(/"/g, '\\"')}"]`).length > 0;
+        const hasValidExplicitChatPreset = !!explicitChatPresetName && !!findPlotPresetByName_ACU(explicitChatPresetName);
+        if ($globalSelect.length) {
+            $globalSelect.val(hasGlobalPreset ? globalPresetName : DEFAULT_PRESET_OPTION_VALUE_ACU);
+        }
+        if ($globalDeleteBtn.length) {
+            $globalDeleteBtn.toggle(hasGlobalPreset);
+        }
+        if ($chatSelect.length) {
+            $chatSelect.val(hasChatPreset ? chatSelectedPresetName : DEFAULT_PRESET_OPTION_VALUE_ACU);
+        }
+        if ($globalStatus.length) {
+            $globalStatus.text(`当前全局预设：${getPlotPresetDisplayName_ACU(globalPresetName)}；新聊天会默认继承这里的剧情推进配置。`);
+        }
+        if ($chatStatus.length) {
+            if (chatScopeState?.snapshot) {
+                $chatStatus.text(`当前聊天：历史聊天快照；当前实际预设为 ${getPlotPresetDisplayName_ACU(effectiveChatPresetName)}。`);
+            }
+            else if (hasValidExplicitChatPreset) {
+                $chatStatus.text(`当前聊天：独立预设；当前实际预设为 ${getPlotPresetDisplayName_ACU(explicitChatPresetName)}。`);
+            }
+            else if (chatSelectedPresetName) {
+                $chatStatus.text(`当前聊天：原绑定预设不存在；当前已回退为 ${getPlotPresetDisplayName_ACU(effectiveChatPresetName)}。`);
+            }
+            else {
+                $chatStatus.text(`当前聊天：跟随全局；当前实际预设为 ${getPlotPresetDisplayName_ACU(effectiveChatPresetName)}。`);
+            }
+        }
+        if ($chatOriginStatus.length) {
+            if (chatScopeState?.snapshot) {
+                $chatOriginStatus.text('当前聊天仍在使用旧版聊天快照；重新切换一次当前聊天预设后，将迁移为新的按预设切换模式。');
+            }
+            else if (hasValidExplicitChatPreset) {
+                $chatOriginStatus.text('当前聊天已单独指定剧情推进预设；如需修改预设内容，请在左侧全局预设区操作。');
+            }
+            else if (chatSelectedPresetName) {
+                $chatOriginStatus.text('当前聊天原绑定的剧情推进预设已不存在；当前运行已回退到全局预设，请重新选择一次当前聊天预设。');
+            }
+            else {
+                $chatOriginStatus.text('当前聊天当前未单独指定剧情推进预设，实际会直接跟随全局。');
+            }
+        }
+    }
+    /**
+     * 加载预设到UI
+     */
+    function loadPlotPresetToUI_ACU(preset) {
+        if (!$popupInstance_ACU || !preset)
+            return;
+        const presetName = preset.name || '默认预设';
+        const result = applyGlobalPlotPresetSelectionForEditor_ACU(preset.name || '', {
+            source: 'ui_global_load',
+            refreshUi: true,
+            save: true,
+        });
+        if (!result)
+            return;
+        showToastr_ACU('success', `已加载全局预设 "${presetName}"。`);
+    }
+    /**
+     * 从UI获取当前剧情设置
+     */
+    function getCurrentPlotSettingsFromUI_ACU() {
+        if (!$popupInstance_ACU)
+            return {};
+        flushCurrentPlotTaskEditorState_ACU({ renderTaskList: true, persist: false });
+        const activeSettings = getActivePlotEditorSettings_ACU();
+        const currentSettings = JSON.parse(JSON.stringify(activeSettings || settings_ACU.plotSettings || {}));
+        ensurePlotTasksCompat_ACU(currentSettings, { syncLegacy: true });
+        delete currentSettings.promptPresets;
+        delete currentSettings.lastUsedPresetName;
+        delete currentSettings.enabled;
+        const promptGroup = getPlotPromptGroupFromSource_ACU(currentSettings);
+        const legacyPromptTexts = getLegacyPromptTextsFromPromptGroup_ACU(promptGroup);
+        currentSettings.promptGroup = promptGroup;
+        currentSettings.finalSystemDirective = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-final-directive`).val() || '';
+        currentSettings.mainPrompt = legacyPromptTexts.mainPrompt || '';
+        currentSettings.systemPrompt = legacyPromptTexts.systemPrompt || '';
+        currentSettings.rateMain = parseFloat($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-main`).val()) || 1.0;
+        currentSettings.ratePersonal = parseFloat($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-personal`).val()) || 1.0;
+        currentSettings.rateErotic = parseFloat($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-erotic`).val()) || 0;
+        currentSettings.rateCuckold = parseFloat($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-cuckold`).val()) || 1.0;
+        currentSettings.recallCount = parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-recall-count`).val(), 10) || 20;
+        currentSettings.contextExtractRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-extract-rules`);
+        currentSettings.contextExcludeRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-exclude-rules`);
+        currentSettings.contextTurnCount = parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-turn-count`).val(), 10) || 3;
+        currentSettings.loopSettings = {
+            ...(currentSettings.loopSettings || {}),
+            quickReplyContent: (() => {
+                const prompts = [];
+                $popupInstance_ACU.find('.loop-prompt-textarea').each(function () {
+                    const content = $(this).val()?.trim() || '';
+                    if (content)
+                        prompts.push(content);
+                });
+                return prompts;
+            })(),
+            currentPromptIndex: 0,
+            loopTags: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-tags`).val() || '',
+            loopDelay: parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-delay`).val(), 10) || 5,
+            loopTotalDuration: parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-total-duration`).val(), 10) || 0,
+            maxRetries: parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-max-retries`).val(), 10) || 3,
+        };
+        currentSettings.plotTasks = normalizePlotTasks_ACU(currentSettings);
+        ensurePlotPromptsArray_ACU(currentSettings);
+        setPlotPromptContentByIdForSettings_ACU(currentSettings, 'mainPrompt', currentSettings.mainPrompt || '');
+        setPlotPromptContentByIdForSettings_ACU(currentSettings, 'systemPrompt', currentSettings.systemPrompt || '');
+        setPlotPromptContentByIdForSettings_ACU(currentSettings, 'finalSystemDirective', currentSettings.finalSystemDirective || '');
+        ensurePlotTasksCompat_ACU(currentSettings, { syncLegacy: true });
+        currentSettings.finalSystemDirective = getPlotPromptContentByIdFromSettings_ACU(currentSettings, 'finalSystemDirective') || currentSettings.finalSystemDirective || '';
+        return currentSettings;
+    }
+    /**
+     * 另存为新的全局预设
+     */
+    function savePlotPresetAsNew_ACU() {
+        const presetName = prompt('请输入新的全局预设名称：');
+        const name = String(presetName || '').trim();
+        if (!name)
+            return;
+        const presets = settings_ACU.plotSettings.promptPresets || [];
+        const existingIndex = presets.findIndex(p => p.name === name);
+        const currentSettings = getCurrentPlotSettingsFromUI_ACU();
+        if (!currentSettings || typeof currentSettings !== 'object') {
+            showToastr_ACU('error', '读取当前剧情推进设置失败。');
+            return;
+        }
+        const savedPreset = normalizePlotPresetExcludeRules_ACU({ name, ...currentSettings });
+        if (existingIndex !== -1) {
+            if (!confirm(`名为 "${name}" 的全局预设已存在。是否要覆盖它？`)) {
+                return;
+            }
+            presets[existingIndex] = savedPreset;
+        }
+        else {
+            presets.push(savedPreset);
+        }
+        settings_ACU.plotSettings.promptPresets = presets;
+        const currentRuntimePresetName = getCurrentRuntimePlotPresetName_ACU({ fallbackToGlobal: true });
+        const currentChatBinding = getPlotPresetBindingForChat_ACU();
+        const hasLegacyChatScope = !!getCurrentChatPlotScopeState_ACU();
+        const shouldRefreshCurrentChatRuntime = normalizePlotPresetSelectionValue_ACU(currentRuntimePresetName) === name ||
+            (!currentChatBinding && !hasLegacyChatScope);
+        if (shouldRefreshCurrentChatRuntime) {
+            applyPlotPresetToSettings_ACU(settings_ACU.plotSettings, savedPreset);
+        }
+        setCurrentEditablePlotPresetState_ACU(name, {
+            scope: 'global',
+            source: 'ui_global_save_as_new',
+        });
+        persistPlotPresetSelectionState_ACU(name, { source: 'ui_global_save_as_new', updateGlobal: true, save: false });
+        saveSettings_ACU();
+        loadPlotPresetSelect_ACU();
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-global-preset-select`).val(name);
+        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-global-delete-preset`).show();
+        showToastr_ACU('success', `新全局预设 "${name}" 已保存。`);
+    }
+
+    /**
+     * presentation/components/template-preset-ui.ts — 模板预设 UI 函数
+     * 从 src/core/02_storage_and_profile.js:20~628 迁移而来
+     */
+    function getTemplatePresetSelectJQ_ACU() {
+        try {
+            if (!$popupInstance_ACU$1 || !$popupInstance_ACU$1.length)
+                return null;
+            const $sel = $popupInstance_ACU$1.find(`#${SCRIPT_ID_PREFIX_ACU}-template-preset-select`);
+            return $sel && $sel.length ? $sel : null;
+        }
+        catch (e) {
+            return null;
+        }
+    }
+    function getTemplateChatPresetSelectJQ_ACU() {
+        try {
+            if (!$popupInstance_ACU$1 || !$popupInstance_ACU$1.length)
+                return null;
+            const $sel = $popupInstance_ACU$1.find(`#${SCRIPT_ID_PREFIX_ACU}-template-chat-preset-select`);
+            return $sel && $sel.length ? $sel : null;
+        }
+        catch (e) {
+            return null;
+        }
+    }
+    function getTemplatePresetDisplayName_ACU(presetName) {
+        const normalizedName = normalizeTemplatePresetSelectionValue_ACU(presetName);
+        return normalizedName || '默认预设';
+    }
+    function resolveActiveTemplatePresetName_ACU({ fallbackToGlobal = true, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const normalizedKey = String(isolationKey ?? '');
+        const chatScopeState = getCurrentChatTemplateScopeState_ACU({ isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
+        const chatPresetName = normalizeTemplatePresetSelectionValue_ACU(chatScopeState?.presetName || '');
+        if (chatPresetName)
+            return chatPresetName;
+        if (!fallbackToGlobal)
+            return '';
+        return getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false });
+    }
+    function getActiveTemplatePresetMeta_ACU({ isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const normalizedKey = String(isolationKey ?? '');
+        const chatScopeState = getCurrentChatTemplateScopeState_ACU({ isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
+        const normalizedMode = normalizeTemplateScopeMode_ACU(chatScopeState?.mode);
+        const effectivePresetName = normalizeTemplatePresetSelectionValue_ACU(resolveActiveTemplatePresetName_ACU({ fallbackToGlobal: true, isolationKey: normalizedKey }));
+        const scope = (normalizedMode === 'chat_override' || normalizedMode === 'preset_link') ? 'chat' : 'global';
+        return {
+            presetName: effectivePresetName,
+            displayName: getTemplatePresetDisplayName_ACU(effectivePresetName),
+            mode: normalizedMode,
+            scope,
+            scopeLabel: scope === 'chat' ? '当前聊天' : '全局',
+        };
+    }
+    function populateTemplatePresetSelectOptions_ACU($select, { extraPresetName = '', extraLabelSuffix = '（仅当前聊天快照）', extraOptions = [] } = {}) {
+        if (!$select || !$select.length)
+            return;
+        const normalizedExtraPresetName = normalizeTemplatePresetSelectionValue_ACU(extraPresetName);
+        const presetNames = listTemplatePresetNames_ACU();
+        const renderedNames = new Set();
+        $select.empty().append(jQuery_API_ACU$1('<option/>').val(DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU).text('默认预设'));
+        presetNames.forEach(name => {
+            const normalizedName = normalizeTemplatePresetSelectionValue_ACU(name);
+            if (!normalizedName || renderedNames.has(normalizedName))
+                return;
+            renderedNames.add(normalizedName);
+            $select.append(jQuery_API_ACU$1('<option/>').val(normalizedName).text(normalizedName));
+        });
+        if (normalizedExtraPresetName && !renderedNames.has(normalizedExtraPresetName)) {
+            renderedNames.add(normalizedExtraPresetName);
+            $select.append(jQuery_API_ACU$1('<option/>').val(normalizedExtraPresetName).text(`${normalizedExtraPresetName}${extraLabelSuffix}`));
+        }
+        (Array.isArray(extraOptions) ? extraOptions : []).forEach(option => {
+            const value = String(option?.value || '').trim();
+            if (!value || renderedNames.has(value))
+                return;
+            renderedNames.add(value);
+            const label = String(option?.label || value).trim() || value;
+            $select.append(jQuery_API_ACU$1('<option/>').val(value).text(label));
+        });
+    }
+    function loadTemplatePresetSelect_ACU({ globalSelectName = null, keepGlobalValue = false } = {}) {
+        if (!$popupInstance_ACU$1 || !$popupInstance_ACU$1.length)
+            return;
+        const presetNames = listTemplatePresetNames_ACU();
+        const globalPresetName = normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }));
+        const chatScopeState = getCurrentChatTemplateScopeState_ACU() || migrateLegacyTemplateScopeForCurrentChat_ACU();
+        const normalizedChatMode = normalizeTemplateScopeMode_ACU(chatScopeState?.mode);
+        const effectiveChatPresetName = resolveActiveTemplatePresetName_ACU({ fallbackToGlobal: true });
+        const chatSelectedPresetName = normalizeTemplatePresetSelectionValue_ACU(chatScopeState?.presetName || effectiveChatPresetName || '');
+        const chatPresetEntries = listChatTemplatePresetEntries_ACU();
+        const localOnlyOptions = chatPresetEntries
+            .filter(entry => {
+            const entryName = normalizeTemplatePresetSelectionValue_ACU(entry?.presetName || '');
+            return !!entryName && !presetNames.includes(entryName);
+        })
+            .map(entry => {
+            const entryName = normalizeTemplatePresetSelectionValue_ACU(entry?.presetName || '');
+            const updatedAtText = (typeof formatPlotScopeUpdatedAt_ACU$1 === 'function')
+                ? formatPlotScopeUpdatedAt_ACU$1(entry?.updatedAt || entry?.archivedAt)
+                : '';
+            return {
+                value: entryName,
+                label: updatedAtText
+                    ? `${getTemplatePresetDisplayName_ACU(entryName)}（当前聊天快照，${updatedAtText}）`
+                    : `${getTemplatePresetDisplayName_ACU(entryName)}（当前聊天快照）`,
+            };
+        });
+        const chatPresetEntryCount = chatPresetEntries.length;
+        const chatExtraPresetName = (() => {
+            if (!chatSelectedPresetName)
+                return '';
+            if (presetNames.includes(chatSelectedPresetName))
+                return '';
+            if (localOnlyOptions.some(option => option.value === chatSelectedPresetName))
+                return '';
+            return chatSelectedPresetName;
+        })();
+        const $globalSelect = getTemplatePresetSelectJQ_ACU();
+        const $chatSelect = getTemplateChatPresetSelectJQ_ACU();
+        const $globalStatus = $popupInstance_ACU$1.find(`#${SCRIPT_ID_PREFIX_ACU}-template-global-scope-status`);
+        const $chatStatus = $popupInstance_ACU$1.find(`#${SCRIPT_ID_PREFIX_ACU}-template-chat-scope-status`);
+        const $chatOriginStatus = $popupInstance_ACU$1.find(`#${SCRIPT_ID_PREFIX_ACU}-template-chat-origin-status`);
+        const $globalDeleteBtn = $popupInstance_ACU$1.find(`#${SCRIPT_ID_PREFIX_ACU}-template-preset-delete`);
+        const hasGlobalPreset = !!globalPresetName && presetNames.includes(globalPresetName);
+        populateTemplatePresetSelectOptions_ACU($globalSelect, {
+            extraPresetName: hasGlobalPreset ? '' : globalPresetName,
+            extraLabelSuffix: '（仅当前全局模板快照）',
+        });
+        populateTemplatePresetSelectOptions_ACU($chatSelect, {
+            extraPresetName: chatExtraPresetName,
+            extraLabelSuffix: normalizedChatMode === 'preset_link' ? '（当前聊天引用）' : '（当前聊天专属预设）',
+            extraOptions: localOnlyOptions,
+        });
+        if ($globalSelect && $globalSelect.length) {
+            let resolvedGlobalValue = globalPresetName;
+            if (globalSelectName !== null && typeof globalSelectName !== 'undefined') {
+                resolvedGlobalValue = normalizeTemplatePresetSelectionValue_ACU(globalSelectName);
+            }
+            else if (keepGlobalValue) {
+                resolvedGlobalValue = normalizeTemplatePresetSelectionValue_ACU($globalSelect.val());
+            }
+            const finalGlobalValue = resolvedGlobalValue && $globalSelect.find(`option[value="${resolvedGlobalValue.replace(/"/g, '\\"')}"]`).length > 0
+                ? resolvedGlobalValue
+                : (hasGlobalPreset || (!!globalPresetName && $globalSelect.find(`option[value="${globalPresetName.replace(/"/g, '\\"')}"]`).length > 0)
+                    ? globalPresetName
+                    : DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU);
+            $globalSelect.val(finalGlobalValue || DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU);
+        }
+        if ($globalDeleteBtn && $globalDeleteBtn.length) {
+            $globalDeleteBtn.toggle(!!globalPresetName && presetNames.includes(globalPresetName));
+        }
+        if ($chatSelect && $chatSelect.length) {
+            const finalChatValue = chatSelectedPresetName && $chatSelect.find(`option[value="${chatSelectedPresetName.replace(/"/g, '\\"')}"]`).length > 0
+                ? chatSelectedPresetName
+                : DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU;
+            $chatSelect.val(finalChatValue || DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU);
+        }
+        if ($globalStatus && $globalStatus.length) {
+            if (globalPresetName && !hasGlobalPreset) {
+                $globalStatus.text(`当前全局模板：${globalPresetName}（预设库已不存在，但当前 profile 仍保留这份模板快照）。`);
+            }
+            else {
+                $globalStatus.text(`当前全局模板：${getTemplatePresetDisplayName_ACU(globalPresetName)}；新聊天会默认继承这里的表格模板。`);
+            }
+        }
+        if ($chatStatus && $chatStatus.length) {
+            if (normalizedChatMode === 'chat_override') {
+                let scopeLabel = '当前聊天专属预设';
+                if (chatScopeState.source === 'legacy_frozen') {
+                    scopeLabel = '旧版聊天冻结模板（已迁移）';
+                }
+                else if (chatScopeState.source === 'legacy_history_frozen') {
+                    scopeLabel = '旧对话历史模板快照（已迁移）';
+                }
+                else if (chatScopeState.source === 'legacy_header_frozen') {
+                    scopeLabel = '旧版表头冻结模板（已迁移）';
+                }
+                $chatStatus.text(`当前聊天：${scopeLabel}；当前实际模板预设为 ${getTemplatePresetDisplayName_ACU(chatSelectedPresetName)}。`);
+            }
+            else if (normalizedChatMode === 'preset_link') {
+                $chatStatus.text(`当前聊天：引用全局预设 ${getTemplatePresetDisplayName_ACU(chatSelectedPresetName)}；打开聊天时会继续沿用这个预设。`);
+            }
+            else {
+                $chatStatus.text(`当前聊天：跟随当前全局；当前实际模板预设为 ${getTemplatePresetDisplayName_ACU(effectiveChatPresetName)}。`);
+            }
+        }
+        if ($chatOriginStatus && $chatOriginStatus.length) {
+            if (normalizedChatMode === 'chat_override') {
+                const detailParts = [];
+                if (chatScopeState.source === 'legacy_frozen') {
+                    detailParts.push('来源语义：从旧版聊天冻结模板迁移');
+                }
+                else if (chatScopeState.source === 'legacy_history_frozen') {
+                    detailParts.push('来源语义：从旧对话实际表格结构迁移');
+                }
+                else if (chatScopeState.source === 'legacy_header_frozen') {
+                    detailParts.push('来源语义：从旧版表头冻结模板迁移');
+                }
+                else {
+                    detailParts.push('来源语义：当前聊天已保存本地模板预设快照');
+                }
+                if (chatScopeState.originGlobalName) {
+                    detailParts.push(`来源全局模板：${getTemplatePresetDisplayName_ACU(chatScopeState.originGlobalName)}`);
+                }
+                if (Number.isFinite(chatScopeState.originGlobalRevision) && chatScopeState.originGlobalRevision > 0) {
+                    detailParts.push(`来源全局版本：v${chatScopeState.originGlobalRevision}`);
+                }
+                const updatedAtText = (typeof formatPlotScopeUpdatedAt_ACU$1 === 'function') ? formatPlotScopeUpdatedAt_ACU$1(chatScopeState.updatedAt) : '';
+                if (updatedAtText) {
+                    detailParts.push(`更新时间：${updatedAtText}`);
+                }
+                if (chatScopeState.source) {
+                    detailParts.push(`写入来源：${chatScopeState.source}`);
+                }
+                if (chatPresetEntryCount > 0) {
+                    detailParts.push(`当前聊天已登记 ${chatPresetEntryCount} 个本地模板预设`);
+                }
+                $chatOriginStatus.text(detailParts.join('；') || '当前聊天正在使用聊天级模板预设快照。');
+            }
+            else if (normalizedChatMode === 'preset_link') {
+                const detailParts = [
+                    '来源语义：当前聊天仅记录预设引用，未保存本地模板快照',
+                    `引用预设：${getTemplatePresetDisplayName_ACU(chatSelectedPresetName)}`,
+                ];
+                const updatedAtText = (typeof formatPlotScopeUpdatedAt_ACU$1 === 'function') ? formatPlotScopeUpdatedAt_ACU$1(chatScopeState?.updatedAt) : '';
+                if (updatedAtText) {
+                    detailParts.push(`更新时间：${updatedAtText}`);
+                }
+                if (chatScopeState?.source) {
+                    detailParts.push(`写入来源：${chatScopeState.source}`);
+                }
+                if (chatPresetEntryCount > 0) {
+                    detailParts.push(`当前聊天可切换/覆盖 ${chatPresetEntryCount} 个本地模板预设`);
+                }
+                $chatOriginStatus.text(detailParts.join('；'));
+            }
+            else if (chatPresetEntryCount > 0) {
+                $chatOriginStatus.text(`当前聊天尚未保存本地模板快照，实际会跟随当前全局模板；但当前聊天已经拥有 ${chatPresetEntryCount} 个可直接切换的本地模板预设。`);
+            }
+            else {
+                $chatOriginStatus.text('当前聊天尚未保存本地模板快照，实际会直接跟随当前全局表格模板。');
+            }
+        }
+    }
+    function refreshTemplatePresetSelectInUI_ACU({ selectName = null, keepValue = false } = {}) {
+        if ($popupInstance_ACU$1 && $popupInstance_ACU$1.length) {
+            loadTemplatePresetSelect_ACU({ globalSelectName: selectName, keepGlobalValue: !!keepValue });
+            return;
+        }
+        const $sel = getTemplatePresetSelectJQ_ACU();
+        if (!$sel || !$sel.length)
+            return;
+        renderTemplatePresetSelect_ACU($sel, { keepValue: !!keepValue });
+        if (selectName === null || typeof selectName === 'undefined')
+            return;
+        const normalizedName = normalizeTemplatePresetSelectionValue_ACU(selectName);
+        $sel.val(normalizedName || DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU);
+    }
+    function ensureUniqueTemplatePresetName_ACU(baseNameRaw) {
+        const baseName = String(baseNameRaw || '').trim();
+        if (!baseName)
+            return '';
+        const names = new Set(listTemplatePresetNames_ACU().map(n => String(n)));
+        if (!names.has(baseName))
+            return baseName;
+        for (let i = 2; i <= 99; i++) {
+            const candidate = `${baseName} (${i})`;
+            if (!names.has(candidate))
+                return candidate;
+        }
+        return `${baseName} (${Date.now()})`;
+    }
+    function buildDefaultTemplatePresetsStore_ACU() {
+        return { version: 1, presets: {} };
+    }
+    function loadTemplatePresetsStore_ACU() {
+        const store = getConfigStorage_ACU();
+        const raw = store?.getItem?.(STORAGE_KEY_TEMPLATE_PRESETS_ACU);
+        const parsed = raw ? safeJsonParse_ACU(raw, null) : null;
+        const base = buildDefaultTemplatePresetsStore_ACU();
+        if (!parsed || typeof parsed !== 'object')
+            return base;
+        const out = { ...base, ...parsed };
+        if (!out.presets || typeof out.presets !== 'object')
+            out.presets = {};
+        return out;
+    }
+    function saveTemplatePresetsStore_ACU(obj) {
+        try {
+            const store = getConfigStorage_ACU();
+            store?.setItem?.(STORAGE_KEY_TEMPLATE_PRESETS_ACU, safeJsonStringify_ACU(obj, '{}'));
+            return true;
+        }
+        catch (e) {
+            logWarn_ACU('[TemplatePresets] Failed to save:', e);
+            return false;
+        }
+    }
+    function listTemplatePresetNames_ACU() {
+        const s = loadTemplatePresetsStore_ACU();
+        return Object.keys(s.presets || {}).sort((a, b) => String(a).localeCompare(String(b)));
+    }
+    function getTemplatePreset_ACU(name) {
+        const s = loadTemplatePresetsStore_ACU();
+        const p = s?.presets?.[String(name || '')];
+        return p && typeof p === 'object' ? p : null;
+    }
+    function upsertTemplatePreset_ACU(nameRaw, templateStr) {
+        const name = String(nameRaw || '').trim();
+        if (!name)
+            return false;
+        const s = loadTemplatePresetsStore_ACU();
+        s.presets = s.presets && typeof s.presets === 'object' ? s.presets : {};
+        s.presets[name] = { templateStr: String(templateStr || ''), updatedAt: Date.now() };
+        return saveTemplatePresetsStore_ACU(s);
+    }
+    function deleteTemplatePreset_ACU(nameRaw) {
+        const name = String(nameRaw || '').trim();
+        if (!name)
+            return false;
+        const s = loadTemplatePresetsStore_ACU();
+        if (!s.presets || typeof s.presets !== 'object')
+            return false;
+        if (!Object.prototype.hasOwnProperty.call(s.presets, name))
+            return false;
+        delete s.presets[name];
+        return saveTemplatePresetsStore_ACU(s);
+    }
+    function normalizeTemplateForPresetSave_ACU() {
+        // 返回：{ templateObj, templateStr } 或 null
+        const obj = parseTableTemplateJson_ACU({ stripSeedRows: false });
+        if (!obj || typeof obj !== 'object')
+            return null;
+        try {
+            const sheetKeys = Object.keys(obj).filter(k => k.startsWith('sheet_'));
+            ensureSheetOrderNumbers_ACU(obj, { baseOrderKeys: sheetKeys, forceRebuild: false });
+        }
+        catch (e) { }
+        const sanitized = sanitizeChatSheetsObject_ACU(obj, { ensureMate: true });
+        const str = safeJsonStringify_ACU(sanitized, '');
+        if (!str)
+            return null;
+        return { templateObj: sanitized, templateStr: str };
+    }
+    function renderTemplatePresetSelect_ACU($select, { keepValue = true } = {}) {
+        try {
+            if (!$select || !$select.length)
+                return;
+            const prev = keepValue ? normalizeTemplatePresetSelectionValue_ACU($select.val()) : '';
+            const names = listTemplatePresetNames_ACU();
+            const persistedName = getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: true, getTemplatePresetFn: getTemplatePreset_ACU });
+            $select.empty();
+            $select.append(jQuery_API_ACU$1('<option/>').val(DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU).text('默认预设'));
+            names.forEach(n => {
+                // 注意：value/text 必须用 DOM 赋值，避免 HTML 转义导致取值失真（比如 &、<、" 等）
+                $select.append(jQuery_API_ACU$1('<option/>').val(String(n)).text(String(n)));
+            });
+            let resolvedValue = DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU;
+            if (keepValue) {
+                if (isDefaultTemplatePresetSelection_ACU(prev)) {
+                    resolvedValue = DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU;
+                }
+                else if (names.includes(prev)) {
+                    resolvedValue = prev;
+                }
+            }
+            if (resolvedValue === DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU && persistedName && names.includes(persistedName)) {
+                resolvedValue = persistedName;
+            }
+            $select.val(resolvedValue);
+        }
+        catch (e) { }
+    }
+    function getDefaultTemplateSnapshot_ACU() {
+        const previousTemplate = TABLE_TEMPLATE_ACU;
+        let snapshot = sanitizeTemplateSnapshotForChat_ACU(DEFAULT_TABLE_TEMPLATE_ACU);
+        if (snapshot?.templateStr) {
+            return snapshot;
+        }
+        try {
+            _set_TABLE_TEMPLATE_ACU(DEFAULT_TABLE_TEMPLATE_ACU);
+            const parsedTemplate = parseTableTemplateJson_ACU({ stripSeedRows: false });
+            snapshot = sanitizeTemplateSnapshotForChat_ACU(parsedTemplate);
+        }
+        catch (e) {
+            snapshot = null;
+        }
+        finally {
+            _set_TABLE_TEMPLATE_ACU(previousTemplate);
+        }
+        return snapshot || sanitizeTemplateSnapshotForChat_ACU(previousTemplate);
+    }
+    function normalizeTemplateOperationScope_ACU(scope) {
+        return scope === 'chat' ? 'chat' : 'global';
+    }
+    function parseImportedTemplateData_ACU(templateData) {
+        let jsonData;
+        if (typeof templateData === 'string') {
+            try {
+                jsonData = JSON.parse(templateData);
+            }
+            catch (parseError) {
+                throw new Error(`JSON解析错误: ${parseError.message}`);
+            }
+        }
+        else if (typeof templateData === 'object' && templateData !== null) {
+            jsonData = JSON.parse(JSON.stringify(templateData));
+        }
+        else {
+            throw new Error('无效的模板数据：必须是 JSON 对象或 JSON 字符串');
+        }
+        if (!jsonData.mate || !jsonData.mate.type || jsonData.mate.type !== 'chatSheets') {
+            throw new Error('缺少 "mate" 对象或 "type" 属性不正确。模板必须包含 `"mate": {"type": "chatSheets", ...}`。');
+        }
+        const sheetKeys = Object.keys(jsonData).filter(k => k.startsWith('sheet_'));
+        if (sheetKeys.length === 0) {
+            throw new Error('模板中未找到任何表格数据 (缺少 "sheet_..." 键)。');
+        }
+        for (const key of sheetKeys) {
+            const sheet = jsonData[key];
+            if (!sheet.name || !sheet.content || !sheet.sourceData || !Array.isArray(sheet.content)) {
+                throw new Error(`表格 "${key}" 结构不完整，缺少 "name"、"content" 或 "sourceData" 关键属性。`);
+            }
+        }
+        try {
+            if (!jsonData.mate || typeof jsonData.mate !== 'object')
+                jsonData.mate = { type: 'chatSheets', version: 1 };
+            if (jsonData.mate.updateConfigUiSentinel !== -1) {
+                const sheetKeys2 = Object.keys(jsonData).filter(k => k.startsWith('sheet_'));
+                for (const k of sheetKeys2) {
+                    const s = jsonData[k];
+                    const uc = s && typeof s === 'object' ? s.updateConfig : null;
+                    if (!uc || typeof uc !== 'object')
+                        continue;
+                    if (uc.uiSentinel !== -1)
+                        uc.uiSentinel = -1;
+                    for (const field of ['contextDepth', 'updateFrequency', 'batchSize', 'skipFloors']) {
+                        if (Object.prototype.hasOwnProperty.call(uc, field) && uc[field] === 0)
+                            uc[field] = -1;
+                    }
+                }
+                jsonData.mate.updateConfigUiSentinel = -1;
+            }
+        }
+        catch (e) { }
+        ensureSheetOrderNumbers_ACU(jsonData, { baseOrderKeys: sheetKeys, forceRebuild: false });
+        const sanitized = sanitizeChatSheetsObject_ACU(jsonData, { ensureMate: true });
+        const snapshot = sanitizeTemplateSnapshotForChat_ACU(sanitized);
+        if (!snapshot?.templateStr || !snapshot?.templateObj) {
+            throw new Error('模板结构无效，无法生成模板快照。');
+        }
+        return {
+            snapshot,
+            templateObj: snapshot.templateObj,
+            templateStr: snapshot.templateStr,
+        };
+    }
+    async function applyTemplateSnapshotToScope_ACU(templateSource, { scope = 'global', source = 'ui', presetName = '', refreshUi = false, save = true, persistChatScope = null, registerChatPresetEntry = null } = {}) {
+        const normalizedScope = normalizeTemplateOperationScope_ACU(scope);
+        const snapshot = sanitizeTemplateSnapshotForChat_ACU(templateSource);
+        if (!snapshot?.templateStr || !snapshot?.templateObj)
+            return false;
+        const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
+        const updateGlobal = normalizedScope === 'global';
+        const effectivePersistChatScope = persistChatScope === null ? !updateGlobal : !!persistChatScope;
+        const effectiveRegisterChatPresetEntry = registerChatPresetEntry === null
+            ? (!updateGlobal && !!effectivePersistChatScope)
+            : !!registerChatPresetEntry;
+        _set_TABLE_TEMPLATE_ACU(snapshot.templateStr);
+        if (updateGlobal) {
+            saveCurrentProfileTemplate_ACU(TABLE_TEMPLATE_ACU);
+        }
+        const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(snapshot.templateObj, { stripSeedRows: false });
+        persistTemplateScopeSelectionState_ACU(normalizedPresetName, {
+            source,
+            updateGlobal,
+            save,
+            persistChatScope: effectivePersistChatScope,
+            templateSource: snapshot.templateStr,
+            guideData,
+            scopeMode: effectivePersistChatScope ? 'chat_override' : 'inherit_global',
+            registerChatPresetEntry: effectiveRegisterChatPresetEntry,
+        });
+        applyTemplateScopeForCurrentChat_ACU();
+        if ($popupInstance_ACU$1 && refreshUi) {
+            loadTemplatePresetSelect_ACU({
+                globalSelectName: updateGlobal ? normalizedPresetName : null,
+                keepGlobalValue: !updateGlobal,
+            });
+        }
+        try {
+            await refreshMergedDataAndNotify_ACU();
+        }
+        catch (e) { }
+        return {
+            scope: normalizedScope,
+            presetName: normalizedPresetName,
+            templateStr: snapshot.templateStr,
+            templateObj: snapshot.templateObj,
+        };
+    }
+    function persistTemplateScopeSelectionState_ACU(presetName, { source = 'ui', updateGlobal = false, save = true, persistChatScope = !updateGlobal, templateSource = TABLE_TEMPLATE_ACU, guideData = null, archivePreviousChatScope = false, scopeMode = persistChatScope ? 'chat_override' : 'inherit_global', registerChatPresetEntry = !updateGlobal && !!persistChatScope && normalizeTemplateScopeMode_ACU(scopeMode) === 'chat_override' } = {}) {
+        void archivePreviousChatScope;
+        const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
+        let shouldSaveSettings = false;
+        let shouldSaveChat = false;
+        if (updateGlobal) {
+            persistCurrentTemplatePresetName_ACU(settings_ACU, normalizedPresetName, { save: false });
+            shouldSaveSettings = true;
+        }
+        else if (persistChatScope) {
+            const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(getCurrentIsolationKey_ACU$1());
+            const normalizedScopeMode = normalizeTemplateScopeMode_ACU(scopeMode);
+            let templateState = null;
+            if (normalizedScopeMode === 'chat_override') {
+                templateState = buildChatTemplateScopeStateFromCurrent_ACU({
+                    isolationKey: normalizedKey,
+                    presetName: normalizedPresetName,
+                    source,
+                    originGlobalName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
+                    originGlobalRevision: 0,
+                    updatedAt: Date.now(),
+                    templateSource,
+                    guideData,
+                });
+            }
+            else if (normalizedScopeMode === 'preset_link') {
+                templateState = buildChatTemplatePresetLinkState_ACU({
+                    isolationKey: normalizedKey,
+                    presetName: normalizedPresetName,
+                    source,
+                    originGlobalName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
+                    originGlobalRevision: 0,
+                    updatedAt: Date.now(),
+                });
+            }
+            else {
+                templateState = { mode: 'inherit_global' };
+            }
+            if (templateState) {
+                setCurrentChatTemplateScopeState_ACU(templateState, {
+                    isolationKey: normalizedKey,
+                    reason: `template_scope_${source}`,
+                });
+                if (normalizedScopeMode === 'chat_override' && registerChatPresetEntry) {
+                    try {
+                        upsertChatTemplatePresetEntry_ACU(templateState, { isolationKey: normalizedKey });
+                    }
+                    catch (e) { }
+                }
+                try {
+                    clearChatSheetGuideDataForIsolationKey_ACU({ isolationKey: normalizedKey });
+                }
+                catch (e) { }
+                shouldSaveChat = true;
+            }
+        }
+        if (save) {
+            if (shouldSaveSettings) {
+                saveSettings_ACU();
+            }
+            if (shouldSaveChat && typeof SillyTavern_API_ACU?.saveChat === 'function') {
+                Promise.resolve()
+                    .then(() => SillyTavern_API_ACU.saveChat())
+                    .catch(error => logWarn_ACU('[TemplateScope] 保存聊天级模板状态失败:', error));
+            }
+        }
+        return normalizedPresetName;
+    }
+    async function applyTemplatePresetToCurrent_ACU(presetName, { source = 'ui', updateGlobal = true, refreshUi = false, save = true, persistChatScope = !updateGlobal } = {}) {
+        const name = normalizeTemplatePresetSelectionValue_ACU(presetName);
+        const isDefaultPreset = isDefaultTemplatePresetSelection_ACU(name);
+        if (!updateGlobal) {
+            const activated = await activateChatTemplatePresetSelection_ACU(name, {
+                source,
+                refreshUi,
+                save,
+            });
+            if (!activated)
+                return false;
+            if ($popupInstance_ACU$1 && refreshUi) {
+                loadTemplatePresetSelect_ACU({ keepGlobalValue: true });
+            }
+            return { ...activated, isDefault: isDefaultPreset };
+        }
+        let snapshot = null;
+        if (isDefaultPreset) {
+            snapshot = getDefaultTemplateSnapshot_ACU();
+        }
+        else {
+            const preset = getTemplatePreset_ACU(name);
+            const raw = preset?.templateStr;
+            if (!raw)
+                return false;
+            snapshot = sanitizeTemplateSnapshotForChat_ACU(raw);
+        }
+        const applied = await applyTemplateSnapshotToScope_ACU(snapshot?.templateStr, {
+            scope: 'global',
+            source,
+            presetName: name,
+            refreshUi,
+            save,
+            persistChatScope,
+        });
+        if (!applied)
+            return false;
+        return { ...applied, isDefault: isDefaultPreset };
+    }
+
+    /**
+     * service/template/template-preset-service.ts — 模板预设纯逻辑函数
+     *
+     * 从 presentation/components/template-preset-ui.ts 中提取的纯数据操作函数。
+     * 不操作 DOM，可被 service 层和 presentation 层共同引用。
+     */
+
+    /**
+     * service/template/chat-scope.ts — 聊天模板/剧情作用域管理 + Sheet Guide + sanitize
+     * 从 src/core/04_shared_helpers.js:37~1382 迁移而来。
+     * 合并 T114~T120: chat-scope + template-archive + sheet-guide + sheet-helpers(部分)
+     */
+    function normalizePlotScopeMode_ACU(mode) {
+        return mode === 'chat_override' ? 'chat_override' : 'inherit_global';
+    }
+    function normalizeChatScopedConfigSource_ACU(source, fallback = 'inherit') {
+        if (typeof source !== 'string')
+            return fallback;
+        const normalized = source.trim();
+        return normalized || fallback;
+    }
+    function sanitizePlotSettingsSnapshotForChat_ACU(plotSettings) {
+        if (!plotSettings || typeof plotSettings !== 'object')
+            return null;
+        const snapshot = cloneScopedConfigData_ACU(plotSettings, null);
+        if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot))
+            return null;
+        delete snapshot.promptPresets;
+        delete snapshot.lastUsedPresetName;
+        delete snapshot.enabled;
+        ensurePlotPromptsArray_ACU(snapshot);
+        ensureLoopPromptsArray_ACU(snapshot);
+        ensurePlotTasksCompat_ACU(snapshot, { syncLegacy: true });
+        snapshot.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(snapshot);
+        setPlotPromptContentByIdForSettings_ACU(snapshot, 'finalSystemDirective', snapshot.finalSystemDirective || '');
+        return snapshot;
+    }
+    function normalizeChatPlotScopeState_ACU(rawState) {
+        const state = (rawState && typeof rawState === 'object' && !Array.isArray(rawState)) ? rawState : {};
+        const snapshot = sanitizePlotSettingsSnapshotForChat_ACU(state.snapshot);
+        return {
+            mode: normalizePlotScopeMode_ACU(state.mode),
+            presetName: normalizePlotPresetSelectionValue_ACU(state.presetName || ''),
+            snapshot,
+            originGlobalName: normalizePlotPresetSelectionValue_ACU(state.originGlobalName || ''),
+            originGlobalRevision: Number.isFinite(state.originGlobalRevision) ? Math.max(0, Math.trunc(state.originGlobalRevision)) : 0,
+            updatedAt: Number.isFinite(state.updatedAt) ? state.updatedAt : 0,
+            source: normalizeChatScopedConfigSource_ACU(state.source, 'inherit'),
+        };
+    }
+    function getCurrentChatPlotScopeState_ACU(chat = SillyTavern_API_ACU?.chat) {
+        const container = getChatScopedConfigContainer_ACU(chat);
+        const rawState = container?.plot;
+        if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState))
+            return null;
+        const normalizedState = normalizeChatPlotScopeState_ACU(rawState);
+        if (normalizedState.mode !== 'chat_override' || !normalizedState.snapshot) {
+            return null;
+        }
+        return normalizedState;
+    }
+    function buildChatPlotScopeStateFromSettings_ACU(plotSettings, { presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now() } = {}) {
+        const snapshot = sanitizePlotSettingsSnapshotForChat_ACU(plotSettings);
+        if (!snapshot)
+            return null;
+        return normalizeChatPlotScopeState_ACU({
+            mode: 'chat_override',
+            presetName,
+            snapshot,
+            originGlobalName,
+            originGlobalRevision,
+            updatedAt,
+            source,
+        });
+    }
+    function setCurrentChatPlotScopeState_ACU(plotState, { reason = '' } = {}) {
+        const chat = SillyTavern_API_ACU?.chat;
+        const first = getChatFirstLayerMessage_ACU(chat);
+        if (!first)
+            return null;
+        const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
+        const normalizedState = normalizeChatPlotScopeState_ACU(plotState);
+        if (normalizedState.mode === 'chat_override' && normalizedState.snapshot) {
+            container.plot = {
+                ...normalizedState,
+                reason: String(reason || ''),
+            };
+        }
+        else {
+            delete container.plot;
+        }
+        const hasPayload = Object.keys(container).some(key => key !== 'version');
+        if (hasPayload) {
+            first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
+        }
+        else {
+            delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
+        }
+        return getCurrentChatPlotScopeState_ACU(chat);
+    }
+    function clearCurrentChatPlotScopeState_ACU() {
+        return setCurrentChatPlotScopeState_ACU({ mode: 'inherit_global' }, { reason: 'clear_plot_override' });
+    }
+    function normalizeTemplateScopeMode_ACU(mode) {
+        if (mode === 'chat_override')
+            return 'chat_override';
+        if (mode === 'preset_link')
+            return 'preset_link';
+        return 'inherit_global';
+    }
+    function normalizeTemplateScopeIsolationKey_ACU(isolationKey = getCurrentIsolationKey_ACU$1()) {
+        return String(isolationKey ?? '');
+    }
+    function sanitizeTemplateSnapshotForChat_ACU(templateSource) {
+        let templateObj = null;
+        if (typeof templateSource === 'string') {
+            templateObj = safeJsonParse_ACU(templateSource, null);
+        }
+        else if (templateSource && typeof templateSource === 'object' && !Array.isArray(templateSource)) {
+            templateObj = cloneScopedConfigData_ACU(templateSource, null);
+        }
+        if (!templateObj || typeof templateObj !== 'object' || Array.isArray(templateObj))
+            return null;
+        try {
+            const sheetKeys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
+            ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: sheetKeys, forceRebuild: false });
+        }
+        catch (e) { }
+        const sanitized = sanitizeChatSheetsObject_ACU(templateObj, { ensureMate: true });
+        const templateStr = safeJsonStringify_ACU(sanitized, '');
+        if (!templateStr)
+            return null;
+        return {
+            templateStr,
+            templateObj: safeJsonParse_ACU(templateStr, null),
+        };
+    }
+    function normalizeChatTemplateScopeState_ACU(rawState, { isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const state = (rawState && typeof rawState === 'object' && !Array.isArray(rawState)) ? rawState : {};
+        const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(state.templateStr || state.templateObj || state.template || null);
+        const guideData = normalizeGuideData_ACU(state.guideData);
+        return {
+            mode: normalizeTemplateScopeMode_ACU(state.mode),
+            isolationKey: normalizeTemplateScopeIsolationKey_ACU(state.isolationKey ?? isolationKey),
+            presetName: normalizeTemplatePresetSelectionValue_ACU(state.presetName || ''),
+            templateStr: templateSnapshot?.templateStr || '',
+            guideData,
+            originGlobalName: normalizeTemplatePresetSelectionValue_ACU(state.originGlobalName || ''),
+            originGlobalRevision: Number.isFinite(state.originGlobalRevision) ? Math.max(0, Math.trunc(state.originGlobalRevision)) : 0,
+            updatedAt: Number.isFinite(state.updatedAt) ? state.updatedAt : 0,
+            source: normalizeChatScopedConfigSource_ACU(state.source, 'inherit'),
+        };
+    }
+    function buildChatTemplatePresetSlotKey_ACU(presetName) {
+        return normalizeTemplatePresetSelectionValue_ACU(presetName) || DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU;
+    }
+    function listChatTemplatePresetEntries_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const entryMap = new Map();
+        getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).forEach(entry => {
+            const slotKey = buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '');
+            const previousEntry = entryMap.get(slotKey);
+            const currentTs = Number(entry?.updatedAt) || Number(entry?.archivedAt) || 0;
+            const previousTs = Number(previousEntry?.updatedAt) || Number(previousEntry?.archivedAt) || 0;
+            if (!previousEntry || currentTs >= previousTs) {
+                entryMap.set(slotKey, entry);
+            }
+        });
+        return Array.from(entryMap.values()).sort((a, b) => {
+            const ta = Number(a?.updatedAt) || Number(a?.archivedAt) || 0;
+            const tb = Number(b?.updatedAt) || Number(b?.archivedAt) || 0;
+            return tb - ta;
+        });
+    }
+    function findChatTemplatePresetEntry_ACU(presetName, { chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const slotKey = buildChatTemplatePresetSlotKey_ACU(presetName);
+        return listChatTemplatePresetEntries_ACU({ chat, isolationKey }).find(entry => buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '') === slotKey) || null;
+    }
+    function upsertChatTemplatePresetEntry_ACU(templateState, { chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
+        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
+            return null;
+        const slotKey = buildChatTemplatePresetSlotKey_ACU(normalizedState.presetName || '');
+        const archivedAt = Date.now();
+        const nextEntries = [
+            {
+                ...normalizedState,
+                archiveKey: slotKey,
+                archivedAt,
+                updatedAt: normalizedState.updatedAt || archivedAt,
+            },
+            ...getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).filter(entry => buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '') !== slotKey),
+        ];
+        setChatTemplateArchiveEntries_ACU(nextEntries, { chat, isolationKey: normalizedKey });
+        return findChatTemplatePresetEntry_ACU(normalizedState.presetName || '', { chat, isolationKey: normalizedKey });
+    }
+    function ensureCurrentChatTemplatePresetEntry_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const currentState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ chat, isolationKey: normalizedKey });
+        const normalizedState = normalizeChatTemplateScopeState_ACU(currentState, { isolationKey: normalizedKey });
+        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
+            return null;
+        const existingEntry = findChatTemplatePresetEntry_ACU(normalizedState.presetName || '', { chat, isolationKey: normalizedKey });
+        const currentFingerprint = buildChatTemplateArchiveFingerprint_ACU(normalizedState, { isolationKey: normalizedKey });
+        const existingFingerprint = existingEntry ? buildChatTemplateArchiveFingerprint_ACU(existingEntry, { isolationKey: normalizedKey }) : '';
+        if (existingEntry && currentFingerprint && existingFingerprint === currentFingerprint) {
+            return existingEntry;
+        }
+        return upsertChatTemplatePresetEntry_ACU(normalizedState, { chat, isolationKey: normalizedKey });
+    }
+    function buildChatTemplatePresetLinkState_ACU({ isolationKey = getCurrentIsolationKey_ACU$1(), presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now() } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        return normalizeChatTemplateScopeState_ACU({
+            mode: 'preset_link',
+            isolationKey: normalizedKey,
+            presetName,
+            originGlobalName,
+            originGlobalRevision,
+            updatedAt,
+            source,
+        }, { isolationKey: normalizedKey });
+    }
+    async function activateChatTemplatePresetSelection_ACU(presetName, { source = 'ui_chat_select', refreshUi = false, save = true } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(getCurrentIsolationKey_ACU$1());
+        const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
+        const localEntry = findChatTemplatePresetEntry_ACU(normalizedPresetName, { isolationKey: normalizedKey });
+        const hasGlobalPreset = !normalizedPresetName || !!getTemplatePreset_ACU(normalizedPresetName)?.templateStr;
+        try {
+            ensureCurrentChatTemplatePresetEntry_ACU({ isolationKey: normalizedKey });
+        }
+        catch (e) { }
+        if (localEntry?.templateStr) {
+            persistTemplateScopeSelectionState_ACU(normalizedPresetName, {
+                source,
+                updateGlobal: false,
+                save,
+                persistChatScope: true,
+                templateSource: localEntry.templateStr,
+                guideData: localEntry.guideData,
+                scopeMode: 'chat_override',
+                registerChatPresetEntry: false,
+            });
+        }
+        else {
+            if (!hasGlobalPreset)
+                return false;
+            const linkState = buildChatTemplatePresetLinkState_ACU({
+                isolationKey: normalizedKey,
+                presetName: normalizedPresetName,
+                source,
+                originGlobalName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
+                originGlobalRevision: 0,
+                updatedAt: Date.now(),
+            });
+            setCurrentChatTemplateScopeState_ACU(linkState, {
+                isolationKey: normalizedKey,
+                reason: `template_scope_${source}`,
+            });
+            try {
+                clearChatSheetGuideDataForIsolationKey_ACU({ isolationKey: normalizedKey });
+            }
+            catch (e) { }
+            if (save && typeof SillyTavern_API_ACU?.saveChat === 'function') {
+                try {
+                    await SillyTavern_API_ACU.saveChat();
+                }
+                catch (error) {
+                    logWarn_ACU('[TemplateScope] 保存聊天级模板预设引用失败:', error);
+                }
+            }
+        }
+        applyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
+        try {
+            await refreshMergedDataAndNotify_ACU();
+        }
+        catch (e) { }
+        return {
+            presetName: normalizedPresetName,
+            mode: localEntry?.templateStr ? 'chat_override' : 'preset_link',
+            fromLocalSnapshot: !!localEntry?.templateStr,
+        };
+    }
+    function buildChatTemplateArchiveFingerprint_ACU(templateState, { isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey });
+        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
+            return '';
+        const raw = safeJsonStringify_ACU({
+            presetName: normalizedState.presetName || '',
+            source: normalizedState.source || '',
+            templateStr: normalizedState.templateStr || '',
+            guideData: normalizeGuideData_ACU(normalizedState.guideData),
+        }, '');
+        return raw ? hashUserInput_ACU(raw) : '';
+    }
+    function getChatTemplateArchiveBaseLabel_ACU(templateState, { fallback = '聊天模板快照' } = {}) {
+        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState);
+        if (normalizedState.source === 'legacy_history_frozen')
+            return '旧对话历史模板快照';
+        if (normalizedState.source === 'legacy_header_frozen')
+            return '旧版表头冻结模板';
+        if (normalizedState.source === 'legacy_frozen')
+            return '旧版聊天冻结模板';
+        const presetName = normalizeTemplatePresetSelectionValue_ACU(normalizedState.presetName || '');
+        return presetName ? getTemplatePresetDisplayName_ACU(presetName) : fallback;
+    }
+    function normalizeChatTemplateArchiveEntry_ACU(rawEntry, { isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const normalizedState = normalizeChatTemplateScopeState_ACU(rawEntry, { isolationKey });
+        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
+            return null;
+        const archiveKey = String(rawEntry?.archiveKey || buildChatTemplateArchiveFingerprint_ACU(normalizedState, { isolationKey: normalizedState.isolationKey }) || '').trim();
+        if (!archiveKey)
+            return null;
+        return {
+            archiveKey,
+            isolationKey: normalizedState.isolationKey,
+            presetName: normalizedState.presetName,
+            templateStr: normalizedState.templateStr,
+            guideData: normalizedState.guideData,
+            originGlobalName: normalizedState.originGlobalName,
+            originGlobalRevision: normalizedState.originGlobalRevision,
+            updatedAt: normalizedState.updatedAt,
+            archivedAt: Number.isFinite(rawEntry?.archivedAt) ? rawEntry.archivedAt : Date.now(),
+            source: normalizedState.source,
+            mode: 'chat_override',
+        };
+    }
+    function getChatTemplateArchiveEntries_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const container = getChatScopedConfigContainer_ACU(chat);
+        const rawSlots = container?.templateArchives;
+        if (!rawSlots || typeof rawSlots !== 'object' || Array.isArray(rawSlots))
+            return [];
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const rawEntries = Array.isArray(rawSlots[normalizedKey]) ? rawSlots[normalizedKey] : [];
+        return rawEntries
+            .map(entry => normalizeChatTemplateArchiveEntry_ACU(entry, { isolationKey: normalizedKey }))
+            .filter(Boolean)
+            .sort((a, b) => (Number(b.archivedAt) || 0) - (Number(a.archivedAt) || 0));
+    }
+    function setChatTemplateArchiveEntries_ACU(entries, { chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const first = getChatFirstLayerMessage_ACU(chat);
+        if (!first)
+            return [];
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
+        const normalizedEntries = (Array.isArray(entries) ? entries : [])
+            .map(entry => normalizeChatTemplateArchiveEntry_ACU(entry, { isolationKey: normalizedKey }))
+            .filter(Boolean)
+            .sort((a, b) => (Number(b.archivedAt) || 0) - (Number(a.archivedAt) || 0))
+            .slice(0, MAX_CHAT_TEMPLATE_ARCHIVES_PER_TAG_ACU);
+        if (normalizedEntries.length > 0) {
+            if (!container.templateArchives || typeof container.templateArchives !== 'object' || Array.isArray(container.templateArchives)) {
+                container.templateArchives = {};
+            }
+            container.templateArchives[normalizedKey] = normalizedEntries;
+        }
+        else if (container.templateArchives && typeof container.templateArchives === 'object' && !Array.isArray(container.templateArchives)) {
+            delete container.templateArchives[normalizedKey];
+            if (Object.keys(container.templateArchives).length === 0)
+                delete container.templateArchives;
+        }
+        const hasPayload = Object.keys(container).some(key => key !== 'version');
+        if (hasPayload) {
+            first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
+        }
+        else {
+            delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
+        }
+        return getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey });
+    }
+    function archiveCurrentChatTemplateScopeState_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1(), nextTemplateState = null, reason = '' } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const currentState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ chat, isolationKey: normalizedKey });
+        const normalizedCurrentState = normalizeChatTemplateScopeState_ACU(currentState, { isolationKey: normalizedKey });
+        if (normalizedCurrentState.mode !== 'chat_override' || !normalizedCurrentState.templateStr)
+            return false;
+        const currentArchiveKey = buildChatTemplateArchiveFingerprint_ACU(normalizedCurrentState, { isolationKey: normalizedKey });
+        if (!currentArchiveKey)
+            return false;
+        const normalizedNextState = nextTemplateState
+            ? normalizeChatTemplateScopeState_ACU(nextTemplateState, { isolationKey: normalizedKey })
+            : null;
+        const nextArchiveKey = normalizedNextState?.templateStr
+            ? buildChatTemplateArchiveFingerprint_ACU(normalizedNextState, { isolationKey: normalizedKey })
+            : '';
+        if (nextArchiveKey && currentArchiveKey === nextArchiveKey)
+            return false;
+        const archivedAt = Date.now();
+        const nextEntries = [
+            {
+                ...normalizedCurrentState,
+                archiveKey: currentArchiveKey,
+                archivedAt,
+                updatedAt: normalizedCurrentState.updatedAt || archivedAt,
+                source: normalizedCurrentState.source || normalizeChatScopedConfigSource_ACU(reason, 'inherit'),
+            },
+            ...getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).filter(entry => entry.archiveKey !== currentArchiveKey),
+        ];
+        setChatTemplateArchiveEntries_ACU(nextEntries, { chat, isolationKey: normalizedKey });
+        return true;
+    }
+    function buildChatTemplateArchiveOptionValue_ACU(archiveKey) {
+        const normalizedKey = String(archiveKey || '').trim();
+        return normalizedKey ? `${CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU}${normalizedKey}` : '';
+    }
+    function isChatTemplateArchiveOptionValue_ACU(value) {
+        return typeof value === 'string' && value.startsWith(CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU);
+    }
+    function parseChatTemplateArchiveOptionValue_ACU(value) {
+        return isChatTemplateArchiveOptionValue_ACU(value)
+            ? String(value.slice(CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU.length)).trim()
+            : '';
+    }
+    function getChatTemplateArchiveOptionLabel_ACU(entry) {
+        const normalizedEntry = normalizeChatTemplateArchiveEntry_ACU(entry);
+        if (!normalizedEntry)
+            return '聊天历史模板快照';
+        const baseLabel = getChatTemplateArchiveBaseLabel_ACU(normalizedEntry);
+        const archivedAtText = (typeof formatPlotScopeUpdatedAt_ACU === 'function') ? formatPlotScopeUpdatedAt_ACU(normalizedEntry.archivedAt || normalizedEntry.updatedAt) : '';
+        return archivedAtText
+            ? `${baseLabel}（聊天历史快照，${archivedAtText}）`
+            : `${baseLabel}（聊天历史快照）`;
+    }
+    async function restoreChatTemplateArchiveEntry_ACU(archiveKey, { chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1(), refreshUi = false, save = true } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const normalizedArchiveKey = String(archiveKey || '').trim();
+        if (!normalizedArchiveKey)
+            return false;
+        const entry = getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).find(item => item.archiveKey === normalizedArchiveKey);
+        if (!entry?.templateStr)
+            return false;
+        persistTemplateScopeSelectionState_ACU(entry.presetName, {
+            source: entry.source || 'ui_chat_archive_restore',
+            updateGlobal: false,
+            save,
+            persistChatScope: true,
+            templateSource: entry.templateStr,
+            guideData: entry.guideData,
+            archivePreviousChatScope: true,
+        });
+        applyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
+        try {
+            await refreshMergedDataAndNotify_ACU();
+        }
+        catch (e) { }
+        return {
+            archiveKey: normalizedArchiveKey,
+            presetName: entry.presetName || '',
+            label: getChatTemplateArchiveOptionLabel_ACU(entry),
+            templateStr: entry.templateStr,
+        };
+    }
+    function getCurrentChatTemplateScopeState_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const container = getChatScopedConfigContainer_ACU(chat);
+        const rawSlots = container?.template;
+        if (!rawSlots || typeof rawSlots !== 'object' || Array.isArray(rawSlots))
+            return null;
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const rawState = rawSlots[normalizedKey];
+        if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState))
+            return null;
+        const normalizedState = normalizeChatTemplateScopeState_ACU(rawState, { isolationKey: normalizedKey });
+        if (normalizedState.mode === 'preset_link') {
+            return normalizedState;
+        }
+        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr) {
+            return null;
+        }
+        return normalizedState;
+    }
+    function buildChatTemplateScopeStateFromCurrent_ACU({ isolationKey = getCurrentIsolationKey_ACU$1(), presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now(), templateSource = TABLE_TEMPLATE_ACU, guideData = null } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateSource);
+        if (!templateSnapshot?.templateStr)
+            return null;
+        const resolvedGuideData = normalizeGuideData_ACU(guideData || getChatSheetGuideDataForIsolationKey_ACU(normalizedKey));
+        return normalizeChatTemplateScopeState_ACU({
+            mode: 'chat_override',
+            isolationKey: normalizedKey,
+            presetName,
+            templateStr: templateSnapshot.templateStr,
+            guideData: resolvedGuideData,
+            originGlobalName,
+            originGlobalRevision,
+            updatedAt,
+            source,
+        }, { isolationKey: normalizedKey });
+    }
+    function setCurrentChatTemplateScopeState_ACU(templateState, { isolationKey = getCurrentIsolationKey_ACU$1(), reason = '' } = {}) {
+        const chat = SillyTavern_API_ACU?.chat;
+        const first = getChatFirstLayerMessage_ACU(chat);
+        if (!first)
+            return null;
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
+        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
+        if (!container.template || typeof container.template !== 'object' || Array.isArray(container.template)) {
+            container.template = {};
+        }
+        if (normalizedState.mode === 'chat_override' && normalizedState.templateStr) {
+            container.template[normalizedKey] = {
+                ...normalizedState,
+                reason: String(reason || ''),
+            };
+        }
+        else if (normalizedState.mode === 'preset_link') {
+            container.template[normalizedKey] = {
+                ...normalizedState,
+                templateStr: '',
+                guideData: null,
+                reason: String(reason || ''),
+            };
+        }
+        else {
+            delete container.template[normalizedKey];
+            if (Object.keys(container.template).length === 0) {
+                delete container.template;
+            }
+        }
+        const hasPayload = Object.keys(container).some(key => key !== 'version');
+        if (hasPayload) {
+            first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
+        }
+        else {
+            delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
+        }
+        return getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
+    }
+    function clearCurrentChatTemplateScopeState_ACU({ isolationKey = getCurrentIsolationKey_ACU$1(), clearGuide = true, archiveCurrent = true } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        if (archiveCurrent) {
+            try {
+                archiveCurrentChatTemplateScopeState_ACU({ isolationKey: normalizedKey, reason: 'clear_template_override' });
+            }
+            catch (e) { }
+        }
+        const result = setCurrentChatTemplateScopeState_ACU({ mode: 'inherit_global' }, {
+            isolationKey: normalizedKey,
+            reason: 'clear_template_override',
+        });
+        if (clearGuide) {
+            try {
+                clearChatSheetGuideDataForIsolationKey_ACU({ isolationKey: normalizedKey });
+            }
+            catch (e) { }
+        }
+        return result;
+    }
+    function getGlobalTemplateSnapshotForCurrentProfile_ACU() {
+        const code = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || '');
+        const previousTemplate = TABLE_TEMPLATE_ACU;
+        const savedTemplate = readProfileTemplateFromStorage_ACU(code);
+        let snapshot = sanitizeTemplateSnapshotForChat_ACU(savedTemplate || previousTemplate);
+        if (snapshot?.templateStr) {
+            return snapshot;
+        }
+        try {
+            _set_TABLE_TEMPLATE_ACU(savedTemplate || DEFAULT_TABLE_TEMPLATE_ACU);
+            const parsedTemplate = parseTableTemplateJson_ACU({ stripSeedRows: false });
+            snapshot = sanitizeTemplateSnapshotForChat_ACU(parsedTemplate);
+        }
+        catch (e) {
+            snapshot = null;
+        }
+        finally {
+            _set_TABLE_TEMPLATE_ACU(previousTemplate);
+        }
+        return snapshot || sanitizeTemplateSnapshotForChat_ACU(previousTemplate);
+    }
+    function normalizeGuideData_ACU(dataObj) {
+        if (!dataObj || typeof dataObj !== 'object')
+            return null;
+        const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
+        // mate 允许覆盖
+        if (dataObj.mate && typeof dataObj.mate === 'object') {
+            out.mate = dataObj.mate;
+        }
+        // 兜底补齐 mate 关键字段（避免旧调用方传入 version=1 导致无法识别新结构）
+        if (!out.mate || typeof out.mate !== 'object')
+            out.mate = { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU };
+        if (!out.mate.type)
+            out.mate.type = 'chatSheets';
+        if (!Number.isFinite(out.mate.version) || Math.trunc(out.mate.version) < CHAT_SHEET_GUIDE_VERSION_ACU)
+            out.mate.version = CHAT_SHEET_GUIDE_VERSION_ACU;
+        Object.keys(dataObj).forEach(k => {
+            if (!k.startsWith('sheet_'))
+                return;
+            const s = dataObj[k];
+            if (!s || typeof s !== 'object')
+                return;
+            // content 只保留表头行
+            const headerRow = Array.isArray(s.content) && Array.isArray(s.content[0]) ? s.content[0] : [null];
+            const keep = {
+                uid: s.uid || k,
+                name: s.name || k,
+                sourceData: s.sourceData || { note: '', initNode: '', insertNode: '', updateNode: '', deleteNode: '' },
+                content: [headerRow],
+                updateConfig: s.updateConfig || { uiSentinel: -1, contextDepth: -1, updateFrequency: -1, batchSize: -1, skipFloors: -1, sendLatestRows: -1, groupId: -1 },
+                exportConfig: ensureExportConfigDefaults_ACU(s.exportConfig, s.name || k),
+            };
+            // v2: 基础数据（仅模板预置/seedRows）；注意：这里绝不从 content 派生，避免把真实数据误当作"基础数据"写入指导表
+            if (Array.isArray(s[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU])) {
+                try {
+                    keep[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(s[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU]));
+                }
+                catch (e) {
+                    keep[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = [];
+                }
+            }
+            if (s[TABLE_ORDER_FIELD_ACU] !== undefined)
+                keep[TABLE_ORDER_FIELD_ACU] = s[TABLE_ORDER_FIELD_ACU];
+            out[k] = keep;
+        });
+        return out;
+    }
+    function materializeDataFromSheetGuide_ACU(guideData, { includeSeedRows = true } = {}) {
+        const normalized = normalizeGuideData_ACU(guideData);
+        if (!normalized)
+            return { mate: { type: 'chatSheets', version: 1 } };
+        const out = { mate: normalized.mate || { type: 'chatSheets', version: 1 } };
+        Object.keys(normalized).forEach(k => {
+            if (!k.startsWith('sheet_'))
+                return;
+            const s = normalized[k];
+            const headerRow = Array.isArray(s?.content?.[0]) ? JSON.parse(JSON.stringify(s.content[0])) : [null];
+            const next = JSON.parse(JSON.stringify(s));
+            // content: header + (可选) seedRows
+            const seedRows = includeSeedRows && Array.isArray(s?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU])
+                ? JSON.parse(JSON.stringify(s[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU]))
+                : [];
+            next.content = [headerRow, ...seedRows];
+            // 保留 seedRows 字段本身（便于后续再次写回/二次处理），但不会影响表格使用者（他们只看 content）
+            out[k] = next;
+        });
+        return out;
+    }
+    function getLegacyHeaderGuideDataForIsolationKey_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const normalizedKey = String(isolationKey ?? '');
+        try {
+            const first = getChatFirstLayerMessage_ACU(chat);
+            const legacyRaw = first ? first[LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU] : null;
+            const legacyObj = legacyRaw ? ((typeof legacyRaw === 'string') ? safeJsonParse_ACU(legacyRaw, null) : legacyRaw) : null;
+            const legacyTags = legacyObj?.tags;
+            const legacySlot = (legacyTags && typeof legacyTags === 'object') ? legacyTags[normalizedKey] : null;
+            const legacyHeaders = Array.isArray(legacySlot?.headers) ? legacySlot.headers : null;
+            if (!legacyHeaders || legacyHeaders.length === 0)
+                return null;
+            const orderedUids = legacyHeaders
+                .map(h => h?.uid)
+                .filter(uid => typeof uid === 'string' && uid.startsWith('sheet_'));
+            if (orderedUids.length === 0)
+                return null;
+            const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
+            const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
+            orderedUids.forEach((uid, idx) => {
+                const base = (templateObj && templateObj[uid])
+                    ? JSON.parse(JSON.stringify(templateObj[uid]))
+                    : { uid, name: uid, content: [[null]], sourceData: {}, updateConfig: {}, exportConfig: {} };
+                if (Array.isArray(base.content) && base.content.length > 1) {
+                    base[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(base.content.slice(1)));
+                    base.content = [base.content[0]];
+                }
+                if (!Array.isArray(base.content) || base.content.length === 0)
+                    base.content = [[null]];
+                base.uid = uid;
+                if (!Number.isFinite(base[TABLE_ORDER_FIELD_ACU]))
+                    base[TABLE_ORDER_FIELD_ACU] = idx;
+                out[uid] = base;
+            });
+            return normalizeGuideData_ACU(out);
+        }
+        catch (e) {
+            return null;
+        }
+    }
+    function getHistoricalTemplateGuideDataForIsolationKey_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        if (!Array.isArray(chat) || chat.length === 0)
+            return null;
+        const historicalData = { mate: { type: 'chatSheets', version: 1 } };
+        const encounteredKeys = [];
+        const encounteredSet = new Set();
+        const appendTables = (dataObj, { summaryOnly = null } = {}) => {
+            if (!dataObj || typeof dataObj !== 'object' || Array.isArray(dataObj))
+                return;
+            Object.keys(dataObj).forEach(key => {
+                if (!key.startsWith('sheet_') || encounteredSet.has(key))
+                    return;
+                const sheet = dataObj[key];
+                if (!sheet || typeof sheet !== 'object' || Array.isArray(sheet))
+                    return;
+                const isSummary = !!sheet.name && isSummaryOrOutlineTable_ACU(sheet.name);
+                if (summaryOnly === true && !isSummary)
+                    return;
+                if (summaryOnly === false && isSummary)
+                    return;
+                historicalData[key] = JSON.parse(JSON.stringify(sheet));
+                encounteredKeys.push(key);
+                encounteredSet.add(key);
+            });
+        };
+        for (let i = chat.length - 1; i >= 0; i--) {
+            const message = chat[i];
+            if (!message || message.is_user)
+                continue;
+            const isolatedContainer = typeof message.TavernDB_ACU_IsolatedData === 'string'
+                ? safeJsonParse_ACU(message.TavernDB_ACU_IsolatedData, null)
+                : message.TavernDB_ACU_IsolatedData;
+            appendTables(isolatedContainer?.[normalizedKey]?.independentData);
+            const msgIdentity = message.TavernDB_ACU_Identity;
+            const isLegacyMatch = settings_ACU.dataIsolationEnabled
+                ? (msgIdentity === settings_ACU.dataIsolationCode)
+                : !msgIdentity;
+            if (!isLegacyMatch)
+                continue;
+            appendTables(message.TavernDB_ACU_IndependentData);
+            appendTables(message.TavernDB_ACU_Data, { summaryOnly: false });
+            appendTables(message.TavernDB_ACU_SummaryData, { summaryOnly: true });
+        }
+        if (encounteredKeys.length === 0)
+            return null;
+        const orderedKeys = encounteredKeys
+            .map((key, index) => ({
+            key,
+            index,
+            order: Number.isFinite(historicalData?.[key]?.[TABLE_ORDER_FIELD_ACU])
+                ? Math.trunc(historicalData[key][TABLE_ORDER_FIELD_ACU])
+                : null,
+        }))
+            .sort((a, b) => {
+            if (a.order !== null && b.order !== null && a.order !== b.order)
+                return a.order - b.order;
+            if (a.order !== null && b.order === null)
+                return -1;
+            if (a.order === null && b.order !== null)
+                return 1;
+            return a.index - b.index;
+        })
+            .map(item => item.key);
+        applySheetOrderNumbers_ACU(historicalData, orderedKeys);
+        return buildChatSheetGuideDataFromData_ACU(historicalData, {
+            preserveSeedRowsFromGuideData: null,
+            seedRowsFromTemplateObj: null,
+            orderedKeys,
+        });
+    }
+    function getLegacyTemplateSnapshotLabel_ACU(source = 'legacy_frozen') {
+        if (source === 'legacy_history_frozen')
+            return '旧对话历史模板快照';
+        if (source === 'legacy_header_frozen')
+            return '旧版表头冻结模板';
+        return '旧版聊天冻结模板';
+    }
+    function buildChatTemplateScopeStateFromGuideData_ACU({ isolationKey = getCurrentIsolationKey_ACU$1(), presetName = '', source = 'legacy_frozen', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now(), guideData = null } = {}) {
+        const normalizedGuideData = normalizeGuideData_ACU(guideData);
+        if (!normalizedGuideData || !Object.keys(normalizedGuideData).some(k => k.startsWith('sheet_')))
+            return null;
+        const templateObj = materializeDataFromSheetGuide_ACU(normalizedGuideData, { includeSeedRows: true });
+        return buildChatTemplateScopeStateFromCurrent_ACU({
+            isolationKey,
+            presetName,
+            source,
+            originGlobalName,
+            originGlobalRevision,
+            updatedAt,
+            templateSource: templateObj,
+            guideData: normalizedGuideData,
+        });
+    }
+    function migrateLegacyTemplateScopeForCurrentChat_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const existingScopeState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
+        if (existingScopeState)
+            return existingScopeState;
+        const persistMigratedState = (guideData, { source = 'legacy_frozen', updatedAt = Date.now() } = {}) => {
+            const templateState = buildChatTemplateScopeStateFromGuideData_ACU({
+                isolationKey: normalizedKey,
+                presetName: getLegacyTemplateSnapshotLabel_ACU(source),
+                source,
+                originGlobalName: '',
+                originGlobalRevision: 0,
+                updatedAt,
+                guideData,
+            });
+            if (!templateState)
+                return null;
+            return setCurrentChatTemplateScopeState_ACU(templateState, {
+                isolationKey: normalizedKey,
+                reason: `template_scope_${source}`,
+            });
+        };
+        const container = getChatSheetGuideContainer_ACU(chat);
+        const legacySlot = container?.tags?.[normalizedKey];
+        const hasExplicitLegacyScopeMode = typeof legacySlot?.templateScopeMode === 'string' && legacySlot.templateScopeMode.trim() !== '';
+        const legacySlotMode = hasExplicitLegacyScopeMode
+            ? normalizeTemplateScopeMode_ACU(legacySlot.templateScopeMode)
+            : 'chat_override';
+        const legacyGuideData = normalizeGuideData_ACU(legacySlot?.data);
+        if (legacySlotMode === 'chat_override' && legacyGuideData && Object.keys(legacyGuideData).some(k => k.startsWith('sheet_'))) {
+            return persistMigratedState(legacyGuideData, {
+                source: 'legacy_frozen',
+                updatedAt: Number(legacySlot?.updatedAt) || Date.now(),
+            });
+        }
+        const historicalGuideData = getHistoricalTemplateGuideDataForIsolationKey_ACU({ chat, isolationKey: normalizedKey });
+        if (historicalGuideData && Object.keys(historicalGuideData).some(k => k.startsWith('sheet_'))) {
+            return persistMigratedState(historicalGuideData, {
+                source: 'legacy_history_frozen',
+                updatedAt: Date.now(),
+            });
+        }
+        const legacyHeaderGuideData = getLegacyHeaderGuideDataForIsolationKey_ACU({ chat, isolationKey: normalizedKey });
+        if (legacyHeaderGuideData && Object.keys(legacyHeaderGuideData).some(k => k.startsWith('sheet_'))) {
+            return persistMigratedState(legacyHeaderGuideData, {
+                source: 'legacy_header_frozen',
+                updatedAt: Date.now(),
+            });
+        }
+        return null;
+    }
+    function clearChatSheetGuideDataForIsolationKey_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
+        const first = getChatFirstLayerMessage_ACU(chat);
+        if (!first)
+            return false;
+        const container = getChatSheetGuideContainer_ACU(chat);
+        if (!container || typeof container !== 'object' || !container.tags || typeof container.tags !== 'object')
+            return false;
+        const normalizedKey = String(isolationKey ?? '');
+        if (!Object.prototype.hasOwnProperty.call(container.tags, normalizedKey))
+            return false;
+        const nextContainer = cloneScopedConfigData_ACU(container, null) || { version: CHAT_SHEET_GUIDE_VERSION_ACU, tags: {} };
+        if (!nextContainer.tags || typeof nextContainer.tags !== 'object')
+            nextContainer.tags = {};
+        delete nextContainer.tags[normalizedKey];
+        if (Object.keys(nextContainer.tags).length === 0) {
+            delete first[CHAT_SHEET_GUIDE_FIELD_ACU];
+        }
+        else {
+            nextContainer.version = CHAT_SHEET_GUIDE_VERSION_ACU;
+            first[CHAT_SHEET_GUIDE_FIELD_ACU] = nextContainer;
+        }
+        return true;
+    }
+    function getChatSheetGuideDataForIsolationKey_ACU(isolationKey) {
+        const chat = SillyTavern_API_ACU?.chat;
+        const normalizedKey = String(isolationKey ?? '');
+        const scopedTemplateState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey })
+            || migrateLegacyTemplateScopeForCurrentChat_ACU({ chat, isolationKey: normalizedKey });
+        const scopedGuideData = normalizeGuideData_ACU(scopedTemplateState?.guideData);
+        if (scopedGuideData && Object.keys(scopedGuideData).some(k => k.startsWith('sheet_'))) {
+            return scopedGuideData;
+        }
+        const buildGuideDataFromTemplateSource_ACU = (templateSource) => {
+            const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateSource);
+            const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateSnapshot?.templateObj, { stripSeedRows: false });
+            return (guideData && Object.keys(guideData).some(k => k.startsWith('sheet_'))) ? guideData : null;
+        };
+        if (scopedTemplateState?.mode === 'chat_override' && scopedTemplateState?.templateStr) {
+            const overrideGuideData = buildGuideDataFromTemplateSource_ACU(scopedTemplateState.templateStr);
+            if (overrideGuideData) {
+                return overrideGuideData;
+            }
+        }
+        if (scopedTemplateState?.mode === 'preset_link') {
+            const linkedPresetName = normalizeTemplatePresetSelectionValue_ACU(scopedTemplateState?.presetName || '');
+            const linkedTemplateSource = linkedPresetName
+                ? (getTemplatePreset_ACU(linkedPresetName)?.templateStr || null)
+                : getDefaultTemplateSnapshot_ACU()?.templateStr;
+            const linkedGuideData = buildGuideDataFromTemplateSource_ACU(linkedTemplateSource);
+            if (linkedGuideData) {
+                return linkedGuideData;
+            }
+        }
+        const activeTemplateGuideData = buildGuideDataFromTemplateSource_ACU(TABLE_TEMPLATE_ACU);
+        if (activeTemplateGuideData) {
+            return activeTemplateGuideData;
+        }
+        const globalSnapshot = getGlobalTemplateSnapshotForCurrentProfile_ACU();
+        const globalGuideData = buildChatSheetGuideDataFromTemplateObj_ACU(globalSnapshot?.templateObj, { stripSeedRows: false });
+        if (globalGuideData && Object.keys(globalGuideData).some(k => k.startsWith('sheet_'))) {
+            return globalGuideData;
+        }
+        return null;
+    }
+    function setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, { reason = '', syncTemplateScope = false, templateSource = null, presetName = '', source = '', updatedAt = Date.now() } = {}) {
+        const chat = SillyTavern_API_ACU?.chat;
+        const first = getChatFirstLayerMessage_ACU(chat);
+        if (!first)
+            return false;
+        const normalized = normalizeGuideData_ACU(guideData);
+        if (!normalized || !Object.keys(normalized).some(k => k.startsWith('sheet_')))
+            return false;
+        const normalizedKey = String(isolationKey ?? '');
+        const existingTemplateScopeState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
+        const normalizedScopeMode = normalizeTemplateScopeMode_ACU(existingTemplateScopeState?.mode);
+        const shouldSyncTemplateScope = !!syncTemplateScope || normalizedScopeMode === 'chat_override' || normalizedScopeMode === 'preset_link';
+        const container = getChatSheetGuideContainer_ACU(chat) || { version: CHAT_SHEET_GUIDE_VERSION_ACU, tags: {} };
+        if (!container.tags || typeof container.tags !== 'object')
+            container.tags = {};
+        container.version = CHAT_SHEET_GUIDE_VERSION_ACU;
+        container.tags[normalizedKey] = {
+            data: normalized,
+            updatedAt,
+            reason: String(reason || ''),
+            templateScopeMode: shouldSyncTemplateScope ? 'chat_override' : 'inherit_global',
+        };
+        first[CHAT_SHEET_GUIDE_FIELD_ACU] = container;
+        if (shouldSyncTemplateScope) {
+            const fallbackTemplateSource = existingTemplateScopeState?.templateStr || materializeDataFromSheetGuide_ACU(normalized, { includeSeedRows: true });
+            const resolvedTemplateSource = templateSource || fallbackTemplateSource;
+            const currentGlobalPresetName = normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }));
+            const resolvedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName || existingTemplateScopeState?.presetName || currentGlobalPresetName);
+            const resolvedSource = normalizeChatScopedConfigSource_ACU(source, existingTemplateScopeState?.source || (syncTemplateScope ? 'ui' : 'inherit'));
+            const templateState = buildChatTemplateScopeStateFromCurrent_ACU({
+                isolationKey: normalizedKey,
+                presetName: resolvedPresetName,
+                source: resolvedSource,
+                originGlobalName: normalizeTemplatePresetSelectionValue_ACU(existingTemplateScopeState?.originGlobalName || currentGlobalPresetName),
+                originGlobalRevision: Number.isFinite(existingTemplateScopeState?.originGlobalRevision)
+                    ? existingTemplateScopeState.originGlobalRevision
+                    : 0,
+                updatedAt,
+                templateSource: resolvedTemplateSource,
+                guideData: normalized,
+            });
+            if (templateState) {
+                setCurrentChatTemplateScopeState_ACU(templateState, {
+                    isolationKey: normalizedKey,
+                    reason: String(reason || `template_scope_${resolvedSource}`),
+                });
+                try {
+                    upsertChatTemplatePresetEntry_ACU(templateState, { isolationKey: normalizedKey });
+                }
+                catch (e) { }
+            }
+        }
+        return true;
+    }
+    // =========================
+    // [新增] seedRows 解析/兜底：用于 $0 注入与"无数据初始化"场景
+    // 目标：
+    // - 新对话首次填表时，即使 currentJsonTableData_ACU 仅有表结构，也能从"内部指导表/模板"取到 seedRows
+    // - 支持隔离标签切换或初始化早期 chat 尚未加载导致的"指导表未命中"情况
+    // 注意：这里只把 seedRows 挂在表对象字段上，不会写入 content（不把模板基础数据当作真实聊天数据）
+    // =========================
+    let _seedRowsTemplateCacheStr_ACU = null;
+    let _seedRowsTemplateCacheObj_ACU = null;
+    function getTemplateObjForSeedRows_ACU() {
+        try {
+            if (_seedRowsTemplateCacheStr_ACU === TABLE_TEMPLATE_ACU && _seedRowsTemplateCacheObj_ACU)
+                return _seedRowsTemplateCacheObj_ACU;
+            const obj = parseTableTemplateJson_ACU({ stripSeedRows: false });
+            _seedRowsTemplateCacheStr_ACU = TABLE_TEMPLATE_ACU;
+            _seedRowsTemplateCacheObj_ACU = obj;
+            return obj;
+        }
+        catch (e) {
+            return null;
+        }
+    }
+    async function ensureChatSheetGuideSeeded_ACU({ reason = 'auto_seed_seedRows', force = false } = {}) {
+        try {
+            const isolationKey = getCurrentIsolationKey_ACU$1();
+            const existing = getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
+            const hasExisting = !!(existing && typeof existing === 'object' && Object.keys(existing).some(k => k.startsWith('sheet_')));
+            if (hasExisting && !force)
+                return existing;
+            const chat = SillyTavern_API_ACU?.chat;
+            if (!chat || !Array.isArray(chat) || chat.length === 0)
+                return existing || null;
+            const templateObj = getTemplateObjForSeedRows_ACU();
+            if (!templateObj)
+                return existing || null;
+            // 用模板构建指导表（content 保留表头；seedRows 写入字段）
+            const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: true });
+            if (!guideData)
+                return existing || null;
+            const ok = setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, { reason });
+            if (ok) {
+                try {
+                    await SillyTavern_API_ACU.saveChat();
+                }
+                catch (e) { }
+                logDebug_ACU(`[SheetGuide] Auto-seeded chat sheet guide for tag [${isolationKey || '无标签'}], reason=${reason}`);
+            }
+            return guideData;
+        }
+        catch (e) {
+            return null;
+        }
+    }
+    function pickAnyGuideSeedRowsSlot_ACU(sheetKey) {
+        try {
+            const chat = SillyTavern_API_ACU?.chat;
+            let best = null; // { ts, seedRows }
+            const applyCandidate = (ts, data) => {
+                const sr = data?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
+                if (!Array.isArray(sr) || sr.length === 0)
+                    return;
+                if (!best || ts > best.ts) {
+                    best = { ts, seedRows: sr };
+                }
+            };
+            const scopedContainer = getChatScopedConfigContainer_ACU(chat);
+            const scopedTemplateSlots = scopedContainer?.template;
+            if (scopedTemplateSlots && typeof scopedTemplateSlots === 'object' && !Array.isArray(scopedTemplateSlots)) {
+                Object.keys(scopedTemplateSlots).forEach(tagKey => {
+                    const slotState = normalizeChatTemplateScopeState_ACU(scopedTemplateSlots[tagKey], { isolationKey: tagKey });
+                    if (slotState.mode !== 'chat_override')
+                        return;
+                    applyCandidate(Number(slotState.updatedAt) || 0, normalizeGuideData_ACU(slotState.guideData));
+                });
+            }
+            if (best) {
+                return JSON.parse(JSON.stringify(best.seedRows));
+            }
+            const container = getChatSheetGuideContainer_ACU(chat);
+            const tags = container?.tags;
+            if (!tags || typeof tags !== 'object')
+                return null;
+            Object.keys(tags).forEach(tagKey => {
+                const slot = tags[tagKey];
+                const ts = Number(slot?.updatedAt) || 0;
+                applyCandidate(ts, normalizeGuideData_ACU(slot?.data));
+            });
+            return best ? JSON.parse(JSON.stringify(best.seedRows)) : null;
+        }
+        catch (e) {
+            return null;
+        }
+    }
+    function getEffectiveSeedRowsForSheet_ACU(sheetKey, { guideData = null, allowTemplateFallback = true } = {}) {
+        try {
+            if (!sheetKey || !String(sheetKey).startsWith('sheet_'))
+                return [];
+            const direct = currentJsonTableData_ACU$1?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
+            if (Array.isArray(direct) && direct.length > 0)
+                return JSON.parse(JSON.stringify(direct));
+            const g = guideData || (() => {
+                const isolationKey = getCurrentIsolationKey_ACU$1();
+                return getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
+            })();
+            const sr1 = g?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
+            if (Array.isArray(sr1) && sr1.length > 0)
+                return JSON.parse(JSON.stringify(sr1));
+            const any = pickAnyGuideSeedRowsSlot_ACU(sheetKey);
+            if (Array.isArray(any) && any.length > 0)
+                return any;
+            if (!allowTemplateFallback)
+                return [];
+            const templateObj = getTemplateObjForSeedRows_ACU();
+            const tplRows = templateObj?.[sheetKey]?.content;
+            if (Array.isArray(tplRows) && tplRows.length > 1)
+                return JSON.parse(JSON.stringify(tplRows.slice(1)));
+            return [];
+        }
+        catch (e) {
+            return [];
+        }
+    }
+    function attachSeedRowsToCurrentDataFromGuide_ACU(guideData) {
+        try {
+            if (!currentJsonTableData_ACU$1 || typeof currentJsonTableData_ACU$1 !== 'object')
+                return false;
+            const g = normalizeGuideData_ACU(guideData);
+            if (!g)
+                return false;
+            let changed = false;
+            Object.keys(currentJsonTableData_ACU$1).forEach(k => {
+                if (!k.startsWith('sheet_'))
+                    return;
+                const table = currentJsonTableData_ACU$1[k];
+                if (!table || typeof table !== 'object')
+                    return;
+                const existing = table?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
+                if (Array.isArray(existing) && existing.length > 0)
+                    return;
+                const sr = g?.[k]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
+                if (Array.isArray(sr) && sr.length > 0) {
+                    table[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(sr));
+                    changed = true;
+                }
+            });
+            return changed;
+        }
+        catch (e) {
+            return false;
+        }
+    }
+    // [新增] 用"当前数据"构建空白指导表：只保留表头行 + 参数（顺序由 getSortedSheetKeys_ACU 的旧逻辑决定，避免递归）
+    function buildChatSheetGuideDataFromData_ACU(dataObj, { preserveSeedRowsFromGuideData = null, seedRowsFromTemplateObj = null, orderedKeys = null } = {}) {
+        if (!dataObj || typeof dataObj !== 'object')
+            return null;
+        const keys = Array.isArray(orderedKeys) && orderedKeys.length
+            ? orderedKeys.filter(k => typeof k === 'string' && k.startsWith('sheet_') && dataObj[k])
+            : getSortedSheetKeys_ACU(dataObj, { ignoreChatGuide: true });
+        const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
+        if (dataObj.mate && typeof dataObj.mate === 'object') {
+            out.mate = JSON.parse(JSON.stringify(dataObj.mate));
+        }
+        out.mate.globalInjectionConfig = ensureGlobalInjectionConfigDefaults_ACU(out.mate.globalInjectionConfig);
+        keys.forEach(k => {
+            const s = dataObj[k];
+            if (!s)
+                return;
+            const headerRow = Array.isArray(s.content) && Array.isArray(s.content[0]) ? JSON.parse(JSON.stringify(s.content[0])) : [null];
+            const blank = {
+                uid: s.uid || k,
+                name: s.name || k,
+                sourceData: s.sourceData ? JSON.parse(JSON.stringify(s.sourceData)) : { note: '', initNode: '', insertNode: '', updateNode: '', deleteNode: '' },
+                content: [headerRow],
+                updateConfig: s.updateConfig ? JSON.parse(JSON.stringify(s.updateConfig)) : { uiSentinel: -1, contextDepth: -1, updateFrequency: -1, batchSize: -1, skipFloors: -1, sendLatestRows: -1, groupId: -1 },
+                exportConfig: ensureExportConfigDefaults_ACU(s.exportConfig ? JSON.parse(JSON.stringify(s.exportConfig)) : null, s.name || k),
+            };
+            // 需求4：结构/表名/参数变更时，仅更新指导表元信息，不修改"基础数据(seedRows)"
+            const preserved = preserveSeedRowsFromGuideData?.[k]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
+            if (Array.isArray(preserved)) {
+                blank[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(preserved));
+            }
+            else {
+                // 需求1：首次生成指导表时，把模板预置数据写入 seedRows（仅在未能从既有指导表继承时）
+                const tplRows = seedRowsFromTemplateObj?.[k]?.content;
+                if (Array.isArray(tplRows) && tplRows.length > 1) {
+                    blank[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(tplRows.slice(1)));
+                }
+            }
+            if (Number.isFinite(s?.[TABLE_ORDER_FIELD_ACU]))
+                blank[TABLE_ORDER_FIELD_ACU] = Math.trunc(s[TABLE_ORDER_FIELD_ACU]);
+            out[k] = blank;
+        });
+        return normalizeGuideData_ACU(out);
+    }
+    // [新增] 用"模板对象"构建空白指导表：只保留表头行 + 参数（模板已有顺序编号）
+    function buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows = true } = {}) {
+        if (!templateObj || typeof templateObj !== 'object')
+            return null;
+        const keys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
+        if (keys.length === 0)
+            return null;
+        // 确保模板编号稳定（缺失则补齐）
+        try {
+            ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: keys, forceRebuild: false });
+        }
+        catch (e) { }
+        const sorted = keys.sort((a, b) => {
+            const ao = Number.isFinite(templateObj?.[a]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(templateObj[a][TABLE_ORDER_FIELD_ACU]) : Infinity;
+            const bo = Number.isFinite(templateObj?.[b]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(templateObj[b][TABLE_ORDER_FIELD_ACU]) : Infinity;
+            if (ao !== bo)
+                return ao - bo;
+            return String(a).localeCompare(String(b));
+        });
+        const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
+        if (templateObj.mate && typeof templateObj.mate === 'object') {
+            out.mate = JSON.parse(JSON.stringify(templateObj.mate));
+        }
+        out.mate.globalInjectionConfig = ensureGlobalInjectionConfigDefaults_ACU(out.mate.globalInjectionConfig);
+        sorted.forEach((k, idx) => {
+            const base = JSON.parse(JSON.stringify(templateObj[k] || {}));
+            base.uid = base.uid || k;
+            base.name = base.name || k;
+            if (!Array.isArray(base.content) || base.content.length === 0)
+                base.content = [[null]];
+            // v2: 保存模板预置数据为 seedRows，但指导表本体 content 仍只保留表头
+            if (Array.isArray(base.content) && base.content.length > 1) {
+                base[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(base.content.slice(1)));
+            }
+            if (stripSeedRows && Array.isArray(base.content) && base.content.length > 1)
+                base.content = [base.content[0]];
+            if (!Number.isFinite(base[TABLE_ORDER_FIELD_ACU]))
+                base[TABLE_ORDER_FIELD_ACU] = idx;
+            out[k] = base;
+        });
+        return normalizeGuideData_ACU(out);
+    }
+    // [新增] 覆盖式更新：用模板写入当前聊天第一层"空白指导表"
+    async function overwriteChatSheetGuideFromTemplate_ACU(templateObj, { reason = 'template_changed', stripSeedRows = true, presetName = '', source = 'ui', syncTemplateScope = false, registerPreset = false } = {}) {
+        const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows });
+        if (!guideData)
+            return false;
+        const isolationKey = getCurrentIsolationKey_ACU$1();
+        const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateObj);
+        const normalizedPresetName = deriveTemplatePresetNameForImport_ACU({ presetName });
+        if (registerPreset && normalizedPresetName && templateSnapshot?.templateStr) {
+            try {
+                const savePresetOk = upsertTemplatePreset_ACU(normalizedPresetName, templateSnapshot.templateStr);
+                if (!savePresetOk) {
+                    logWarn_ACU(`[TemplateScope] 保存模板预设失败：${normalizedPresetName}`);
+                }
+            }
+            catch (e) {
+                logWarn_ACU('[TemplateScope] 保存模板预设失败:', e);
+            }
+        }
+        const ok = setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, {
+            reason,
+            syncTemplateScope,
+            templateSource: templateSnapshot?.templateStr || templateObj,
+            presetName: normalizedPresetName,
+            source,
+        });
+        if (!ok)
+            return false;
+        if (syncTemplateScope) {
+            try {
+                applyTemplateScopeForCurrentChat_ACU();
+            }
+            catch (e) { }
+        }
+        try {
+            await SillyTavern_API_ACU.saveChat();
+        }
+        catch (e) { }
+        try {
+            await refreshMergedDataAndNotify_ACU();
+        }
+        catch (e) { }
+        return true;
+    }
+    // [表格顺序新机制] 获取表格 keys：
+    // - 若当前聊天已存在"空白指导表"：优先按指导表的 orderNo 顺序（可过滤不在指导表里的表）
+    // - 否则：按"编号(orderNo)从小到大"排序；缺编号则回退到模板编号/模板顺序
+    function getSortedSheetKeys_ACU(dataObj, { ignoreChatGuide = false, includeMissingFromGuide = false } = {}) {
+        if (!dataObj || typeof dataObj !== 'object')
+            return [];
+        const existingKeys = Object.keys(dataObj).filter(k => k.startsWith('sheet_'));
+        if (existingKeys.length === 0)
+            return [];
+        // [新增] 聊天级空白指导表：一旦存在，则该聊天不再按模板顺序合并/显示，而是按此指导表作为总指导
+        if (!ignoreChatGuide) {
+            try {
+                const isolationKey = (typeof getCurrentIsolationKey_ACU$1 === 'function') ? getCurrentIsolationKey_ACU$1() : '';
+                const guideData = getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
+                if (guideData && typeof guideData === 'object') {
+                    const guideKeys = Object.keys(guideData).filter(k => k.startsWith('sheet_'));
+                    if (guideKeys.length > 0) {
+                        const sorted = guideKeys.sort((a, b) => {
+                            const ao = Number.isFinite(guideData?.[a]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(guideData[a][TABLE_ORDER_FIELD_ACU]) : Infinity;
+                            const bo = Number.isFinite(guideData?.[b]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(guideData[b][TABLE_ORDER_FIELD_ACU]) : Infinity;
+                            if (ao !== bo)
+                                return ao - bo;
+                            return String(a).localeCompare(String(b));
+                        });
+                        return includeMissingFromGuide ? sorted : sorted.filter(k => dataObj[k]);
+                    }
+                }
+            }
+            catch (e) {
+                // ignore guide failures; fallback to legacy ordering
+            }
+        }
+        // 尝试拿模板做兜底（比如老数据/导入数据缺编号）
+        const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
+        // 先对 dataObj 补齐缺失编号（仅在确实缺失/重复时重建）
+        // baseOrderKeys 的优先级：模板顺序 > 当前对象键顺序（保证"载入模板编好号"后的稳定性）
+        const baseKeys = (() => {
+            const tk = templateObj && typeof templateObj === 'object'
+                ? Object.keys(templateObj).filter(k => k.startsWith('sheet_'))
+                : [];
+            return tk.length ? tk : existingKeys;
+        })();
+        ensureSheetOrderNumbers_ACU(dataObj, { baseOrderKeys: baseKeys, forceRebuild: false });
+        const orderValueOf = (k) => {
+            const v = dataObj?.[k]?.[TABLE_ORDER_FIELD_ACU];
+            if (Number.isFinite(v))
+                return Math.trunc(v);
+            const tv = templateObj?.[k]?.[TABLE_ORDER_FIELD_ACU];
+            if (Number.isFinite(tv))
+                return Math.trunc(tv);
+            return Infinity;
+        };
+        return existingKeys.sort((a, b) => {
+            const ao = orderValueOf(a);
+            const bo = orderValueOf(b);
+            if (ao !== bo)
+                return ao - bo;
+            // 稳定排序：同编号时按名称/键
+            const an = String(dataObj?.[a]?.name || templateObj?.[a]?.name || a);
+            const bn = String(dataObj?.[b]?.name || templateObj?.[b]?.name || b);
+            const c = an.localeCompare(bn);
+            if (c !== 0)
+                return c;
+            return String(a).localeCompare(String(b));
+        });
+    }
+    // [新增] 基于"空白指导表"构建可合并的骨架数据（深拷贝，避免后续修改污染原对象）
+    function buildGuidedBaseDataFromSheetGuide_ACU(guideData) {
+        const normalized = normalizeGuideData_ACU(guideData);
+        if (!normalized)
+            return { mate: { type: 'chatSheets', version: 1 } };
+        try {
+            return JSON.parse(JSON.stringify(normalized));
+        }
+        catch (e) {
+            return normalized;
+        }
+    }
+    // [修复] 按指定顺序重建对象键，避免 Object.keys()/合并/深拷贝导致的顺序漂移
+    function reorderDataBySheetKeys_ACU(dataObj, orderedSheetKeys) {
+        if (!dataObj || typeof dataObj !== 'object')
+            return dataObj;
+        const out = {};
+        // 先保留非 sheet_ 键（mate 等）
+        Object.keys(dataObj).forEach(k => {
+            if (!k.startsWith('sheet_'))
+                out[k] = dataObj[k];
+        });
+        // 再按顺序插入 sheet_ 键
+        const keys = Array.isArray(orderedSheetKeys) ? orderedSheetKeys : getSortedSheetKeys_ACU(dataObj);
+        keys.forEach(k => {
+            if (dataObj[k])
+                out[k] = dataObj[k];
+        });
+        return out;
+    }
+    // =========================
+    // [瘦身/兼容] ChatSheets 表格对象清洗（用于：导出、写入聊天记录、持久化模板）
+    // 目标：
+    // - 与旧模板/旧存档兼容：导入时允许存在冗余字段
+    // - 从现在开始：导出/保存时不再携带历史遗留冗余字段，降低体积
+    // =========================
+    const SHEET_KEEP_KEYS_ACU = new Set([
+        'uid',
+        'name',
+        'sourceData',
+        'content',
+        // [重要] 可视化编辑器/表格配置（更新频率、上下文深度等）依赖该字段
+        'updateConfig',
+        'exportConfig',
+        TABLE_ORDER_FIELD_ACU, // orderNo
+    ]);
+    function sanitizeSheetForStorage_ACU(sheet) {
+        if (!sheet || typeof sheet !== 'object')
+            return sheet;
+        const out = {};
+        SHEET_KEEP_KEYS_ACU.forEach(k => {
+            if (sheet[k] !== undefined)
+                out[k] = sheet[k];
+        });
+        // 兜底：保证结构可被模板导入验证通过
+        if (!out.name && sheet.name)
+            out.name = sheet.name;
+        if (!out.content && Array.isArray(sheet.content))
+            out.content = sheet.content;
+        if (!out.sourceData && sheet.sourceData)
+            out.sourceData = sheet.sourceData;
+        out.exportConfig = ensureExportConfigDefaults_ACU(out.exportConfig, out.name || sheet.name || sheet.uid || '');
+        return out;
+    }
+    function sanitizeChatSheetsObject_ACU(dataObj, { ensureMate = false } = {}) {
+        if (!dataObj || typeof dataObj !== 'object')
+            return dataObj;
+        const out = {};
+        Object.keys(dataObj).forEach(k => {
+            if (k.startsWith('sheet_')) {
+                out[k] = sanitizeSheetForStorage_ACU(dataObj[k]);
+            }
+            else if (k === 'mate') {
+                out.mate = dataObj.mate;
+            }
+            else {
+                // 其它顶层键：为兼容保留
+                out[k] = dataObj[k];
+            }
+        });
+        if (ensureMate) {
+            if (!out.mate || typeof out.mate !== 'object')
+                out.mate = { type: 'chatSheets', version: 1 };
+            if (!out.mate.type)
+                out.mate.type = 'chatSheets';
+            if (!out.mate.version)
+                out.mate.version = 1;
+        }
+        return out;
+    }
+    // [新增] 辅助函数：从上下文中提取指定标签的内容（正文标签提取）
+
+    /**
+     * shared/utils.ts — 纯工具函数
+     *
+     * 零副作用、零全局依赖、零 DOM 操作。
+     * 从 src/core/04_shared_helpers.js 迁移而来。
+     */
+    /**
+     * 清洗聊天文件名：去除路径前缀和扩展名后缀
+     */
+    function cleanChatName_ACU(fileName) {
+        if (!fileName || typeof fileName !== 'string')
+            return 'unknown_chat_source';
+        let cleanedName = fileName;
+        if (fileName.includes('/') || fileName.includes('\\')) {
+            const parts = fileName.split(/[\\/]/);
+            cleanedName = parts[parts.length - 1];
+        }
+        return cleanedName.replace(/\.jsonl$/, '').replace(/\.json$/, '');
+    }
+    /**
+     * 深度合并两个对象（source 覆盖 target）
+     */
+    function deepMerge_ACU(target, source) {
+        const isObject = (obj) => obj && typeof obj === 'object' && !Array.isArray(obj);
+        let output = { ...target };
+        if (isObject(target) && isObject(source)) {
+            Object.keys(source).forEach(key => {
+                if (isObject(source[key])) {
+                    if (!(key in target))
+                        Object.assign(output, { [key]: source[key] });
+                    else
+                        output[key] = deepMerge_ACU(target[key], source[key]);
+                }
+                else {
+                    Object.assign(output, { [key]: source[key] });
+                }
+            });
+        }
+        return output;
+    }
+    /**
+     * 颜色加深/减淡
+     */
+    function lightenDarkenColor_ACU(col, amt) {
+        let usePound = false;
+        if (col.startsWith('#')) {
+            col = col.slice(1);
+            usePound = true;
+        }
+        let num = parseInt(col, 16);
+        let r = (num >> 16) + amt;
+        if (r > 255)
+            r = 255;
+        else if (r < 0)
+            r = 0;
+        let b = ((num >> 8) & 0x00ff) + amt;
+        if (b > 255)
+            b = 255;
+        else if (b < 0)
+            b = 0;
+        let g = (num & 0x0000ff) + amt;
+        if (g > 255)
+            g = 255;
+        else if (g < 0)
+            g = 0;
+        return (usePound ? '#' : '') + ('000000' + ((r << 16) | (b << 8) | g).toString(16)).slice(-6);
+    }
+    /**
+     * 根据背景色计算前景色（黑或白）
+     */
+    function getContrastYIQ_ACU(hexcolor) {
+        if (hexcolor.startsWith('#'))
+            hexcolor = hexcolor.slice(1);
+        var r = parseInt(hexcolor.substr(0, 2), 16);
+        var g = parseInt(hexcolor.substr(2, 2), 16);
+        var b = parseInt(hexcolor.substr(4, 2), 16);
+        var yiq = (r * 299 + g * 587 + b * 114) / 1000;
+        return yiq >= 128 ? '#000000' : '#FFFFFF';
+    }
+    /**
+     * 转义正则表达式特殊字符
+     */
+    function escapeRegExp_ACU(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+    /**
+     * 生成用户输入文本的哈希值（FNV-1a 变体）
+     */
+    function hashUserInput_ACU(text) {
+        if (!text)
+            return '';
+        const normalized = String(text).trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        let hash = 2166136261;
+        for (let i = 0; i < normalized.length; i++) {
+            hash ^= normalized.charCodeAt(i);
+            hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+        }
+        return hash.toString(36);
+    }
+    /**
+     * 非负整数归一化（fallback 默认 0）
+     */
+    function normalizeNonNegativeInteger_ACU(value, fallbackValue = 0) {
+        const num = Number(value);
+        if (Number.isFinite(num) && num >= 0)
+            return Math.floor(num);
+        const fallback = Number(fallbackValue);
+        return Number.isFinite(fallback) && fallback >= 0 ? Math.floor(fallback) : 0;
+    }
+    /**
+     * 正整数归一化（fallback 默认 1）
+     */
+    function normalizePositiveInteger_ACU(value, fallbackValue = 1) {
+        const num = Number(value);
+        if (Number.isFinite(num) && num > 0)
+            return Math.floor(num);
+        const fallback = Number(fallbackValue);
+        return Number.isFinite(fallback) && fallback > 0 ? Math.floor(fallback) : 1;
+    }
+    /**
+     * 判断表格是否是总结表、总体大纲表或纪要表
+     */
+    function isSummaryOrOutlineTable_ACU(tableName) {
+        if (!tableName || typeof tableName !== 'string')
+            return false;
+        const trimmedName = tableName.trim();
+        return trimmedName === '总结表' || trimmedName === '总体大纲' || trimmedName === '纪要表';
+    }
+    /**
+     * 判断表格是否是标准表（非总结表和总体大纲表）
+     */
+    function isStandardTable_ACU(tableName) {
+        return !isSummaryOrOutlineTable_ACU(tableName);
+    }
+    function normalizeExtractRules_ACU(extractRulesInput, legacyExtractTags = '') {
+        return normalizeExcludeRules_ACU(extractRulesInput, legacyExtractTags);
+    }
+    function normalizeExcludeRules_ACU(excludeRulesInput, legacyExcludeTags = '') {
+        const normalized = [];
+        const dedup = new Set();
+        const pushRule = (startRaw, endRaw) => {
+            const start = String(startRaw || '').trim();
+            const end = String(endRaw || '').trim();
+            if (!start || !end)
+                return;
+            const key = `${start}\u0000${end}`;
+            if (dedup.has(key))
+                return;
+            dedup.add(key);
+            normalized.push({ start, end });
+        };
+        if (Array.isArray(excludeRulesInput)) {
+            excludeRulesInput.forEach(rule => {
+                if (!rule)
+                    return;
+                if (typeof rule === 'string') {
+                    const parts = rule.split('|');
+                    if (parts.length >= 2) {
+                        const start = parts.shift();
+                        const end = parts.join('|');
+                        pushRule(start, end);
+                    }
+                    return;
+                }
+                if (typeof rule === 'object') {
+                    pushRule(rule.start ?? rule.begin ?? rule.open, rule.end ?? rule.close ?? rule.finish);
+                }
+            });
+        }
+        // 兼容旧配置：若未提供新规则，则回退旧标签字符串
+        if (normalized.length === 0) {
+            buildBoundaryRulesFromLegacyTags_ACU(legacyExcludeTags).forEach(rule => pushRule(rule.start, rule.end));
+        }
+        return normalized;
+    }
+    function logDebug_ACU(...args) {
+        if (DEBUG_MODE_ACU)
+            console.log(`[${SCRIPT_ID_PREFIX_ACU}]`, ...args);
+    }
+    function logError_ACU(...args) {
+        console.error(`[${SCRIPT_ID_PREFIX_ACU}]`, ...args);
+    }
+    function logWarn_ACU(...args) {
+        console.warn(`[${SCRIPT_ID_PREFIX_ACU}]`, ...args);
+    }
+    function stripSeedRowsFromTemplate_ACU(templateObj) {
+        if (!templateObj || typeof templateObj !== 'object')
+            return templateObj;
+        Object.keys(templateObj).forEach(k => {
+            if (!k.startsWith('sheet_'))
+                return;
+            const table = templateObj[k];
+            if (!table || !Array.isArray(table.content) || table.content.length === 0)
+                return;
+            const headerRow = table.content[0];
+            // 仅保留表头行，移除所有数据行（包括模板自带的示例/预置数据）
+            table.content = [headerRow];
+        });
+        return templateObj;
+    }
+    function parseTableTemplateJson_ACU({ stripSeedRows = false } = {}) {
+        try {
+            let cleanTemplate = TABLE_TEMPLATE_ACU.trim();
+            cleanTemplate = cleanTemplate.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+            // [调试] 输出模板字符串的前100个字符，帮助诊断问题
+            logDebug_ACU('[模板解析] cleanTemplate前100字符:', cleanTemplate.substring(0, 100));
+            logDebug_ACU('[模板解析] cleanTemplate长度:', cleanTemplate.length);
+            logDebug_ACU('[模板解析] 首字符:', JSON.stringify(cleanTemplate[0]));
+            logDebug_ACU('[模板解析] 尾字符:', JSON.stringify(cleanTemplate[cleanTemplate.length - 1]));
+            // [修复2026-03-06] 处理DEFAULT_TABLE_TEMPLATE_ACU的双重JSON编码问题
+            // DEFAULT_TABLE_TEMPLATE_ACU 使用模板字符串定义，格式是：`"{...}"`
+            // 问题：模板字符串中的 \n 会被解释为实际换行符，\t 被解释为制表符等
+            // 而JSON规范不允许字符串中包含未转义的控制字符
+            // 解决方案：先将实际的控制字符转义回JSON兼容格式
+            function escapeStringForJson_ACU(str) {
+                // 将字符串中的控制字符转义为JSON兼容格式
+                // 注意顺序很重要：先转义反斜杠，再转义双引号，最后转义控制字符
+                return str
+                    .replace(/\\/g, '\\\\') // 先转义反斜杠
+                    .replace(/"/g, '\\"') // 转义双引号
+                    .replace(/\n/g, '\\n') // 换行符
+                    .replace(/\r/g, '\\r') // 回车符
+                    .replace(/\t/g, '\\t'); // 制表符
+            }
+            let obj = null;
+            // 如果模板字符串以双引号开头和结尾，说明是被引号包围的JSON字符串
+            if (cleanTemplate.startsWith('"') && cleanTemplate.endsWith('"')) {
+                logDebug_ACU('[模板解析] 检测到双引号包围格式');
+                try {
+                    // 方案1：尝试直接解析（如果模板字符串中的转义序列正确）
+                    try {
+                        logDebug_ACU('[模板解析] 尝试方案1：直接解析...');
+                        const unquoted = JSON.parse(cleanTemplate);
+                        logDebug_ACU('[模板解析] 方案1第一次解析成功，类型:', typeof unquoted);
+                        if (typeof unquoted === 'string') {
+                            obj = safeJsonParse_ACU(unquoted, null);
+                            logDebug_ACU('[模板解析] 方案1第二次解析结果:', obj ? '成功' : '失败');
+                            if (obj) {
+                                logDebug_ACU('[模板解析] 方案1成功！');
+                                return stripSeedRows ? stripSeedRowsFromTemplate_ACU(obj) : obj;
+                            }
+                        }
+                        else if (typeof unquoted === 'object' && unquoted !== null) {
+                            logDebug_ACU('[模板解析] 方案1直接得到对象！');
+                            return stripSeedRows ? stripSeedRowsFromTemplate_ACU(unquoted) : unquoted;
+                        }
+                    }
+                    catch (e1) {
+                        logDebug_ACU('[模板解析] 方案1失败:', e1.message);
+                    }
+                    // 方案2：转义控制字符后再解析
+                    logDebug_ACU('[模板解析] 尝试方案2：转义后解析...');
+                    // 去掉首尾引号，转义内部的控制字符，然后解析
+                    const innerContent = cleanTemplate.slice(1, -1);
+                    const escapedContent = escapeStringForJson_ACU(innerContent);
+                    const rewrapped = '"' + escapedContent + '"';
+                    try {
+                        const unquoted = JSON.parse(rewrapped);
+                        logDebug_ACU('[模板解析] 方案2第一次解析成功，类型:', typeof unquoted);
+                        if (typeof unquoted === 'string') {
+                            obj = safeJsonParse_ACU(unquoted, null);
+                            logDebug_ACU('[模板解析] 方案2第二次解析结果:', obj ? '成功' : '失败');
+                            if (obj) {
+                                logDebug_ACU('[模板解析] 方案2成功！');
+                                return stripSeedRows ? stripSeedRowsFromTemplate_ACU(obj) : obj;
+                            }
+                            // 如果safeJsonParse失败，尝试直接JSON.parse
+                            try {
+                                obj = JSON.parse(unquoted);
+                                if (obj) {
+                                    logDebug_ACU('[模板解析] 方案2（fallback）成功！');
+                                    return stripSeedRows ? stripSeedRowsFromTemplate_ACU(obj) : obj;
+                                }
+                            }
+                            catch (e3) {
+                                logDebug_ACU('[模板解析] 方案2 fallback失败:', e3.message);
+                            }
+                        }
+                        else if (typeof unquoted === 'object' && unquoted !== null) {
+                            logDebug_ACU('[模板解析] 方案2直接得到对象！');
+                            return stripSeedRows ? stripSeedRowsFromTemplate_ACU(unquoted) : unquoted;
+                        }
+                    }
+                    catch (e2) {
+                        logDebug_ACU('[模板解析] 方案2失败:', e2.message);
+                    }
+                }
+                catch (e) {
+                    logDebug_ACU('[模板解析] 双引号格式处理失败:', e.message);
+                }
+            }
+            else {
+                logDebug_ACU('[模板解析] 不是双引号包围格式，尝试常规解析...');
+            }
+            // 如果上述处理失败，尝试常规解析
+            if (!obj) {
+                logDebug_ACU('[模板解析] 尝试safeJsonParse_ACU...');
+                obj = safeJsonParse_ACU(cleanTemplate, null);
+                logDebug_ACU('[模板解析] safeJsonParse_ACU结果:', obj ? '成功' : '失败');
+            }
+            // 如果还是失败，尝试转义后解析
+            if (!obj && typeof cleanTemplate === 'string') {
+                logDebug_ACU('[模板解析] 尝试转义后解析...');
+                try {
+                    const escaped = escapeStringForJson_ACU(cleanTemplate);
+                    obj = safeJsonParse_ACU(escaped, null);
+                    logDebug_ACU('[模板解析] 转义后解析结果:', obj ? '成功' : '失败');
+                }
+                catch (e) {
+                    logDebug_ACU('[模板解析] 转义后解析异常:', e.message);
+                }
+            }
+            if (!obj) {
+                logError_ACU('Failed to parse TABLE_TEMPLATE_ACU: safeJsonParse returned null');
+                return null;
+            }
+            logDebug_ACU('[模板解析] 最终成功！');
+            return stripSeedRows ? stripSeedRowsFromTemplate_ACU(obj) : obj;
+        }
+        catch (e) {
+            logError_ACU('Failed to parse TABLE_TEMPLATE_ACU.', e);
+            return null;
+        }
+    }
+    function applySheetOrderNumbers_ACU(dataObj, orderedKeys) {
+        if (!dataObj || typeof dataObj !== 'object')
+            return false;
+        const keys = Array.isArray(orderedKeys) ? orderedKeys : [];
+        let changed = false;
+        keys.forEach((k, idx) => {
+            const sheet = dataObj[k];
+            if (!sheet || typeof sheet !== 'object')
+                return;
+            if (sheet[TABLE_ORDER_FIELD_ACU] !== idx) {
+                sheet[TABLE_ORDER_FIELD_ACU] = idx;
+                changed = true;
+            }
+        });
+        return changed;
+    }
+    function ensureSheetOrderNumbers_ACU(dataObj, { baseOrderKeys = null, forceRebuild = false } = {}) {
+        if (!dataObj || typeof dataObj !== 'object')
+            return false;
+        const sheetKeys = Array.isArray(baseOrderKeys) && baseOrderKeys.length
+            ? baseOrderKeys.filter(k => k && k.startsWith('sheet_') && dataObj[k])
+            : Object.keys(dataObj).filter(k => k.startsWith('sheet_'));
+        if (sheetKeys.length === 0)
+            return false;
+        // 检查现有编号是否合法且不重复
+        const seen = new Set();
+        let needRebuild = !!forceRebuild;
+        for (const k of sheetKeys) {
+            const v = dataObj?.[k]?.[TABLE_ORDER_FIELD_ACU];
+            if (!Number.isFinite(v)) {
+                needRebuild = true;
+                break;
+            }
+            const iv = Math.trunc(v);
+            if (seen.has(iv)) {
+                needRebuild = true;
+                break;
+            }
+            seen.add(iv);
+        }
+        if (!needRebuild)
+            return false;
+        return applySheetOrderNumbers_ACU(dataObj, sheetKeys);
+    }
+    function getTemplateSheetKeys_ACU() {
+        const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
+        if (!templateObj || typeof templateObj !== 'object')
+            return [];
+        const keys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
+        if (keys.length === 0)
+            return [];
+        // 如果模板缺编号（或重复），按现有键顺序补齐。
+        // 注意：当前运行态可能来自"全局模板"也可能来自"当前聊天模板覆写"，
+        // 因此这里不能无条件回写到 profile，否则会把聊天专属模板误污染到全局模板存储里。
+        const changed = ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: keys, forceRebuild: false });
+        if (changed) {
+            try {
+                const normalizedTemplateStr = JSON.stringify(templateObj);
+                _set_TABLE_TEMPLATE_ACU(normalizedTemplateStr);
+                const currentChatTemplateScope = getCurrentChatTemplateScopeState_ACU() || migrateLegacyTemplateScopeForCurrentChat_ACU();
+                if (currentChatTemplateScope?.templateStr) {
+                    const updatedGuideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: false });
+                    const nextState = buildChatTemplateScopeStateFromCurrent_ACU({
+                        isolationKey: currentChatTemplateScope.isolationKey,
+                        presetName: currentChatTemplateScope.presetName,
+                        source: currentChatTemplateScope.source || 'inherit',
+                        originGlobalName: currentChatTemplateScope.originGlobalName,
+                        originGlobalRevision: currentChatTemplateScope.originGlobalRevision,
+                        updatedAt: currentChatTemplateScope.updatedAt || Date.now(),
+                        templateSource: normalizedTemplateStr,
+                        guideData: updatedGuideData || currentChatTemplateScope.guideData,
+                    });
+                    if (nextState) {
+                        setCurrentChatTemplateScopeState_ACU(nextState, {
+                            isolationKey: currentChatTemplateScope.isolationKey,
+                            reason: 'template_scope_order_no_init',
+                        });
+                    }
+                    logDebug_ACU('[OrderNo] Chat template order numbers initialized and persisted to current chat scope.');
+                }
+                else {
+                    // [Profile] 模板随"标识代码(profile)"保存
+                    saveCurrentProfileTemplate_ACU(TABLE_TEMPLATE_ACU);
+                    logDebug_ACU('[OrderNo] Global template order numbers initialized and persisted.');
+                }
+            }
+            catch (e) {
+                logWarn_ACU('[OrderNo] Failed to persist initialized template order numbers:', e);
+            }
+        }
+        // 按 orderNo 排序输出 keys
+        return keys.sort((a, b) => {
+            const ao = Number.isFinite(templateObj[a]?.[TABLE_ORDER_FIELD_ACU]) ? templateObj[a][TABLE_ORDER_FIELD_ACU] : Infinity;
+            const bo = Number.isFinite(templateObj[b]?.[TABLE_ORDER_FIELD_ACU]) ? templateObj[b][TABLE_ORDER_FIELD_ACU] : Infinity;
+            if (ao !== bo)
+                return ao - bo;
+            return String(templateObj[a]?.name || a).localeCompare(String(templateObj[b]?.name || b));
+        });
+    }
+    function getChatFirstLayerMessage_ACU(chat) {
+        if (!Array.isArray(chat) || chat.length === 0)
+            return null;
+        return chat[0] || null;
+    }
+    function cloneScopedConfigData_ACU(value, fallback = null) {
+        if (value === undefined)
+            return fallback;
+        try {
+            return JSON.parse(JSON.stringify(value));
+        }
+        catch (e) {
+            return fallback;
+        }
+    }
+    function formatPlotScopeUpdatedAt_ACU(updatedAt) {
+        const ts = Number(updatedAt) || 0;
+        if (!ts)
+            return '';
+        try {
+            return new Date(ts).toLocaleString('zh-CN', { hour12: false });
+        }
+        catch (error) {
+            return '';
+        }
+    }
+    function isEntryBlocked_ACU(entry) {
+        if (!entry)
+            return false;
+        const blockedKeywords = ["规则", "思维链", "cot", "MVU", "mvu", "变量", "状态", "Status", "Rule", "rule", "检定", "判断", "叙事", "文风", "InitVar", "格式"];
+        const name = entry.comment || entry.name || '';
+        return blockedKeywords.some(keyword => name.includes(keyword));
+    }
+
+    // admin.ts
+    // 从 01_data_admin.js 迁入
+    function importCombinedSettings_ACU$1() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = e => {
+            const file = e.target.files[0];
+            if (!file)
+                return;
+            const reader = new FileReader();
+            reader.onload = async (readerEvent) => {
+                const content = readerEvent.target.result;
+                let combinedData;
+                try {
+                    combinedData = JSON.parse(content);
+                }
+                catch (error) {
+                    logError_ACU('导入合并配置失败：JSON解析错误。', error);
+                    showToastr_ACU('error', '文件不是有效的JSON格式。', { timeOut: 5000 });
+                    return;
+                }
+                try {
+                    // Validation
+                    if (!combinedData.prompt || !combinedData.template) {
+                        throw new Error('JSON文件缺少 "prompt" 或 "template" 键。');
+                    }
+                    if (!Array.isArray(combinedData.prompt)) {
+                        throw new Error('"prompt" 的值必须是一个数组。');
+                    }
+                    if (typeof combinedData.template !== 'object' || combinedData.template === null) {
+                        throw new Error('"template" 的值必须是一个对象。');
+                    }
+                    // 1. Apply and save prompt
+                    settings_ACU.charCardPrompt = combinedData.prompt;
+                    saveSettings_ACU();
+                    renderPromptSegments_ACU(combinedData.prompt);
+                    showToastr_ACU('success', '提示词预设已成功导入并保存！');
+                    // [新增] 导入合并提示词 (如果存在)
+                    if (combinedData.mergeSummaryPrompt) {
+                        settings_ACU.mergeSummaryPrompt = combinedData.mergeSummaryPrompt;
+                        saveSettings_ACU();
+                        if (typeof syncMergeSettingsToUI_ACU === 'function')
+                            syncMergeSettingsToUI_ACU(settings_ACU);
+                        logDebug_ACU('Merge summary prompt imported.');
+                    }
+                    // [新增] 导入所有合并设置 (如果存在)
+                    if (typeof combinedData.mergeSummaryPrompt !== 'undefined' ||
+                        typeof combinedData.autoMergeEnabled !== 'undefined') {
+                        // 导入合并提示词
+                        if (combinedData.mergeSummaryPrompt) {
+                            settings_ACU.mergeSummaryPrompt = combinedData.mergeSummaryPrompt;
+                        }
+                        // 导入手动合并设置
+                        settings_ACU.mergeTargetCount = combinedData.mergeTargetCount || 1;
+                        settings_ACU.mergeBatchSize = combinedData.mergeBatchSize || 5;
+                        settings_ACU.mergeStartIndex = combinedData.mergeStartIndex || 1;
+                        settings_ACU.mergeEndIndex = combinedData.mergeEndIndex || null;
+                        // 导入自动合并设置
+                        settings_ACU.autoMergeEnabled = combinedData.autoMergeEnabled || false;
+                        settings_ACU.autoMergeThreshold = combinedData.autoMergeThreshold || 20;
+                        settings_ACU.autoMergeReserve = combinedData.autoMergeReserve || 0;
+                        // 导入删除楼层范围设置
+                        settings_ACU.deleteStartFloor = combinedData.deleteStartFloor || null;
+                        settings_ACU.deleteEndFloor = combinedData.deleteEndFloor || null;
+                        saveSettings_ACU();
+                        // UI 回填交给 presentation 层
+                        if (typeof syncMergeSettingsToUI_ACU === 'function')
+                            syncMergeSettingsToUI_ACU(settings_ACU);
+                        logDebug_ACU('All merge settings imported.');
+                    }
+                    // 2. Apply and save template
+                    // [瘦身] 导入时清洗模板并回写（兼容旧模板带冗余字段）
+                    const sheetKeys = Object.keys(combinedData.template).filter(k => k.startsWith('sheet_'));
+                    ensureSheetOrderNumbers_ACU(combinedData.template, { baseOrderKeys: sheetKeys, forceRebuild: false });
+                    const sanitizedTemplate = sanitizeChatSheetsObject_ACU(combinedData.template, { ensureMate: true });
+                    const appliedTemplate = await applyTemplateSnapshotToScope_ACU(sanitizedTemplate, {
+                        scope: 'global',
+                        source: 'import_combined',
+                        presetName: normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false })),
+                        refreshUi: false,
+                        save: true,
+                        persistChatScope: false,
+                    });
+                    if (!appliedTemplate) {
+                        throw new Error('合并配置中的表格模板已解析，但应用到全局模板失败。');
+                    }
+                    showToastr_ACU('success', '表格模板已成功导入！模板已更新，但不会影响当前聊天记录的本地数据。');
+                    // [优化] 不再触发表格数据初始化，仅修改当前插件模板
+                    // 只有在新开卡或之前没有用过插件的聊天记录里才会使用新的通用模板作为基底
+                    showToastr_ACU('success', '合并配置已成功导入！');
+                }
+                catch (error) {
+                    logError_ACU('导入合并配置失败：结构验证失败。', error);
+                    showToastr_ACU('error', `导入失败: ${error.message}`, { timeOut: 10000 });
+                }
+            };
+            reader.readAsText(file, 'UTF-8');
+        };
+        input.click();
+    }
+
+    /**
+     * presentation/components/import-status-ui.ts — 导入状态 UI
+     * 从 features/import/01~03 迁移而来
+     */
+    // --- [新增] 外部导入功能 ---
+    const IMPORTED_ENTRY_PREFIX_ACU = 'TavernDB-ACU-ImportedTxt-';
+    // [外部导入] 本次注入的批次ID（用于“每批独立注入，不覆盖上一批”）
+    let importBatchId_ACU = null;
+    function newImportBatchId_ACU() {
+        // 短且可读，避免 comment 过长
+        const t = Date.now().toString(36);
+        const r = Math.random().toString(36).slice(2, 6);
+        return `b${t}${r}`;
+    }
+    // 外部导入前缀：
+    // - stable: 用于 UI 识别/手动删除
+    function getImportStablePrefix_ACU() { return '外部导入-'; }
+    // 当前按用户要求：外部导入不自动清理，因此无需批次隔离；统一使用稳定前缀即可
+    function getImportBatchPrefix_ACU() { return getImportStablePrefix_ACU(); }
+    // [新增] 只清除本地存储中的导入缓存
+    // [新增] 删除外部导入注入的世界书条目
+    // --- [新增] 外部导入功能 ---
+    async function updateImportStatusUI_ACU() {
+        if (!$popupInstance_ACU)
+            return;
+        const $statusDisplay = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-status`);
+        const $injectButton = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-inject-imported-txt-button`);
+        const savedEntriesJson = await importTempGet_ACU(STORAGE_KEY_IMPORTED_ENTRIES_ACU);
+        const savedStatusJson = await importTempGet_ACU(STORAGE_KEY_IMPORTED_STATUS_ACU);
+        if (savedEntriesJson) {
+            try {
+                const chunks = JSON.parse(savedEntriesJson);
+                if (Array.isArray(chunks) && chunks.length > 0) {
+                    // 同步渲染一次表选择器（防止模板/数据变更后列表不刷新）
+                    if ($importTableSelector_ACU)
+                        renderImportTableSelector_ACU();
+                    const currentSelection = getImportSelectionFromUI_ACU();
+                    const selectionSig = JSON.stringify(currentSelection || []);
+                    if (settings_ACU.hasImportTableSelection && (!currentSelection || currentSelection.length === 0)) {
+                        $statusDisplay.text('状态：未选择任何表格，无法注入。').css('color', 'salmon');
+                        $injectButton.text('2. 注入（自选表格）').prop('disabled', true);
+                        return;
+                    }
+                    let status = null;
+                    if (savedStatusJson) {
+                        try {
+                            status = JSON.parse(savedStatusJson);
+                        }
+                        catch (e) {
+                            status = null;
+                        }
+                    }
+                    const canResume = status &&
+                        typeof status.total === 'number' &&
+                        status.total === chunks.length &&
+                        typeof status.currentIndex === 'number' &&
+                        status.currentIndex < status.total &&
+                        (typeof status.selectionSig === 'undefined' || status.selectionSig === selectionSig);
+                    if (canResume) {
+                        $statusDisplay.text(`状态：已暂停，完成 ${status.currentIndex}/${status.total}。`).css('color', 'orange');
+                        $injectButton.text('继续注入（自选表格）').prop('disabled', false);
+                    }
+                    else {
+                        $statusDisplay.text(`状态：已准备好 ${chunks.length} 个条目可供注入。`).css('color', 'lightgreen');
+                        $injectButton.text('2. 注入（自选表格）').prop('disabled', false);
+                    }
+                    return;
+                }
+            }
+            catch (e) {
+                await importTempRemove_ACU(STORAGE_KEY_IMPORTED_ENTRIES_ACU);
+                await importTempRemove_ACU(STORAGE_KEY_IMPORTED_STATUS_ACU);
+            }
+        }
+        $statusDisplay.text('状态：尚未加载文件。').css('color', '');
+        $injectButton.text('2. 注入（自选表格）').prop('disabled', true);
+    }
+    // [新增] 获取导入专用的世界书目标
+    function getImportJsonStorageComment_ACU(modeSuffix = '-Selected') {
+        const IMPORT_PREFIX = '外部导入-';
+        return `${IMPORT_PREFIX}TavernDB-ACU-ImportedJsonData${modeSuffix}`;
+    }
+    // [外部导入] 自选表格注入（取代旧的 标准/总结/整体 模式）
+    // 兼容旧API/旧按钮调用（仍会走自选表格逻辑）
+    async function handleInjectSplitEntriesStandard_ACU() { return await handleInjectImportedTxtSelected_ACU(); }
+    async function handleInjectSplitEntriesSummary_ACU() { return await handleInjectImportedTxtSelected_ACU(); }
+    async function handleInjectSplitEntriesFull_ACU() { return await handleInjectImportedTxtSelected_ACU(); }
+    async function handleTxtImportAndSplit_ACU() {
+        const $splitSizeInput = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-split-size`);
+        const $encodingSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-encoding`); // 新增
+        const $statusDisplay = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-status`);
+        const splitSize = parseInt($splitSizeInput.val(), 10);
+        const encoding = $encodingSelect.val() || 'UTF-8'; // 新增
+        if (isNaN(splitSize) || splitSize <= 0) {
+            showToastr_ACU('error', '请输入有效的字符分割数。', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.ERROR });
+            return;
+        }
+        const $fileInput = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-hidden-file-input`);
+        $fileInput.off('change.acu_import').on('change.acu_import', function (e) {
+            const file = e.target.files[0];
+            if (!file)
+                return;
+            $statusDisplay.text('状态：正在读取和拆分文件...').css('color', '#61afef');
+            const reader = new FileReader();
+            reader.onload = (readerEvent) => {
+                const content = readerEvent.target.result;
+                if (!content) {
+                    showToastr_ACU('warning', '文件为空或读取失败。', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT });
+                    void updateImportStatusUI_ACU();
+                    return;
+                }
+                // Use a timeout to allow the UI to update before this potentially long-running task
+                setTimeout(async () => {
+                    // [新增] 清除旧的导入状态，确保每次导入都是全新的开始
+                    await importTempRemove_ACU(STORAGE_KEY_IMPORTED_STATUS_ACU);
+                    await importTempRemove_ACU(STORAGE_KEY_IMPORTED_STATUS_STANDARD_ACU);
+                    await importTempRemove_ACU(STORAGE_KEY_IMPORTED_STATUS_SUMMARY_ACU);
+                    await importTempRemove_ACU(STORAGE_KEY_IMPORTED_STATUS_FULL_ACU);
+                    const chunks = [];
+                    for (let i = 0; i < content.length; i += splitSize) {
+                        chunks.push({
+                            content: content.substring(i, i + splitSize)
+                        });
+                    }
+                    await importTempSet_ACU(STORAGE_KEY_IMPORTED_ENTRIES_ACU, JSON.stringify(chunks));
+                    logDebug_ACU(`[外部导入] Saved ${chunks.length} text chunks to temp storage (IndexedDB preferred).`);
+                    showToastr_ACU('success', `文件已成功拆分成 ${chunks.length} 个部分。`, { acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT });
+                    void updateImportStatusUI_ACU();
+                    // Reset file input value to allow re-importing the same file
+                    $fileInput.val('');
+                }, 50); // 50ms delay
+            };
+            reader.onerror = () => {
+                showToastr_ACU('error', '读取文件时出错。', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.ERROR });
+                void updateImportStatusUI_ACU();
+            };
+            reader.readAsText(file, encoding); // 修改
+        });
+        $fileInput.trigger('click');
+        return true;
+    }
+    async function getImportWorldbookTarget_ACU() {
+        // 优先使用 UI 当前选择（不落盘），以便在“完成后解除绑定”的策略下，“删除外部导入条目”仍可用
+        try {
+            if ($popupInstance_ACU) {
+                const $select = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-worldbook-injection-target`);
+                const v = ($select && $select.length) ? String($select.val() || '').trim() : '';
+                if (v)
+                    return v;
+            }
+        }
+        catch (e) { /* ignore */ }
+        // 回退：旧逻辑（从设置读取）
+        if (settings_ACU.importWorldbookTarget)
+            return settings_ACU.importWorldbookTarget;
+        return null;
+    }
+    // [T176] 控制注入按钮启用/禁用
+    function setImportInjectButtonEnabled_ACU(enabled) {
+        if (!$popupInstance_ACU)
+            return;
+        const $btn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-inject-imported-txt-button`);
+        if ($btn.length)
+            $btn.prop('disabled', !enabled);
+    }
 
     // import-process.ts
     async function processImportedTxtAsUpdates_ACU() {
@@ -14742,7 +22074,7 @@ $CONTENT
             const prefixesToDelete = [
                 '外部导入-', // Catches all new prefixed entries
                 'TavernDB-ACU-ImportedJsonData', // Catches the non-prefixed JSON backup for safety
-                IMPORTED_ENTRY_PREFIX_ACU // Catches old raw txt entries
+                IMPORTED_ENTRY_PREFIX_ACU$1 // Catches old raw txt entries
             ];
             const uidsToDelete = allEntries
                 .filter(entry => entry.comment && prefixesToDelete.some(prefix => entry.comment.startsWith(prefix)))
@@ -14812,7 +22144,7 @@ $CONTENT
     async function loadImportedJsonDataFromLorebook_ACU(targetLorebook, modeSuffix = '-Selected') {
         if (!TavernHelper_API_ACU$1 || !targetLorebook)
             return null;
-        const jsonStorageComment = getImportJsonStorageComment_ACU(modeSuffix);
+        const jsonStorageComment = getImportJsonStorageComment_ACU$1(modeSuffix);
         const allEntries = await TavernHelper_API_ACU$1.getLorebookEntries(targetLorebook);
         const existingEntry = allEntries.find(entry => entry.comment === jsonStorageComment);
         if (!existingEntry || !existingEntry.content)
@@ -14828,7 +22160,7 @@ $CONTENT
     async function saveImportedJsonDataToLorebook_ACU(targetLorebook, jsonData, modeSuffix = '-Selected') {
         if (!TavernHelper_API_ACU$1 || !targetLorebook || !jsonData)
             return false;
-        const jsonStorageComment = getImportJsonStorageComment_ACU(modeSuffix);
+        const jsonStorageComment = getImportJsonStorageComment_ACU$1(modeSuffix);
         const allEntries = await TavernHelper_API_ACU$1.getLorebookEntries(targetLorebook);
         const usedOrders = buildUsedOrderSet_ACU(allEntries);
         const existingEntry = allEntries.find(entry => entry.comment === jsonStorageComment);
@@ -14855,179 +22187,13 @@ $CONTENT
     async function deleteImportedJsonDataFromLorebook_ACU(targetLorebook, modeSuffix = '-Selected') {
         if (!TavernHelper_API_ACU$1 || !targetLorebook)
             return false;
-        const jsonStorageComment = getImportJsonStorageComment_ACU(modeSuffix);
+        const jsonStorageComment = getImportJsonStorageComment_ACU$1(modeSuffix);
         const entriesNow = await TavernHelper_API_ACU$1.getLorebookEntries(targetLorebook);
         const jsonEntry = entriesNow.find(e => e.comment === jsonStorageComment);
         if (!jsonEntry)
             return false;
         await TavernHelper_API_ACU$1.deleteLorebookEntries(targetLorebook, [jsonEntry.uid]);
         return true;
-    }
-
-    /**
-     * presentation/components/import-status-ui.ts — 导入状态 UI
-     * 从 features/import/01~03 迁移而来
-     */
-    // --- [新增] 外部导入功能 ---
-    const IMPORTED_ENTRY_PREFIX_ACU = 'TavernDB-ACU-ImportedTxt-';
-    // [外部导入] 本次注入的批次ID（用于“每批独立注入，不覆盖上一批”）
-    let importBatchId_ACU = null;
-    function newImportBatchId_ACU() {
-        // 短且可读，避免 comment 过长
-        const t = Date.now().toString(36);
-        const r = Math.random().toString(36).slice(2, 6);
-        return `b${t}${r}`;
-    }
-    // 外部导入前缀：
-    // - stable: 用于 UI 识别/手动删除
-    function getImportStablePrefix_ACU() { return '外部导入-'; }
-    // 当前按用户要求：外部导入不自动清理，因此无需批次隔离；统一使用稳定前缀即可
-    function getImportBatchPrefix_ACU() { return getImportStablePrefix_ACU(); }
-    // [新增] 只清除本地存储中的导入缓存
-    // [新增] 删除外部导入注入的世界书条目
-    // --- [新增] 外部导入功能 ---
-    async function updateImportStatusUI_ACU() {
-        if (!$popupInstance_ACU)
-            return;
-        const $statusDisplay = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-status`);
-        const $injectButton = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-inject-imported-txt-button`);
-        const savedEntriesJson = await importTempGet_ACU(STORAGE_KEY_IMPORTED_ENTRIES_ACU);
-        const savedStatusJson = await importTempGet_ACU(STORAGE_KEY_IMPORTED_STATUS_ACU);
-        if (savedEntriesJson) {
-            try {
-                const chunks = JSON.parse(savedEntriesJson);
-                if (Array.isArray(chunks) && chunks.length > 0) {
-                    // 同步渲染一次表选择器（防止模板/数据变更后列表不刷新）
-                    if ($importTableSelector_ACU)
-                        renderImportTableSelector_ACU();
-                    const currentSelection = getImportSelectionFromUI_ACU();
-                    const selectionSig = JSON.stringify(currentSelection || []);
-                    if (settings_ACU.hasImportTableSelection && (!currentSelection || currentSelection.length === 0)) {
-                        $statusDisplay.text('状态：未选择任何表格，无法注入。').css('color', 'salmon');
-                        $injectButton.text('2. 注入（自选表格）').prop('disabled', true);
-                        return;
-                    }
-                    let status = null;
-                    if (savedStatusJson) {
-                        try {
-                            status = JSON.parse(savedStatusJson);
-                        }
-                        catch (e) {
-                            status = null;
-                        }
-                    }
-                    const canResume = status &&
-                        typeof status.total === 'number' &&
-                        status.total === chunks.length &&
-                        typeof status.currentIndex === 'number' &&
-                        status.currentIndex < status.total &&
-                        (typeof status.selectionSig === 'undefined' || status.selectionSig === selectionSig);
-                    if (canResume) {
-                        $statusDisplay.text(`状态：已暂停，完成 ${status.currentIndex}/${status.total}。`).css('color', 'orange');
-                        $injectButton.text('继续注入（自选表格）').prop('disabled', false);
-                    }
-                    else {
-                        $statusDisplay.text(`状态：已准备好 ${chunks.length} 个条目可供注入。`).css('color', 'lightgreen');
-                        $injectButton.text('2. 注入（自选表格）').prop('disabled', false);
-                    }
-                    return;
-                }
-            }
-            catch (e) {
-                await importTempRemove_ACU(STORAGE_KEY_IMPORTED_ENTRIES_ACU);
-                await importTempRemove_ACU(STORAGE_KEY_IMPORTED_STATUS_ACU);
-            }
-        }
-        $statusDisplay.text('状态：尚未加载文件。').css('color', '');
-        $injectButton.text('2. 注入（自选表格）').prop('disabled', true);
-    }
-    // [新增] 获取导入专用的世界书目标
-    function getImportJsonStorageComment_ACU(modeSuffix = '-Selected') {
-        const IMPORT_PREFIX = '外部导入-';
-        return `${IMPORT_PREFIX}TavernDB-ACU-ImportedJsonData${modeSuffix}`;
-    }
-    // [外部导入] 自选表格注入（取代旧的 标准/总结/整体 模式）
-    // 兼容旧API/旧按钮调用（仍会走自选表格逻辑）
-    async function handleInjectSplitEntriesStandard_ACU() { return await handleInjectImportedTxtSelected_ACU(); }
-    async function handleInjectSplitEntriesSummary_ACU() { return await handleInjectImportedTxtSelected_ACU(); }
-    async function handleInjectSplitEntriesFull_ACU() { return await handleInjectImportedTxtSelected_ACU(); }
-    async function handleTxtImportAndSplit_ACU() {
-        const $splitSizeInput = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-split-size`);
-        const $encodingSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-encoding`); // 新增
-        const $statusDisplay = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-status`);
-        const splitSize = parseInt($splitSizeInput.val(), 10);
-        const encoding = $encodingSelect.val() || 'UTF-8'; // 新增
-        if (isNaN(splitSize) || splitSize <= 0) {
-            showToastr_ACU('error', '请输入有效的字符分割数。', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.ERROR });
-            return;
-        }
-        const $fileInput = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-hidden-file-input`);
-        $fileInput.off('change.acu_import').on('change.acu_import', function (e) {
-            const file = e.target.files[0];
-            if (!file)
-                return;
-            $statusDisplay.text('状态：正在读取和拆分文件...').css('color', '#61afef');
-            const reader = new FileReader();
-            reader.onload = (readerEvent) => {
-                const content = readerEvent.target.result;
-                if (!content) {
-                    showToastr_ACU('warning', '文件为空或读取失败。', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT });
-                    void updateImportStatusUI_ACU();
-                    return;
-                }
-                // Use a timeout to allow the UI to update before this potentially long-running task
-                setTimeout(async () => {
-                    // [新增] 清除旧的导入状态，确保每次导入都是全新的开始
-                    await importTempRemove_ACU(STORAGE_KEY_IMPORTED_STATUS_ACU);
-                    await importTempRemove_ACU(STORAGE_KEY_IMPORTED_STATUS_STANDARD_ACU);
-                    await importTempRemove_ACU(STORAGE_KEY_IMPORTED_STATUS_SUMMARY_ACU);
-                    await importTempRemove_ACU(STORAGE_KEY_IMPORTED_STATUS_FULL_ACU);
-                    const chunks = [];
-                    for (let i = 0; i < content.length; i += splitSize) {
-                        chunks.push({
-                            content: content.substring(i, i + splitSize)
-                        });
-                    }
-                    await importTempSet_ACU(STORAGE_KEY_IMPORTED_ENTRIES_ACU, JSON.stringify(chunks));
-                    logDebug_ACU(`[外部导入] Saved ${chunks.length} text chunks to temp storage (IndexedDB preferred).`);
-                    showToastr_ACU('success', `文件已成功拆分成 ${chunks.length} 个部分。`, { acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT });
-                    void updateImportStatusUI_ACU();
-                    // Reset file input value to allow re-importing the same file
-                    $fileInput.val('');
-                }, 50); // 50ms delay
-            };
-            reader.onerror = () => {
-                showToastr_ACU('error', '读取文件时出错。', { acuToastCategory: ACU_TOAST_CATEGORY_ACU.ERROR });
-                void updateImportStatusUI_ACU();
-            };
-            reader.readAsText(file, encoding); // 修改
-        });
-        $fileInput.trigger('click');
-        return true;
-    }
-    async function getImportWorldbookTarget_ACU() {
-        // 优先使用 UI 当前选择（不落盘），以便在“完成后解除绑定”的策略下，“删除外部导入条目”仍可用
-        try {
-            if ($popupInstance_ACU) {
-                const $select = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-worldbook-injection-target`);
-                const v = ($select && $select.length) ? String($select.val() || '').trim() : '';
-                if (v)
-                    return v;
-            }
-        }
-        catch (e) { /* ignore */ }
-        // 回退：旧逻辑（从设置读取）
-        if (settings_ACU.importWorldbookTarget)
-            return settings_ACU.importWorldbookTarget;
-        return null;
-    }
-    // [T176] 控制注入按钮启用/禁用
-    function setImportInjectButtonEnabled_ACU(enabled) {
-        if (!$popupInstance_ACU)
-            return;
-        const $btn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-inject-imported-txt-button`);
-        if ($btn.length)
-            $btn.prop('disabled', !enabled);
     }
 
     /**
@@ -18127,1455 +25293,6 @@ $CONTENT
         });
     }
     // [新增] 表格顺序管理 - 存储有序的表格键列表
-
-    // admin.ts
-    // 从 01_data_admin.js 迁入
-    function importCombinedSettings_ACU$1() {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.json';
-        input.onchange = e => {
-            const file = e.target.files[0];
-            if (!file)
-                return;
-            const reader = new FileReader();
-            reader.onload = async (readerEvent) => {
-                const content = readerEvent.target.result;
-                let combinedData;
-                try {
-                    combinedData = JSON.parse(content);
-                }
-                catch (error) {
-                    logError_ACU('导入合并配置失败：JSON解析错误。', error);
-                    showToastr_ACU('error', '文件不是有效的JSON格式。', { timeOut: 5000 });
-                    return;
-                }
-                try {
-                    // Validation
-                    if (!combinedData.prompt || !combinedData.template) {
-                        throw new Error('JSON文件缺少 "prompt" 或 "template" 键。');
-                    }
-                    if (!Array.isArray(combinedData.prompt)) {
-                        throw new Error('"prompt" 的值必须是一个数组。');
-                    }
-                    if (typeof combinedData.template !== 'object' || combinedData.template === null) {
-                        throw new Error('"template" 的值必须是一个对象。');
-                    }
-                    // 1. Apply and save prompt
-                    settings_ACU.charCardPrompt = combinedData.prompt;
-                    saveSettings_ACU();
-                    renderPromptSegments_ACU(combinedData.prompt);
-                    showToastr_ACU('success', '提示词预设已成功导入并保存！');
-                    // [新增] 导入合并提示词 (如果存在)
-                    if (combinedData.mergeSummaryPrompt) {
-                        settings_ACU.mergeSummaryPrompt = combinedData.mergeSummaryPrompt;
-                        saveSettings_ACU();
-                        if (typeof syncMergeSettingsToUI_ACU === 'function')
-                            syncMergeSettingsToUI_ACU(settings_ACU);
-                        logDebug_ACU('Merge summary prompt imported.');
-                    }
-                    // [新增] 导入所有合并设置 (如果存在)
-                    if (typeof combinedData.mergeSummaryPrompt !== 'undefined' ||
-                        typeof combinedData.autoMergeEnabled !== 'undefined') {
-                        // 导入合并提示词
-                        if (combinedData.mergeSummaryPrompt) {
-                            settings_ACU.mergeSummaryPrompt = combinedData.mergeSummaryPrompt;
-                        }
-                        // 导入手动合并设置
-                        settings_ACU.mergeTargetCount = combinedData.mergeTargetCount || 1;
-                        settings_ACU.mergeBatchSize = combinedData.mergeBatchSize || 5;
-                        settings_ACU.mergeStartIndex = combinedData.mergeStartIndex || 1;
-                        settings_ACU.mergeEndIndex = combinedData.mergeEndIndex || null;
-                        // 导入自动合并设置
-                        settings_ACU.autoMergeEnabled = combinedData.autoMergeEnabled || false;
-                        settings_ACU.autoMergeThreshold = combinedData.autoMergeThreshold || 20;
-                        settings_ACU.autoMergeReserve = combinedData.autoMergeReserve || 0;
-                        // 导入删除楼层范围设置
-                        settings_ACU.deleteStartFloor = combinedData.deleteStartFloor || null;
-                        settings_ACU.deleteEndFloor = combinedData.deleteEndFloor || null;
-                        saveSettings_ACU();
-                        // UI 回填交给 presentation 层
-                        if (typeof syncMergeSettingsToUI_ACU === 'function')
-                            syncMergeSettingsToUI_ACU(settings_ACU);
-                        logDebug_ACU('All merge settings imported.');
-                    }
-                    // 2. Apply and save template
-                    // [瘦身] 导入时清洗模板并回写（兼容旧模板带冗余字段）
-                    const sheetKeys = Object.keys(combinedData.template).filter(k => k.startsWith('sheet_'));
-                    ensureSheetOrderNumbers_ACU(combinedData.template, { baseOrderKeys: sheetKeys, forceRebuild: false });
-                    const sanitizedTemplate = sanitizeChatSheetsObject_ACU(combinedData.template, { ensureMate: true });
-                    const appliedTemplate = await applyTemplateSnapshotToScope_ACU(sanitizedTemplate, {
-                        scope: 'global',
-                        source: 'import_combined',
-                        presetName: normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false })),
-                        refreshUi: false,
-                        save: true,
-                        persistChatScope: false,
-                    });
-                    if (!appliedTemplate) {
-                        throw new Error('合并配置中的表格模板已解析，但应用到全局模板失败。');
-                    }
-                    showToastr_ACU('success', '表格模板已成功导入！模板已更新，但不会影响当前聊天记录的本地数据。');
-                    // [优化] 不再触发表格数据初始化，仅修改当前插件模板
-                    // 只有在新开卡或之前没有用过插件的聊天记录里才会使用新的通用模板作为基底
-                    showToastr_ACU('success', '合并配置已成功导入！');
-                }
-                catch (error) {
-                    logError_ACU('导入合并配置失败：结构验证失败。', error);
-                    showToastr_ACU('error', `导入失败: ${error.message}`, { timeOut: 10000 });
-                }
-            };
-            reader.readAsText(file, 'UTF-8');
-        };
-        input.click();
-    }
-
-    /**
-     * 正文优化纯逻辑函数
-     *
-     * 纯文本处理工具。
-     * 用于正文优化功能中的段落匹配、标点处理和优化应用。
-     */
-    /**
-     * 去除文本中的标点符号和空白，只保留文字和数字
-     */
-    function removePunctuation_ACU(text) {
-        if (!text)
-            return '';
-        return text.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '');
-    }
-    /**
-     * 从文本中提取关键词（简单的分词，取前N个有意义的词）
-     */
-    function extractKeywords_ACU(text, count = 5) {
-        if (!text)
-            return [];
-        const cleanText = removePunctuation_ACU(text);
-        const keywords = [];
-        for (let len = 4; len >= 2; len--) {
-            for (let i = 0; i <= cleanText.length - len; i++) {
-                const word = cleanText.substring(i, i + len);
-                if (!keywords.includes(word)) {
-                    keywords.push(word);
-                    if (keywords.length >= count)
-                        break;
-                }
-            }
-            if (keywords.length >= count)
-                break;
-        }
-        return keywords;
-    }
-    /**
-     * 将去除标点后的位置映射回原始文本位置
-     */
-    function mapCleanPositionToOriginal_ACU(originalContent, cleanStart, cleanEnd) {
-        let cleanIndex = 0;
-        let originalStart = -1;
-        let originalEnd = -1;
-        for (let i = 0; i < originalContent.length; i++) {
-            const char = originalContent[i];
-            const isWordChar = /[\u4e00-\u9fa5a-zA-Z0-9]/.test(char);
-            if (isWordChar) {
-                if (cleanIndex === cleanStart) {
-                    originalStart = i;
-                }
-                if (cleanIndex === cleanEnd - 1) {
-                    originalEnd = i + 1;
-                    break;
-                }
-                cleanIndex++;
-            }
-        }
-        if (originalEnd === -1 && originalStart !== -1) {
-            originalEnd = originalContent.length;
-        }
-        return { start: originalStart, end: originalEnd };
-    }
-    /**
-     * 新的段落匹配算法：去除标点后，比较开头、结尾和关键词
-     */
-    function findParagraphMatch_ACU(originalText, fullContent) {
-        const exactIndex = fullContent.indexOf(originalText);
-        if (exactIndex !== -1) {
-            return { start: exactIndex, end: exactIndex + originalText.length, method: '精确匹配' };
-        }
-        const cleanOriginal = removePunctuation_ACU(originalText);
-        const cleanContent = removePunctuation_ACU(fullContent);
-        if (cleanOriginal.length < 10) {
-            return { start: -1, end: -1, method: null };
-        }
-        const prefixLen = Math.max(3, Math.min(10, Math.floor(cleanOriginal.length / 4)));
-        const suffixLen = Math.max(3, Math.min(10, Math.floor(cleanOriginal.length / 4)));
-        const originalPrefix = cleanOriginal.substring(0, prefixLen);
-        const originalSuffix = cleanOriginal.substring(cleanOriginal.length - suffixLen);
-        const keywords = extractKeywords_ACU(originalText, 5);
-        let searchStart = 0;
-        let bestMatch = null;
-        let bestScore = 0;
-        while (searchStart < cleanContent.length) {
-            const prefixIndex = cleanContent.indexOf(originalPrefix, searchStart);
-            if (prefixIndex === -1)
-                break;
-            const minLen = Math.floor(cleanOriginal.length * 0.5);
-            const maxLen = Math.floor(cleanOriginal.length * 1.5);
-            for (let len = minLen; len <= maxLen && prefixIndex + len + suffixLen <= cleanContent.length; len++) {
-                const candidateSuffixPos = prefixIndex + len - suffixLen;
-                const candidateSuffix = cleanContent.substring(candidateSuffixPos, candidateSuffixPos + suffixLen);
-                if (candidateSuffix === originalSuffix) {
-                    const candidateText = cleanContent.substring(prefixIndex, prefixIndex + len);
-                    let matchedKeywords = 0;
-                    for (const kw of keywords) {
-                        if (candidateText.includes(kw)) {
-                            matchedKeywords++;
-                        }
-                    }
-                    const score = matchedKeywords / keywords.length;
-                    if (score >= 0.4 && score > bestScore) {
-                        bestScore = score;
-                        bestMatch = {
-                            cleanStart: prefixIndex,
-                            cleanEnd: prefixIndex + len,
-                            score: score,
-                            matchedKeywords: matchedKeywords,
-                            totalKeywords: keywords.length,
-                        };
-                        break;
-                    }
-                }
-            }
-            searchStart = prefixIndex + 1;
-        }
-        if (bestMatch) {
-            const mappedResult = mapCleanPositionToOriginal_ACU(fullContent, bestMatch.cleanStart, bestMatch.cleanEnd);
-            return {
-                start: mappedResult.start,
-                end: mappedResult.end,
-                method: `关键词匹配 (${(bestMatch.score * 100).toFixed(0)}%关键词匹配)`,
-            };
-        }
-        return { start: -1, end: -1, method: null };
-    }
-    /**
-     * 移除字符串两端的标点符号
-     */
-    function trimPunctuation_ACU(text) {
-        if (!text)
-            return { trimmed: '', prefix: '', suffix: '' };
-        let prefix = '';
-        let suffix = '';
-        let trimmed = text;
-        const prefixMatch = trimmed.match(/^[^\u4e00-\u9fa5a-zA-Z0-9]+/);
-        if (prefixMatch) {
-            prefix = prefixMatch[0];
-            trimmed = trimmed.substring(prefix.length);
-        }
-        const suffixMatch = trimmed.match(/[^\u4e00-\u9fa5a-zA-Z0-9]+$/);
-        if (suffixMatch) {
-            suffix = suffixMatch[0];
-            trimmed = trimmed.substring(0, trimmed.length - suffix.length);
-        }
-        return { trimmed, prefix, suffix };
-    }
-    /**
-     * 处理单引号
-     */
-    function processSingleQuotes_ACU(text) {
-        if (!text)
-            return text;
-        let result = text;
-        result = result.replace(/\u2018([^\u2019]*)\u2019/g, (match, content, offset, string) => {
-            const endPos = offset + match.length;
-            const afterMatch = string.substring(endPos).trim();
-            if (afterMatch === '' || /^[^\u4e00-\u9fa5a-zA-Z0-9]*$/.test(afterMatch)) {
-                return `\u201C${content}`;
-            }
-            else {
-                return `\u201C${content}\u201D`;
-            }
-        });
-        result = result.replace(/'([^']*)'/g, (match, content, offset, string) => {
-            const endPos = offset + match.length;
-            const afterMatch = string.substring(endPos).trim();
-            if (afterMatch === '' || /^[^\u4e00-\u9fa5a-zA-Z0-9]*$/.test(afterMatch)) {
-                return `\u201C${content}`;
-            }
-            else {
-                return `\u201C${content}\u201D`;
-            }
-        });
-        return result;
-    }
-    /**
-     * 应用优化到正文
-     */
-    function applyOptimizations_ACU(originalContent, optimizations) {
-        let result = originalContent;
-        let appliedCount = 0;
-        let failedCount = 0;
-        const failedItems = [];
-        for (let i = 0; i < optimizations.length; i++) {
-            const opt = optimizations[i];
-            if (opt.type === 'replace' && opt.original && opt.optimized) {
-                let replaced = false;
-                const match = findParagraphMatch_ACU(opt.original, result);
-                if (match.start !== -1) {
-                    const matchedText = result.substring(match.start, match.end);
-                    const originalPunct = trimPunctuation_ACU(matchedText);
-                    const optimizedPunct = trimPunctuation_ACU(opt.optimized);
-                    let finalContent = originalPunct.prefix + optimizedPunct.trimmed + originalPunct.suffix;
-                    finalContent = processSingleQuotes_ACU(finalContent);
-                    result = result.substring(0, match.start) + finalContent + result.substring(match.end);
-                    replaced = true;
-                    logDebug_ACU(`[正文优化] 优化项 ${i + 1} 使用${match.method}成功，位置: ${match.start}-${match.end}`);
-                }
-                if (replaced) {
-                    appliedCount++;
-                }
-                else {
-                    failedCount++;
-                    failedItems.push({
-                        index: i + 1,
-                        original: opt.original.substring(0, 100) + (opt.original.length > 100 ? '...' : ''),
-                        plan: opt.plan || opt.reason || '未说明',
-                    });
-                    logDebug_ACU(`[正文优化] 优化项 ${i + 1} 匹配失败，原文片段: "${opt.original.substring(0, 50)}..."`);
-                }
-            }
-        }
-        logDebug_ACU(`[正文优化] 替换统计: 成功 ${appliedCount}/${optimizations.length}，失败 ${failedCount}`);
-        if (failedItems.length > 0) {
-            console.warn('[正文优化] 以下优化项未能应用:', failedItems);
-        }
-        return result;
-    }
-
-    /**
-     * service/optimization/content-optimization.ts — 正文优化服务逻辑
-     * 从 src/core/02_storage_and_profile.js:630~1325 迁移而来。
-     */
-    function buildDefaultContentOptimizationPromptGroup_ACU({ mainContent = '' } = {}) {
-        const src = DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU;
-        const base = Array.isArray(src) ? JSON.parse(JSON.stringify(src)) : [];
-        // 如果提供了主内容，替换 $CONTENT 占位符
-        if (mainContent) {
-            base.forEach(item => {
-                if (item.content && typeof item.content === 'string') {
-                    item.content = item.content.replace(/\$CONTENT/g, mainContent);
-                }
-            });
-        }
-        return base;
-    }
-    // --- [正文优化] 核心函数 ---
-    /**
-     * 获取正文优化使用的占位符内容
-     * @param {string} userMessage - 用户消息（用于$8占位符）
-     * @returns {Promise<object>} 占位符内容映射
-     */
-    async function getOptimizationPlaceholders_ACU(userMessage = '') {
-        const placeholders = {
-            $1: '', // 世界书内容
-            $5: '', // 纪要表/总体大纲表内容
-            $6: '', // 上一轮剧情规划数据
-            $7: '', // 前文上下文
-            $8: userMessage, // 本轮用户输入
-            $U: '', // 用户设定描述
-            $C: '' // 角色描述
-        };
-        try {
-            // $1: 世界书内容（使用剧情推进的世界书读取逻辑）
-            const plotSettings = settings_ACU.plotSettings || {};
-            placeholders.$1 = await getWorldbookContentForPlot_ACU(plotSettings, userMessage, '');
-            // [新增] 对世界书内容进行随机数处理
-            placeholders.$1 = parseRandomTags_ACU(placeholders.$1);
-            placeholders.$1 = replaceRandomVariables_ACU(placeholders.$1);
-            logDebug_ACU('[正文优化] $1 世界书内容:', placeholders.$1 ? `长度=${placeholders.$1.length}` : '(空)');
-        }
-        catch (e) {
-            logWarn_ACU('[正文优化] 获取世界书内容失败:', e);
-        }
-        try {
-            // $5: 纪要表/总体大纲表内容
-            if (currentJsonTableData_ACU$1 && typeof currentJsonTableData_ACU$1 === 'object') {
-                const summaryIndexResult = formatSummaryIndexForPlot_ACU(currentJsonTableData_ACU$1);
-                if (summaryIndexResult.success) {
-                    placeholders.$5 = summaryIndexResult.content;
-                }
-                else {
-                    placeholders.$5 = formatOutlineTableForPlot_ACU(currentJsonTableData_ACU$1);
-                }
-                logDebug_ACU('[正文优化] $5 纪要表内容:', placeholders.$5 ? `长度=${placeholders.$5.length}` : '(空)');
-            }
-        }
-        catch (e) {
-            logWarn_ACU('[正文优化] 获取纪要表内容失败:', e);
-        }
-        try {
-            // $6: 上一轮剧情规划数据
-            placeholders.$6 = getPlotFromHistory_ACU() || '';
-            logDebug_ACU('[正文优化] $6 上轮规划数据:', placeholders.$6 ? `长度=${placeholders.$6.length}` : '(空)');
-        }
-        catch (e) {
-            logWarn_ACU('[正文优化] 获取上轮规划数据失败:', e);
-        }
-        try {
-            // $7: 前文上下文（仅AI输出）
-            const chat = SillyTavern_API_ACU.chat || [];
-            const contextMessages = chat
-                .filter(msg => !msg.is_user)
-                .slice(-10) // 最近10条AI消息
-                .map(msg => `assistant："${msg.mes || ''}"`)
-                .join('\n');
-            placeholders.$7 = contextMessages ? `以下是前文的故事发展（AI输出）：\n${contextMessages}` : '';
-            logDebug_ACU('[正文优化] $7 前文上下文:', placeholders.$7 ? `长度=${placeholders.$7.length}` : '(空)');
-        }
-        catch (e) {
-            logWarn_ACU('[正文优化] 获取前文上下文失败:', e);
-        }
-        try {
-            // $U: 用户设定描述 (persona_description)
-            const stContext = window.SillyTavern?.getContext?.();
-            placeholders.$U = stContext?.powerUserSettings?.persona_description
-                || window.power_user?.persona_description
-                || SillyTavern_API_ACU?.powerUserSettings?.persona_description
-                || '';
-            logDebug_ACU('[正文优化] $U 用户设定:', placeholders.$U ? '成功' : '(空)');
-        }
-        catch (e) {
-            logWarn_ACU('[正文优化] 获取用户设定失败:', e);
-        }
-        try {
-            // $C: 角色描述 (char_description)
-            const stContext = window.SillyTavern?.getContext?.();
-            let character = null;
-            if (TavernHelper_API_ACU?.getCharData) {
-                character = TavernHelper_API_ACU.getCharData('current');
-            }
-            if (!character) {
-                character = SillyTavern_API_ACU?.characters?.[SillyTavern_API_ACU?.this_chid]
-                    || stContext?.characters?.[stContext?.characterId]
-                    || (typeof characters !== 'undefined' && typeof this_chid !== 'undefined' ? characters[this_chid] : null);
-            }
-            placeholders.$C = character?.description
-                || character?.data?.description
-                || stContext?.name2_description
-                || '';
-            logDebug_ACU('[正文优化] $C 角色描述:', placeholders.$C ? '成功' : '(空)');
-        }
-        catch (e) {
-            logWarn_ACU('[正文优化] 获取角色描述失败:', e);
-        }
-        return placeholders;
-    }
-    /**
-     * 执行正文优化
-     * @param {string} content - 需要优化的正文内容
-     * @param {object} options - 优化选项
-     * @param {number} options.currentLoop - 当前循环次数
-     * @param {string} options.userMessage - 用户消息（用于占位符）
-     * @returns {Promise<object>} 优化结果 { success, optimizations, summary, optimizedContent }
-     */
-    async function performContentOptimization_ACU(content, options = {}) {
-        const config = settings_ACU.contentOptimizationSettings || {};
-        const maxLength = config.maxOptimizations || 10;
-        const currentLoop = options.currentLoop || 1;
-        const totalLoops = config.loopCount || 1;
-        const maxRetries = config.retryCount || 3;
-        logDebug_ACU(`[正文优化] 开始执行正文优化，循环 ${currentLoop}/${totalLoops}，原始内容长度:`, content.length);
-        // 1. 获取占位符内容
-        const placeholders = await getOptimizationPlaceholders_ACU(options.userMessage || '');
-        // 2. 构建提示词消息
-        const promptGroup = config.promptGroup && config.promptGroup.length > 0
-            ? config.promptGroup
-            : DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU;
-        // 替换占位符并转换role为小写（某些API如豆包只接受小写role）
-        const messages = JSON.parse(JSON.stringify(promptGroup));
-        messages.forEach(item => {
-            if (item.content && typeof item.content === 'string') {
-                // 替换 $CONTENT 占位符
-                item.content = item.content.replace(/\$CONTENT/g, content);
-                // 替换剧情推进占位符
-                for (const [key, value] of Object.entries(placeholders)) {
-                    if (value && typeof value === 'string') {
-                        const regex = new RegExp(`\\${key}`, 'g');
-                        item.content = item.content.replace(regex, value);
-                    }
-                }
-                // [新增] 条件模板支持：随机数、计算变量、条件判断
-                // 1. 解析随机数标签
-                item.content = parseRandomTags_ACU(item.content);
-                // 2. 替换随机数变量引用
-                item.content = replaceRandomVariables_ACU(item.content);
-                // 3. 解析计算变量标签
-                const contextForCalc = { allTablesJson: currentJsonTableData_ACU$1 };
-                item.content = parseCalcTags_ACU(item.content, contextForCalc);
-                // 4. 解析最大值变量标签
-                item.content = parseMaxTags_ACU(item.content, contextForCalc);
-                // 5. 解析最小值变量标签
-                item.content = parseMinTags_ACU(item.content, contextForCalc);
-                // 6. 替换计算变量引用
-                item.content = replaceCalcVariables_ACU(item.content);
-                // 7. 替换最大值变量引用
-                item.content = replaceMaxVariables_ACU(item.content);
-                // 8. 替换最小值变量引用
-                item.content = replaceMinVariables_ACU(item.content);
-                // 9. 解析条件模板
-                const latestAiContentForConditional = getLatestAIMessageContent_ACU();
-                const latestPlotContentForConditional = getPlotFromHistory_ACU();
-                const contextForIf = {
-                    seedContent: latestAiContentForConditional,
-                    allTablesJson: currentJsonTableData_ACU$1,
-                    plotContent: latestPlotContentForConditional
-                };
-                item.content = parseIfBlockRecursive_ACU(item.content, contextForIf, 0);
-            }
-            // 转换role为小写
-            if (item.role && typeof item.role === 'string') {
-                item.role = item.role.toLowerCase();
-            }
-        });
-        // 3. 调用AI API（带自动重试）
-        const apiPreset = config.apiPreset || '';
-        logDebug_ACU(`[正文优化] 使用API预设: ${apiPreset || '当前配置'}`);
-        let lastError = null;
-        let responseContent = null;
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                logDebug_ACU(`[正文优化] 调用AI API... (尝试 ${attempt}/${maxRetries})`);
-                responseContent = await topLevelWindow_ACU.AutoCardUpdaterAPI.callAI(messages, {
-                    presetName: apiPreset
-                });
-                if (responseContent) {
-                    // API调用成功，跳出重试循环
-                    break;
-                }
-                // 空响应视为失败
-                lastError = new Error('AI API 返回空响应');
-                logDebug_ACU(`[正文优化] API返回空响应，尝试 ${attempt}/${maxRetries}`);
-            }
-            catch (error) {
-                lastError = error;
-                logError_ACU(`[正文优化] API调用失败 (尝试 ${attempt}/${maxRetries}):`, error);
-                if (attempt < maxRetries) {
-                    // 等待一段时间后重试（指数退避：1秒、2秒、4秒...）
-                    const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
-                    logDebug_ACU(`[正文优化] 等待 ${delayMs}ms 后重试...`);
-                    await new Promise(resolve => setTimeout(resolve, delayMs));
-                }
-            }
-        }
-        // 检查是否所有重试都失败
-        if (!responseContent) {
-            logError_ACU(`[正文优化] 所有重试均失败 (${maxRetries}次)`);
-            return {
-                success: false,
-                error: lastError ? lastError.message : 'API调用失败，已达到最大重试次数',
-                retryExhausted: true
-            };
-        }
-        let parseRetryResponseContent = responseContent;
-        let parseLastError = null;
-        for (let parseAttempt = 1; parseAttempt <= maxRetries; parseAttempt++) {
-            try {
-                // 4. 解析优化结果
-                const parsed = parseOptimizationResponse_ACU(parseRetryResponseContent, maxLength);
-                if (!parsed.success) {
-                    throw new Error(parsed.error || '解析失败');
-                }
-                // 5. 应用优化到正文
-                const optimizedContent = applyOptimizations_ACU(content, parsed.optimizations);
-                logDebug_ACU(`[正文优化] 循环 ${currentLoop}/${totalLoops} 完成，共 ${parsed.optimizations.length} 个优化项`);
-                return {
-                    success: true,
-                    optimizations: parsed.optimizations,
-                    summary: parsed.summary,
-                    optimizedContent: optimizedContent
-                };
-            }
-            catch (error) {
-                parseLastError = error;
-                logError_ACU(`[正文优化] 解析/应用失败 (尝试 ${parseAttempt}/${maxRetries}):`, error);
-                if (parseAttempt >= maxRetries) {
-                    break;
-                }
-                const delayMs = Math.min(1000 * Math.pow(2, parseAttempt - 1), 10000);
-                logDebug_ACU(`[正文优化] 等待 ${delayMs}ms 后重新请求优化结果...`);
-                await new Promise(resolve => setTimeout(resolve, delayMs));
-                try {
-                    logDebug_ACU(`[正文优化] 重新调用AI API以获取更干净的优化结果... (尝试 ${parseAttempt + 1}/${maxRetries})`);
-                    parseRetryResponseContent = await topLevelWindow_ACU.AutoCardUpdaterAPI.callAI(messages, {
-                        presetName: apiPreset
-                    });
-                    if (!parseRetryResponseContent) {
-                        throw new Error('重试请求未返回有效内容');
-                    }
-                }
-                catch (retryError) {
-                    parseLastError = retryError;
-                    logError_ACU(`[正文优化] 解析失败后的重新请求失败 (尝试 ${parseAttempt + 1}/${maxRetries}):`, retryError);
-                    if (parseAttempt >= maxRetries - 1) {
-                        break;
-                    }
-                }
-            }
-        }
-        return { success: false, error: parseLastError?.message || '解析失败' };
-    }
-    /**
-     * 获取正文优化使用的API配置
-     */
-    async function getOptimizationApiConfig_ACU(presetName) {
-        if (presetName && settings_ACU.apiPresets) {
-            const preset = settings_ACU.apiPresets.find(p => p.name === presetName);
-            if (preset) {
-                if (preset.apiMode === 'tavern') {
-                    return {
-                        apiMode: 'tavern',
-                        tavernProfile: preset.tavernProfile
-                    };
-                }
-                else {
-                    return {
-                        apiMode: 'custom',
-                        apiConfig: preset.apiConfig
-                    };
-                }
-            }
-        }
-        // 使用当前默认配置
-        return {
-            apiMode: settings_ACU.apiMode,
-            apiConfig: settings_ACU.apiConfig,
-            tavernProfile: settings_ACU.tavernProfile
-        };
-    }
-    /**
-     * 解析AI返回的优化响应
-     * @param {string} responseContent - AI返回的内容
-     * @param {number} maxOptimizations - 最大优化项数
-     * @returns {object} { success, optimizations, summary, error }
-     */
-    function parseOptimizationResponse_ACU(responseContent, maxOptimizations = 10) {
-        function extractBalancedJsonObject_ACU(text) {
-            const start = text.indexOf('{');
-            if (start < 0)
-                return '';
-            let depth = 0;
-            let inString = false;
-            let escaped = false;
-            for (let i = start; i < text.length; i++) {
-                const ch = text[i];
-                if (escaped) {
-                    escaped = false;
-                    continue;
-                }
-                if (ch === '\\') {
-                    escaped = true;
-                    continue;
-                }
-                if (ch === '"') {
-                    inString = !inString;
-                    continue;
-                }
-                if (inString)
-                    continue;
-                if (ch === '{')
-                    depth++;
-                if (ch === '}') {
-                    depth--;
-                    if (depth === 0) {
-                        return text.slice(start, i + 1);
-                    }
-                }
-            }
-            return text.slice(start);
-        }
-        function sanitizeOptimizationJson_ACU(jsonStr) {
-            if (!jsonStr)
-                return '';
-            let sanitized = String(jsonStr)
-                .replace(/^```json\s*/i, '')
-                .replace(/^```\s*/i, '')
-                .replace(/\s*```$/i, '')
-                .replace(/[\u201C\u201D]/g, '"')
-                .replace(/[\u2018\u2019]/g, "'")
-                .replace(/^[^\{]*?(\{)/s, '$1')
-                .trim();
-            sanitized = extractBalancedJsonObject_ACU(sanitized) || sanitized;
-            sanitized = sanitized
-                .replace(/,\s*([}\]])/g, '$1')
-                .replace(/\r\n/g, '\n')
-                .replace(/\r/g, '\n');
-            return sanitized;
-        }
-        function normalizeOptimizationItem_ACU(opt) {
-            if (!opt || typeof opt !== 'object')
-                return null;
-            const type = typeof opt.type === 'string' ? opt.type.trim() : 'replace';
-            const original = typeof opt.original === 'string' ? opt.original.trim() : '';
-            const optimized = typeof opt.optimized === 'string' ? opt.optimized.trim() : '';
-            const plan = [opt.plan, opt.reason, opt.strategy, opt.description, opt.note]
-                .find(value => typeof value === 'string' && value.trim())?.trim() || '';
-            if (type !== 'replace' || !original || !optimized) {
-                return null;
-            }
-            return {
-                type: 'replace',
-                original,
-                plan,
-                optimized
-            };
-        }
-        function extractStringField_ACU(source, fieldName) {
-            if (typeof source !== 'string' || !fieldName)
-                return '';
-            const fieldPattern = new RegExp(`"${fieldName}"\\s*:\\s*"`);
-            const match = fieldPattern.exec(source);
-            if (!match)
-                return '';
-            let i = match.index + match[0].length;
-            let result = '';
-            let escaped = false;
-            while (i < source.length) {
-                const ch = source[i];
-                if (escaped) {
-                    result += ch;
-                    escaped = false;
-                    i++;
-                    continue;
-                }
-                if (ch === '\\') {
-                    result += ch;
-                    escaped = true;
-                    i++;
-                    continue;
-                }
-                if (ch === '"') {
-                    break;
-                }
-                result += ch;
-                i++;
-            }
-            return result
-                .replace(/\\n/g, '\n')
-                .replace(/\\r/g, '\r')
-                .replace(/\\t/g, '\t')
-                .replace(/\\"/g, '"')
-                .replace(/\\\\/g, '\\');
-        }
-        function salvageOptimizationResponse_ACU(rawText) {
-            if (typeof rawText !== 'string' || !rawText.trim())
-                return null;
-            const containerText = extractBalancedJsonObject_ACU(rawText) || rawText;
-            const arrayMatch = containerText.match(/"optimizations"\s*:\s*\[/);
-            if (!arrayMatch)
-                return null;
-            const arrayStart = containerText.indexOf('[', arrayMatch.index);
-            if (arrayStart < 0)
-                return null;
-            let depth = 0;
-            let inString = false;
-            let escaped = false;
-            let arrayEnd = -1;
-            for (let i = arrayStart; i < containerText.length; i++) {
-                const ch = containerText[i];
-                if (escaped) {
-                    escaped = false;
-                    continue;
-                }
-                if (ch === '\\') {
-                    escaped = true;
-                    continue;
-                }
-                if (ch === '"') {
-                    inString = !inString;
-                    continue;
-                }
-                if (inString)
-                    continue;
-                if (ch === '[')
-                    depth++;
-                if (ch === ']') {
-                    depth--;
-                    if (depth === 0) {
-                        arrayEnd = i;
-                        break;
-                    }
-                }
-            }
-            if (arrayEnd < 0)
-                return null;
-            const arrayContent = containerText.slice(arrayStart + 1, arrayEnd);
-            const objects = [];
-            let objStart = -1;
-            depth = 0;
-            inString = false;
-            escaped = false;
-            for (let i = 0; i < arrayContent.length; i++) {
-                const ch = arrayContent[i];
-                if (escaped) {
-                    escaped = false;
-                    continue;
-                }
-                if (ch === '\\') {
-                    escaped = true;
-                    continue;
-                }
-                if (ch === '"') {
-                    inString = !inString;
-                    continue;
-                }
-                if (inString)
-                    continue;
-                if (ch === '{') {
-                    if (depth === 0)
-                        objStart = i;
-                    depth++;
-                }
-                else if (ch === '}') {
-                    depth--;
-                    if (depth === 0 && objStart >= 0) {
-                        objects.push(arrayContent.slice(objStart, i + 1));
-                        objStart = -1;
-                    }
-                }
-            }
-            const planFieldCandidates = ['plan', 'reason', 'strategy', 'description', 'note'];
-            const optimizations = objects
-                .map(objText => {
-                const fallbackPlan = planFieldCandidates
-                    .map(field => extractStringField_ACU(objText, field))
-                    .find(value => value && value.trim()) || '';
-                return normalizeOptimizationItem_ACU({
-                    type: extractStringField_ACU(objText, 'type') || 'replace',
-                    original: extractStringField_ACU(objText, 'original'),
-                    plan: fallbackPlan,
-                    optimized: extractStringField_ACU(objText, 'optimized')
-                });
-            })
-                .filter(Boolean)
-                .slice(0, maxOptimizations);
-            if (!optimizations.length)
-                return null;
-            return {
-                success: true,
-                optimizations,
-                summary: extractStringField_ACU(containerText, 'summary') || ''
-            };
-        }
-        try {
-            let jsonStr = responseContent;
-            const jsonMatch = responseContent.match(/```json\s*([\s\S]*?)\s*```/i);
-            if (jsonMatch) {
-                jsonStr = jsonMatch[1];
-            }
-            else {
-                jsonStr = extractBalancedJsonObject_ACU(responseContent) || responseContent;
-            }
-            const sanitizedJson = sanitizeOptimizationJson_ACU(jsonStr);
-            const parsed = JSON.parse(sanitizedJson);
-            if (!parsed || !Array.isArray(parsed.optimizations)) {
-                return { success: false, error: '响应格式错误：缺少 optimizations 数组' };
-            }
-            const optimizations = parsed.optimizations
-                .slice(0, maxOptimizations)
-                .map(normalizeOptimizationItem_ACU)
-                .filter(Boolean);
-            return {
-                success: true,
-                optimizations,
-                summary: typeof parsed.summary === 'string' ? parsed.summary : ''
-            };
-        }
-        catch (error) {
-            const salvaged = salvageOptimizationResponse_ACU(responseContent);
-            if (salvaged) {
-                logDebug_ACU('[正文优化] JSON标准解析失败，已使用容错提取恢复优化结果');
-                return salvaged;
-            }
-            logError_ACU('[正文优化] JSON解析失败:', error);
-            return { success: false, error: 'JSON解析失败: ' + error.message };
-        }
-    }
-    let contentOptimizationAbortRequested_ACU = false;
-    let optimizationProgressToast_ACU = null;
-    let lastOptimizedMessageMeta_ACU = null;
-    function setLastOptimizationBase_ACU(payload = {}) {
-        const cache = {
-            messageIndex: Number.isInteger(payload.messageIndex) ? payload.messageIndex : -1,
-            messageId: payload.messageId ?? null,
-            baseContent: typeof payload.baseContent === 'string' ? payload.baseContent : '',
-            updatedAt: Date.now()
-        };
-        lastOptimizedMessageMeta_ACU = cache;
-        try {
-            const targetWindow = topLevelWindow_ACU || window;
-            targetWindow.__ACU_LAST_OPTIMIZATION_BASE__ = cache;
-        }
-        catch (error) {
-            logDebug_ACU('[正文优化] 写入浏览器侧正文优化基础缓存失败（window）:', error);
-        }
-        try {
-            localStorage.setItem('ACU_LAST_OPTIMIZATION_BASE', JSON.stringify(cache));
-        }
-        catch (error) {
-            logDebug_ACU('[正文优化] 写入浏览器侧正文优化基础缓存失败（localStorage）:', error);
-        }
-        return cache;
-    }
-    function getLastOptimizationBase_ACU() {
-        if (lastOptimizedMessageMeta_ACU?.baseContent) {
-            return lastOptimizedMessageMeta_ACU;
-        }
-        try {
-            const targetWindow = topLevelWindow_ACU || window;
-            const windowCache = targetWindow.__ACU_LAST_OPTIMIZATION_BASE__;
-            if (windowCache?.baseContent) {
-                lastOptimizedMessageMeta_ACU = windowCache;
-                return windowCache;
-            }
-        }
-        catch (error) {
-            logDebug_ACU('[正文优化] 读取浏览器侧正文优化基础缓存失败（window）:', error);
-        }
-        try {
-            const raw = localStorage.getItem('ACU_LAST_OPTIMIZATION_BASE');
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                if (parsed?.baseContent) {
-                    lastOptimizedMessageMeta_ACU = parsed;
-                    return parsed;
-                }
-            }
-        }
-        catch (error) {
-            logDebug_ACU('[正文优化] 读取浏览器侧正文优化基础缓存失败（localStorage）:', error);
-        }
-        return null;
-    }
-    /**
-     * 取消正文优化
-     * @param {string} reason - 取消原因
-     * @returns {boolean} 是否执行了取消
-     */
-    function cancelContentOptimization_ACU(reason = '正文优化已由用户终止。') {
-        contentOptimizationAbortRequested_ACU = true;
-        hideOptimizationOverlay_ACU();
-        hideOptimizationProgressToast_ACU();
-        showToastr_ACU('warning', reason);
-        return true;
-    }
-    /**
-     * 检查正文优化是否已被取消
-     */
-    function ensureOptimizationNotCancelled_ACU() {
-        if (contentOptimizationAbortRequested_ACU) {
-            throw new Error('用户终止正文优化');
-        }
-    }
-    /**
-     * 显示无感替换遮罩
-     * @param {string} message - 显示的消息
-     */
-    function _set_optimizationProgressToast_ACU(v) { optimizationProgressToast_ACU = v; }
-    function _set_contentOptimizationAbortRequested_ACU(v) { contentOptimizationAbortRequested_ACU = v; }
-
-    /**
-     * presentation/pages/popup-helpers.ts — 主弹窗辅助函数
-     * 从 main-popup.ts 拆出（原 openAutoCardPopup_ACU 内嵌函数）
-     */
-    // --- [剧情推进] 辅助函数 ---
-    /**
-     * 加载剧情推进设置到UI
-     */
-    function loadPlotSettingsToUI_ACU(plotSettingsOverride = null) {
-        if (!$popupInstance_ACU)
-            return;
-        $plotPromptSegmentsContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompt-segments-container`);
-        $plotTaskListContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-list`);
-        const plotSettings = setActivePlotEditorSettings_ACU(plotSettingsOverride || settings_ACU.plotSettings);
-        if (!plotSettings)
-            return;
-        // 功能开关
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-enabled`).prop('checked', plotSettings.enabled);
-        renderPlotTaskList_ACU(plotSettings);
-        loadCurrentPlotTaskToUI_ACU(plotSettings);
-        // 最终注入指令
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-final-directive`).val(getPlotPromptContentByIdFromSettings_ACU(plotSettings, 'finalSystemDirective'));
-        // 匹配替换速率
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-main`).val(plotSettings.rateMain);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-personal`).val(plotSettings.ratePersonal);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-erotic`).val(plotSettings.rateErotic);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-cuckold`).val(plotSettings.rateCuckold);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-recall-count`).val(plotSettings.recallCount ?? 20);
-        // 循环设置
-        ensureLoopPromptsArray_ACU(plotSettings);
-        const loopSettings = plotSettings.loopSettings;
-        // 循环提示词现在使用数组，通过 renderLoopPromptsList_ACU 渲染
-        renderLoopPromptsList_ACU(plotSettings);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-tags`).val(loopSettings.loopTags || '');
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-delay`).val(loopSettings.loopDelay);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-total-duration`).val(loopSettings.loopTotalDuration);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-max-retries`).val(loopSettings.maxRetries);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-turn-count`).val(plotSettings.contextTurnCount);
-        renderExcludeRuleRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-extract-rules`, normalizeExtractRules_ACU(plotSettings.contextExtractRules, plotSettings.contextExtractTags || ''), {
-            startPlaceholder: '开始词（例如：<think）',
-            endPlaceholder: '结束词（例如：</think>）',
-            fallbackRules: getDefaultPlotContextExtractRules_ACU(),
-        });
-        renderExcludeRuleRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-exclude-rules`, normalizeExcludeRules_ACU(plotSettings.contextExcludeRules, plotSettings.contextExcludeTags || ''), {
-            startPlaceholder: '开始词（例如：<thinking）',
-            endPlaceholder: '结束词（例如：</thinking>）',
-            fallbackRules: getDefaultPlotContextExcludeRules_ACU(),
-        });
-        // 循环状态
-        updatePlotLoopStatusUI_ACU();
-        // 预设选择器
-        loadPlotPresetSelect_ACU();
-    }
-    /**
-     * 加载正文替换预设选择器
-     */
-    function loadOptimizationPresetSelect_ACU() {
-        if (!$popupInstance_ACU)
-            return;
-        const $select = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-preset-select`);
-        const $deleteBtn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-delete-preset`);
-        if (!$select.length)
-            return;
-        const presets = settings_ACU.contentOptimizationSettings?.promptPresets || [];
-        const currentValue = $select.val();
-        $select.find('option:not(:first)').remove();
-        presets.forEach(preset => {
-            if (preset && preset.name) {
-                $select.append(`<option value="${preset.name}">${preset.name}</option>`);
-            }
-        });
-        // 恢复之前选中的值（如果还存在）
-        if (currentValue && presets.find(p => p.name === currentValue)) {
-            $select.val(currentValue);
-            if ($deleteBtn.length)
-                $deleteBtn.show();
-        }
-        else {
-            $select.val('');
-            if ($deleteBtn.length)
-                $deleteBtn.hide();
-        }
-    }
-    /**
-     * 另存为新的正文替换预设
-     */
-    function saveOptimizationPresetAsNew_ACU() {
-        const presetName = prompt('请输入新预设的名称：');
-        if (!presetName || !presetName.trim()) {
-            showToastr_ACU('warning', '预设名称不能为空。');
-            return;
-        }
-        const name = presetName.trim();
-        const presets = settings_ACU.contentOptimizationSettings.promptPresets || [];
-        const existingIndex = presets.findIndex(p => p.name === name);
-        if (existingIndex !== -1) {
-            if (!confirm(`预设 "${name}" 已存在。是否覆盖？`)) {
-                return;
-            }
-            presets[existingIndex] = {
-                name: name,
-                promptGroup: getOptimizationPromptGroupFromUI_ACU()
-            };
-            showToastr_ACU('success', `预设 "${name}" 已被覆盖。`);
-        }
-        else {
-            presets.push({
-                name: name,
-                promptGroup: getOptimizationPromptGroupFromUI_ACU()
-            });
-            showToastr_ACU('success', `预设 "${name}" 已成功创建。`);
-        }
-        settings_ACU.contentOptimizationSettings.promptPresets = presets;
-        saveSettings_ACU();
-        loadOptimizationPresetSelect_ACU();
-        // 选中新创建的预设
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-preset-select`).val(name);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-delete-preset`).show();
-    }
-    /**
-     * 加载正文替换设置到UI
-     */
-    function loadOptimizationSettingsToUI_ACU() {
-        if (!$popupInstance_ACU)
-            return;
-        const config = settings_ACU.contentOptimizationSettings || {};
-        // [隐藏功能] 只有当剧情推进最大重试次数为49时才显示正文替换标签
-        const plotMaxRetries = settings_ACU.plotSettings?.loopSettings?.maxRetries ?? 3;
-        const $optimizationTab = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-tab-optimization`);
-        if ($optimizationTab.length) {
-            if (plotMaxRetries === 49) {
-                $optimizationTab.show();
-            }
-            else {
-                $optimizationTab.hide();
-            }
-        }
-        // 功能开关
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-enabled`).prop('checked', !!config.enabled);
-        // API预设
-        const $apiPreset = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-api-preset`);
-        if ($apiPreset.length) {
-            $apiPreset.val(config.apiPreset || '');
-        }
-        // 基础设置
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-min-length`).val(config.minLength || 100);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-max-items`).val(config.maxOptimizations || 10);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-loop-count`).val(config.loopCount || 1);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-retry-count`).val(config.retryCount || 3);
-        // 优化模式
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-seamless-mode`).prop('checked', config.seamlessMode !== false);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-auto-apply`).prop('checked', config.autoApply !== false);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-show-diff`).prop('checked', config.showDiff !== false);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-parallel-mode`).prop('checked', config.parallelMode === true);
-        // 标签筛选设置
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-extract-tags`).val(config.extractTags || '');
-        // 加载标签提取规则
-        renderExcludeRuleRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-optimization-extract-rules`, config.extractRules || [], {
-            startPlaceholder: '开始词（例如：<think）',
-            endPlaceholder: '结束词（例如：</think）',
-        });
-        // 加载标签排除规则
-        renderExcludeRuleRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-optimization-exclude-rules`, config.excludeRules || [], {
-            startPlaceholder: '开始词（例如：<think）',
-            endPlaceholder: '结束词（例如：</think）',
-        });
-        // 加载预设选择器
-        loadOptimizationPresetSelect_ACU();
-        // 提示词组
-        const promptGroup = config.promptGroup && config.promptGroup.length > 0
-            ? config.promptGroup
-            : DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU;
-        renderOptimizationPromptSegments_ACU(promptGroup);
-    }
-    /**
-     * 渲染正文优化提示词段落
-     */
-    function renderOptimizationPromptSegments_ACU(segments) {
-        if (!$popupInstance_ACU)
-            return;
-        const $container = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-prompt-segments-container`);
-        if (!$container.length)
-            return;
-        $container.empty();
-        if (!Array.isArray(segments))
-            return;
-        segments.forEach((segment, index) => {
-            const isMain = segment.isMain || segment.mainSlot === 'A';
-            const isMain2 = segment.isMain2 || segment.mainSlot === 'B';
-            const deletable = segment.deletable !== false;
-            const segmentHtml = `
-          <div class="optimization-prompt-segment" data-index="${index}" style="
-            margin-bottom: 15px;
-            padding: 15px;
-            background: var(--background_default);
-            border-radius: 8px;
-            border: 1px solid var(--border_color_light);
-            ${isMain ? 'border-left: 3px solid var(--blue);' : ''}
-            ${isMain2 ? 'border-left: 3px solid var(--purple);' : ''}
-          ">
-            <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
-              <select class="optimization-prompt-segment-role text_pole" data-index="${index}" style="width: 120px;">
-                <option value="SYSTEM" ${segment.role === 'SYSTEM' ? 'selected' : ''}>SYSTEM</option>
-                <option value="USER" ${segment.role === 'USER' ? 'selected' : ''}>USER</option>
-                <option value="assistant" ${segment.role === 'assistant' ? 'selected' : ''}>assistant</option>
-              </select>
-              ${deletable ? `
-                <button type="button" class="optimization-prompt-segment-delete-btn button" data-index="${index}" style="margin-left: auto; padding: 4px 8px; font-size: 0.85em;">
-                  <i class="fa-solid fa-trash"></i>
-                </button>
-              ` : ''}
-            </div>
-            <textarea class="optimization-prompt-segment-content text_pole" data-index="${index}" rows="6" placeholder="输入提示词内容..." style="resize: vertical; width: 100%;">${escapeHtml_ACU(segment.content || '')}</textarea>
-          </div>
-        `;
-            $container.append(segmentHtml);
-        });
-        // 绑定输入事件
-        $container.find('.optimization-prompt-segment-role').on('change', function () {
-            const idx = parseInt($(this).data('index'), 10);
-            const segments = getOptimizationPromptGroupFromUI_ACU();
-            if (segments[idx]) {
-                segments[idx].role = $(this).val();
-                settings_ACU.contentOptimizationSettings.promptGroup = segments;
-                saveSettings_ACU();
-            }
-        });
-        $container.find('.optimization-prompt-segment-content').on('input change', function () {
-            const idx = parseInt($(this).data('index'), 10);
-            const segments = getOptimizationPromptGroupFromUI_ACU();
-            if (segments[idx]) {
-                segments[idx].content = $(this).val();
-                settings_ACU.contentOptimizationSettings.promptGroup = segments;
-                saveSettings_ACU();
-            }
-        });
-    }
-    /**
-     * 从UI获取正文优化提示词组
-     */
-    function getOptimizationPromptGroupFromUI_ACU() {
-        if (!$popupInstance_ACU)
-            return [];
-        const segments = [];
-        const $segments = $popupInstance_ACU.find('.optimization-prompt-segment');
-        $segments.each(function () {
-            const $seg = $(this);
-            const index = parseInt($seg.data('index'), 10);
-            const role = $seg.find('.optimization-prompt-segment-role').val();
-            const content = $seg.find('.optimization-prompt-segment-content').val();
-            segments.push({
-                role: role || 'USER',
-                content: content || '',
-                deletable: true
-            });
-        });
-        return segments;
-    }
-    /**
-     * 更新剧情推进循环状态UI
-     */
-    function updatePlotLoopStatusUI_ACU() {
-        if (!$popupInstance_ACU)
-            return;
-        const $statusText = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-status-text`);
-        const $timerDisplay = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-timer-display`);
-        const $startBtn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-start-loop-btn`);
-        const $stopBtn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-stop-loop-btn`);
-        if (loopState_ACU.isLooping) {
-            $statusText.text('运行中').css('color', 'var(--green)');
-            $startBtn.hide();
-            $stopBtn.show();
-            $timerDisplay.show();
-        }
-        else {
-            $statusText.text('未运行').css('color', 'var(--red)');
-            $stopBtn.hide();
-            $startBtn.show();
-            $timerDisplay.hide().text('');
-        }
-    }
-    /**
-     * 加载剧情预设选择器
-     */
-    function getPlotPresetDisplayName_ACU(presetName) {
-        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-        return normalizedPresetName || '默认预设';
-    }
-    function formatPlotScopeUpdatedAt_ACU$1(updatedAt) {
-        const ts = Number(updatedAt) || 0;
-        if (!ts)
-            return '';
-        try {
-            return new Date(ts).toLocaleString('zh-CN', { hour12: false });
-        }
-        catch (error) {
-            return '';
-        }
-    }
-    function populatePlotPresetSelectOptions_ACU($select, presets, { extraPresetName = '' } = {}) {
-        if (!$select || !$select.length)
-            return;
-        const normalizedExtraPresetName = normalizePlotPresetSelectionValue_ACU(extraPresetName);
-        const normalizedPresetNames = new Set();
-        $select.empty().append(`<option value="${DEFAULT_PRESET_OPTION_VALUE_ACU}">默认预设</option>`);
-        presets.forEach(preset => {
-            const presetName = normalizePlotPresetSelectionValue_ACU(preset?.name);
-            if (!presetName || normalizedPresetNames.has(presetName))
-                return;
-            normalizedPresetNames.add(presetName);
-            $select.append(`<option value="${escapeHtml_ACU(presetName)}">${escapeHtml_ACU(presetName)}</option>`);
-        });
-        if (normalizedExtraPresetName && !normalizedPresetNames.has(normalizedExtraPresetName)) {
-            $select.append(`<option value="${escapeHtml_ACU(normalizedExtraPresetName)}">${escapeHtml_ACU(normalizedExtraPresetName)}（仅当前聊天快照）</option>`);
-        }
-    }
-    function loadPlotPresetSelect_ACU() {
-        if (!$popupInstance_ACU || !settings_ACU?.plotSettings)
-            return;
-        const presets = settings_ACU.plotSettings.promptPresets || [];
-        const globalPresetName = normalizePlotPresetSelectionValue_ACU(settings_ACU.plotSettings.lastUsedPresetName || '');
-        const chatScopeState = getCurrentChatPlotScopeState_ACU();
-        const currentBinding = getPlotPresetBindingForChat_ACU();
-        const effectiveChatPresetName = resolveActivePlotPresetName_ACU({ fallbackToGlobal: true });
-        const explicitChatPresetName = normalizePlotPresetSelectionValue_ACU(currentBinding?.presetName || '');
-        const chatSelectedPresetName = normalizePlotPresetSelectionValue_ACU(explicitChatPresetName || chatScopeState?.presetName || '');
-        const $globalSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-global-preset-select`);
-        const $chatSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-chat-preset-select`);
-        const $globalDeleteBtn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-global-delete-preset`);
-        const $globalStatus = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-global-scope-status`);
-        const $chatStatus = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-chat-scope-status`);
-        const $chatOriginStatus = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-chat-origin-status`);
-        populatePlotPresetSelectOptions_ACU($globalSelect, presets);
-        populatePlotPresetSelectOptions_ACU($chatSelect, presets, { extraPresetName: chatSelectedPresetName });
-        if ($chatSelect.length) {
-            $chatSelect.find(`option[value="${DEFAULT_PRESET_OPTION_VALUE_ACU}"]`).text('跟随全局');
-        }
-        const hasGlobalPreset = !!globalPresetName && presets.some(p => normalizePlotPresetSelectionValue_ACU(p?.name) === globalPresetName);
-        const hasChatPreset = !!chatSelectedPresetName && $chatSelect.find(`option[value="${chatSelectedPresetName.replace(/"/g, '\\"')}"]`).length > 0;
-        const hasValidExplicitChatPreset = !!explicitChatPresetName && !!findPlotPresetByName_ACU(explicitChatPresetName);
-        if ($globalSelect.length) {
-            $globalSelect.val(hasGlobalPreset ? globalPresetName : DEFAULT_PRESET_OPTION_VALUE_ACU);
-        }
-        if ($globalDeleteBtn.length) {
-            $globalDeleteBtn.toggle(hasGlobalPreset);
-        }
-        if ($chatSelect.length) {
-            $chatSelect.val(hasChatPreset ? chatSelectedPresetName : DEFAULT_PRESET_OPTION_VALUE_ACU);
-        }
-        if ($globalStatus.length) {
-            $globalStatus.text(`当前全局预设：${getPlotPresetDisplayName_ACU(globalPresetName)}；新聊天会默认继承这里的剧情推进配置。`);
-        }
-        if ($chatStatus.length) {
-            if (chatScopeState?.snapshot) {
-                $chatStatus.text(`当前聊天：历史聊天快照；当前实际预设为 ${getPlotPresetDisplayName_ACU(effectiveChatPresetName)}。`);
-            }
-            else if (hasValidExplicitChatPreset) {
-                $chatStatus.text(`当前聊天：独立预设；当前实际预设为 ${getPlotPresetDisplayName_ACU(explicitChatPresetName)}。`);
-            }
-            else if (chatSelectedPresetName) {
-                $chatStatus.text(`当前聊天：原绑定预设不存在；当前已回退为 ${getPlotPresetDisplayName_ACU(effectiveChatPresetName)}。`);
-            }
-            else {
-                $chatStatus.text(`当前聊天：跟随全局；当前实际预设为 ${getPlotPresetDisplayName_ACU(effectiveChatPresetName)}。`);
-            }
-        }
-        if ($chatOriginStatus.length) {
-            if (chatScopeState?.snapshot) {
-                $chatOriginStatus.text('当前聊天仍在使用旧版聊天快照；重新切换一次当前聊天预设后，将迁移为新的按预设切换模式。');
-            }
-            else if (hasValidExplicitChatPreset) {
-                $chatOriginStatus.text('当前聊天已单独指定剧情推进预设；如需修改预设内容，请在左侧全局预设区操作。');
-            }
-            else if (chatSelectedPresetName) {
-                $chatOriginStatus.text('当前聊天原绑定的剧情推进预设已不存在；当前运行已回退到全局预设，请重新选择一次当前聊天预设。');
-            }
-            else {
-                $chatOriginStatus.text('当前聊天当前未单独指定剧情推进预设，实际会直接跟随全局。');
-            }
-        }
-    }
-    /**
-     * 加载预设到UI
-     */
-    function loadPlotPresetToUI_ACU(preset) {
-        if (!$popupInstance_ACU || !preset)
-            return;
-        const presetName = preset.name || '默认预设';
-        const result = applyGlobalPlotPresetSelectionForEditor_ACU(preset.name || '', {
-            source: 'ui_global_load',
-            refreshUi: true,
-            save: true,
-        });
-        if (!result)
-            return;
-        showToastr_ACU('success', `已加载全局预设 "${presetName}"。`);
-    }
-    /**
-     * 从UI获取当前剧情设置
-     */
-    function getCurrentPlotSettingsFromUI_ACU() {
-        if (!$popupInstance_ACU)
-            return {};
-        flushCurrentPlotTaskEditorState_ACU({ renderTaskList: true, persist: false });
-        const activeSettings = getActivePlotEditorSettings_ACU();
-        const currentSettings = JSON.parse(JSON.stringify(activeSettings || settings_ACU.plotSettings || {}));
-        ensurePlotTasksCompat_ACU(currentSettings, { syncLegacy: true });
-        delete currentSettings.promptPresets;
-        delete currentSettings.lastUsedPresetName;
-        delete currentSettings.enabled;
-        const promptGroup = getPlotPromptGroupFromSource_ACU(currentSettings);
-        const legacyPromptTexts = getLegacyPromptTextsFromPromptGroup_ACU(promptGroup);
-        currentSettings.promptGroup = promptGroup;
-        currentSettings.finalSystemDirective = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-final-directive`).val() || '';
-        currentSettings.mainPrompt = legacyPromptTexts.mainPrompt || '';
-        currentSettings.systemPrompt = legacyPromptTexts.systemPrompt || '';
-        currentSettings.rateMain = parseFloat($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-main`).val()) || 1.0;
-        currentSettings.ratePersonal = parseFloat($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-personal`).val()) || 1.0;
-        currentSettings.rateErotic = parseFloat($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-erotic`).val()) || 0;
-        currentSettings.rateCuckold = parseFloat($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-rate-cuckold`).val()) || 1.0;
-        currentSettings.recallCount = parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-recall-count`).val(), 10) || 20;
-        currentSettings.contextExtractRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-extract-rules`);
-        currentSettings.contextExcludeRules = readExcludeRulesFromRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-exclude-rules`);
-        currentSettings.contextTurnCount = parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-context-turn-count`).val(), 10) || 3;
-        currentSettings.loopSettings = {
-            ...(currentSettings.loopSettings || {}),
-            quickReplyContent: (() => {
-                const prompts = [];
-                $popupInstance_ACU.find('.loop-prompt-textarea').each(function () {
-                    const content = $(this).val()?.trim() || '';
-                    if (content)
-                        prompts.push(content);
-                });
-                return prompts;
-            })(),
-            currentPromptIndex: 0,
-            loopTags: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-tags`).val() || '',
-            loopDelay: parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-delay`).val(), 10) || 5,
-            loopTotalDuration: parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-total-duration`).val(), 10) || 0,
-            maxRetries: parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-max-retries`).val(), 10) || 3,
-        };
-        currentSettings.plotTasks = normalizePlotTasks_ACU(currentSettings);
-        ensurePlotPromptsArray_ACU(currentSettings);
-        setPlotPromptContentByIdForSettings_ACU(currentSettings, 'mainPrompt', currentSettings.mainPrompt || '');
-        setPlotPromptContentByIdForSettings_ACU(currentSettings, 'systemPrompt', currentSettings.systemPrompt || '');
-        setPlotPromptContentByIdForSettings_ACU(currentSettings, 'finalSystemDirective', currentSettings.finalSystemDirective || '');
-        ensurePlotTasksCompat_ACU(currentSettings, { syncLegacy: true });
-        currentSettings.finalSystemDirective = getPlotPromptContentByIdFromSettings_ACU(currentSettings, 'finalSystemDirective') || currentSettings.finalSystemDirective || '';
-        return currentSettings;
-    }
-    /**
-     * 另存为新的全局预设
-     */
-    function savePlotPresetAsNew_ACU() {
-        const presetName = prompt('请输入新的全局预设名称：');
-        const name = String(presetName || '').trim();
-        if (!name)
-            return;
-        const presets = settings_ACU.plotSettings.promptPresets || [];
-        const existingIndex = presets.findIndex(p => p.name === name);
-        const currentSettings = getCurrentPlotSettingsFromUI_ACU();
-        if (!currentSettings || typeof currentSettings !== 'object') {
-            showToastr_ACU('error', '读取当前剧情推进设置失败。');
-            return;
-        }
-        const savedPreset = normalizePlotPresetExcludeRules_ACU({ name, ...currentSettings });
-        if (existingIndex !== -1) {
-            if (!confirm(`名为 "${name}" 的全局预设已存在。是否要覆盖它？`)) {
-                return;
-            }
-            presets[existingIndex] = savedPreset;
-        }
-        else {
-            presets.push(savedPreset);
-        }
-        settings_ACU.plotSettings.promptPresets = presets;
-        const currentRuntimePresetName = getCurrentRuntimePlotPresetName_ACU({ fallbackToGlobal: true });
-        const currentChatBinding = getPlotPresetBindingForChat_ACU();
-        const hasLegacyChatScope = !!getCurrentChatPlotScopeState_ACU();
-        const shouldRefreshCurrentChatRuntime = normalizePlotPresetSelectionValue_ACU(currentRuntimePresetName) === name ||
-            (!currentChatBinding && !hasLegacyChatScope);
-        if (shouldRefreshCurrentChatRuntime) {
-            applyPlotPresetToSettings_ACU(settings_ACU.plotSettings, savedPreset);
-        }
-        setCurrentEditablePlotPresetState_ACU(name, {
-            scope: 'global',
-            source: 'ui_global_save_as_new',
-        });
-        persistPlotPresetSelectionState_ACU(name, { source: 'ui_global_save_as_new', updateGlobal: true, save: false });
-        saveSettings_ACU();
-        loadPlotPresetSelect_ACU();
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-global-preset-select`).val(name);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-global-delete-preset`).show();
-        showToastr_ACU('success', `新全局预设 "${name}" 已保存。`);
-    }
 
     /**
      * presentation/triggers/data-admin-ui.ts — 导入/导出/重置 UI
@@ -26405,6 +32122,564 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
     }
 
     /**
+     * presentation/bootstrap/startup.ts — 启动 + 菜单初始化
+     * 从 features/startup/01_ready_and_menu.js 迁移而来
+     */
+    function addAutoCardMenuItem_ACU() {
+        const parentDoc = SillyTavern_API_ACU?.Chat?.document
+            ? SillyTavern_API_ACU.Chat.document
+            : (window.parent || window).document;
+        if (!parentDoc || !jQuery_API_ACU$1) {
+            logError_ACU('Cannot find parent document or jQuery for ACU menu.');
+            return false;
+        }
+        const extensionsMenu = jQuery_API_ACU$1('#extensionsMenu', parentDoc);
+        if (!extensionsMenu.length) {
+            setTimeout(addAutoCardMenuItem_ACU, 2000);
+            return false;
+        }
+        let $menuItemContainer = jQuery_API_ACU$1(`#${MENU_ITEM_CONTAINER_ID_ACU}`, extensionsMenu);
+        if ($menuItemContainer.length > 0) {
+            $menuItemContainer
+                .find(`#${MENU_ITEM_ID_ACU}`)
+                .off(`click.${SCRIPT_ID_PREFIX_ACU}`)
+                .on(`click.${SCRIPT_ID_PREFIX_ACU}`, async function (e) {
+                e.stopPropagation();
+                const exMenuBtn = jQuery_API_ACU$1('#extensionsMenuButton', parentDoc);
+                if (exMenuBtn.length && extensionsMenu.is(':visible')) {
+                    exMenuBtn.trigger('click');
+                    await new Promise(r => setTimeout(r, 150));
+                }
+                await openAutoCardPopup_ACU();
+            });
+            return true;
+        }
+        $menuItemContainer = jQuery_API_ACU$1(`<div class="extension_container interactable" id="${MENU_ITEM_CONTAINER_ID_ACU}" tabindex="0"></div>`);
+        const menuItemHTML = `<div class="list-group-item flex-container flexGap5 interactable" id="${MENU_ITEM_ID_ACU}" title="打开数据库自动更新工具"><div class="fa-fw fa-solid fa-database extensionsMenuExtensionButton"></div><span>星·数据库 III</span></div>`;
+        const $menuItem = jQuery_API_ACU$1(menuItemHTML);
+        $menuItem.on(`click.${SCRIPT_ID_PREFIX_ACU}`, async function (e) {
+            e.stopPropagation();
+            const exMenuBtn = jQuery_API_ACU$1('#extensionsMenuButton', parentDoc);
+            if (exMenuBtn.length && extensionsMenu.is(':visible')) {
+                exMenuBtn.trigger('click');
+                await new Promise(r => setTimeout(r, 150));
+            }
+            await openAutoCardPopup_ACU();
+        });
+        $menuItemContainer.append($menuItem);
+        extensionsMenu.append($menuItemContainer);
+        logDebug_ACU('ACU Menu item added.');
+        return true;
+    }
+
+    // init.ts — 初始化编排
+    // 从 05_core_tail.js 迁入
+    function mainInitialize_ACU() {
+        // 注入 data 层依赖（打破 data→service 的循环依赖）
+        _injectCharSettingsDeps(() => settings_ACU, () => currentChatFileIdentifier_ACU);
+        _injectIsolationRepoDeps(() => settings_ACU);
+        _injectProfileRepoDeps(() => settings_ACU);
+        _injectTableRepoDeps({
+            getSettings: () => settings_ACU,
+            getCurrentJsonTableData: () => currentJsonTableData_ACU,
+            setCurrentJsonTableData: (v) => _set_currentJsonTableData_ACU(v),
+            getCurrentIsolationKey: () => getCurrentIsolationKey_ACU(),
+            showToastr: (...args) => { try {
+                const { showToastr_ACU } = require('../../presentation/theme/toast');
+                showToastr_ACU(...args);
+            }
+            catch (e) { } },
+            applyTemplateScopeForCurrentChat: (...args) => { const { applyTemplateScopeForCurrentChat_ACU } = require('../settings/settings-service'); return applyTemplateScopeForCurrentChat_ACU(...args); },
+            attachSeedRowsToCurrentDataFromGuide: (...args) => { const m = require('../template/chat-scope'); return m.attachSeedRowsToCurrentDataFromGuide_ACU(...args); },
+            buildChatSheetGuideDataFromData: (...args) => { const m = require('../template/chat-scope'); return m.buildChatSheetGuideDataFromData_ACU(...args); },
+            ensureChatSheetGuideSeeded: (...args) => { const m = require('../template/chat-scope'); return m.ensureChatSheetGuideSeeded_ACU(...args); },
+            getChatSheetGuideDataForIsolationKey: (...args) => { const m = require('../template/chat-scope'); return m.getChatSheetGuideDataForIsolationKey_ACU(...args); },
+            getSortedSheetKeys: (...args) => { const m = require('../template/chat-scope'); return m.getSortedSheetKeys_ACU(...args); },
+            sanitizeSheetForStorage: (...args) => { const m = require('../template/chat-scope'); return m.sanitizeSheetForStorage_ACU(...args); },
+            setChatSheetGuideDataForIsolationKey: (...args) => { const m = require('../template/chat-scope'); return m.setChatSheetGuideDataForIsolationKey_ACU(...args); },
+            deleteAllGeneratedEntries: (...args) => { const m = require('../worldbook/pipeline'); return m.deleteAllGeneratedEntries_ACU(...args); },
+            refreshMergedDataAndNotify: (...args) => { const m = require('../worldbook/pipeline'); return m.refreshMergedDataAndNotify_ACU(...args); },
+            mergeAllIndependentTables: (...args) => { const m = require('./helpers-remaining'); return m.mergeAllIndependentTables_ACU(...args); },
+        });
+        console.log('ACU_INIT_DEBUG: mainInitialize_ACU called.');
+        if (attemptToLoadCoreApis_ACU()) {
+            logDebug_ACU('AutoCardUpdater Initialization successful! Core APIs loaded.');
+            showToastr_ACU('success', '数据库自动更新脚本已加载！', '脚本启动');
+            addAutoCardMenuItem_ACU();
+            loadSettings_ACU();
+            if (SillyTavern_API_ACU &&
+                SillyTavern_API_ACU.eventSource &&
+                typeof SillyTavern_API_ACU.eventSource.on === 'function' &&
+                SillyTavern_API_ACU.eventTypes) {
+                // [调试] 检查可用的事件类型
+                logDebug_ACU('[提示词模板] 可用的事件类型:', Object.keys(SillyTavern_API_ACU.eventTypes));
+                // [提示词模板] 监听 CHAT_COMPLETION_SETTINGS_READY 事件，使用 makeLast 确保在 st-prompt-template 之后执行
+                if (SillyTavern_API_ACU.eventTypes.CHAT_COMPLETION_SETTINGS_READY) {
+                    // 检查是否有 makeLast 方法
+                    if (typeof SillyTavern_API_ACU.eventSource.makeLast === 'function') {
+                        SillyTavern_API_ACU.eventSource.makeLast(SillyTavern_API_ACU.eventTypes.CHAT_COMPLETION_SETTINGS_READY, handleChatCompletionReady_ACU);
+                        logDebug_ACU('[提示词模板] 已注册 CHAT_COMPLETION_SETTINGS_READY 事件监听（makeLast）');
+                    }
+                    else {
+                        // 如果没有 makeLast，使用普通 on
+                        SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.CHAT_COMPLETION_SETTINGS_READY, handleChatCompletionReady_ACU);
+                        logDebug_ACU('[提示词模板] 已注册 CHAT_COMPLETION_SETTINGS_READY 事件监听（on）');
+                    }
+                }
+                SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.CHAT_CHANGED, async (chatFileName) => {
+                    logDebug_ACU(`ACU CHAT_CHANGED event: ${chatFileName}`);
+                    await resetScriptStateForNewChat_ACU(chatFileName);
+                    // [触发门控] 切换聊天时清空“用户发送/生成上下文”，避免跨聊天误触发
+                    generationGate_ACU.lastUserMessageId = null;
+                    generationGate_ACU.lastUserMessageText = '';
+                    generationGate_ACU.lastUserMessageAt = 0;
+                    generationGate_ACU.lastUserSendIntentAt = 0;
+                    generationGate_ACU.lastGeneration = null;
+                    // [触发门控] 每次切换聊天都尝试安装一次 capture 钩子（防止 DOM 重新渲染导致丢失）
+                    installSendIntentCaptureHooks_ACU();
+                    // [剧情推进] 切换聊天时停止循环并加载预设
+                    if (loopState_ACU.isLooping) {
+                        stopAutoLoop_ACU();
+                        showToastr_ACU('info', '切换聊天，自动化循环已停止。');
+                    }
+                    await loadPresetAndCleanCharacterData_ACU();
+                    // [剧情推进] TavernHelper钩子：拦截直接的JS调用
+                    if (!window.original_TavernHelper_generate_ACU) {
+                        if (window.TavernHelper && typeof window.TavernHelper.generate === 'function') {
+                            window.original_TavernHelper_generate_ACU = window.TavernHelper.generate;
+                            window.TavernHelper.generate = async function (...args) {
+                                const options = args[0] || {};
+                                // 注意：TavernHelper.generate 常用于脚本/插件直接触发，这里不依赖“发送意图”，只过滤 quiet/automatic_trigger。
+                                if (isQuietLikeGeneration_ACU('tavernhelper', { quiet_prompt: options.quiet_prompt }) || options.automatic_trigger) {
+                                    return window.original_TavernHelper_generate_ACU.apply(this, args);
+                                }
+                                if (!settings_ACU.plotSettings.enabled || isProcessing_Plot_ACU || loopState_ACU.isRetrying || options.should_stream) {
+                                    return window.original_TavernHelper_generate_ACU.apply(this, args);
+                                }
+                                let userMessage = options.user_input || options.prompt;
+                                if (options.injects?.[0]?.content) {
+                                    userMessage = options.injects[0].content;
+                                }
+                                // 记录本次拦截，供 GENERATION_AFTER_COMMANDS 去重
+                                markPlotIntercept_ACU(userMessage);
+                                try {
+                                    if (userMessage) {
+                                        _set_isProcessing_Plot_ACU(true);
+                                        try {
+                                            // [优化] 传递原始用户输入用于哈希匹配
+                                            // 注意：在 TavernHelper.generate 钩子中，userMessage 就是原始用户输入
+                                            const finalMessage = await runOptimizationLogic_ACU(userMessage, {
+                                                originalUserInput: userMessage,
+                                                hasExistingUserMessage: false,
+                                            });
+                                            // 去重互斥：若本次被判定为重复触发，则不改写 prompt，继续走原始生成
+                                            if (finalMessage && finalMessage.skipped) {
+                                                logDebug_ACU('[剧情推进] Planning skipped in TavernHelper.generate hook (duplicate).');
+                                                _set_isProcessing_Plot_ACU(false);
+                                                return await window.original_TavernHelper_generate_ACU.apply(this, args);
+                                            }
+                                            // 检查是否被中止
+                                            if (finalMessage && finalMessage.aborted) {
+                                                logDebug_ACU('[剧情推进] Generation aborted by user.');
+                                                // 中止剧情规划不应中断酒馆的正常生成流程：直接走原始生成（不改写prompt）
+                                                _set_isProcessing_Plot_ACU(false);
+                                                return await window.original_TavernHelper_generate_ACU.apply(this, args);
+                                            }
+                                            // 如果是在循环模式下且规划未返回有效字符串，视为规划失败，按循环重试次数重试
+                                            if (loopState_ACU.isLooping &&
+                                                loopState_ACU.awaitingReply &&
+                                                (!finalMessage || typeof finalMessage !== 'string')) {
+                                                logWarn_ACU('[剧情推进] [Loop] 规划未产生有效回复，按循环重试规则重试。');
+                                                const loopSettings = settings_ACU.plotSettings.loopSettings || DEFAULT_PLOT_SETTINGS_ACU.loopSettings;
+                                                loopState_ACU.awaitingReply = false;
+                                                await enterLoopRetryFlow_ACU({ loopSettings, shouldDeleteAiReply: false });
+                                                return;
+                                            }
+                                            if (finalMessage && typeof finalMessage === 'string') {
+                                                // 根据来源写回
+                                                if (options.injects?.[0]?.content) {
+                                                    options.injects[0].content = finalMessage;
+                                                }
+                                                else if (options.prompt) {
+                                                    options.prompt = finalMessage;
+                                                }
+                                                else {
+                                                    options.user_input = finalMessage;
+                                                }
+                                                // 添加标志，防止 GENERATION_AFTER_COMMANDS 重复处理
+                                                options._qrf_processed_by_hook = true;
+                                            }
+                                        }
+                                        catch (error) {
+                                            logError_ACU('[剧情推进] Error in TavernHelper.generate hook:', error);
+                                        }
+                                        finally {
+                                            _set_isProcessing_Plot_ACU(false);
+                                        }
+                                    }
+                                    // 关键：等待原始生成完成后再恢复 AI 指令预设
+                                    return await window.original_TavernHelper_generate_ACU.apply(this, args);
+                                }
+                                catch (error) {
+                                    logError_ACU('[剧情推进] Error in TavernHelper.generate hook:', error);
+                                    return window.original_TavernHelper_generate_ACU.apply(this, args);
+                                }
+                            };
+                            logDebug_ACU('[剧情推进] TavernHelper.generate hook registered.');
+                        }
+                    }
+                    // [新增] 切换角色卡（聊天）时，强制从新聊天记录的本地数据读取最新的表格并刷新UI
+                    logDebug_ACU('ACU: Chat changed, forcing reload of table data from new chat history.');
+                    const scheduledChatIdentifier_ACU = cleanChatName_ACU(chatFileName);
+                    // 稍作延迟以确保SillyTavern已完全加载新聊天的消息列表
+                    setTimeout(async () => {
+                        if (scheduledChatIdentifier_ACU && currentChatFileIdentifier_ACU !== scheduledChatIdentifier_ACU) {
+                            logDebug_ACU(`ACU: Skip delayed chat refresh because active chat already changed to "${currentChatFileIdentifier_ACU || '未知'}".`);
+                            return;
+                        }
+                        applyTemplateScopeForCurrentChat_ACU();
+                        // 3. 刷新数据（UI 刷新由 presentation 层负责）
+                        await refreshMergedDataAndNotify_ACU();
+                        // [新增] 再次强制刷新状态显示，确保UI同步
+                        if (typeof updateCardUpdateStatusDisplay_ACU === 'function') {
+                            updateCardUpdateStatusDisplay_ACU();
+                        }
+                        logDebug_ACU('ACU: Chat data reload and UI refresh triggered after chat change (Delayed).');
+                    }, 1200); // 增加延迟到1200ms，给SillyTavern更多的DOM渲染和上下文切换时间
+                });
+                // [触发门控] 记录“用户真实发送”的消息ID，用于剧情推进触发判定
+                if (SillyTavern_API_ACU.eventTypes.MESSAGE_SENT) {
+                    SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.MESSAGE_SENT, (messageId) => {
+                        try {
+                            recordLastUserSend_ACU(messageId);
+                        }
+                        catch (e) { }
+                    });
+                }
+                // [触发门控] 捕捉“用户发送意图”：使用 capture 钩子，确保先于酒馆自身发送逻辑执行
+                installSendIntentCaptureHooks_ACU();
+                // [触发门控] 记录最近一次生成的上下文（用于过滤 quiet/后台生成导致的误触发）
+                if (SillyTavern_API_ACU.eventTypes.GENERATION_STARTED) {
+                    SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_STARTED, (type, params, dryRun) => {
+                        try {
+                            recordGenerationContext_ACU(type, params, dryRun);
+                        }
+                        catch (e) { }
+                    });
+                }
+                if (SillyTavern_API_ACU.eventTypes.GENERATION_ENDED) {
+                    SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_ENDED, (message_id) => {
+                        logDebug_ACU(`ACU GENERATION_ENDED event for message_id: ${message_id}`);
+                        if (shouldProcessAutoTableUpdateForGenerationEnded_ACU()) {
+                            handleNewMessageDebounced_ACU('GENERATION_ENDED');
+                        }
+                        else {
+                            logDebug_ACU('ACU: Skip auto table update due to quiet/background generation.');
+                        }
+                        // [剧情推进] 保存Plot到消息和循环检测
+                        // savePlotToLatestMessage_ACU(); // Moved to runOptimizationLogic_ACU
+                        onLoopGenerationEnded_ACU();
+                    });
+                }
+                // [剧情推进] 拦截用户输入进行剧情规划
+                if (SillyTavern_API_ACU.eventTypes.GENERATION_AFTER_COMMANDS) {
+                    SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_AFTER_COMMANDS, async (type, params, dryRun) => {
+                        // 如果消息已被TavernHelper钩子处理，则跳过
+                        if (params?._qrf_processed_by_hook) {
+                            return;
+                        }
+                        // 只在“用户发送触发的正常生成”时做剧情推进，避免其它插件/后台生成触发
+                        if (!shouldProcessPlotForGeneration_ACU(type, params, dryRun)) {
+                            return;
+                        }
+                        if (type === 'regenerate' || isProcessing_Plot_ACU) {
+                            return;
+                        }
+                        // [去重] 若同一文本刚被 TavernHelper.generate 钩子处理过，则跳过本事件处理，避免重复规划/重复 toast
+                        try {
+                            const lastMsgText = (SillyTavern_API_ACU.chat?.length && SillyTavern_API_ACU.chat[SillyTavern_API_ACU.chat.length - 1]?.is_user)
+                                ? (SillyTavern_API_ACU.chat[SillyTavern_API_ACU.chat.length - 1].mes || '')
+                                : '';
+                            const boxText = getSendTextareaValue_ACU() || '';
+                            if (shouldSkipPlotIntercept_ACU(lastMsgText) || shouldSkipPlotIntercept_ACU(boxText)) {
+                                logDebug_ACU('[剧情推进] Skip GENERATION_AFTER_COMMANDS due to recent TavernHelper.generate interception.');
+                                return;
+                            }
+                        }
+                        catch (e) { }
+                        const chat = SillyTavern_API_ACU.chat;
+                        if (!chat || chat.length === 0) {
+                            return;
+                        }
+                        // [策略1] 检查最新的聊天消息 (主要用于 /send 等命令，这些命令会先创建消息再触发生成)
+                        const lastMessageIndex = chat.length - 1;
+                        const lastMessage = chat[lastMessageIndex];
+                        // 如果是新的用户消息且未被处理，进行剧情规划
+                        if (lastMessage && lastMessage.is_user && !lastMessage._plot_processed) {
+                            lastMessage._plot_processed = true;
+                            const messageToProcess = lastMessage.mes;
+                            if (messageToProcess && messageToProcess.trim().length > 0) {
+                                _set_isProcessing_Plot_ACU(true);
+                                try {
+                                    // 如果是在循环模式下，给消息打上规划标记
+                                    const isLoopTriggered = loopState_ACU.isLooping && loopState_ACU.awaitingReply;
+                                    if (isLoopTriggered) {
+                                        lastMessage._qrf_from_planning = true;
+                                        logDebug_ACU('[剧情推进] [Loop] 标记规划层消息: _qrf_from_planning=true');
+                                    }
+                                    // [优化] 在修改消息之前，先保存原始用户输入的哈希到消息对象上
+                                    // 这样即使消息内容被规划结果替换，保存函数也能通过这个哈希找到正确的消息
+                                    const originalInputHash = hashUserInput_ACU(messageToProcess);
+                                    lastMessage._qrf_plot_pending_hash = originalInputHash;
+                                    logDebug_ACU('[剧情推进] [Plot] 在消息对象上保存原始输入哈希:', originalInputHash);
+                                    // [优化] 传递原始用户输入用于哈希匹配
+                                    // 注意：在策略1中，lastMessage.mes 就是原始用户输入（还未被规划结果替换）
+                                    const finalMessage = await runOptimizationLogic_ACU(messageToProcess, {
+                                        originalUserInput: messageToProcess,
+                                        hasExistingUserMessage: true,
+                                    });
+                                    if (finalMessage && finalMessage.skipped) {
+                                        logDebug_ACU('[剧情推进] Planning skipped in Strategy 1 (duplicate).');
+                                        return;
+                                    }
+                                    if (finalMessage && finalMessage.aborted) {
+                                        logDebug_ACU('[剧情推进] Generation aborted by user in Strategy 1.');
+                                        // [优化] 用户手动中止 => 回退：停止生成 + 删除刚创建的用户楼层（如果是本次输入） + 回填输入框
+                                        if (finalMessage.manual) {
+                                            try {
+                                                if (SillyTavern_API_ACU && typeof SillyTavern_API_ACU.stopGeneration === 'function') {
+                                                    SillyTavern_API_ACU.stopGeneration();
+                                                }
+                                                else if (window.SillyTavern?.stopGeneration) {
+                                                    window.SillyTavern.stopGeneration();
+                                                }
+                                            }
+                                            catch (e) { }
+                                            try {
+                                                const chatNow = SillyTavern_API_ACU.chat;
+                                                const lastNow = chatNow?.length ? chatNow[chatNow.length - 1] : null;
+                                                if (lastNow && lastNow.is_user && String(lastNow.mes || '') === String(messageToProcess || '')) {
+                                                    if (typeof SillyTavern_API_ACU.deleteLastMessage === 'function') {
+                                                        await SillyTavern_API_ACU.deleteLastMessage();
+                                                    }
+                                                    else if (window.SillyTavern?.deleteLastMessage) {
+                                                        await window.SillyTavern.deleteLastMessage();
+                                                    }
+                                                }
+                                            }
+                                            catch (e) { }
+                                            try {
+                                                const t = finalMessage.restoreText ?? messageToProcess;
+                                                setSendTextareaValue_ACU(t);
+                                                ;
+                                            }
+                                            catch (e) { }
+                                        }
+                                        return;
+                                    }
+                                    if (finalMessage && typeof finalMessage === 'string') {
+                                        params.prompt = finalMessage;
+                                        lastMessage.mes = finalMessage;
+                                        // 发送消息更新事件以刷新UI
+                                        SillyTavern_API_ACU.eventSource.emit(SillyTavern_API_ACU.eventTypes.MESSAGE_UPDATED, lastMessageIndex);
+                                        // 清空输入框
+                                        if (getSendTextareaValue_ACU() === messageToProcess) {
+                                            setSendTextareaValue_ACU('');
+                                            ;
+                                        }
+                                    }
+                                }
+                                catch (error) {
+                                    logError_ACU('[剧情推进] Error processing last chat message:', error);
+                                    delete lastMessage._plot_processed; // 允许重试
+                                }
+                                finally {
+                                    _set_isProcessing_Plot_ACU(false);
+                                }
+                                return; // 策略1成功，直接返回，不再执行策略2
+                            }
+                        }
+                        // [策略2 - 受控恢复] 正常发送路径：此时用户楼层还未写入 chat
+                        // 仅当检测到“近期发送意图”时才读取输入框，避免其它插件触发的生成误伤。
+                        if (!isRecentUserSendIntent_ACU())
+                            return;
+                        const textInBox = getSendTextareaValue_ACU();
+                        if (!textInBox || !String(textInBox).trim())
+                            return;
+                        _set_isProcessing_Plot_ACU(true);
+                        try {
+                            // [优化] 传递原始用户输入用于哈希匹配
+                            // 注意：在策略2中，textInBox 就是原始用户输入（还未被规划结果替换）
+                            const originalInputText = String(textInBox);
+                            const finalMessage = await runOptimizationLogic_ACU(originalInputText, {
+                                originalUserInput: originalInputText,
+                                hasExistingUserMessage: false,
+                            });
+                            if (finalMessage && finalMessage.skipped) {
+                                logDebug_ACU('[剧情推进] Planning skipped in Strategy 2 (duplicate).');
+                                return;
+                            }
+                            if (finalMessage && finalMessage.aborted) {
+                                logDebug_ACU('[剧情推进] Generation aborted by user in Strategy 2.');
+                                // 用户手动中止：停止生成，保留输入框内容
+                                if (finalMessage.manual) {
+                                    try {
+                                        if (SillyTavern_API_ACU && typeof SillyTavern_API_ACU.stopGeneration === 'function') {
+                                            SillyTavern_API_ACU.stopGeneration();
+                                        }
+                                        else if (window.SillyTavern?.stopGeneration) {
+                                            window.SillyTavern.stopGeneration();
+                                        }
+                                    }
+                                    catch (e) { }
+                                }
+                                return;
+                            }
+                            if (finalMessage && typeof finalMessage === 'string') {
+                                // 关键：写回输入框 + 写回 params.prompt（供本次生成使用），达到“先规划再发送”的效果
+                                setSendTextareaValue_ACU(finalMessage);
+                                ;
+                                try {
+                                    params.prompt = finalMessage;
+                                }
+                                catch (e) { }
+                            }
+                        }
+                        catch (error) {
+                            logError_ACU('[剧情推进] Error processing textarea input (Strategy 2):', error);
+                        }
+                        finally {
+                            _set_isProcessing_Plot_ACU(false);
+                            // 消费掉本次发送意图，避免同一次生成链路重复触发
+                            generationGate_ACU.lastUserSendIntentAt = 0;
+                        }
+                    });
+                }
+                const chatModificationEvents = ['MESSAGE_DELETED', 'MESSAGE_SWIPED'];
+                chatModificationEvents.forEach(evName => {
+                    if (SillyTavern_API_ACU.eventTypes[evName]) {
+                        SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes[evName], async (data) => {
+                            logDebug_ACU(`ACU ${evName} event detected. Triggering data reload and merge from chat history.`);
+                            clearTimeout(newMessageDebounceTimer_ACU$1);
+                            _set_newMessageDebounceTimer_ACU$1(setTimeout(async () => {
+                                // [修复] 重新合并数据并更新UI和世界书
+                                await refreshMergedDataAndNotify_ACU();
+                            }, 500)); // 使用防抖处理快速滑动
+                        });
+                    }
+                });
+                logDebug_ACU('ACU: All event listeners attached using eventSource.');
+            }
+            else {
+                logWarn_ACU('ACU: Could not attach event listeners because eventSource or eventTypes are missing.');
+            }
+            // [新增] 移除公用的手动更新按钮，改为两个独立的手动更新按钮
+            // if (typeof eventOnButton === 'function') {
+            //     eventOnButton('更新数据库', handleManualUpdateCard_ACU);
+            //     logDebug_ACU(
+            //         "ACU: '更新数据库' button event registered with global eventOnButton.",
+            //     );
+            // } else {
+            //     logWarn_ACU("ACU: Global eventOnButton function is not available.");
+            // }
+            // 修复：移除启动时的状态重置调用。现在完全依赖于SillyTavern加载后触发的第一个CHAT_CHANGED事件来初始化，避免了竞态条件。
+            // [新增修复]：为了解决作为角色脚本加载时可能错过初始CHAT_CHANGED事件的问题，
+            // 我们在初始化时主动获取一次当前聊天信息并进行设置。
+            // 这确保了无论脚本何时加载，都能正确初始化。
+            if (SillyTavern_API_ACU && SillyTavern_API_ACU.chatId) {
+                logDebug_ACU(`ACU: Initializing with current chat on load: ${SillyTavern_API_ACU.chatId}`);
+                // 修复：将初始加载延迟到下一个事件循环，以避免在SillyTavern完全准备好之前运行初始化，从而解决新聊天的竞态条件。
+                // [新增] 使用延迟初始化确保UI就绪
+                setTimeout(async () => {
+                    await resetScriptStateForNewChat_ACU(SillyTavern_API_ACU.chatId);
+                    await loadPresetAndCleanCharacterData_ACU();
+                    // 再次强制刷新数据和UI，确保初始加载时表格显示正确
+                    await loadAllChatMessages_ACU();
+                    await refreshMergedDataAndNotify_ACU();
+                    if (typeof updateCardUpdateStatusDisplay_ACU === 'function') {
+                        updateCardUpdateStatusDisplay_ACU();
+                    }
+                }, 1000);
+            }
+            else {
+                logWarn_ACU('ACU: Could not get current chat ID on initial load. Waiting for CHAT_CHANGED event.');
+            }
+        }
+        else {
+            logError_ACU('ACU: Failed to initialize. Core APIs not available on DOM ready.');
+            console.error('数据库自动更新脚本初始化失败：核心API加载失败。');
+        }
+    }
+
+    /**
+     * service/runtime/event-bus.ts — ACU_EventBus 事件总线
+     *
+     * 轻量级发布/订阅事件总线，用于表示层与服务层之间的解耦通信。
+     * 表示层 emit 事件，服务层 on 监听并处理。
+     *
+     * 参见初版设计 plans/three_layer_refactor_plan.md §5.3
+     */
+    const _handlers = {};
+    const ACU_EventBus = {
+        /**
+         * 注册事件监听器
+         */
+        on(event, handler) {
+            if (!_handlers[event])
+                _handlers[event] = [];
+            _handlers[event].push(handler);
+        },
+        /**
+         * 移除事件监听器
+         */
+        off(event, handler) {
+            const list = _handlers[event];
+            if (!list)
+                return;
+            const idx = list.indexOf(handler);
+            if (idx !== -1)
+                list.splice(idx, 1);
+        },
+        /**
+         * 触发事件
+         */
+        emit(event, ...args) {
+            const list = _handlers[event];
+            if (!list)
+                return;
+            for (const handler of list) {
+                try {
+                    handler(...args);
+                }
+                catch (e) {
+                    console.error(`[ACU_EventBus] Error in handler for "${event}":`, e);
+                }
+            }
+        },
+        /**
+         * 注册一次性监听器
+         */
+        once(event, handler) {
+            const wrapper = (...args) => {
+                ACU_EventBus.off(event, wrapper);
+                handler(...args);
+            };
+            ACU_EventBus.on(event, wrapper);
+        },
+        /**
+         * 清除指定事件的所有监听器（调试用）
+         */
+        clear(event) {
+            if (event) {
+                delete _handlers[event];
+            }
+            else {
+                Object.keys(_handlers).forEach(k => delete _handlers[k]);
+            }
+        }
+    };
+
+    /**
      * service/runtime/api-registry.ts — DatabaseAPI_ACU 对外 API 注册
      * 从 src/core/03_runtime_api.js 整体迁移。
      */
@@ -28695,6298 +34970,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         }
     };
     // --- [核心改造] 结束 ---
-    // --- Toast / 通知（仅影响本插件的提示外观，不改变业务逻辑） ---
-    const ACU_TOAST_TITLE_ACU = '星·数据库';
-    const _acuToastDedup_ACU = new Map(); // key -> ts
-    let _acuToastStyleInjected_ACU = false;
-    function _set__acuToastStyleInjected_ACU(v) { _acuToastStyleInjected_ACU = v; }
-
-    // toast.ts
-    // 从 03_theme_and_toast.js 整体迁入
-    function ensureAcuToastStylesInjected_ACU() {
-        if (_acuToastStyleInjected_ACU)
-            return;
-        try {
-            const doc = topLevelWindow_ACU?.document || document;
-            const styleId = `${SCRIPT_ID_PREFIX_ACU}-acu-toast-style`;
-            if (doc.getElementById(styleId)) {
-                _set__acuToastStyleInjected_ACU(true);
-                return;
-            }
-            const style = doc.createElement('style');
-            style.id = styleId;
-            style.textContent = `
-        /* ACU Toast Theme (古典中国风 - scoped to .acu-toast) */
-        /* 双主题变量 */
-        #toast-container .acu-toast.toast {
-          --toast-accent: #7d4940;
-          --toast-bg: #24221f;
-          --toast-text: #c1b9ad;
-          --toast-border: #36332e;
-          --toast-font: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
-        }
-        body.acu-theme-silk #toast-container .acu-toast.toast {
-          --toast-accent: #8a6b5e;
-          --toast-bg: #f4f1eb;
-          --toast-text: #3d3629;
-          --toast-border: #d4cfc4;
-        }
-        
-        .acu-toast.toast {
-          font-family: var(--toast-font) !important;
-          font-weight: 500 !important;
-          font-size: 14px !important;
-          letter-spacing: 0.2px;
-          --acu-toast-accent: var(--toast-accent);
-          background: var(--toast-bg) !important;
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E") !important;
-          color: var(--toast-text) !important;
-          border: 1px solid var(--toast-border) !important;
-          border-radius: 2px !important;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.35) !important;
-          padding: 12px 14px 12px 50px !important;
-          width: min(420px, calc(100vw - 24px)) !important;
-          opacity: 1 !important;
-          backdrop-filter: none;
-          -webkit-backdrop-filter: none;
-          position: relative !important;
-          overflow: hidden !important;
-          /* 左侧古典色条 */
-          border-left: 3px solid var(--toast-accent) !important;
-        }
-        /* 强制覆盖 Toastr/SillyTavern 更高优先级背景 */
-        #toast-container .acu-toast.toast,
-        #toast-container .acu-toast.toast.toast-success,
-        #toast-container .acu-toast.toast.toast-info,
-        #toast-container .acu-toast.toast.toast-warning,
-        #toast-container .acu-toast.toast.toast-error {
-          background: var(--toast-bg) !important;
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E") !important;
-          opacity: 1 !important;
-        }
-        #toast-container .acu-toast.toast .toast-title,
-        #toast-container .acu-toast.toast .toast-message {
-          background: transparent !important;
-        }
-        /* 清掉 Toastr 默认的纹理 */
-        .acu-toast.toast,
-        .acu-toast.toast.toast-success,
-        .acu-toast.toast.toast-info,
-        .acu-toast.toast.toast-warning,
-        .acu-toast.toast.toast-error {
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E") !important;
-          background-repeat: repeat !important;
-          background-position: 0 0 !important;
-        }
-        /* 图标徽章：古典印章风格 */
-        #toast-container .acu-toast.toast::before {
-          content: "i" !important;
-          position: absolute;
-          left: 10px;
-          top: 50%;
-          transform: translateY(-50%);
-          width: 26px;
-          height: 26px;
-          border-radius: 2px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: 400;
-          font-size: 14px;
-          font-family: var(--toast-font);
-          color: var(--toast-bg);
-          background: var(--toast-accent);
-          border: none;
-          box-shadow: none;
-        }
-        #toast-container .acu-toast.acu-toast--success::before { content: "达" !important; }
-        #toast-container .acu-toast.acu-toast--info::before { content: "知" !important; }
-        #toast-container .acu-toast.acu-toast--warning::before { content: "警" !important; }
-        #toast-container .acu-toast.acu-toast--error::before { content: "误" !important; }
-        
-        .acu-toast.acu-toast--success { --acu-toast-accent: #5a8a5a; }
-        .acu-toast.acu-toast--info { --acu-toast-accent: #8a6b5e; }
-        .acu-toast.acu-toast--warning { --acu-toast-accent: #b08a5a; }
-        .acu-toast.acu-toast--error { --acu-toast-accent: #8a5a5a; }
-        .acu-toast.toast .toast-title {
-          font-weight: 650 !important;
-          letter-spacing: 0.4px;
-          margin-bottom: 4px !important;
-          opacity: 1;
-          text-shadow: none;
-          font-family: var(--toast-font);
-        }
-        .acu-toast.toast .toast-message {
-          line-height: 1.55;
-          color: var(--toast-text) !important;
-          text-shadow: none;
-          font-family: var(--toast-font);
-          font-weight: 500 !important;
-          font-size: 13px !important;
-        }
-        .acu-toast.toast .toast-close-button {
-          color: var(--toast-text) !important;
-          text-shadow: none !important;
-          opacity: 0.6 !important;
-          font-size: 18px;
-          right: 8px;
-          top: 8px;
-        }
-        .acu-toast.toast .toast-close-button:hover {
-          opacity: 1 !important;
-        }
-        .acu-toast.toast .toast-progress {
-          background: var(--toast-accent) !important;
-        }
-        .acu-toast.acu-toast--success { border-color: rgba(90,138,90,0.5) !important; }
-        .acu-toast.acu-toast--info { border-color: rgba(138,107,94,0.5) !important; }
-        .acu-toast.acu-toast--warning { border-color: rgba(176,138,90,0.5) !important; }
-        .acu-toast.acu-toast--error { border-color: rgba(138,90,90,0.5) !important; }
-
-        /* Plot abort button inside toast */
-        .acu-toast .qrf-abort-btn {
-          padding: 4px 12px !important;
-          border-radius: 1px !important;
-          border: 1px solid var(--toast-accent) !important;
-          background: transparent !important;
-          color: var(--toast-text) !important;
-          font-weight: 600 !important;
-          font-family: var(--toast-font) !important;
-          cursor: pointer !important;
-          font-size: 0.85em;
-        }
-        .acu-toast .qrf-abort-btn:hover {
-          background: var(--toast-accent) !important;
-          color: var(--toast-bg) !important;
-        }
-        @media (max-width: 520px) {
-          #toast-container .acu-toast.toast {
-            width: min(320px, calc(100vw - 16px)) !important;
-            padding: 10px 12px 10px 42px !important;
-          }
-          #toast-container .acu-toast.toast::before {
-            left: 9px;
-            width: 22px;
-            height: 22px;
-            font-size: 12px;
-          }
-          .acu-toast.toast .toast-title {
-            font-size: 13px !important;
-            margin-bottom: 3px !important;
-          }
-          .acu-toast.toast .toast-message {
-            font-size: 12px !important;
-            line-height: 1.45 !important;
-          }
-          .acu-toast.toast .toast-close-button {
-            font-size: 16px;
-            right: 6px;
-            top: 6px;
-          }
-          .acu-toast .qrf-abort-btn {
-            padding: 3px 10px !important;
-            font-size: 12px !important;
-          }
-        }
-      `;
-            doc.head.appendChild(style);
-            _set__acuToastStyleInjected_ACU(true);
-        }
-        catch (e) {
-            // 不影响功能
-            _set__acuToastStyleInjected_ACU(true);
-        }
-    }
-    function _acuNormalizeToastArgs_ACU(type, message, titleOrOptions = {}, maybeOptions = {}) {
-        let title = ACU_TOAST_TITLE_ACU;
-        let options = {};
-        if (typeof titleOrOptions === 'string') {
-            title = titleOrOptions || title;
-            options = (maybeOptions && typeof maybeOptions === 'object') ? maybeOptions : {};
-        }
-        else {
-            options = (titleOrOptions && typeof titleOrOptions === 'object') ? titleOrOptions : {};
-        }
-        // defaults
-        const defaultTimeOut = type === 'success' ? 2500 :
-            type === 'info' ? 2500 :
-                type === 'warning' ? 3500 :
-                    type === 'error' ? 5000 : 2500;
-        const isNarrow = (() => {
-            try {
-                const w = (topLevelWindow_ACU && typeof topLevelWindow_ACU.innerWidth === 'number')
-                    ? topLevelWindow_ACU.innerWidth
-                    : window.innerWidth;
-                return w <= 520;
-            }
-            catch (e) {
-                return false;
-            }
-        })();
-        const finalOptions = {
-            escapeHtml: false,
-            closeButton: true,
-            progressBar: true,
-            newestOnTop: true,
-            timeOut: defaultTimeOut,
-            extendedTimeOut: 1000,
-            tapToDismiss: true,
-            // 让样式只作用于本插件 toast
-            toastClass: `toast acu-toast acu-toast--${type}`,
-            // 宽屏右上角，窄屏顶部居中（避免挡住关键 UI）
-            positionClass: isNarrow ? 'toast-top-center' : 'toast-top-right',
-            ...options,
-        };
-        return { title, finalOptions };
-    }
-    // =========================
-    // [新增] Toast 静默门控（全局）
-    // 需求：主界面新增勾选项（默认不勾选），勾选后除指定几类提示框外其它全部静默不显示。
-    // 允许显示的类别（按用户要求）：
-    // - 填表/规划成功提示框
-    // - 正在规划提示框
-    // - 任意报错提示框
-    // - 手动填表/合并填表/外部导入提示框
-    // 实现方式：在 showToastr_ACU 统一门控；调用方通过 options.acuToastCategory 打标。
-    // =========================
-    const ACU_TOAST_CATEGORY_ACU = {
-        ERROR: 'error',
-        TABLE_OK: 'table_ok',
-        PLAN_OK: 'plan_ok',
-        PLANNING: 'planning',
-        MANUAL_TABLE: 'manual_table',
-        MERGE_TABLE: 'merge_table',
-        IMPORT: 'import',
-    };
-    function _acuShouldShowToast_ACU(type, title, message, options = {}) {
-        try {
-            if (!settings_ACU?.toastMuteEnabled)
-                return true;
-            if (String(type).toLowerCase() === 'error')
-                return true;
-            const cat = options?.acuToastCategory || null;
-            const allow = new Set([
-                ACU_TOAST_CATEGORY_ACU.ERROR,
-                ACU_TOAST_CATEGORY_ACU.TABLE_OK,
-                ACU_TOAST_CATEGORY_ACU.PLAN_OK,
-                ACU_TOAST_CATEGORY_ACU.PLANNING,
-                ACU_TOAST_CATEGORY_ACU.MANUAL_TABLE,
-                ACU_TOAST_CATEGORY_ACU.MERGE_TABLE,
-                ACU_TOAST_CATEGORY_ACU.IMPORT,
-            ]);
-            if (cat && allow.has(cat))
-                return true;
-            // 兼容旧调用点：未打标时，根据文案进行“严格白名单”兜底，避免关键流程在静默模式下完全无反馈
-            try {
-                const raw = `${title || ''}\n${message || ''}`;
-                const text = String(raw)
-                    .replace(/<[^>]*>/g, '')
-                    .replace(/\s+/g, ' ')
-                    .toLowerCase();
-                const t = String(type).toLowerCase();
-                const has = (s) => text.includes(String(s).toLowerCase());
-                // 正在规划提示（长驻）
-                if (has('正在规划'))
-                    return true;
-                // 填表/规划成功
-                if (t === 'success' && (has('填表') || has('规划')))
-                    return true;
-                if (t === 'success' && (has('更新') && has('成功')))
-                    return true;
-                // 手动填表/合并填表/外部导入提示
-                const allowKeywords = ['手动填表', '手动更新', '合并', '外部导入', '导入', '注入'];
-                if (allowKeywords.some(k => has(k)))
-                    return true;
-            }
-            catch (e) { }
-            return false;
-        }
-        catch (e) {
-            // 出错时不阻断提示
-            return true;
-        }
-    }
-    function showToastr_ACU(type, message, titleOrOptions = {}, maybeOptions = {}) {
-        if (!toastr_API_ACU) {
-            logDebug_ACU(`Toastr (${type}): ${message}`);
-            return null;
-        }
-        ensureAcuToastStylesInjected_ACU();
-        const { title, finalOptions } = _acuNormalizeToastArgs_ACU(type, message, titleOrOptions, maybeOptions);
-        // [新增] 静默门控：在实际弹出之前统一拦截
-        if (!_acuShouldShowToast_ACU(type, title, message, finalOptions))
-            return null;
-        // 去重防刷屏：同样内容在短时间内只显示一次
-        try {
-            const key = `${type}|${title}|${String(message).replace(/<[^>]*>/g, '').slice(0, 120)}`;
-            const now = Date.now();
-            const last = _acuToastDedup_ACU.get(key) || 0;
-            if (now - last < 1200)
-                return null;
-            _acuToastDedup_ACU.set(key, now);
-        }
-        catch (e) { }
-        return toastr_API_ACU[type](message, title, finalOptions);
-    }
-
-    // plot-editors.ts
-    // 从 02_shared_editors_and_selectors.js 整体迁入
-    function renderPromptSegments_ACU(segments) {
-        if (!$charCardPromptSegmentsContainer_ACU)
-            return;
-        $charCardPromptSegmentsContainer_ACU.empty();
-        // 确保 segments 是一个数组
-        if (!Array.isArray(segments)) {
-            // 如果不是数组，尝试解析。如果解析失败或内容为空，则创建一个默认的段落。
-            let parsedSegments;
-            try {
-                if (typeof segments === 'string' && segments.trim()) {
-                    parsedSegments = JSON.parse(segments);
-                }
-            }
-            catch (e) {
-                logWarn_ACU('Could not parse charCardPrompt as JSON. Treating as a single text block.', segments);
-            }
-            if (!Array.isArray(parsedSegments) || parsedSegments.length === 0) {
-                // 解析失败或结果不是有效数组，则将原始输入（如果是字符串）放入一个默认段落
-                const content = (typeof segments === 'string' && segments.trim()) ? segments : DEFAULT_CHAR_CARD_PROMPT_ACU;
-                parsedSegments = [{ role: 'assistant', content: content, deletable: false }];
-            }
-            segments = parsedSegments;
-        }
-        // 如果渲染后还是空数组，则添加一个不可删除的默认段落
-        if (segments.length === 0) {
-            segments.push({ role: 'assistant', content: DEFAULT_CHAR_CARD_PROMPT_ACU, deletable: false });
-        }
-        segments.forEach((segment, index) => {
-            const roleUpper = String(segment?.role || '').toUpperCase();
-            const roleLower = String(segment?.role || '').toLowerCase();
-            const mainSlot = (segment && (String(segment.mainSlot || '').toUpperCase() || (segment.isMain ? 'A' : (segment.isMain2 ? 'B' : '')))) || '';
-            const isMainA = mainSlot === 'A';
-            const isMainB = mainSlot === 'B';
-            const isMainPrompt = isMainA || isMainB;
-            const borderColor = isMainA ? 'var(--accent-primary)' : (isMainB ? '#ffb74d' : '');
-            const segmentId = `${SCRIPT_ID_PREFIX_ACU}-prompt-segment-${index}`;
-            const segmentHtml = `
-              <div class="prompt-segment" id="${segmentId}" data-main-slot="${escapeHtml_ACU(mainSlot)}" ${isMainPrompt ? `style="border-left: 3px solid ${borderColor};"` : ''}>
-                  <div class="prompt-segment-toolbar">
-                      <div style="display:flex; align-items:center; gap:8px;">
-                          <select class="prompt-segment-role">
-                              <option value="assistant" ${roleUpper === 'AI' || roleUpper === 'ASSISTANT' || roleLower === 'assistant' ? 'selected' : ''}>AI</option>
-                              <option value="SYSTEM" ${roleUpper === 'SYSTEM' || roleLower === 'system' ? 'selected' : ''}>系统</option>
-                              <option value="USER" ${roleUpper === 'USER' || roleLower === 'user' ? 'selected' : ''}>用户</option>
-                          </select>
-                          <label style="display:flex; align-items:center; gap:6px; font-size:0.8em; cursor:pointer; user-select:none;" title="用于运行时替换/合并注入的主提示词槽位。A/B 均不可删除；剧情推进会优先覆盖 A(系统) + B(用户)。">
-                              <span style="opacity:0.85;">主提示词</span>
-                              <select class="prompt-segment-main-slot" style="font-size:0.85em;">
-                                  <option value="" ${!isMainPrompt ? 'selected' : ''}>普通</option>
-                                  <option value="A" ${isMainA ? 'selected' : ''}>A(建议System)</option>
-                                  <option value="B" ${isMainB ? 'selected' : ''}>B(建议User)</option>
-                              </select>
-                          </label>
-                      </div>
-                      <button class="prompt-segment-delete-btn" data-index="${index}" style="${isMainPrompt ? 'display:none;' : ''}">-</button>
-                  </div>
-                  <textarea class="prompt-segment-content" rows="4">${escapeHtml_ACU(segment.content)}</textarea>
-              </div>
-          `;
-            $charCardPromptSegmentsContainer_ACU.append(segmentHtml);
-        });
-    }
-    function getCharCardPromptFromUI_ACU() {
-        if (!$charCardPromptSegmentsContainer_ACU)
-            return [];
-        const segments = [];
-        $charCardPromptSegmentsContainer_ACU.find('.prompt-segment').each(function () {
-            const $segment = $(this);
-            const role = $segment.find('.prompt-segment-role').val();
-            const content = $segment.find('.prompt-segment-content').val();
-            const mainSlotRaw = $segment.find('.prompt-segment-main-slot').val();
-            const mainSlot = String(mainSlotRaw || '').toUpperCase();
-            const isMainA = mainSlot === 'A';
-            const isMainB = mainSlot === 'B';
-            // 主提示词A/B不可删除
-            const isDeletable = (isMainA || isMainB) ? false : true;
-            const segmentData = { role: role, content: content, deletable: isDeletable };
-            if (isMainA) {
-                segmentData.mainSlot = 'A';
-                segmentData.isMain = true; // 兼容旧逻辑
-            }
-            else if (isMainB) {
-                segmentData.mainSlot = 'B';
-                segmentData.isMain2 = true; // 兼容旧逻辑（若有）
-            }
-            segments.push(segmentData);
-        });
-        return segments;
-    }
-    // --- [剧情推进] 独立提示词组（段落编辑器） ---
-    // 说明：
-    // - 用途：规划请求（callApi_ACU 的 messages）完全来自 plotSettings.promptGroup，不再“运行时替换”数据库更新预设的 A/B 段落。
-    // - 兼容：若用户只有旧的三段 prompts(main/system/final)，则会自动迁移生成一份 promptGroup（只在首次缺失时发生）。
-    function buildDefaultPlotPromptGroup_ACU({ mainAContent = '', mainBContent = '' } = {}) {
-        // [重要] 现在从独立的 DEFAULT_PLOT_PROMPT_GROUP_ACU 获取默认结构，不再从填表提示词合并
-        const src = DEFAULT_PLOT_PROMPT_GROUP_ACU;
-        const base = Array.isArray(src)
-            ? JSON.parse(JSON.stringify(src))
-            : (typeof src === 'string' && src.trim() ? [{ role: 'USER', content: src, deletable: false, mainSlot: 'A', isMain: true }] : []);
-        const getMainSlot = seg => {
-            if (!seg)
-                return '';
-            const slot = String(seg.mainSlot || '').toUpperCase();
-            if (slot === 'A' || slot === 'B')
-                return slot;
-            if (seg.isMain)
-                return 'A';
-            if (seg.isMain2)
-                return 'B';
-            return '';
-        };
-        let aIdx = base.findIndex(s => getMainSlot(s) === 'A');
-        let bIdx = base.findIndex(s => getMainSlot(s) === 'B');
-        if (aIdx === -1) {
-            base.unshift({ role: 'SYSTEM', content: '', deletable: false, mainSlot: 'A', isMain: true });
-            aIdx = 0;
-        }
-        if (bIdx === -1) {
-            base.splice(aIdx + 1, 0, { role: 'USER', content: '', deletable: false, mainSlot: 'B', isMain2: true });
-            bIdx = aIdx + 1;
-        }
-        // 如果传入了自定义内容，则覆盖默认内容
-        if (mainAContent && base[aIdx])
-            base[aIdx].content = String(mainAContent);
-        if (mainBContent && base[bIdx])
-            base[bIdx].content = String(mainBContent);
-        return base;
-    }
-    function getLegacyPlotPromptContent_ACU(plotSettings, promptId) {
-        try {
-            const p = plotSettings?.prompts;
-            if (!p)
-                return '';
-            if (Array.isArray(p)) {
-                const item = p.find(x => x && x.id === promptId);
-                return item?.content || '';
-            }
-            // 旧对象结构：{ mainPrompt, systemPrompt, finalSystemDirective }
-            if (typeof p === 'object')
-                return p[promptId] || '';
-        }
-        catch (e) { }
-        return '';
-    }
-    function ensurePlotPromptGroup_ACU(plotSettings, { persist = false } = {}) {
-        if (!plotSettings)
-            return;
-        if (Array.isArray(plotSettings.promptGroup) && plotSettings.promptGroup.length > 0)
-            return;
-        // 默认来源：优先用旧三段 prompts 的 main/system；否则用默认值。
-        const legacyMain = getLegacyPlotPromptContent_ACU(plotSettings, 'mainPrompt') || (DEFAULT_PLOT_SETTINGS_ACU?.prompts?.[0]?.content || '');
-        const legacySystem = getLegacyPlotPromptContent_ACU(plotSettings, 'systemPrompt') || (DEFAULT_PLOT_SETTINGS_ACU?.prompts?.[1]?.content || '');
-        plotSettings.promptGroup = buildDefaultPlotPromptGroup_ACU({
-            mainAContent: legacyMain,
-            mainBContent: legacySystem,
-        });
-        if (persist) {
-            try {
-                saveSettings_ACU();
-            }
-            catch (e) { }
-        }
-    }
-    function renderPlotPromptSegments_ACU(segments) {
-        if ((!$plotPromptSegmentsContainer_ACU || !$plotPromptSegmentsContainer_ACU.length) && $popupInstance_ACU) {
-            $plotPromptSegmentsContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompt-segments-container`);
-        }
-        if (!$plotPromptSegmentsContainer_ACU || !$plotPromptSegmentsContainer_ACU.length)
-            return;
-        $plotPromptSegmentsContainer_ACU.empty();
-        // 确保 segments 是一个数组
-        if (!Array.isArray(segments)) {
-            segments = [];
-        }
-        if (segments.length === 0) {
-            const activeSettings = getActivePlotEditorSettings_ACU() || settings_ACU?.plotSettings;
-            ensurePlotPromptGroup_ACU(activeSettings);
-            segments = JSON.parse(JSON.stringify(activeSettings?.promptGroup || []));
-        }
-        const getMainSlot = seg => {
-            if (!seg)
-                return '';
-            const slot = String(seg.mainSlot || '').toUpperCase();
-            if (slot === 'A' || slot === 'B')
-                return slot;
-            if (seg.isMain)
-                return 'A';
-            if (seg.isMain2)
-                return 'B';
-            return '';
-        };
-        segments.forEach((segment, index) => {
-            const roleUpper = String(segment?.role || '').toUpperCase();
-            const roleLower = String(segment?.role || '').toLowerCase();
-            const mainSlot = getMainSlot(segment);
-            const isMainA = mainSlot === 'A';
-            const isMainB = mainSlot === 'B';
-            const isMainPrompt = isMainA || isMainB;
-            const borderColor = isMainA ? 'var(--accent-primary)' : (isMainB ? '#ffb74d' : '');
-            const segmentId = `${SCRIPT_ID_PREFIX_ACU}-plot-prompt-segment-${index}`;
-            const segmentHtml = `
-              <div class="plot-prompt-segment" id="${segmentId}" data-main-slot="${escapeHtml_ACU(mainSlot)}" ${isMainPrompt ? `style="border-left: 3px solid ${borderColor};"` : ''}>
-                  <div class="plot-prompt-segment-toolbar">
-                      <div style="display:flex; align-items:center; gap:8px;">
-                          <select class="plot-prompt-segment-role">
-                              <option value="assistant" ${roleUpper === 'AI' || roleUpper === 'ASSISTANT' || roleLower === 'assistant' ? 'selected' : ''}>AI</option>
-                              <option value="SYSTEM" ${roleUpper === 'SYSTEM' || roleLower === 'system' ? 'selected' : ''}>系统</option>
-                              <option value="USER" ${roleUpper === 'USER' || roleLower === 'user' ? 'selected' : ''}>用户</option>
-                          </select>
-                          <label style="display:flex; align-items:center; gap:6px; font-size:0.8em; cursor:pointer; user-select:none;" title="用于兼容旧预设的A/B槽位。A/B 均不可删除；但运行时不会再对其进行自动替换，完全由本提示词组决定。">
-                              <span style="opacity:0.85;">主提示词</span>
-                              <select class="plot-prompt-segment-main-slot" style="font-size:0.85em;">
-                                  <option value="" ${!isMainPrompt ? 'selected' : ''}>普通</option>
-                                  <option value="A" ${isMainA ? 'selected' : ''}>A(建议System)</option>
-                                  <option value="B" ${isMainB ? 'selected' : ''}>B(建议User)</option>
-                              </select>
-                          </label>
-                      </div>
-                      <button class="plot-prompt-segment-delete-btn" data-index="${index}" style="${isMainPrompt ? 'display:none;' : ''}">-</button>
-                  </div>
-                  <textarea class="plot-prompt-segment-content" rows="4">${escapeHtml_ACU(segment.content)}</textarea>
-              </div>
-          `;
-            $plotPromptSegmentsContainer_ACU.append(segmentHtml);
-        });
-    }
-    function getPlotPromptGroupFromUI_ACU() {
-        if (!$plotPromptSegmentsContainer_ACU)
-            return [];
-        const segments = [];
-        $plotPromptSegmentsContainer_ACU.find('.plot-prompt-segment').each(function () {
-            const $segment = $(this);
-            const role = $segment.find('.plot-prompt-segment-role').val();
-            const content = $segment.find('.plot-prompt-segment-content').val();
-            const mainSlotRaw = $segment.find('.plot-prompt-segment-main-slot').val();
-            const mainSlot = String(mainSlotRaw || '').toUpperCase();
-            const isMainA = mainSlot === 'A';
-            const isMainB = mainSlot === 'B';
-            // 主提示词A/B不可删除
-            const isDeletable = (isMainA || isMainB) ? false : true;
-            const segmentData = { role: role, content: content, deletable: isDeletable };
-            if (isMainA) {
-                segmentData.mainSlot = 'A';
-                segmentData.isMain = true;
-            }
-            else if (isMainB) {
-                segmentData.mainSlot = 'B';
-                segmentData.isMain2 = true;
-            }
-            segments.push(segmentData);
-        });
-        return segments;
-    }
-    function normalizePlotTaskListForEditor_ACU(tasks) {
-        return (Array.isArray(tasks) ? tasks : []).map((task, index) => normalizePlotTask_ACU({
-            ...(task || {}),
-            order: index,
-        }, {
-            index,
-            fallbackTask: task || null,
-        }));
-    }
-    function getPrimaryPlotTask_ACU(plotSettings) {
-        const tasks = Array.isArray(plotSettings?.plotTasks) ? plotSettings.plotTasks : normalizePlotTasks_ACU(plotSettings);
-        return tasks.find(task => task && task.enabled !== false) || tasks[0] || null;
-    }
-    function syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings) {
-        if (!plotSettings || typeof plotSettings !== 'object')
-            return null;
-        const primaryTask = getPrimaryPlotTask_ACU(plotSettings);
-        if (primaryTask) {
-            syncLegacyPlotSettingsFromTask_ACU(plotSettings, primaryTask);
-        }
-        return primaryTask;
-    }
-    function getCurrentPlotTaskEditorState_ACU(plotSettings = settings_ACU?.plotSettings, { autoSelect = true } = {}) {
-        if (!plotSettings || typeof plotSettings !== 'object') {
-            return { tasks: [], selectedTask: null, selectedIndex: -1 };
-        }
-        ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: false });
-        const tasks = Array.isArray(plotSettings.plotTasks) ? plotSettings.plotTasks : [];
-        if (!tasks.length) {
-            currentPlotTaskEditorId_ACU = '';
-            return { tasks: [], selectedTask: null, selectedIndex: -1 };
-        }
-        let selectedIndex = tasks.findIndex(task => task && task.id === currentPlotTaskEditorId_ACU);
-        if (selectedIndex === -1 && autoSelect) {
-            const fallbackTask = tasks.find(task => task && task.enabled !== false) || tasks[0];
-            selectedIndex = tasks.indexOf(fallbackTask);
-            currentPlotTaskEditorId_ACU = fallbackTask?.id || '';
-        }
-        const selectedTask = selectedIndex >= 0 ? tasks[selectedIndex] : null;
-        if (selectedTask?.id) {
-            currentPlotTaskEditorId_ACU = selectedTask.id;
-        }
-        return { tasks, selectedTask, selectedIndex };
-    }
-    function renderPlotTaskList_ACU(plotSettings = getActivePlotEditorSettings_ACU()) {
-        if (!$popupInstance_ACU)
-            return;
-        if (!$plotTaskListContainer_ACU || !$plotTaskListContainer_ACU.length) {
-            $plotTaskListContainer_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-list`);
-        }
-        if (!$plotTaskListContainer_ACU || !$plotTaskListContainer_ACU.length)
-            return;
-        const { tasks, selectedTask } = getCurrentPlotTaskEditorState_ACU(plotSettings, { autoSelect: true });
-        $plotTaskListContainer_ACU.empty();
-        if (!tasks.length) {
-            $plotTaskListContainer_ACU.append('<div class="notes" style="padding: 10px 12px;">暂无剧情任务</div>');
-            return;
-        }
-        tasks.forEach((task, index) => {
-            const isSelected = selectedTask?.id === task.id;
-            const enabledText = task.enabled !== false ? '启用' : '停用';
-            const enabledColor = task.enabled !== false ? 'var(--green)' : 'var(--red)';
-            const stageNo = normalizePositiveInteger_ACU(task?.stage, 1);
-            const itemHtml = `
-              <button type="button" class="button acu-plot-task-item ${isSelected ? 'acu-plot-task-item--active' : ''}" data-task-id="${escapeHtml_ACU(task.id)}" style="display:flex; width:100%; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; padding:10px 12px; text-align:left; border:${isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border_color_light)'}; background:${isSelected ? 'color-mix(in srgb, var(--accent-primary) 12%, var(--background_default))' : 'var(--background_default)'}; border-radius:8px;">
-                  <span style="display:flex; flex-direction:column; gap:4px; min-width:0;">
-                      <span style="font-weight:600; color:var(--text_primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${index + 1}. ${escapeHtml_ACU(task.name || task.id || `剧情任务${index + 1}`)}</span>
-                      <span class="notes" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">阶段：${stageNo} · 标签：${escapeHtml_ACU(task.extractTags || '(未设置)')}</span>
-                  </span>
-                  <span style="flex-shrink:0; font-size:0.8em; color:${enabledColor};">${enabledText}${isSelected ? ' · 编辑中' : ''}</span>
-              </button>
-          `;
-            $plotTaskListContainer_ACU.append(itemHtml);
-        });
-    }
-    function loadCurrentPlotTaskToUI_ACU(plotSettings = getActivePlotEditorSettings_ACU()) {
-        if (!$popupInstance_ACU)
-            return;
-        const { selectedTask } = getCurrentPlotTaskEditorState_ACU(plotSettings, { autoSelect: true });
-        if (!selectedTask) {
-            renderPlotPromptSegments_ACU(JSON.parse(JSON.stringify(getPlotPromptGroupFromSource_ACU(plotSettings))));
-            $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-name`).val('');
-            $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-enabled`).prop('checked', true);
-            $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-extract-tags`).val('');
-            $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-min-length`).val(plotSettings?.minLength ?? 0);
-            $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-stage`).val(1);
-            $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-max-retries`).val(plotSettings?.loopSettings?.maxRetries ?? DEFAULT_PLOT_SETTINGS_ACU.loopSettings?.maxRetries ?? 3);
-            return;
-        }
-        renderPlotPromptSegments_ACU(JSON.parse(JSON.stringify(selectedTask.promptGroup || [])));
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-name`).val(selectedTask.name || '');
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-enabled`).prop('checked', selectedTask.enabled !== false);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-extract-tags`).val(selectedTask.extractTags || '');
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-min-length`).val(selectedTask.minLength ?? 0);
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-stage`).val(normalizePositiveInteger_ACU(selectedTask.stage, 1));
-        $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-max-retries`).val(selectedTask.maxRetries ?? DEFAULT_PLOT_SETTINGS_ACU.loopSettings?.maxRetries ?? 3);
-    }
-    function saveCurrentPlotTaskFromUI_ACU({ silent = false, renderTaskList = false, persist = true } = {}) {
-        if (!$popupInstance_ACU)
-            return null;
-        const plotSettings = getActivePlotEditorSettings_ACU();
-        if (!plotSettings)
-            return null;
-        const { tasks, selectedTask, selectedIndex } = getCurrentPlotTaskEditorState_ACU(plotSettings, { autoSelect: true });
-        if (!selectedTask || selectedIndex < 0)
-            return null;
-        const taskNameRaw = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-name`).val();
-        const taskExtractTagsRaw = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-extract-tags`).val();
-        const taskMinLengthRaw = parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-min-length`).val(), 10);
-        const taskStageRaw = parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-stage`).val(), 10);
-        const taskMaxRetriesRaw = parseInt($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-max-retries`).val(), 10);
-        const updatedTask = normalizePlotTask_ACU({
-            ...selectedTask,
-            name: String(taskNameRaw || '').trim() || selectedTask.name || `剧情任务${selectedIndex + 1}`,
-            enabled: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-enabled`).is(':checked'),
-            promptGroup: getPlotPromptGroupFromUI_ACU(),
-            extractTags: String(taskExtractTagsRaw || ''),
-            minLength: Number.isFinite(taskMinLengthRaw) ? taskMinLengthRaw : selectedTask.minLength,
-            stage: Number.isFinite(taskStageRaw) && taskStageRaw > 0
-                ? taskStageRaw
-                : selectedTask.stage,
-            maxRetries: Number.isFinite(taskMaxRetriesRaw) && taskMaxRetriesRaw > 0
-                ? taskMaxRetriesRaw
-                : selectedTask.maxRetries,
-            order: selectedTask.order ?? selectedIndex,
-        }, {
-            index: selectedIndex,
-            fallbackTask: selectedTask,
-        });
-        const nextTasks = normalizePlotTaskListForEditor_ACU(tasks.map((task, index) => index === selectedIndex ? updatedTask : task));
-        plotSettings.plotTasks = nextTasks;
-        currentPlotTaskEditorId_ACU = updatedTask.id;
-        syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings);
-        if (persist)
-            saveSettings_ACU();
-        if (renderTaskList)
-            renderPlotTaskList_ACU(plotSettings);
-        if (!silent)
-            showToastr_ACU('success', '当前剧情任务已保存。');
-        return updatedTask;
-    }
-    function flushCurrentPlotTaskEditorState_ACU({ renderTaskList = false, persist = true } = {}) {
-        clearTimeout(plotTaskEditorAutoSaveTimer_ACU);
-        return saveCurrentPlotTaskFromUI_ACU({ silent: true, renderTaskList, persist });
-    }
-    function buildNewPlotTaskForUI_ACU(plotSettings = getActivePlotEditorSettings_ACU()) {
-        const tasks = Array.isArray(plotSettings?.plotTasks) ? plotSettings.plotTasks : [];
-        const defaultStage = normalizePositiveInteger_ACU(tasks[tasks.length - 1]?.stage, 1);
-        let serial = tasks.length + 1;
-        let taskId = `plotTask${serial}`;
-        while (tasks.some(task => task && task.id === taskId)) {
-            serial += 1;
-            taskId = `plotTask${serial}`;
-        }
-        return normalizePlotTask_ACU({
-            id: taskId,
-            name: `剧情任务${tasks.length + 1}`,
-            enabled: true,
-            promptGroup: buildDefaultPlotPromptGroup_ACU(),
-            extractTags: DEFAULT_PLOT_SETTINGS_ACU.extractTags || '',
-            minLength: 0,
-            stage: defaultStage,
-            maxRetries: plotSettings?.loopSettings?.maxRetries ?? DEFAULT_PLOT_SETTINGS_ACU.loopSettings?.maxRetries ?? 3,
-            order: tasks.length,
-        }, { index: tasks.length });
-    }
-    function schedulePlotTaskAutoSave_ACU({ renderTaskList = true } = {}) {
-        clearTimeout(plotTaskEditorAutoSaveTimer_ACU);
-        plotTaskEditorAutoSaveTimer_ACU = setTimeout(() => {
-            saveCurrentPlotTaskFromUI_ACU({ silent: true, renderTaskList, persist: true });
-        }, 300);
-    }
-    function selectPlotTaskForEditing_ACU(taskId, { saveCurrent = true } = {}) {
-        const plotSettings = getActivePlotEditorSettings_ACU();
-        if (!plotSettings || !taskId)
-            return;
-        if (saveCurrent) {
-            saveCurrentPlotTaskFromUI_ACU({ silent: true, renderTaskList: false, persist: true });
-        }
-        currentPlotTaskEditorId_ACU = String(taskId);
-        renderPlotTaskList_ACU(plotSettings);
-        loadCurrentPlotTaskToUI_ACU(plotSettings);
-    }
-    function addPlotTaskFromUI_ACU() {
-        const plotSettings = getActivePlotEditorSettings_ACU();
-        if (!plotSettings)
-            return;
-        saveCurrentPlotTaskFromUI_ACU({ silent: true, renderTaskList: false, persist: true });
-        const nextTasks = normalizePlotTaskListForEditor_ACU([
-            ...(Array.isArray(plotSettings.plotTasks) ? plotSettings.plotTasks : []),
-            buildNewPlotTaskForUI_ACU(plotSettings),
-        ]);
-        plotSettings.plotTasks = nextTasks;
-        currentPlotTaskEditorId_ACU = nextTasks[nextTasks.length - 1]?.id || currentPlotTaskEditorId_ACU;
-        syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings);
-        saveSettings_ACU();
-        renderPlotTaskList_ACU(plotSettings);
-        loadCurrentPlotTaskToUI_ACU(plotSettings);
-        showToastr_ACU('success', '已新增一个剧情任务。');
-    }
-    function deleteCurrentPlotTaskFromUI_ACU() {
-        const plotSettings = getActivePlotEditorSettings_ACU();
-        if (!plotSettings)
-            return;
-        const { tasks, selectedTask, selectedIndex } = getCurrentPlotTaskEditorState_ACU(plotSettings, { autoSelect: true });
-        if (!selectedTask || selectedIndex < 0)
-            return;
-        if (tasks.length <= 1) {
-            showToastr_ACU('warning', '至少需要保留一个剧情任务。');
-            return;
-        }
-        if (!confirm(`确定要删除剧情任务“${selectedTask.name || selectedTask.id}”吗？`)) {
-            return;
-        }
-        const nextTasks = normalizePlotTaskListForEditor_ACU(tasks.filter((_, index) => index !== selectedIndex));
-        const fallbackIndex = Math.min(selectedIndex, nextTasks.length - 1);
-        plotSettings.plotTasks = nextTasks;
-        currentPlotTaskEditorId_ACU = nextTasks[fallbackIndex]?.id || nextTasks[0]?.id || '';
-        syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings);
-        saveSettings_ACU();
-        renderPlotTaskList_ACU(plotSettings);
-        loadCurrentPlotTaskToUI_ACU(plotSettings);
-        showToastr_ACU('success', '剧情任务已删除。');
-    }
-    function moveCurrentPlotTask_ACU(direction) {
-        const plotSettings = getActivePlotEditorSettings_ACU();
-        if (!plotSettings)
-            return;
-        const { tasks, selectedTask, selectedIndex } = getCurrentPlotTaskEditorState_ACU(plotSettings, { autoSelect: true });
-        if (!selectedTask || selectedIndex < 0)
-            return;
-        const offset = direction === 'up' ? -1 : 1;
-        const targetIndex = selectedIndex + offset;
-        if (targetIndex < 0 || targetIndex >= tasks.length)
-            return;
-        saveCurrentPlotTaskFromUI_ACU({ silent: true, renderTaskList: false, persist: true });
-        const reordered = [...plotSettings.plotTasks];
-        const [movedTask] = reordered.splice(selectedIndex, 1);
-        reordered.splice(targetIndex, 0, movedTask);
-        plotSettings.plotTasks = normalizePlotTaskListForEditor_ACU(reordered);
-        currentPlotTaskEditorId_ACU = movedTask?.id || currentPlotTaskEditorId_ACU;
-        syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings);
-        saveSettings_ACU();
-        renderPlotTaskList_ACU(plotSettings);
-        loadCurrentPlotTaskToUI_ACU(plotSettings);
-    }
-    let isAutoUpdatingCard_ACU = false; // Tracks if an update is in progress
-    let wasStoppedByUser_ACU = false; // [新增] 标记更新是否被用户手动终止
-    let newMessageDebounceTimer_ACU = null;
-    let currentAbortController_ACU = null; // [新增] 用于中止正在进行的AI请求
-    let activePlotEditorSettings_ACU = null;
-    let currentPlotTaskEditorId_ACU = '';
-    let currentEditablePlotPresetState_ACU = {
-        initialized: false,
-        presetName: '',
-        scope: 'resolved',
-        source: '',
-    };
-    let plotTaskEditorAutoSaveTimer_ACU = null;
-    let activeAbortControllers_ACU = new Set(); // [新增] 并发请求的 AbortController 集合
-    let manualExtraHint_ACU = ''; // [新增] 手动更新时的额外提示词（一次性）
-    function trackAbortController_ACU(controller) {
-        if (controller)
-            activeAbortControllers_ACU.add(controller);
-    }
-    function untrackAbortController_ACU(controller) {
-        if (controller)
-            activeAbortControllers_ACU.delete(controller);
-    }
-    function abortAllActiveRequests_ACU() {
-        activeAbortControllers_ACU.forEach(controller => {
-            try {
-                controller.abort();
-            }
-            catch (e) {
-                // ignore
-            }
-        });
-        activeAbortControllers_ACU.clear();
-    }
-    // --- [新增] 内部保存函数：保存单个表格的数据到聊天历史 ---
-    function _set_currentAbortController_ACU(v) { currentAbortController_ACU = v; }
-    function _set_isAutoUpdatingCard_ACU(v) { isAutoUpdatingCard_ACU = v; }
-    function _set_manualExtraHint_ACU(v) { manualExtraHint_ACU = v; }
-    function _set_wasStoppedByUser_ACU(v) { wasStoppedByUser_ACU = v; }
-    function _set_currentEditablePlotPresetState_ACU(v) { currentEditablePlotPresetState_ACU = v; }
-    function _set_activePlotEditorSettings_ACU(v) { activePlotEditorSettings_ACU = v; }
-    function _set_currentPlotTaskEditorId_ACU(v) { currentPlotTaskEditorId_ACU = v; }
-    function _set_newMessageDebounceTimer_ACU(v) { newMessageDebounceTimer_ACU = v; }
-
-    /**
-     * presentation/components/optimization-ui.ts — 正文优化 UI + 剧情推进 UI
-     * 从 src/core/02_storage_and_profile.js:631~2772 迁移而来
-     */
-    // --- [正文优化] 构建默认提示词组 ---
-    function showOptimizationOverlay_ACU(message = '正在优化正文...') {
-        // 移除已存在的遮罩
-        hideOptimizationOverlay_ACU();
-        const overlayHtml = `
-      <div id="acu-optimization-overlay" style="
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.7);
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
-        z-index: 99999;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-direction: column;
-        gap: 16px;
-      ">
-        <div style="
-          width: 50px;
-          height: 50px;
-          border: 3px solid rgba(255, 255, 255, 0.3);
-          border-top-color: #7bb7ff;
-          border-radius: 50%;
-          animation: acu-spin 1s linear infinite;
-        "></div>
-        <div style="
-          color: rgba(255, 255, 255, 0.9);
-          font-size: 16px;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        ">${message}</div>
-        <button id="acu-optimization-overlay-cancel" style="
-          padding: 10px 18px;
-          border: 1px solid rgba(255, 193, 7, 0.7);
-          background: transparent;
-          color: #ffc107;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 14px;
-        ">取消优化</button>
-      </div>
-      <style>
-        @keyframes acu-spin {
-          to { transform: rotate(360deg); }
-        }
-      </style>
-    `;
-        jQuery_API_ACU$1('body').append(overlayHtml);
-        jQuery_API_ACU$1('#acu-optimization-overlay-cancel').off('click.acu_opt_cancel').on('click.acu_opt_cancel', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            cancelContentOptimization_ACU('正文优化已取消。');
-        });
-    }
-    /**
-     * 显示正文优化进度提示框（无遮罩模式）
-     * @param {string} message - 提示消息
-     */
-    function showOptimizationProgressToast_ACU(message = '正在进行正文优化...') {
-        hideOptimizationProgressToast_ACU();
-        const stopButtonHtml = `<button id="acu-opt-stop-btn" style="border: 1px solid #ffc107; color: #ffc107; background: transparent; padding: 5px 10px; border-radius: 4px; cursor: pointer; float: right; margin-left: 15px; font-size: 0.9em; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#ffc107'; this.style.color='#1a1d24';" onmouseout="this.style.backgroundColor='transparent'; this.style.color='#ffc107';">取消优化</button>`;
-        _set_optimizationProgressToast_ACU(showToastr_ACU('info', `<div>${message}${stopButtonHtml}</div>`, {
-            timeOut: 0,
-            extendedTimeOut: 0,
-            tapToDismiss: false,
-            onShown: function () {
-                jQuery_API_ACU$1('#acu-opt-stop-btn').off('click.acu_opt_cancel').on('click.acu_opt_cancel', function (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    cancelContentOptimization_ACU('正文优化已取消。');
-                    jQuery_API_ACU$1(this).closest('.toast').remove();
-                });
-            }
-        }));
-    }
-    /**
-     * 隐藏正文优化进度提示框
-     */
-    function hideOptimizationProgressToast_ACU() {
-        if (optimizationProgressToast_ACU && toastr_API_ACU$1) {
-            toastr_API_ACU$1.clear(optimizationProgressToast_ACU);
-        }
-        _set_optimizationProgressToast_ACU(null);
-    }
-    /**
-     * 隐藏无感替换遮罩
-     */
-    function hideOptimizationOverlay_ACU() {
-        jQuery_API_ACU$1('#acu-optimization-overlay').remove();
-    }
-    /**
-     * 替换酒馆消息内容
-     * @param {number} messageIndex - 消息索引
-     * @param {string} newContent - 新内容
-     */
-    async function replaceChatMessage_ACU(messageIndex, newContent, options = {}) {
-        try {
-            logDebug_ACU(`[正文优化] replaceChatMessage_ACU 开始执行, messageIndex=${messageIndex}, newContent长度=${newContent?.length || 0}`);
-            const chat = SillyTavern_API_ACU.chat;
-            if (!chat || !chat[messageIndex]) {
-                logError_ACU('[正文优化] 消息不存在, chat存在=', !!chat, 'messageIndex=', messageIndex);
-                throw new Error('消息不存在');
-            }
-            const oldContent = chat[messageIndex].mes;
-            logDebug_ACU(`[正文优化] 原内容长度: ${oldContent?.length || 0}, 新内容长度: ${newContent?.length || 0}`);
-            // [新增] 保存原始内容到 extra 字段，用于"重新优化"功能
-            // 只有当 extra._acu_original_content 不存在时才保存（避免覆盖最初的原始内容）
-            const extra = chat[messageIndex].extra || {};
-            if (!extra._acu_original_content) {
-                extra._acu_original_content = options.originalContent ?? oldContent;
-                logDebug_ACU(`[正文优化] 保存原始内容到 extra._acu_original_content，长度: ${extra._acu_original_content?.length || 0}`);
-            }
-            extra._acu_last_optimized_at = Date.now();
-            extra._acu_last_optimized_message_id = chat[messageIndex].message_id;
-            setLastOptimizationBase_ACU({
-                messageIndex,
-                messageId: chat[messageIndex].message_id,
-                baseContent: extra._acu_original_content || options.originalContent || oldContent || ''
-            });
-            // [修复] 使用酒馆的 setChatMessages API 来更新消息内容，确保渲染及时生效
-            // 该 API 会自动处理渲染，无需手动触发 MESSAGE_UPDATED 事件
-            // refresh: 'affected' 会触发被影响楼层的重新渲染
-            if (typeof SillyTavern_API_ACU.setChatMessages === 'function') {
-                logDebug_ACU('[正文优化] 使用 setChatMessages API 更新消息...');
-                await SillyTavern_API_ACU.setChatMessages([{ message_id: chat[messageIndex].message_id, mes: newContent, extra: extra }], { refresh: 'affected' });
-                logDebug_ACU('[正文优化] 消息已通过 setChatMessages API 更新');
-            }
-            else {
-                // 降级方案：如果 setChatMessages 不可用，使用原有逻辑
-                logDebug_ACU('[正文优化] setChatMessages API 不可用，使用降级方案...');
-                // 修改消息内容
-                chat[messageIndex].mes = newContent;
-                chat[messageIndex].extra = extra;
-                // 验证修改是否成功
-                const verifyContent = chat[messageIndex].mes;
-                logDebug_ACU(`[正文优化] 修改后验证 - 内容长度: ${verifyContent?.length || 0}, 是否匹配: ${verifyContent === newContent}`);
-                // 保存聊天
-                if (typeof SillyTavern_API_ACU.saveChat === 'function') {
-                    logDebug_ACU('[正文优化] 正在保存聊天...');
-                    await SillyTavern_API_ACU.saveChat();
-                    logDebug_ACU('[正文优化] 聊天已保存');
-                }
-                else {
-                    logDebug_ACU('[正文优化] saveChat 函数不存在');
-                }
-                // 触发消息更新事件（使用正确的eventTypes常量）
-                if (SillyTavern_API_ACU?.eventSource?.emit && SillyTavern_API_ACU?.eventTypes?.MESSAGE_UPDATED) {
-                    logDebug_ACU('[正文优化] 触发 MESSAGE_UPDATED 事件 (新API)');
-                    SillyTavern_API_ACU.eventSource.emit(SillyTavern_API_ACU.eventTypes.MESSAGE_UPDATED, messageIndex);
-                }
-                else if (SillyTavern_API_ACU.eventSource) {
-                    logDebug_ACU('[正文优化] 触发 MESSAGE_UPDATED 事件 (旧API)');
-                    SillyTavern_API_ACU.eventSource.emit('MESSAGE_UPDATED', messageIndex);
-                }
-                else {
-                    logDebug_ACU('[正文优化] eventSource 不存在，无法触发更新事件');
-                }
-            }
-            logDebug_ACU(`[正文优化] 消息 ${messageIndex} 已更新完成`);
-            return true;
-        }
-        catch (error) {
-            logError_ACU('[正文优化] 替换消息失败:', error);
-            return false;
-        }
-    }
-    /**
-     * 获取消息的原始内容（用于重新优化）
-     * @param {number} messageIndex - 消息索引
-     * @returns {string|null} 原始内容，如果不存在则返回 null
-     */
-    function getOriginalContent_ACU(messageIndex) {
-        const cachedBase = getLastOptimizationBase_ACU();
-        if (cachedBase?.baseContent) {
-            const chat = SillyTavern_API_ACU.chat || [];
-            if (cachedBase.messageId != null) {
-                const matchedIndex = chat.findIndex(msg => msg && !msg.is_user && msg.message_id === cachedBase.messageId);
-                if (matchedIndex === messageIndex) {
-                    return cachedBase.baseContent;
-                }
-            }
-            if (cachedBase.messageIndex === messageIndex) {
-                return cachedBase.baseContent;
-            }
-        }
-        const chat = SillyTavern_API_ACU.chat;
-        if (!chat || !chat[messageIndex]) {
-            return null;
-        }
-        const extra = chat[messageIndex].extra || {};
-        return extra._acu_original_content || null;
-    }
-    /**
-     * 获取最近一次被正文优化替换过的 AI 消息索引
-     * @returns {number} 消息索引，不存在返回 -1
-     */
-    function getLastOptimizedMessageIndex_ACU() {
-        const chat = SillyTavern_API_ACU.chat || [];
-        const cachedBase = getLastOptimizationBase_ACU();
-        if (cachedBase?.messageId != null) {
-            const runtimeIndex = chat.findIndex(msg => msg && !msg.is_user && msg.message_id === cachedBase.messageId);
-            if (runtimeIndex >= 0) {
-                return runtimeIndex;
-            }
-        }
-        if (Number.isInteger(cachedBase?.messageIndex) && cachedBase.messageIndex >= 0 && chat[cachedBase.messageIndex] && !chat[cachedBase.messageIndex].is_user) {
-            return cachedBase.messageIndex;
-        }
-        let latestIndex = -1;
-        let latestTimestamp = -1;
-        for (let i = 0; i < chat.length; i++) {
-            const msg = chat[i];
-            if (!msg || msg.is_user)
-                continue;
-            const extra = msg.extra || {};
-            const ts = Number(extra._acu_last_optimized_at || 0);
-            if (extra._acu_original_content && ts >= latestTimestamp) {
-                latestTimestamp = ts;
-                latestIndex = i;
-            }
-        }
-        if (latestIndex >= 0) {
-            const latestMessage = chat[latestIndex];
-            const latestExtra = latestMessage?.extra || {};
-            setLastOptimizationBase_ACU({
-                messageIndex: latestIndex,
-                messageId: latestMessage?.message_id ?? null,
-                baseContent: latestExtra._acu_original_content || latestMessage?.mes || ''
-            });
-        }
-        return latestIndex;
-    }
-    /**
-     * 重新优化消息
-     * @param {number} messageIndex - 消息索引
-     * @returns {Promise<boolean>} 是否成功
-     */
-    async function reoptimizeMessage_ACU(messageIndex) {
-        const config = settings_ACU.contentOptimizationSettings || {};
-        _set_contentOptimizationAbortRequested_ACU(false);
-        // 检查是否启用
-        if (!config.enabled) {
-            showToastr_ACU('warning', '正文优化功能未启用');
-            return false;
-        }
-        const chat = SillyTavern_API_ACU.chat;
-        if (!chat || !chat[messageIndex]) {
-            showToastr_ACU('error', '消息不存在');
-            return false;
-        }
-        const message = chat[messageIndex];
-        // 跳过用户消息
-        if (message.is_user) {
-            showToastr_ACU('warning', '无法优化用户消息');
-            return false;
-        }
-        // 获取原始内容
-        const originalContent = getOriginalContent_ACU(messageIndex) || message.mes;
-        if (!originalContent) {
-            showToastr_ACU('error', '无法获取消息内容');
-            return false;
-        }
-        logDebug_ACU(`[重新优化] 开始重新优化消息 ${messageIndex}，内容长度: ${originalContent.length}`);
-        if (config.seamlessMode) {
-            showOptimizationOverlay_ACU('正在重新优化正文...');
-        }
-        else {
-            showOptimizationProgressToast_ACU('正在进行正文优化（重新优化）...');
-        }
-        try {
-            ensureOptimizationNotCancelled_ACU();
-            const result = await performContentOptimization_ACU(originalContent, {
-                currentLoop: 1,
-                userMessage: ''
-            });
-            hideOptimizationOverlay_ACU();
-            hideOptimizationProgressToast_ACU();
-            if (contentOptimizationAbortRequested_ACU) {
-                return false;
-            }
-            if (!result.success) {
-                showToastr_ACU('error', `重新优化失败: ${result.error || '未知错误'}`);
-                return false;
-            }
-            if (!result.optimizations || result.optimizations.length === 0) {
-                showToastr_ACU('info', '原文已足够好，无需优化');
-                return true;
-            }
-            showReoptimizationDialog_ACU(messageIndex, result, originalContent);
-            return true;
-        }
-        catch (error) {
-            hideOptimizationOverlay_ACU();
-            hideOptimizationProgressToast_ACU();
-            if (contentOptimizationAbortRequested_ACU || error?.message === '用户终止正文优化') {
-                logDebug_ACU('[重新优化] 用户已取消正文优化');
-                return false;
-            }
-            logError_ACU('[重新优化] 执行出错:', error);
-            showToastr_ACU('error', `重新优化失败: ${error.message}`);
-            return false;
-        }
-        finally {
-            hideOptimizationOverlay_ACU();
-            hideOptimizationProgressToast_ACU();
-            _set_contentOptimizationAbortRequested_ACU(false);
-        }
-    }
-    /**
-     * 显示重新优化对话框
-     * @param {number} messageIndex - 消息索引
-     * @param {object} result - 优化结果
-     * @param {string} originalContent - 原始内容
-     */
-    function showReoptimizationDialog_ACU(messageIndex, result, originalContent) {
-        const dialogHtml = `
-      <div class="acu-optimization-dialog acu-dialog-classic" style="
-        position: fixed;
-        top: 10px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: var(--acu-bg-0, #24221f);
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
-        border: 1px solid var(--acu-border, #36332e);
-        border-radius: 2px;
-        padding: 20px;
-        max-width: 800px;
-        width: calc(100% - 20px);
-        max-height: calc(90vh - 20px);
-        overflow-y: auto;
-        z-index: 100000;
-        color: var(--acu-text, #c1b9ad);
-        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
-        box-sizing: border-box;
-      ">
-        <h3 style="margin: 0 0 8px 0; color: var(--acu-accent, #7d4940); font-size: 1.1em; letter-spacing: 1px;">🔄 重新优化结果</h3>
-        <p style="margin: 0 0 12px 0; color: var(--acu-text-dim, #8a8075);">${result.summary}</p>
-        <div class="optimization-list" style="margin-bottom: 16px; max-height: 400px; overflow-y: auto;">
-          ${result.optimizations.map((opt, i) => `
-            <div class="optimization-item" style="
-              background: rgba(0, 0, 0, 0.2);
-              border-radius: 1px;
-              padding: 12px;
-              margin-bottom: 8px;
-              border-left: 2px solid var(--acu-border, #36332e);
-            ">
-              <div style="color: var(--acu-text-dim, #8a8075); margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
-                <strong>原文：</strong>${escapeHtml_ACU(opt.original.substring(0, 200))}${opt.original.length > 200 ? '...' : ''}
-              </div>
-              <div style="color: var(--acu-text, #c1b9ad); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(125, 73, 64, 0.1); border-radius: 1px; border-left: 2px solid var(--acu-accent, #7d4940);">
-                <strong>修改方案：</strong>${escapeHtml_ACU(opt.plan || opt.reason || '未说明')}
-              </div>
-              <div style="color: #6a8a6a;">
-                <strong>优化：</strong>${escapeHtml_ACU(opt.optimized.substring(0, 200))}${opt.optimized.length > 200 ? '...' : ''}
-              </div>
-            </div>
-          `).join('')}
-        </div>
-        <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding-bottom: 10px;">
-          <button id="acu-opt-cancel" style="
-            padding: 8px 16px;
-            border: 1px solid var(--acu-border, #36332e);
-            background: transparent;
-            color: var(--acu-text-dim, #8a8075);
-            border-radius: 1px;
-            cursor: pointer;
-            min-width: 80px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">取消</button>
-          <button id="acu-opt-reoptimize" style="
-            padding: 8px 16px;
-            border: 1px solid var(--acu-accent, #7d4940);
-            background: transparent;
-            color: var(--acu-accent, #7d4940);
-            border-radius: 1px;
-            cursor: pointer;
-            min-width: 100px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">🔄 再次优化</button>
-          <button id="acu-opt-apply" style="
-            padding: 8px 16px;
-            border: none;
-            background: var(--acu-accent, #7d4940);
-            color: var(--acu-bg-0, #24221f);
-            border-radius: 1px;
-            cursor: pointer;
-            font-weight: 600;
-            min-width: 100px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">应用优化</button>
-        </div>
-      </div>
-      <div id="acu-opt-backdrop" style="
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0, 0, 0, 0.6);
-        z-index: 99999;
-      "></div>
-    `;
-        jQuery_API_ACU$1('body').append(dialogHtml);
-        // 绑定取消事件
-        jQuery_API_ACU$1('#acu-opt-cancel, #acu-opt-backdrop').on('click', function () {
-            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
-        });
-        // 绑定再次优化事件
-        jQuery_API_ACU$1('#acu-opt-reoptimize').on('click', async function () {
-            jQuery_API_ACU$1(this).prop('disabled', true).text('优化中...');
-            // 关闭当前对话框
-            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
-            // 重新优化（使用原始内容）
-            await reoptimizeMessage_ACU(messageIndex);
-        });
-        // 绑定应用事件
-        jQuery_API_ACU$1('#acu-opt-apply').on('click', async function () {
-            jQuery_API_ACU$1(this).prop('disabled', true).text('应用中...');
-            const success = await replaceChatMessage_ACU(messageIndex, result.optimizedContent, { originalContent: getOriginalContent_ACU(messageIndex) || originalContent });
-            if (success) {
-                jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
-                showToastr_ACU('success', '优化已应用');
-            }
-            else {
-                jQuery_API_ACU$1(this).prop('disabled', false).text('应用优化');
-                showToastr_ACU('error', '应用失败');
-            }
-        });
-    }
-    /**
-     * 执行正文优化流程（在GENERATION_ENDED后调用）
-     * @param {number} messageIndex - AI消息索引
-     * @returns {Promise<boolean>} 是否成功
-     */
-    async function executeContentOptimization_ACU(messageIndex) {
-        const config = settings_ACU.contentOptimizationSettings || {};
-        _set_contentOptimizationAbortRequested_ACU(false);
-        // 检查是否启用
-        if (!config.enabled) {
-            return false;
-        }
-        const chat = SillyTavern_API_ACU.chat;
-        if (!chat || !chat[messageIndex]) {
-            return false;
-        }
-        const message = chat[messageIndex];
-        // 跳过用户消息
-        if (message.is_user) {
-            return false;
-        }
-        let content = message.mes || '';
-        setLastOptimizationBase_ACU({
-            messageIndex,
-            messageId: message.message_id,
-            baseContent: content
-        });
-        // [新增] 获取用户消息（用于$8占位符）
-        let userMessage = '';
-        for (let i = messageIndex - 1; i >= 0; i--) {
-            if (chat[i] && chat[i].is_user) {
-                userMessage = chat[i].mes || '';
-                break;
-            }
-        }
-        const extractTags = (config.extractTags || '').trim();
-        const extractRules = config.extractRules || [];
-        const excludeTags = (config.excludeTags || '').trim();
-        const excludeRules = config.excludeRules || [];
-        let processedContent = applyContextTagFilters_ACU(content, {
-            extractTags,
-            extractRules,
-            excludeTags,
-            excludeRules
-        });
-        const minLength = config.minLength || 100;
-        if (processedContent.length < minLength) {
-            logDebug_ACU(`[正文优化] 处理后正文长度 ${processedContent.length} 小于最小阈值 ${minLength}，跳过优化`);
-            return false;
-        }
-        const loopCount = config.loopCount || 1;
-        logDebug_ACU(`[正文优化] 开始优化消息 ${messageIndex}，原始长度 ${content.length}，处理后长度 ${processedContent.length}，循环次数: ${loopCount}`);
-        if (config.seamlessMode) {
-            showOptimizationOverlay_ACU(loopCount > 1 ? `正在优化正文 (1/${loopCount})...` : '正在优化正文...');
-        }
-        else {
-            showOptimizationProgressToast_ACU(loopCount > 1 ? `正在进行正文优化 (1/${loopCount})...` : '正在进行正文优化...');
-        }
-        try {
-            ensureOptimizationNotCancelled_ACU();
-            if (config.autoApply || config.seamlessMode) {
-                let currentContent = content;
-                let totalOptimizations = [];
-                let finalOptimizedContent = content;
-                for (let loop = 1; loop <= loopCount; loop++) {
-                    ensureOptimizationNotCancelled_ACU();
-                    logDebug_ACU(`[正文优化] 执行第 ${loop}/${loopCount} 轮优化`);
-                    if (config.seamlessMode && loopCount > 1) {
-                        showOptimizationOverlay_ACU(`正在优化正文 (${loop}/${loopCount})...`);
-                    }
-                    else if (!config.seamlessMode) {
-                        showOptimizationProgressToast_ACU(`正在进行正文优化 (${loop}/${loopCount})...`);
-                    }
-                    const result = await performContentOptimization_ACU(currentContent, {
-                        currentLoop: loop,
-                        userMessage: userMessage
-                    });
-                    ensureOptimizationNotCancelled_ACU();
-                    if (!result.success) {
-                        logDebug_ACU(`[正文优化] 第 ${loop} 轮优化失败:`, result.error);
-                        if (loop === 1) {
-                            if (config.seamlessMode) {
-                                hideOptimizationOverlay_ACU();
-                            }
-                            else {
-                                hideOptimizationProgressToast_ACU();
-                            }
-                            return false;
-                        }
-                        break;
-                    }
-                    if (!result.optimizations || result.optimizations.length === 0) {
-                        logDebug_ACU(`[正文优化] 第 ${loop} 轮无需优化，原文已足够好`);
-                        if (loop === 1) {
-                            if (config.seamlessMode) {
-                                hideOptimizationOverlay_ACU();
-                            }
-                            else {
-                                hideOptimizationProgressToast_ACU();
-                            }
-                            return true;
-                        }
-                        break;
-                    }
-                    totalOptimizations = totalOptimizations.concat(result.optimizations);
-                    finalOptimizedContent = result.optimizedContent;
-                    currentContent = result.optimizedContent;
-                    logDebug_ACU(`[正文优化] 第 ${loop} 轮完成，本轮 ${result.optimizations.length} 个优化项，累计 ${totalOptimizations.length} 个`);
-                }
-                if (totalOptimizations.length === 0) {
-                    logDebug_ACU('[正文优化] 所有轮次均无需优化');
-                    if (config.seamlessMode) {
-                        hideOptimizationOverlay_ACU();
-                    }
-                    else {
-                        hideOptimizationProgressToast_ACU();
-                    }
-                    return true;
-                }
-                await replaceChatMessage_ACU(messageIndex, finalOptimizedContent);
-                if (config.seamlessMode) {
-                    hideOptimizationOverlay_ACU();
-                }
-                else {
-                    hideOptimizationProgressToast_ACU();
-                }
-                if (config.showDiff && !config.seamlessMode) {
-                    showOptimizationDiff_ACU(messageIndex, {
-                        optimizations: totalOptimizations,
-                        summary: `共 ${loopCount} 轮优化，累计 ${totalOptimizations.length} 处改进`,
-                        optimizedContent: finalOptimizedContent
-                    });
-                }
-                else {
-                    showToastr_ACU('success', `正文优化完成，共 ${loopCount} 轮优化，累计 ${totalOptimizations.length} 处改进`);
-                }
-                return true;
-            }
-            else {
-                hideOptimizationProgressToast_ACU();
-                return await executeContentOptimizationWithConfirm_ACU(messageIndex, content, userMessage, loopCount);
-            }
-        }
-        catch (error) {
-            if (contentOptimizationAbortRequested_ACU || error?.message === '用户终止正文优化') {
-                logDebug_ACU('[正文优化] 用户已取消正文优化');
-                return false;
-            }
-            logError_ACU('[正文优化] 执行出错:', error);
-            if (config.seamlessMode) {
-                hideOptimizationOverlay_ACU();
-            }
-            else {
-                hideOptimizationProgressToast_ACU();
-            }
-            return false;
-        }
-        finally {
-            hideOptimizationOverlay_ACU();
-            hideOptimizationProgressToast_ACU();
-            _set_contentOptimizationAbortRequested_ACU(false);
-        }
-    }
-    /**
-     * 执行正文优化（手动确认模式，逐轮确认）
-     * @param {number} messageIndex - 消息索引
-     * @param {string} content - 原始内容
-     * @param {string} userMessage - 用户消息
-     * @param {number} totalLoops - 总循环次数
-     * @param {number} currentLoop - 当前循环次数（内部使用）
-     * @param {string} currentContent - 当前内容（内部使用）
-     * @param {Array} totalOptimizations - 累计优化项（内部使用）
-     * @returns {Promise<boolean>} 是否成功
-     */
-    async function executeContentOptimizationWithConfirm_ACU(messageIndex, content, userMessage, totalLoops, currentLoop = 1, currentContent = null, totalOptimizations = []) {
-        // 使用传入的当前内容，或者原始内容
-        let workingContent = currentContent !== null ? currentContent : content;
-        logDebug_ACU(`[正文优化-手动确认] 执行第 ${currentLoop}/${totalLoops} 轮优化`);
-        // 执行优化
-        const result = await performContentOptimization_ACU(workingContent, {
-            currentLoop: currentLoop,
-            userMessage: userMessage
-        });
-        if (!result.success) {
-            logDebug_ACU(`[正文优化-手动确认] 第 ${currentLoop} 轮优化失败:`, result.error);
-            // 如果是第一轮就失败，显示错误
-            if (currentLoop === 1) {
-                showToastr_ACU('error', `正文优化失败: ${result.error}`);
-                return false;
-            }
-            // 如果是后续轮次失败，使用之前的结果触发填表
-            await triggerAutomaticUpdateIfNeeded_ACU();
-            return true;
-        }
-        // 检查是否有实际优化
-        if (!result.optimizations || result.optimizations.length === 0) {
-            logDebug_ACU(`[正文优化-手动确认] 第 ${currentLoop} 轮无需优化，原文已足够好`);
-            // 如果没有优化项，检查是否还有下一轮
-            if (currentLoop < totalLoops) {
-                // 继续下一轮（使用当前内容）
-                return await executeContentOptimizationWithConfirm_ACU(messageIndex, content, userMessage, totalLoops, currentLoop + 1, workingContent, totalOptimizations);
-            }
-            else {
-                // 所有轮次完成，触发填表
-                if (totalOptimizations.length > 0) {
-                    showToastr_ACU('success', `正文优化完成，共 ${totalLoops} 轮优化，累计 ${totalOptimizations.length} 处改进`);
-                }
-                else {
-                    showToastr_ACU('info', '正文无需优化');
-                }
-                await triggerAutomaticUpdateIfNeeded_ACU();
-                return true;
-            }
-        }
-        // 累积优化项
-        const newTotalOptimizations = totalOptimizations.concat(result.optimizations);
-        // 显示对比对话框
-        return new Promise((resolve) => {
-            showOptimizationDiffDialogForLoop_ACU(messageIndex, {
-                optimizations: result.optimizations,
-                summary: `第 ${currentLoop}/${totalLoops} 轮优化，本轮 ${result.optimizations.length} 处改进`,
-                optimizedContent: result.optimizedContent,
-                currentLoop: currentLoop,
-                totalLoops: totalLoops,
-                totalOptimizations: newTotalOptimizations
-            }, async (action) => {
-                if (action === 'apply') {
-                    // 用户确认应用
-                    if (currentLoop < totalLoops) {
-                        // 还有下一轮，继续优化
-                        const nextResult = await executeContentOptimizationWithConfirm_ACU(messageIndex, content, userMessage, totalLoops, currentLoop + 1, result.optimizedContent, newTotalOptimizations);
-                        resolve(nextResult);
-                    }
-                    else {
-                        // 所有轮次完成，应用最终结果并触发填表
-                        await replaceChatMessage_ACU(messageIndex, result.optimizedContent);
-                        showToastr_ACU('success', `正文优化完成，共 ${totalLoops} 轮优化，累计 ${newTotalOptimizations.length} 处改进`);
-                        await triggerAutomaticUpdateIfNeeded_ACU();
-                        resolve(true);
-                    }
-                }
-                else if (action === 'skip') {
-                    // 用户跳过本轮，但继续下一轮
-                    if (currentLoop < totalLoops) {
-                        const nextResult = await executeContentOptimizationWithConfirm_ACU(messageIndex, content, userMessage, totalLoops, currentLoop + 1, workingContent, // 使用未优化的内容
-                        totalOptimizations // 不累积本轮优化项
-                        );
-                        resolve(nextResult);
-                    }
-                    else {
-                        // 最后一轮跳过
-                        if (totalOptimizations.length > 0) {
-                            // 如果有之前的优化，应用之前的结果
-                            // 注意：这里需要应用之前累积的优化内容
-                            await triggerAutomaticUpdateIfNeeded_ACU();
-                            showToastr_ACU('success', `正文优化完成，共 ${totalLoops} 轮优化，累计 ${totalOptimizations.length} 处改进`);
-                        }
-                        else {
-                            showToastr_ACU('info', '正文优化已跳过');
-                        }
-                        await triggerAutomaticUpdateIfNeeded_ACU();
-                        resolve(true);
-                    }
-                }
-                else {
-                    // 用户取消，结束优化流程
-                    await triggerAutomaticUpdateIfNeeded_ACU();
-                    resolve(true);
-                }
-            });
-        });
-    }
-    /**
-     * 显示优化对比对话框（支持循环优化）
-     */
-    function showOptimizationDiffDialogForLoop_ACU(messageIndex, result, callback) {
-        const isLastLoop = result.currentLoop >= result.totalLoops;
-        const applyButtonText = isLastLoop ? '应用并完成' : '应用并继续';
-        const originalContent = getOriginalContent_ACU(messageIndex) || result.optimizedContent;
-        const dialogHtml = `
-      <div class="acu-optimization-dialog acu-dialog-classic" style="
-        position: fixed;
-        top: 10px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: var(--acu-bg-0, #24221f);
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
-        border: 1px solid var(--acu-border, #36332e);
-        border-radius: 2px;
-        padding: 20px;
-        max-width: 800px;
-        width: calc(100% - 20px);
-        max-height: calc(90vh - 20px);
-        overflow-y: auto;
-        z-index: 100000;
-        color: var(--acu-text, #c1b9ad);
-        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
-        box-sizing: border-box;
-      ">
-        <h3 style="margin: 0 0 8px 0; color: var(--acu-accent, #7d4940); font-size: 1.1em; letter-spacing: 1px;">正文替换建议</h3>
-        <p style="margin: 0 0 12px 0; color: var(--acu-text-dim, #8a8075);">${result.summary}</p>
-        ${result.totalLoops > 1 ? `<p style="margin: 0 0 12px 0; color: var(--acu-text-mute, #6a6055); font-size: 12px;">进度: 第 ${result.currentLoop}/${result.totalLoops} 轮</p>` : ''}
-        <div class="optimization-list" style="margin-bottom: 16px; max-height: 400px; overflow-y: auto;">
-          ${result.optimizations.map((opt, i) => `
-            <div class="optimization-item" style="
-              background: rgba(0, 0, 0, 0.2);
-              border-radius: 1px;
-              padding: 12px;
-              margin-bottom: 8px;
-              border-left: 2px solid var(--acu-border, #36332e);
-            ">
-              <div style="color: var(--acu-text-dim, #8a8075); margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
-                <strong>原文：</strong>${escapeHtml_ACU(opt.original.substring(0, 200))}${opt.original.length > 200 ? '...' : ''}
-              </div>
-              <div style="color: var(--acu-text, #c1b9ad); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(125, 73, 64, 0.1); border-radius: 1px; border-left: 2px solid var(--acu-accent, #7d4940);">
-                <strong>修改方案：</strong>${escapeHtml_ACU(opt.plan || opt.reason || '未说明')}
-              </div>
-              <div style="color: #6a8a6a;">
-                <strong>优化：</strong>${escapeHtml_ACU(opt.optimized.substring(0, 200))}${opt.optimized.length > 200 ? '...' : ''}
-              </div>
-            </div>
-          `).join('')}
-        </div>
-        <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding-bottom: 10px;">
-          <button id="acu-opt-cancel" style="
-            padding: 8px 16px;
-            border: 1px solid var(--acu-border, #36332e);
-            background: transparent;
-            color: var(--acu-text-dim, #8a8075);
-            border-radius: 1px;
-            cursor: pointer;
-            min-width: 80px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">取消优化</button>
-          ${!isLastLoop ? `
-          <button id="acu-opt-skip" style="
-            padding: 8px 16px;
-            border: 1px solid var(--acu-border, #36332e);
-            background: transparent;
-            color: var(--acu-text-dim, #8a8075);
-            border-radius: 1px;
-            cursor: pointer;
-            min-width: 80px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">跳过本轮</button>
-          ` : ''}
-          <button id="acu-opt-reoptimize" style="
-            padding: 8px 16px;
-            border: 1px solid var(--acu-accent, #7d4940);
-            background: transparent;
-            color: var(--acu-accent, #7d4940);
-            border-radius: 1px;
-            cursor: pointer;
-            min-width: 100px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">🔄 重新优化</button>
-          <button id="acu-opt-apply" style="
-            padding: 8px 16px;
-            border: none;
-            background: var(--acu-accent, #7d4940);
-            color: var(--acu-bg-0, #24221f);
-            border-radius: 1px;
-            cursor: pointer;
-            font-weight: 600;
-            min-width: 100px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">${applyButtonText}</button>
-        </div>
-      </div>
-      <div id="acu-opt-backdrop" style="
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0, 0, 0, 0.6);
-        z-index: 99999;
-      "></div>
-    `;
-        jQuery_API_ACU$1('body').append(dialogHtml);
-        // 绑定取消事件
-        jQuery_API_ACU$1('#acu-opt-cancel, #acu-opt-backdrop').on('click', function () {
-            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
-            callback('cancel');
-        });
-        // 绑定跳过事件（仅非最后一轮显示）
-        jQuery_API_ACU$1('#acu-opt-skip').on('click', function () {
-            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
-            callback('skip');
-        });
-        // 绑定重新优化事件
-        jQuery_API_ACU$1('#acu-opt-reoptimize').on('click', async function () {
-            jQuery_API_ACU$1(this).prop('disabled', true).text('优化中...');
-            // 关闭当前对话框
-            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
-            // 获取原始内容并重新优化
-            const originalContent = getOriginalContent_ACU(messageIndex) || result.optimizedContent;
-            logDebug_ACU(`[正文优化] 用户点击重新优化，messageIndex=${messageIndex}`);
-            // 重新优化
-            await reoptimizeMessage_ACU(messageIndex);
-            // 触发回调，结束当前优化流程
-            callback('cancel');
-        });
-        // 绑定应用事件
-        jQuery_API_ACU$1('#acu-opt-apply').on('click', async function () {
-            jQuery_API_ACU$1(this).prop('disabled', true).text('处理中...');
-            logDebug_ACU(`[正文优化] 用户点击应用，isLastLoop=${isLastLoop}, messageIndex=${messageIndex}`);
-            logDebug_ACU(`[正文优化] optimizedContent长度: ${result.optimizedContent?.length || 0}`);
-            // 如果是最后一轮，先应用优化
-            if (isLastLoop) {
-                logDebug_ACU(`[正文优化] 准备调用 replaceChatMessage_ACU...`);
-                const success = await replaceChatMessage_ACU(messageIndex, result.optimizedContent, { originalContent: getOriginalContent_ACU(messageIndex) || originalContent });
-                logDebug_ACU(`[正文优化] replaceChatMessage_ACU 返回: ${success}`);
-                if (!success) {
-                    jQuery_API_ACU$1(this).prop('disabled', false).text(applyButtonText);
-                    showToastr_ACU('error', '应用失败');
-                    return;
-                }
-            }
-            else {
-                logDebug_ACU(`[正文优化] 非最后一轮，跳过应用，直接回调`);
-            }
-            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
-            callback('apply');
-        });
-    }
-    /**
-     * 显示优化对比对话框
-     */
-    function showOptimizationDiffDialog_ACU(messageIndex, result) {
-        const originalContent = getOriginalContent_ACU(messageIndex) || result.optimizedContent;
-        const dialogHtml = `
-      <div class="acu-optimization-dialog acu-dialog-classic" style="
-        position: fixed;
-        top: 10px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: var(--acu-bg-0, #24221f);
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
-        border: 1px solid var(--acu-border, #36332e);
-        border-radius: 2px;
-        padding: 20px;
-        max-width: 800px;
-        width: calc(100% - 20px);
-        max-height: calc(90vh - 20px);
-        overflow-y: auto;
-        z-index: 100000;
-        color: var(--acu-text, #c1b9ad);
-        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
-        box-sizing: border-box;
-      ">
-        <h3 style="margin: 0 0 16px 0; color: var(--acu-accent, #7d4940); font-size: 1.1em; letter-spacing: 1px;">正文替换建议</h3>
-        <p style="margin: 0 0 12px 0; color: var(--acu-text-dim, #8a8075);">${result.summary || `共 ${result.optimizations.length} 处替换建议`}</p>
-        <div class="optimization-list" style="margin-bottom: 16px;">
-          ${result.optimizations.map((opt, i) => `
-            <div class="optimization-item" style="
-              background: rgba(0, 0, 0, 0.2);
-              border-radius: 1px;
-              padding: 12px;
-              margin-bottom: 8px;
-              border-left: 2px solid var(--acu-border, #36332e);
-            ">
-              <div style="color: var(--acu-text-dim, #8a8075); margin-bottom: 8px; text-decoration: line-through; opacity: 0.7;">
-                <strong>原文：</strong>${escapeHtml_ACU(opt.original.substring(0, 200))}${opt.original.length > 200 ? '...' : ''}
-              </div>
-              <div style="color: var(--acu-text, #c1b9ad); font-size: 12px; margin-bottom: 8px; padding: 8px; background: rgba(125, 73, 64, 0.1); border-radius: 1px; border-left: 2px solid var(--acu-accent, #7d4940);">
-                <strong>修改方案：</strong>${escapeHtml_ACU(opt.plan || opt.reason || '未说明')}
-              </div>
-              <div style="color: #6a8a6a;">
-                <strong>优化：</strong>${escapeHtml_ACU(opt.optimized.substring(0, 200))}${opt.optimized.length > 200 ? '...' : ''}
-              </div>
-            </div>
-          `).join('')}
-        </div>
-        <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding-bottom: 10px;">
-          <button id="acu-opt-cancel" style="
-            padding: 8px 16px;
-            border: 1px solid var(--acu-border, #36332e);
-            background: transparent;
-            color: var(--acu-text-dim, #8a8075);
-            border-radius: 1px;
-            cursor: pointer;
-            min-width: 80px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">取消</button>
-          <button id="acu-opt-reoptimize" style="
-            padding: 8px 16px;
-            border: 1px solid var(--acu-accent, #7d4940);
-            background: transparent;
-            color: var(--acu-accent, #7d4940);
-            border-radius: 1px;
-            cursor: pointer;
-            min-width: 100px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">🔄 重新优化</button>
-          <button id="acu-opt-apply" style="
-            padding: 8px 16px;
-            border: none;
-            background: var(--acu-accent, #7d4940);
-            color: var(--acu-bg-0, #24221f);
-            border-radius: 1px;
-            cursor: pointer;
-            font-weight: 600;
-            min-width: 100px;
-            flex-shrink: 0;
-            font-family: inherit;
-          ">应用优化</button>
-        </div>
-      </div>
-      <div id="acu-opt-backdrop" style="
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0, 0, 0, 0.6);
-        z-index: 99999;
-      "></div>
-    `;
-        jQuery_API_ACU$1('body').append(dialogHtml);
-        // 绑定事件
-        jQuery_API_ACU$1('#acu-opt-cancel, #acu-opt-backdrop').on('click', function () {
-            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
-        });
-        // 绑定重新优化事件
-        jQuery_API_ACU$1('#acu-opt-reoptimize').on('click', async function () {
-            jQuery_API_ACU$1(this).prop('disabled', true).text('优化中...');
-            // 关闭当前对话框
-            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
-            logDebug_ACU(`[正文优化] 用户点击重新优化，messageIndex=${messageIndex}`);
-            // 重新优化
-            await reoptimizeMessage_ACU(messageIndex);
-        });
-        jQuery_API_ACU$1('#acu-opt-apply').on('click', async function () {
-            jQuery_API_ACU$1(this).prop('disabled', true).text('应用中...');
-            const success = await replaceChatMessage_ACU(messageIndex, result.optimizedContent, { originalContent: getOriginalContent_ACU(messageIndex) || originalContent });
-            if (success) {
-                jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
-                showToastr_ACU('success', '优化已应用');
-                // [新增] 手动确认模式下，应用优化后触发填表
-                logDebug_ACU('[正文优化] 手动确认模式：应用优化后触发填表...');
-                await triggerAutomaticUpdateIfNeeded_ACU();
-            }
-            else {
-                jQuery_API_ACU$1(this).prop('disabled', false).text('应用优化');
-                showToastr_ACU('error', '应用失败');
-            }
-        });
-        // [新增] 取消时也触发填表（使用原文）
-        jQuery_API_ACU$1('#acu-opt-cancel').on('click', async function () {
-            jQuery_API_ACU$1('.acu-optimization-dialog, #acu-opt-backdrop').remove();
-            logDebug_ACU('[正文优化] 手动确认模式：用户取消优化，触发填表...');
-            await triggerAutomaticUpdateIfNeeded_ACU();
-        });
-    }
-    /**
-     * 显示优化结果摘要
-     */
-    function showOptimizationDiff_ACU(messageIndex, result) {
-        const message = `正文替换完成，共 ${result.optimizations.length} 处改进`;
-        const reoptButtonHtml = `<button id="acu-opt-toast-reoptimize" style="border: 1px solid var(--acu-accent, #7d4940); color: var(--acu-accent, #7d4940); background: transparent; padding: 5px 10px; border-radius: 1px; cursor: pointer; float: right; margin-left: 15px; font-size: 0.85em; font-family: inherit;" onmouseover="this.style.backgroundColor='var(--acu-accent, #7d4940); color: var(--acu-bg-0, #24221f);'" onmouseout="this.style.backgroundColor='transparent'; this.style.color='var(--acu-accent, #7d4940);'">🔄 重新优化</button>`;
-        const html = result.summary
-            ? `<div>${message}${reoptButtonHtml}<br><small style="opacity:0.7">${result.summary}</small></div>`
-            : `<div>${message}${reoptButtonHtml}</div>`;
-        const toast = showToastr_ACU('success', html, {
-            timeOut: 10000,
-            extendedTimeOut: 3000,
-            tapToDismiss: false,
-            onShown: function () {
-                jQuery_API_ACU$1('#acu-opt-toast-reoptimize').off('click.acu_reopt').on('click.acu_reopt', async function (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    jQuery_API_ACU$1(this).prop('disabled', true).text('优化中...');
-                    if (toast && toastr_API_ACU$1)
-                        toastr_API_ACU$1.clear(toast);
-                    await reoptimizeMessage_ACU(messageIndex);
-                });
-            }
-        });
-    }
-    /**
-     * HTML转义
-     */
-    // --- [剧情推进] 循环提示词兼容性处理：将旧字符串格式转换为数组格式 ---
-    function ensureLoopPromptsArray_ACU(plotSettings) {
-        if (!plotSettings || !plotSettings.loopSettings)
-            return;
-        const ls = plotSettings.loopSettings;
-        // 如果 quickReplyContent 是字符串，转换为数组
-        if (typeof ls.quickReplyContent === 'string') {
-            const oldContent = ls.quickReplyContent.trim();
-            ls.quickReplyContent = oldContent ? [oldContent] : [];
-            ls.currentPromptIndex = 0;
-            logDebug_ACU('[剧情推进] 已迁移旧版循环提示词格式（字符串 -> 数组）');
-        }
-        // 确保是数组
-        if (!Array.isArray(ls.quickReplyContent)) {
-            ls.quickReplyContent = [];
-        }
-        // 确保 currentPromptIndex 存在且有效
-        if (typeof ls.currentPromptIndex !== 'number' || ls.currentPromptIndex < 0) {
-            ls.currentPromptIndex = 0;
-        }
-        // 确保索引不超出范围
-        if (ls.quickReplyContent.length > 0 && ls.currentPromptIndex >= ls.quickReplyContent.length) {
-            ls.currentPromptIndex = 0;
-        }
-    }
-    // --- [剧情推进/填表] 标签规则兼容：旧字符串字段 -> 新规则数组 ---
-    function ensureTagRulesCompat_ACU(targetSettings) {
-        if (!targetSettings || typeof targetSettings !== 'object')
-            return;
-        targetSettings.tableContextExtractRules = normalizeExtractRules_ACU(targetSettings.tableContextExtractRules, targetSettings.tableContextExtractTags || '');
-        targetSettings.tableContextExcludeRules = normalizeExcludeRules_ACU(targetSettings.tableContextExcludeRules, targetSettings.tableContextExcludeTags || '');
-        const plot = targetSettings.plotSettings;
-        if (!plot || typeof plot !== 'object')
-            return;
-        plot.contextExtractRules = normalizeExtractRules_ACU(plot.contextExtractRules, plot.contextExtractTags || '');
-        plot.contextExcludeRules = normalizeExcludeRules_ACU(plot.contextExcludeRules, plot.contextExcludeTags || '');
-        // 若当前配置为空，回填默认配置中的规则，确保 UI 可见默认规则
-        if ((!Array.isArray(plot.contextExtractRules) || plot.contextExtractRules.length === 0)
-            && (plot.contextExtractTags || '').trim() === '') {
-            plot.contextExtractRules = normalizeExtractRules_ACU(DEFAULT_PLOT_SETTINGS_ACU.contextExtractRules, DEFAULT_PLOT_SETTINGS_ACU.contextExtractTags || '');
-        }
-        if ((!Array.isArray(plot.contextExcludeRules) || plot.contextExcludeRules.length === 0)
-            && (plot.contextExcludeTags || '').trim() === '') {
-            plot.contextExcludeRules = normalizeExcludeRules_ACU(DEFAULT_PLOT_SETTINGS_ACU.contextExcludeRules, DEFAULT_PLOT_SETTINGS_ACU.contextExcludeTags || '');
-        }
-        ensurePlotTasksCompat_ACU(plot);
-        if (Array.isArray(plot.promptPresets)) {
-            plot.promptPresets = plot.promptPresets.map(preset => normalizePlotPresetExcludeRules_ACU(preset));
-        }
-    }
-    function getLegacyPromptFromThree_ACU(prompts, id) {
-        if (!prompts)
-            return '';
-        if (Array.isArray(prompts))
-            return (prompts.find(item => item && item.id === id)?.content) || '';
-        if (typeof prompts === 'object')
-            return prompts[id] || '';
-        return '';
-    }
-    function looksLikePromptGroupSegments_ACU(arr) {
-        if (!Array.isArray(arr) || arr.length === 0)
-            return false;
-        const first = arr[0];
-        return first && typeof first === 'object' && 'role' in first && 'content' in first && !('id' in first);
-    }
-    function getMainSlotFromPlotSegment_ACU(segment) {
-        if (!segment)
-            return '';
-        const slot = String(segment.mainSlot || '').toUpperCase();
-        if (slot === 'A' || slot === 'B')
-            return slot;
-        if (segment.isMain)
-            return 'A';
-        if (segment.isMain2)
-            return 'B';
-        return '';
-    }
-    function getLegacyPromptTextsFromPromptGroup_ACU(promptGroup) {
-        const segments = Array.isArray(promptGroup) ? promptGroup : [];
-        return {
-            mainPrompt: (segments.find(segment => getMainSlotFromPlotSegment_ACU(segment) === 'A')?.content) || '',
-            systemPrompt: (segments.find(segment => getMainSlotFromPlotSegment_ACU(segment) === 'B')?.content) || '',
-        };
-    }
-    function getPlotPromptGroupFromSource_ACU(source, { fallbackPromptGroup = null } = {}) {
-        if (Array.isArray(source?.promptGroup) && source.promptGroup.length > 0) {
-            return JSON.parse(JSON.stringify(source.promptGroup));
-        }
-        if (looksLikePromptGroupSegments_ACU(source?.prompts)) {
-            return JSON.parse(JSON.stringify(source.prompts));
-        }
-        const fallbackTexts = getLegacyPromptTextsFromPromptGroup_ACU(fallbackPromptGroup);
-        const legacyMain = source?.mainPrompt || getLegacyPromptFromThree_ACU(source?.prompts, 'mainPrompt') || fallbackTexts.mainPrompt || '';
-        const legacySystem = source?.systemPrompt || getLegacyPromptFromThree_ACU(source?.prompts, 'systemPrompt') || fallbackTexts.systemPrompt || '';
-        return buildDefaultPlotPromptGroup_ACU({ mainAContent: legacyMain, mainBContent: legacySystem });
-    }
-    function getPlotFinalDirectiveFromSource_ACU(source) {
-        if (!source || typeof source !== 'object')
-            return '';
-        return source.finalSystemDirective
-            || source.finalDirective
-            || getPlotPromptContentByIdFromSettings_ACU(source, 'finalSystemDirective')
-            || getLegacyPromptFromThree_ACU(source.prompts, 'finalSystemDirective')
-            || '';
-    }
-    function normalizePlotTask_ACU(task, { index = 0, fallbackTask = null } = {}) {
-        const cloned = task && typeof task === 'object' ? JSON.parse(JSON.stringify(task)) : {};
-        const fallback = fallbackTask && typeof fallbackTask === 'object' ? fallbackTask : null;
-        const defaultId = `plotTask${index + 1}`;
-        const rawId = String(cloned.id || cloned.name || fallback?.id || defaultId).trim();
-        const taskId = rawId.replace(/[^\w-]+/g, '_') || defaultId;
-        const taskName = String(cloned.name || fallback?.name || `剧情任务${index + 1}`).trim() || `剧情任务${index + 1}`;
-        const promptGroup = getPlotPromptGroupFromSource_ACU(cloned, { fallbackPromptGroup: fallback?.promptGroup || null });
-        return {
-            id: taskId,
-            name: taskName,
-            enabled: cloned.enabled !== false,
-            promptGroup,
-            extractTags: typeof cloned.extractTags === 'string' ? cloned.extractTags : (fallback?.extractTags || ''),
-            finalDirectiveTemplate: typeof cloned.finalDirectiveTemplate === 'string' ? cloned.finalDirectiveTemplate : (fallback?.finalDirectiveTemplate || ''),
-            minLength: normalizeNonNegativeInteger_ACU(cloned.minLength, fallback?.minLength ?? 0),
-            maxRetries: normalizePositiveInteger_ACU(cloned.maxRetries ?? cloned.loopSettings?.maxRetries, fallback?.maxRetries ?? DEFAULT_PLOT_SETTINGS_ACU.loopSettings?.maxRetries ?? 3),
-            mergeStrategy: typeof cloned.mergeStrategy === 'string' && cloned.mergeStrategy.trim()
-                ? cloned.mergeStrategy.trim()
-                : (fallback?.mergeStrategy || 'append'),
-            stage: normalizePositiveInteger_ACU(cloned.stage, fallback?.stage ?? 1),
-            order: normalizeNonNegativeInteger_ACU(cloned.order, fallback?.order ?? index),
-        };
-    }
-    function buildLegacyWrappedPlotTask_ACU(source, { taskId = 'defaultPlotTask', taskName = '默认任务', order = 0 } = {}) {
-        return normalizePlotTask_ACU({
-            id: taskId,
-            name: taskName,
-            enabled: true,
-            promptGroup: getPlotPromptGroupFromSource_ACU(source),
-            extractTags: typeof source?.extractTags === 'string' ? source.extractTags : '',
-            minLength: source?.minLength,
-            maxRetries: source?.loopSettings?.maxRetries,
-            mergeStrategy: 'append',
-            stage: 1,
-            order,
-        }, { index: order });
-    }
-    function normalizePlotTasks_ACU(source, { fallbackTaskId = 'defaultPlotTask', fallbackTaskName = '默认任务' } = {}) {
-        const baseSource = source && typeof source === 'object' ? source : {};
-        const fallbackTask = buildLegacyWrappedPlotTask_ACU(baseSource, {
-            taskId: fallbackTaskId,
-            taskName: fallbackTaskName,
-            order: 0,
-        });
-        const rawTasks = Array.isArray(baseSource.plotTasks) && baseSource.plotTasks.length > 0
-            ? baseSource.plotTasks
-            : [fallbackTask];
-        return rawTasks
-            .map((task, index) => normalizePlotTask_ACU(task, {
-            index,
-            fallbackTask: { ...fallbackTask, order: index },
-        }))
-            .sort((a, b) => a.order - b.order);
-    }
-    function syncLegacyPlotSettingsFromTask_ACU(plotSettings, task) {
-        if (!plotSettings || !task)
-            return;
-        ensurePlotPromptsArray_ACU(plotSettings);
-        const normalizedPromptGroup = getPlotPromptGroupFromSource_ACU(task);
-        plotSettings.promptGroup = JSON.parse(JSON.stringify(normalizedPromptGroup));
-        plotSettings.extractTags = typeof task.extractTags === 'string' ? task.extractTags : '';
-        plotSettings.minLength = normalizeNonNegativeInteger_ACU(task.minLength, 0);
-        const legacyPromptTexts = getLegacyPromptTextsFromPromptGroup_ACU(normalizedPromptGroup);
-        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'mainPrompt', legacyPromptTexts.mainPrompt || '');
-        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'systemPrompt', legacyPromptTexts.systemPrompt || '');
-    }
-    function syncPrimaryPlotTaskFromLegacySettings_ACU(plotSettings) {
-        if (!plotSettings || typeof plotSettings !== 'object')
-            return;
-        ensurePlotPromptGroup_ACU(plotSettings);
-        ensurePlotPromptsArray_ACU(plotSettings);
-        const legacyPromptTexts = getLegacyPromptTextsFromPromptGroup_ACU(plotSettings.promptGroup || []);
-        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'mainPrompt', legacyPromptTexts.mainPrompt || '');
-        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'systemPrompt', legacyPromptTexts.systemPrompt || '');
-        const normalizedTasks = normalizePlotTasks_ACU(plotSettings);
-        const primaryTaskIndex = normalizedTasks.findIndex(task => task && task.enabled !== false);
-        const targetIndex = primaryTaskIndex >= 0 ? primaryTaskIndex : 0;
-        const currentTask = normalizedTasks[targetIndex] || buildLegacyWrappedPlotTask_ACU(plotSettings, { order: targetIndex });
-        normalizedTasks[targetIndex] = normalizePlotTask_ACU({
-            ...currentTask,
-            promptGroup: JSON.parse(JSON.stringify(plotSettings.promptGroup || [])),
-            extractTags: plotSettings.extractTags,
-            minLength: plotSettings.minLength,
-            maxRetries: plotSettings.loopSettings?.maxRetries,
-            order: currentTask.order ?? targetIndex,
-        }, {
-            index: targetIndex,
-            fallbackTask: currentTask,
-        });
-        plotSettings.plotTasks = normalizedTasks;
-    }
-    function ensurePlotTasksCompat_ACU(plotSettings, { persist = false, syncLegacy = true } = {}) {
-        if (!plotSettings || typeof plotSettings !== 'object')
-            return;
-        const normalizedTasks = normalizePlotTasks_ACU(plotSettings);
-        plotSettings.plotTasks = normalizedTasks;
-        if (syncLegacy && normalizedTasks.length > 0) {
-            const primaryTask = normalizedTasks.find(task => task && task.enabled !== false) || normalizedTasks[0];
-            syncLegacyPlotSettingsFromTask_ACU(plotSettings, primaryTask);
-        }
-        if (persist) {
-            try {
-                saveSettings_ACU();
-            }
-            catch (e) { }
-        }
-    }
-    function applyPlotPresetToSettings_ACU(plotSettings, preset) {
-        if (!plotSettings || !preset) {
-            return { normalizedPreset: null, promptGroup: [], finalDirective: '' };
-        }
-        const normalizedPreset = normalizePlotPresetExcludeRules_ACU(preset);
-        const finalDirective = getPlotFinalDirectiveFromSource_ACU(normalizedPreset);
-        ensurePlotPromptsArray_ACU(plotSettings);
-        ensureLoopPromptsArray_ACU(plotSettings);
-        plotSettings.plotTasks = normalizePlotTasks_ACU(normalizedPreset);
-        plotSettings.promptGroup = JSON.parse(JSON.stringify(getPlotPromptGroupFromSource_ACU(normalizedPreset)));
-        plotSettings.finalSystemDirective = finalDirective || '';
-        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'finalSystemDirective', finalDirective || '');
-        plotSettings.rateMain = normalizedPreset.rateMain ?? 1.0;
-        plotSettings.ratePersonal = normalizedPreset.ratePersonal ?? 1.0;
-        plotSettings.rateErotic = normalizedPreset.rateErotic ?? 0;
-        plotSettings.rateCuckold = normalizedPreset.rateCuckold ?? 1.0;
-        plotSettings.recallCount = normalizedPreset.recallCount ?? 20;
-        plotSettings.extractTags = normalizedPreset.extractTags || '';
-        plotSettings.contextExtractRules = normalizeExtractRules_ACU(normalizedPreset.contextExtractRules, normalizedPreset.contextExtractTags || '');
-        plotSettings.contextExcludeRules = normalizeExcludeRules_ACU(normalizedPreset.contextExcludeRules, normalizedPreset.contextExcludeTags || '');
-        plotSettings.minLength = normalizedPreset.minLength ?? 0;
-        plotSettings.contextTurnCount = normalizedPreset.contextTurnCount ?? 3;
-        if (normalizedPreset.loopSettings) {
-            plotSettings.loopSettings = { ...plotSettings.loopSettings, ...normalizedPreset.loopSettings };
-        }
-        ensureLoopPromptsArray_ACU(plotSettings);
-        ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
-        plotSettings.finalSystemDirective = getPlotPromptContentByIdFromSettings_ACU(plotSettings, 'finalSystemDirective') || plotSettings.finalSystemDirective || '';
-        return {
-            normalizedPreset,
-            promptGroup: JSON.parse(JSON.stringify(plotSettings.promptGroup || [])),
-            finalDirective: getPlotPromptContentByIdFromSettings_ACU(plotSettings, 'finalSystemDirective') || '',
-        };
-    }
-    const DEFAULT_PRESET_OPTION_VALUE_ACU = '__ACU_DEFAULT_PRESET__';
-    function normalizePlotPresetSelectionValue_ACU(presetName) {
-        const normalizedName = String(presetName ?? '').trim();
-        return normalizedName === DEFAULT_PRESET_OPTION_VALUE_ACU ? '' : normalizedName;
-    }
-    function isDefaultPlotPresetSelection_ACU(presetName) {
-        return normalizePlotPresetSelectionValue_ACU(presetName) === '';
-    }
-    function ensurePlotPresetBindingsStore_ACU() {
-        if (!settings_ACU || typeof settings_ACU !== 'object')
-            return {};
-        if (!settings_ACU.plotPresetBindings || typeof settings_ACU.plotPresetBindings !== 'object' || Array.isArray(settings_ACU.plotPresetBindings)) {
-            settings_ACU.plotPresetBindings = {};
-        }
-        return settings_ACU.plotPresetBindings;
-    }
-    function normalizePlotPresetBindingChatId_ACU(chatId = currentChatFileIdentifier_ACU) {
-        const normalizedChatId = cleanChatName_ACU(String(chatId ?? '').trim());
-        return (normalizedChatId && normalizedChatId !== 'unknown_chat_source') ? normalizedChatId : '';
-    }
-    function hasPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
-        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
-        if (!normalizedChatId)
-            return false;
-        return Object.prototype.hasOwnProperty.call(ensurePlotPresetBindingsStore_ACU(), normalizedChatId);
-    }
-    function getPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
-        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
-        if (!normalizedChatId)
-            return null;
-        const bindingStore = ensurePlotPresetBindingsStore_ACU();
-        if (!Object.prototype.hasOwnProperty.call(bindingStore, normalizedChatId))
-            return null;
-        const rawBinding = bindingStore[normalizedChatId] || {};
-        const normalizedSource = ['inherit', 'ui', 'api'].includes(rawBinding.source) ? rawBinding.source : 'inherit';
-        const normalizedBinding = {
-            presetName: normalizePlotPresetSelectionValue_ACU(rawBinding.presetName),
-            source: normalizedSource,
-            isExplicit: rawBinding.isExplicit === true,
-            updatedAt: Number.isFinite(rawBinding.updatedAt) ? rawBinding.updatedAt : 0,
-        };
-        bindingStore[normalizedChatId] = normalizedBinding;
-        return normalizedBinding;
-    }
-    function setPlotPresetBindingForChat_ACU(chatId, presetName, { source = 'inherit', isExplicit = false } = {}) {
-        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
-        if (!normalizedChatId)
-            return null;
-        const normalizedSource = ['inherit', 'ui', 'api'].includes(source) ? source : 'inherit';
-        const binding = {
-            presetName: normalizePlotPresetSelectionValue_ACU(presetName),
-            source: normalizedSource,
-            isExplicit: isExplicit === true,
-            updatedAt: Date.now(),
-        };
-        ensurePlotPresetBindingsStore_ACU()[normalizedChatId] = binding;
-        return binding;
-    }
-    function clearPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
-        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
-        if (!normalizedChatId)
-            return false;
-        const bindingStore = ensurePlotPresetBindingsStore_ACU();
-        if (!Object.prototype.hasOwnProperty.call(bindingStore, normalizedChatId))
-            return false;
-        delete bindingStore[normalizedChatId];
-        return true;
-    }
-    function getCurrentChatScopedPlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
-        const chatScopeState = getCurrentChatPlotScopeState_ACU();
-        if (chatScopeState)
-            return normalizePlotPresetSelectionValue_ACU(chatScopeState.presetName || '');
-        const binding = getPlotPresetBindingForChat_ACU();
-        if (binding)
-            return binding.presetName || '';
-        if (!fallbackToGlobal)
-            return '';
-        return normalizePlotPresetSelectionValue_ACU(settings_ACU?.plotSettings?.lastUsedPresetName || '');
-    }
-    function findPlotPresetByName_ACU(presetName) {
-        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-        if (!normalizedPresetName)
-            return null;
-        const presets = settings_ACU?.plotSettings?.promptPresets || [];
-        const targetPresetRaw = presets.find(p => p.name === normalizedPresetName);
-        return targetPresetRaw ? normalizePlotPresetExcludeRules_ACU(targetPresetRaw) : null;
-    }
-    function resolveActivePlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
-        const chatScopeState = getCurrentChatPlotScopeState_ACU();
-        if (chatScopeState) {
-            return normalizePlotPresetSelectionValue_ACU(chatScopeState.presetName || '');
-        }
-        const binding = getPlotPresetBindingForChat_ACU();
-        if (binding) {
-            if (isDefaultPlotPresetSelection_ACU(binding.presetName)) {
-                return '';
-            }
-            const boundPreset = findPlotPresetByName_ACU(binding.presetName);
-            if (boundPreset) {
-                return boundPreset.name;
-            }
-        }
-        if (!fallbackToGlobal) {
-            return '';
-        }
-        const globalPresetName = normalizePlotPresetSelectionValue_ACU(settings_ACU?.plotSettings?.lastUsedPresetName || '');
-        if (isDefaultPlotPresetSelection_ACU(globalPresetName)) {
-            return '';
-        }
-        const globalPreset = findPlotPresetByName_ACU(globalPresetName);
-        return globalPreset ? globalPreset.name : '';
-    }
-    function normalizePlotEditorScope_ACU(scope = 'resolved') {
-        if (scope === 'chat')
-            return 'chat';
-        if (scope === 'global')
-            return 'global';
-        return 'resolved';
-    }
-    function setCurrentEditablePlotPresetState_ACU(presetName, { scope = 'resolved', source = '' } = {}) {
-        _set_currentEditablePlotPresetState_ACU({
-            initialized: true,
-            presetName: normalizePlotPresetSelectionValue_ACU(presetName),
-            scope: normalizePlotEditorScope_ACU(scope),
-            source: String(source || ''),
-        });
-        return currentEditablePlotPresetState_ACU;
-    }
-    function getCurrentEditablePlotPresetName_ACU({ fallbackToResolved = true } = {}) {
-        if (currentEditablePlotPresetState_ACU?.initialized) {
-            return normalizePlotPresetSelectionValue_ACU(currentEditablePlotPresetState_ACU.presetName || '');
-        }
-        if (!fallbackToResolved) {
-            return '';
-        }
-        return resolveActivePlotPresetName_ACU({ fallbackToGlobal: true });
-    }
-    function getCurrentRuntimePlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
-        return normalizePlotPresetSelectionValue_ACU(resolveActivePlotPresetName_ACU({ fallbackToGlobal }));
-    }
-    function syncCurrentEditablePlotPresetState_ACU({ source = 'runtime_sync' } = {}) {
-        const chatScopeState = getCurrentChatPlotScopeState_ACU();
-        const binding = getPlotPresetBindingForChat_ACU();
-        const resolvedPresetName = resolveActivePlotPresetName_ACU({ fallbackToGlobal: true });
-        const scope = (chatScopeState || binding) ? 'chat' : 'global';
-        return setCurrentEditablePlotPresetState_ACU(resolvedPresetName, { scope, source });
-    }
-    function getActivePlotEditorSettings_ACU({ fallbackToRuntime = true } = {}) {
-        const activeSettings = activePlotEditorSettings_ACU || (fallbackToRuntime ? settings_ACU?.plotSettings : null);
-        return activeSettings && typeof activeSettings === 'object' ? activeSettings : null;
-    }
-    function setActivePlotEditorSettings_ACU(plotSettings) {
-        if (!plotSettings || typeof plotSettings !== 'object') {
-            _set_activePlotEditorSettings_ACU(null);
-            return null;
-        }
-        _set_activePlotEditorSettings_ACU(plotSettings);
-        ensurePlotPromptsArray_ACU(activePlotEditorSettings_ACU);
-        ensureLoopPromptsArray_ACU(activePlotEditorSettings_ACU);
-        ensurePlotTasksCompat_ACU(activePlotEditorSettings_ACU, { syncLegacy: true });
-        activePlotEditorSettings_ACU.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(activePlotEditorSettings_ACU);
-        setPlotPromptContentByIdForSettings_ACU(activePlotEditorSettings_ACU, 'finalSystemDirective', activePlotEditorSettings_ACU.finalSystemDirective || '');
-        return activePlotEditorSettings_ACU;
-    }
-    function getPlotGlobalRevision_ACU() {
-        const rawRevision = settings_ACU?.plotSettings?.globalRevision;
-        return Number.isFinite(rawRevision) ? Math.max(0, Math.trunc(rawRevision)) : 0;
-    }
-    function cloneDefaultPlotSettingsForPreset_ACU() {
-        const defaults = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
-        ensurePlotPromptsArray_ACU(defaults);
-        ensureLoopPromptsArray_ACU(defaults);
-        ensurePlotTasksCompat_ACU(defaults, { syncLegacy: true });
-        return defaults;
-    }
-    function buildPlotSettingsPreviewFromPreset_ACU(presetName) {
-        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-        const previewSettings = cloneDefaultPlotSettingsForPreset_ACU();
-        if (isDefaultPlotPresetSelection_ACU(normalizedPresetName)) {
-            resetPlotSettingsToDefault_ACU(previewSettings);
-        }
-        else {
-            const targetPreset = findPlotPresetByName_ACU(normalizedPresetName);
-            if (!targetPreset)
-                return null;
-            applyPlotPresetToSettings_ACU(previewSettings, targetPreset);
-        }
-        previewSettings.lastUsedPresetName = normalizedPresetName;
-        ensurePlotPromptsArray_ACU(previewSettings);
-        ensureLoopPromptsArray_ACU(previewSettings);
-        ensurePlotTasksCompat_ACU(previewSettings, { syncLegacy: true });
-        previewSettings.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(previewSettings);
-        setPlotPromptContentByIdForSettings_ACU(previewSettings, 'finalSystemDirective', previewSettings.finalSystemDirective || '');
-        return previewSettings;
-    }
-    function resetPlotSettingsToDefault_ACU(plotSettings) {
-        if (!plotSettings || typeof plotSettings !== 'object')
-            return null;
-        const preservedPromptPresets = Array.isArray(plotSettings.promptPresets)
-            ? JSON.parse(JSON.stringify(plotSettings.promptPresets))
-            : [];
-        const preservedLastUsedPresetName = normalizePlotPresetSelectionValue_ACU(plotSettings.lastUsedPresetName || '');
-        const preservedGlobalRevision = Number.isFinite(plotSettings.globalRevision)
-            ? Math.max(0, Math.trunc(plotSettings.globalRevision))
-            : 0;
-        const defaults = cloneDefaultPlotSettingsForPreset_ACU();
-        Object.keys(plotSettings).forEach(key => {
-            delete plotSettings[key];
-        });
-        Object.assign(plotSettings, defaults);
-        plotSettings.promptPresets = preservedPromptPresets;
-        plotSettings.lastUsedPresetName = preservedLastUsedPresetName;
-        plotSettings.globalRevision = preservedGlobalRevision;
-        ensurePlotPromptsArray_ACU(plotSettings);
-        ensureLoopPromptsArray_ACU(plotSettings);
-        ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
-        return plotSettings;
-    }
-    function replaceCurrentPlotSettingsWithSnapshot_ACU(plotSettings, snapshot) {
-        if (!plotSettings || typeof plotSettings !== 'object')
-            return null;
-        const normalizedSnapshot = sanitizePlotSettingsSnapshotForChat_ACU(snapshot);
-        if (!normalizedSnapshot)
-            return null;
-        const preservedPromptPresets = Array.isArray(plotSettings.promptPresets)
-            ? JSON.parse(JSON.stringify(plotSettings.promptPresets))
-            : [];
-        const preservedLastUsedPresetName = normalizePlotPresetSelectionValue_ACU(plotSettings.lastUsedPresetName || '');
-        const preservedGlobalRevision = Number.isFinite(plotSettings.globalRevision)
-            ? Math.max(0, Math.trunc(plotSettings.globalRevision))
-            : 0;
-        const defaults = cloneDefaultPlotSettingsForPreset_ACU();
-        Object.keys(plotSettings).forEach(key => {
-            delete plotSettings[key];
-        });
-        Object.assign(plotSettings, defaults, normalizedSnapshot);
-        plotSettings.promptPresets = preservedPromptPresets;
-        plotSettings.lastUsedPresetName = preservedLastUsedPresetName;
-        plotSettings.globalRevision = preservedGlobalRevision;
-        ensurePlotPromptsArray_ACU(plotSettings);
-        ensureLoopPromptsArray_ACU(plotSettings);
-        ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
-        plotSettings.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(plotSettings);
-        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'finalSystemDirective', plotSettings.finalSystemDirective || '');
-        return plotSettings;
-    }
-    function queueSaveCurrentChatPlotScope_ACU(source = 'ui_plot_scope') {
-        if (typeof SillyTavern_API_ACU?.saveChat !== 'function')
-            return;
-        Promise.resolve()
-            .then(() => SillyTavern_API_ACU.saveChat())
-            .catch(error => logWarn_ACU(`[剧情推进] 保存聊天级预设快照失败(${source}):`, error));
-    }
-    function switchCurrentChatPlotPreset_ACU(presetName, { source = 'ui', refreshUi = false, save = true } = {}) {
-        if (!settings_ACU?.plotSettings)
-            return false;
-        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-        const hadLegacyChatScopeSnapshot = !!getCurrentChatPlotScopeState_ACU();
-        if (hadLegacyChatScopeSnapshot) {
-            clearCurrentChatPlotScopeState_ACU();
-        }
-        const bindingSource = String(source || '').startsWith('api') ? 'api' : 'ui';
-        let result = null;
-        if (isDefaultPlotPresetSelection_ACU(normalizedPresetName)) {
-            clearPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU);
-            const inheritedGlobalPresetName = normalizePlotPresetSelectionValue_ACU(settings_ACU.plotSettings.lastUsedPresetName || '');
-            const inheritedGlobalPreset = findPlotPresetByName_ACU(inheritedGlobalPresetName);
-            if (inheritedGlobalPreset) {
-                applyPlotPresetToSettings_ACU(settings_ACU.plotSettings, inheritedGlobalPreset);
-            }
-            else {
-                resetPlotSettingsToDefault_ACU(settings_ACU.plotSettings);
-            }
-            _set_currentPlotTaskEditorId_ACU('');
-            setCurrentEditablePlotPresetState_ACU(inheritedGlobalPresetName, {
-                scope: 'chat',
-                source,
-            });
-            result = {
-                presetName: '',
-                isDefault: true,
-                followsGlobal: true,
-                preset: inheritedGlobalPreset || null,
-                activePresetName: inheritedGlobalPresetName,
-            };
-        }
-        else {
-            const targetPreset = findPlotPresetByName_ACU(normalizedPresetName);
-            if (!targetPreset) {
-                return false;
-            }
-            applyPlotPresetToSettings_ACU(settings_ACU.plotSettings, targetPreset);
-            setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, targetPreset.name, {
-                source: bindingSource,
-                isExplicit: true,
-            });
-            _set_currentPlotTaskEditorId_ACU('');
-            setCurrentEditablePlotPresetState_ACU(targetPreset.name, {
-                scope: 'chat',
-                source,
-            });
-            result = {
-                presetName: targetPreset.name,
-                isDefault: false,
-                followsGlobal: false,
-                preset: targetPreset,
-                activePresetName: targetPreset.name,
-            };
-        }
-        if (save) {
-            saveSettings_ACU();
-            if (hadLegacyChatScopeSnapshot) {
-                queueSaveCurrentChatPlotScope_ACU(`${bindingSource}_clear_legacy_plot_scope`);
-            }
-        }
-        if ($popupInstance_ACU$1 && refreshUi) {
-            schedulePlotSettingsUiRefresh_ACU(settings_ACU.plotSettings);
-        }
-        return result;
-    }
-    function persistPlotPresetSelectionState_ACU(presetName, { source = 'ui', updateGlobal = false, save = true, persistChatScope = !updateGlobal } = {}) {
-        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-        let shouldSaveChat = false;
-        if (updateGlobal && settings_ACU?.plotSettings) {
-            settings_ACU.plotSettings.lastUsedPresetName = normalizedPresetName;
-        }
-        else if (persistChatScope && settings_ACU?.plotSettings) {
-            const plotScopeState = buildChatPlotScopeStateFromSettings_ACU(settings_ACU.plotSettings, {
-                presetName: normalizedPresetName,
-                source,
-                originGlobalName: normalizePlotPresetSelectionValue_ACU(settings_ACU.plotSettings.lastUsedPresetName || ''),
-                originGlobalRevision: getPlotGlobalRevision_ACU(),
-                updatedAt: Date.now(),
-            });
-            if (plotScopeState) {
-                setCurrentChatPlotScopeState_ACU(plotScopeState, { reason: `plot_scope_${source}` });
-                shouldSaveChat = true;
-            }
-            setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, normalizedPresetName, {
-                source,
-                isExplicit: source !== 'inherit',
-            });
-        }
-        else {
-            setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, normalizedPresetName, {
-                source,
-                isExplicit: source !== 'inherit',
-            });
-        }
-        if (save) {
-            saveSettings_ACU();
-            if (shouldSaveChat && typeof SillyTavern_API_ACU?.saveChat === 'function') {
-                Promise.resolve()
-                    .then(() => SillyTavern_API_ACU.saveChat())
-                    .catch(error => logWarn_ACU('[剧情推进] 保存聊天级预设快照失败:', error));
-            }
-        }
-        return normalizedPresetName;
-    }
-    function applyGlobalPlotPresetSelectionForEditor_ACU(presetName, { source = 'ui', refreshUi = false, save = true } = {}) {
-        if (!settings_ACU?.plotSettings)
-            return false;
-        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-        const previewSettings = buildPlotSettingsPreviewFromPreset_ACU(normalizedPresetName);
-        if (!previewSettings) {
-            return false;
-        }
-        _set_currentPlotTaskEditorId_ACU('');
-        setCurrentEditablePlotPresetState_ACU(normalizedPresetName, {
-            scope: 'global',
-            source,
-        });
-        persistPlotPresetSelectionState_ACU(normalizedPresetName, {
-            source,
-            updateGlobal: true,
-            save,
-            persistChatScope: false,
-        });
-        if ($popupInstance_ACU$1 && refreshUi) {
-            schedulePlotSettingsUiRefresh_ACU(previewSettings);
-        }
-        return {
-            presetName: normalizedPresetName,
-            isDefault: isDefaultPlotPresetSelection_ACU(normalizedPresetName),
-            previewSettings,
-        };
-    }
-    function schedulePlotSettingsUiRefresh_ACU(plotSettingsOverride = null) {
-        if (!$popupInstance_ACU$1 || !$popupInstance_ACU$1.length)
-            return;
-        const refreshTarget = plotSettingsOverride || getActivePlotEditorSettings_ACU();
-        const $targetPopup = $popupInstance_ACU$1;
-        const runRefresh = () => {
-            if (!$popupInstance_ACU$1 || !$popupInstance_ACU$1.length)
-                return;
-            if (!$targetPopup || !$targetPopup.length)
-                return;
-            $targetPopup.triggerHandler('acu_plot_settings_refresh', [refreshTarget]);
-        };
-        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-            window.requestAnimationFrame(() => window.requestAnimationFrame(runRefresh));
-            return;
-        }
-        setTimeout(runRefresh, 0);
-    }
-    function normalizePlotPresetExcludeRules_ACU(preset) {
-        if (!preset || typeof preset !== 'object')
-            return preset;
-        const cloned = JSON.parse(JSON.stringify(preset));
-        cloned.contextExtractRules = normalizeExtractRules_ACU(cloned.contextExtractRules, cloned.contextExtractTags || '');
-        cloned.contextExcludeRules = normalizeExcludeRules_ACU(cloned.contextExcludeRules, cloned.contextExcludeTags || '');
-        cloned.plotTasks = normalizePlotTasks_ACU(cloned);
-        cloned.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(cloned);
-        ensurePlotTasksCompat_ACU(cloned, { syncLegacy: true });
-        setPlotPromptContentByIdForSettings_ACU(cloned, 'finalSystemDirective', cloned.finalSystemDirective || '');
-        // 新格式保存：不再继续写入旧字段
-        delete cloned.contextExtractTags;
-        delete cloned.contextExcludeTags;
-        return cloned;
-    }
-    function stripPlotPresetWorldbookEntrySelectionForExport_ACU(preset) {
-        const normalizedPreset = normalizePlotPresetExcludeRules_ACU(preset);
-        if (!normalizedPreset || typeof normalizedPreset !== 'object')
-            return normalizedPreset;
-        const exportPreset = JSON.parse(JSON.stringify(normalizedPreset));
-        if (exportPreset.plotWorldbookConfig && typeof exportPreset.plotWorldbookConfig === 'object') {
-            delete exportPreset.plotWorldbookConfig.enabledEntries;
-        }
-        return exportPreset;
-    }
-    function renderExcludeRuleRows_ACU(containerSelector, rules, { startPlaceholder = '开始词', endPlaceholder = '结束词', fallbackRules = [] } = {}) {
-        if (!$popupInstance_ACU$1)
-            return;
-        const $container = $popupInstance_ACU$1.find(containerSelector);
-        if (!$container.length)
-            return;
-        let normalized = normalizeExcludeRules_ACU(rules, '');
-        if (normalized.length === 0 && Array.isArray(fallbackRules) && fallbackRules.length > 0) {
-            normalized = normalizeExcludeRules_ACU(fallbackRules, '');
-        }
-        $container.empty();
-        const appendRow = (rule = {}) => {
-            const rowHtml = `
-        <div class="acu-exclude-rule-row" style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
-          <input type="text" class="text_pole acu-exclude-rule-start" placeholder="${escapeHtml_ACU(startPlaceholder)}" style="flex:1;" value="${escapeHtml_ACU(rule.start || '')}">
-          <input type="text" class="text_pole acu-exclude-rule-end" placeholder="${escapeHtml_ACU(endPlaceholder)}" style="flex:1;" value="${escapeHtml_ACU(rule.end || '')}">
-          <button type="button" class="button acu-exclude-rule-delete" title="删除规则" style="padding:4px 8px;">删除</button>
-        </div>
-      `;
-            $container.append(rowHtml);
-        };
-        const rows = normalized.length > 0 ? normalized : [{ start: '', end: '' }];
-        rows.forEach(rule => appendRow(rule));
-    }
-    function appendExcludeRuleRow_ACU(containerSelector, { startPlaceholder = '开始词', endPlaceholder = '结束词' } = {}) {
-        if (!$popupInstance_ACU$1)
-            return;
-        const $container = $popupInstance_ACU$1.find(containerSelector);
-        if (!$container.length)
-            return;
-        const rowHtml = `
-      <div class="acu-exclude-rule-row" style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
-        <input type="text" class="text_pole acu-exclude-rule-start" placeholder="${escapeHtml_ACU(startPlaceholder)}" style="flex:1;" value="">
-        <input type="text" class="text_pole acu-exclude-rule-end" placeholder="${escapeHtml_ACU(endPlaceholder)}" style="flex:1;" value="">
-        <button type="button" class="button acu-exclude-rule-delete" title="删除规则" style="padding:4px 8px;">删除</button>
-      </div>
-    `;
-        $container.append(rowHtml);
-    }
-    function readExcludeRulesFromRows_ACU(containerSelector) {
-        if (!$popupInstance_ACU$1)
-            return [];
-        const $container = $popupInstance_ACU$1.find(containerSelector);
-        if (!$container.length)
-            return [];
-        const collected = [];
-        $container.find('.acu-exclude-rule-row').each(function () {
-            const start = String(jQuery_API_ACU$1(this).find('.acu-exclude-rule-start').val() || '').trim();
-            const end = String(jQuery_API_ACU$1(this).find('.acu-exclude-rule-end').val() || '').trim();
-            if (start && end)
-                collected.push({ start, end });
-        });
-        return normalizeExcludeRules_ACU(collected, '');
-    }
-    // --- [剧情推进] Prompt 辅助：兼容 prompts(数组/旧对象) 并以 id 读写 ---
-    function ensurePlotPromptsArray_ACU(plotSettings) {
-        if (!plotSettings)
-            return;
-        const p = plotSettings.prompts;
-        // 已是数组：补齐必要项即可
-        if (Array.isArray(p)) {
-            const required = [
-                { id: 'mainPrompt', role: 'system', name: '主系统提示词 (通用)' },
-                { id: 'systemPrompt', role: 'user', name: '拦截任务详细指令' },
-                { id: 'finalSystemDirective', role: 'system', name: '最终注入指令 (Storyteller Directive)' },
-            ];
-            required.forEach(req => {
-                if (!p.some(x => x && x.id === req.id)) {
-                    p.push({ ...req, content: '', deletable: false });
-                }
-            });
-            return;
-        }
-        // 旧对象结构：{ mainPrompt, systemPrompt, finalSystemDirective }
-        const legacy = (p && typeof p === 'object') ? p : {};
-        plotSettings.prompts = [
-            { id: 'mainPrompt', name: '主系统提示词 (通用)', role: 'system', content: legacy.mainPrompt || '', deletable: false },
-            { id: 'systemPrompt', name: '拦截任务详细指令', role: 'user', content: legacy.systemPrompt || '', deletable: false },
-            { id: 'finalSystemDirective', name: '最终注入指令 (Storyteller Directive)', role: 'system', content: legacy.finalSystemDirective || '', deletable: false },
-        ];
-    }
-    function getPlotPromptContentByIdFromSettings_ACU(plotSettings, promptId) {
-        if (!plotSettings)
-            return '';
-        ensurePlotPromptsArray_ACU(plotSettings);
-        const arr = plotSettings.prompts || [];
-        const item = arr.find(p => p && p.id === promptId);
-        return item?.content || '';
-    }
-    function getPlotPromptContentById_ACU(promptId) {
-        return getPlotPromptContentByIdFromSettings_ACU(settings_ACU?.plotSettings, promptId);
-    }
-    function setPlotPromptContentByIdForSettings_ACU(plotSettings, promptId, content) {
-        if (!plotSettings)
-            return;
-        ensurePlotPromptsArray_ACU(plotSettings);
-        const arr = plotSettings.prompts || [];
-        const item = arr.find(p => p && p.id === promptId);
-        if (item)
-            item.content = content ?? '';
-    }
-    function setPlotPromptContentById_ACU(promptId, content) {
-        setPlotPromptContentByIdForSettings_ACU(settings_ACU?.plotSettings, promptId, content);
-    }
-    // --- [剧情推进] 循环提示词列表渲染和管理 ---
-    function renderLoopPromptsList_ACU(plotSettingsOverride = null) {
-        const $container = $popupInstance_ACU$1.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompts-container`);
-        if (!$container.length)
-            return;
-        const plotSettings = plotSettingsOverride || getActivePlotEditorSettings_ACU();
-        if (!plotSettings)
-            return;
-        ensureLoopPromptsArray_ACU(plotSettings);
-        const prompts = plotSettings.loopSettings.quickReplyContent || [];
-        $container.empty();
-        if (prompts.length === 0) {
-            $container.html('<div style="padding: 20px; text-align: center; color: var(--text_secondary); border: 1px dashed var(--border_color_light); border-radius: 6px;">暂无提示词，点击上方"添加提示词"按钮添加</div>');
-            return;
-        }
-        prompts.forEach((prompt, index) => {
-            const $item = jQuery_API_ACU$1('<div>', {
-                class: 'loop-prompt-item',
-                style: 'display: flex; gap: 8px; align-items: flex-start; padding: 10px; background: var(--background_light); border: 1px solid var(--border_color_light); border-radius: 6px;'
-            });
-            const $content = jQuery_API_ACU$1('<div>', {
-                style: 'flex: 1; display: flex; flex-direction: column; gap: 6px;'
-            });
-            $content.append(jQuery_API_ACU$1('<div>', {
-                style: 'display: flex; align-items: center; gap: 8px;'
-            }).append(jQuery_API_ACU$1('<span>', {
-                style: 'font-size: 0.85em; color: var(--text_secondary); font-weight: 500;',
-                text: `提示词 #${index + 1}`
-            })));
-            const $textarea = jQuery_API_ACU$1('<textarea>', {
-                class: 'loop-prompt-textarea text_pole',
-                'data-index': index,
-                rows: 2,
-                placeholder: '输入循环提示词内容...',
-                style: 'resize: vertical; width: 100%;',
-                text: prompt || ''
-            });
-            $content.append($textarea);
-            const $deleteBtn = jQuery_API_ACU$1('<button>', {
-                type: 'button',
-                class: 'loop-prompt-delete-btn button',
-                'data-index': index,
-                style: 'padding: 6px 10px; color: var(--danger); background: transparent; border: 1px solid var(--danger); border-radius: 4px; cursor: pointer; flex-shrink: 0;',
-                title: '删除此提示词',
-                html: '<i class="fa-solid fa-trash"></i>'
-            });
-            $item.append($content).append($deleteBtn);
-            $container.append($item);
-        });
-    }
-    function saveLoopPromptsFromUI_ACU() {
-        const plotSettings = getActivePlotEditorSettings_ACU();
-        if (!plotSettings)
-            return;
-        ensureLoopPromptsArray_ACU(plotSettings);
-        const prompts = [];
-        $popupInstance_ACU$1.find('.loop-prompt-textarea').each(function () {
-            const content = jQuery_API_ACU$1(this).val()?.trim() || '';
-            if (content) {
-                prompts.push(content);
-            }
-        });
-        plotSettings.loopSettings.quickReplyContent = prompts;
-        plotSettings.loopSettings.currentPromptIndex = 0; // 重置索引
-        saveSettings_ACU();
-    }
-    // --- [剧情推进] 临时替换"AI指令预设"(settings_ACU.charCardPrompt)，并在生成结束后恢复 ---
-    let plotPromptOverrideActive_ACU = false;
-    let plotPromptOverrideBackup_ACU = null;
-    // [剧情推进] 去重锁：避免同一次发送被 TavernHelper.generate 钩子 + GENERATION_AFTER_COMMANDS 双重处理导致重复 toast/误报失败
-    let lastPlotInterception_ACU = { text: '', ts: 0 };
-    function markPlotIntercept_ACU(text) {
-        lastPlotInterception_ACU = { text: String(text || ''), ts: Date.now() };
-    }
-    function shouldSkipPlotIntercept_ACU(text, windowMs = 5000) {
-        const t = String(text || '');
-        if (!t)
-            return false;
-        const age = Date.now() - (lastPlotInterception_ACU?.ts || 0);
-        if (age < 0 || age > windowMs)
-            return false;
-        return t === String(lastPlotInterception_ACU?.text || '');
-    }
-    function buildPlotModifiedCharCardPrompt_ACU(original) {
-        const originalArr = Array.isArray(original)
-            ? original
-            : (typeof original === 'string' ? [{ role: 'USER', content: original }] : []);
-        const cloned = JSON.parse(JSON.stringify(originalArr));
-        const plotMain = (getPlotPromptContentById_ACU('mainPrompt') || '').trim();
-        const plotTask = (getPlotPromptContentById_ACU('systemPrompt') || '').trim();
-        if (!plotMain && !plotTask)
-            return cloned;
-        const getMainSlot = seg => {
-            if (!seg)
-                return '';
-            const slot = String(seg.mainSlot || '').toUpperCase();
-            if (slot === 'A' || slot === 'B')
-                return slot;
-            if (seg.isMain)
-                return 'A'; // 兼容旧字段
-            if (seg.isMain2)
-                return 'B'; // 兼容旧字段（若存在）
-            return '';
-        };
-        // 简化逻辑：只替换内容，不插入、不改role、不改结构
-        // 1) 定位主提示词A/B：优先 mainSlot，其次旧 isMain/isMain2
-        let mainAIdx = cloned.findIndex(p => getMainSlot(p) === 'A');
-        let mainBIdx = cloned.findIndex(p => getMainSlot(p) === 'B');
-        if (plotMain && mainAIdx !== -1 && cloned[mainAIdx]) {
-            cloned[mainAIdx].content = plotMain;
-        }
-        if (plotTask && mainBIdx !== -1 && cloned[mainBIdx]) {
-            cloned[mainBIdx].content = plotTask;
-        }
-        return cloned;
-    }
-    function applyPlotPromptOverride_ACU() {
-        if (plotPromptOverrideActive_ACU)
-            return;
-        if (!settings_ACU?.plotSettings?.enabled)
-            return;
-        const plotMain = (getPlotPromptContentById_ACU('mainPrompt') || '').trim();
-        const plotTask = (getPlotPromptContentById_ACU('systemPrompt') || '').trim();
-        if (!plotMain && !plotTask)
-            return;
-        plotPromptOverrideBackup_ACU = settings_ACU.charCardPrompt;
-        settings_ACU.charCardPrompt = buildPlotModifiedCharCardPrompt_ACU(plotPromptOverrideBackup_ACU);
-        plotPromptOverrideActive_ACU = true;
-        logDebug_ACU('[剧情推进] 已临时替换AI指令预设（charCardPrompt）。');
-    }
-    function restorePlotPromptOverride_ACU() {
-        if (!plotPromptOverrideActive_ACU)
-            return;
-        settings_ACU.charCardPrompt = plotPromptOverrideBackup_ACU;
-        plotPromptOverrideBackup_ACU = null;
-        plotPromptOverrideActive_ACU = false;
-        logDebug_ACU('[剧情推进] 已恢复AI指令预设（charCardPrompt）。');
-    }
-
-    /**
-     * service/plot/plot-logic.ts — 剧情推进纯逻辑函数
-     *
-     * 从 presentation/components/optimization-ui.ts 中提取的纯计算/数据处理函数。
-     * 这些函数不操作 DOM，可以被 service 层和 presentation 层共同引用。
-     *
-     * 注意：此文件只包含纯逻辑，不 import presentation 层任何模块。
-     */
-    // Re-export 所有纯逻辑函数（当前先做 re-export 桥接，后续逐步搬移函数体）
-    // 这样 service 层可以立即改为从此处 import，不需要等函数体全部搬完
-
-    // ═══════════════════════════════════════════════════════════════
-    // service/settings/settings-service.ts — 设置加载/保存编排
-    // 从 04_shared_helpers.js 迁入
-    //
-    // 这两个函数混合了数据读写 + UI 同步 + 运行时状态操作，
-    // 属于 service 层（业务编排），不是纯 data 层。
-    // ═══════════════════════════════════════════════════════════════
-    function saveSettings_ACU() {
-        // 数据层：纯存储持久化
-        persistSettingsToStorage_ACU(settings_ACU);
-        // service 层补充：存储状态检查 + UI 通知
-        try {
-            const store = (getConfigStorage_ACU)();
-            if (store && !store._isTavern) {
-                if ((isIndexedDbAvailable_ACU)()) {
-                    try {
-                        showToastr_ACU('info', '当前未连接酒馆设置：已保存到 IndexedDB（仅本浏览器可用）。', { timeOut: 6000 });
-                    }
-                    catch (e) { }
-                }
-                else {
-                    try {
-                        showToastr_ACU('warning', '⚠️ 当前未连接酒馆设置且 IndexedDB 不可用，本次修改刷新后会丢失。', { timeOut: 8000 });
-                    }
-                    catch (e) { }
-                }
-                void (initTavernSettingsBridge_ACU)();
-            }
-        }
-        catch (error) {
-            logError_ACU('Failed to save settings:', error);
-            showToastr_ACU('error', '保存设置时发生浏览器存储错误。');
-        }
-    }
-    function loadSettings_ACU() {
-        // 确保酒馆设置桥接已就绪（best-effort，不阻塞）
-        void initTavernSettingsBridge_ACU();
-        // 尝试预载 IndexedDB 配置缓存（best-effort，不阻塞）
-        void ensureConfigIdbCacheLoaded_ACU().then(() => {
-            if (pendingSettingsReloadFromIdb_ACU) {
-                _set_pendingSettingsReloadFromIdb_ACU(false);
-                loadSettings_ACU();
-            }
-        });
-        // 可选迁移：把旧 localStorage 的设置/模板搬迁到酒馆设置（迁移开关默认为 false）
-        migrateKeyToTavernStorageIfNeeded_ACU(STORAGE_KEY_ALL_SETTINGS_ACU);
-        migrateKeyToTavernStorageIfNeeded_ACU(STORAGE_KEY_CUSTOM_TEMPLATE_ACU);
-        // 1) 读取全局元信息（跨标识共享：标识列表/当前标识）
-        loadGlobalMeta_ACU();
-        const store = getConfigStorage_ACU();
-        const legacySettingsJson = store?.getItem?.(STORAGE_KEY_ALL_SETTINGS_ACU);
-        if (!legacySettingsJson && !configIdbCacheLoaded_ACU && isIndexedDbAvailable_ACU()) {
-            if (!pendingSettingsReloadFromIdb_ACU) {
-                _set_pendingSettingsReloadFromIdb_ACU(true);
-                void ensureConfigIdbCacheLoaded_ACU().then(() => {
-                    if (pendingSettingsReloadFromIdb_ACU) {
-                        _set_pendingSettingsReloadFromIdb_ACU(false);
-                        loadSettings_ACU();
-                    }
-                });
-            }
-        }
-        const legacySettingsObj = legacySettingsJson ? safeJsonParse_ACU(legacySettingsJson, null) : null;
-        const legacyCode = normalizeIsolationCode_ACU(legacySettingsObj?.dataIsolationCode || '');
-        // 2) 一次性迁移：旧版"单份设置/单份模板" -> 当前标识对应 profile
-        if (!globalMeta_ACU.migratedLegacySingleStore && (legacySettingsObj || store?.getItem?.(STORAGE_KEY_CUSTOM_TEMPLATE_ACU))) {
-            const targetCode = legacyCode; // 旧版 code 就是当时的隔离标识
-            const hasProfileSettings = !!readProfileSettingsFromStorage_ACU(targetCode);
-            const hasProfileTemplate = !!readProfileTemplateFromStorage_ACU(targetCode);
-            try {
-                if (!hasProfileSettings && legacySettingsObj) {
-                    const toSave = sanitizeSettingsForProfileSave_ACU(legacySettingsObj);
-                    toSave.dataIsolationCode = targetCode;
-                    writeProfileSettingsToStorage_ACU(targetCode, toSave);
-                }
-                if (!hasProfileTemplate) {
-                    const legacyTemplate = store?.getItem?.(STORAGE_KEY_CUSTOM_TEMPLATE_ACU);
-                    if (legacyTemplate && String(legacyTemplate).trim()) {
-                        writeProfileTemplateToStorage_ACU(targetCode, legacyTemplate);
-                    }
-                }
-                // 同步迁移"标识列表"到 globalMeta（跨标识共享）
-                if (Array.isArray(legacySettingsObj?.dataIsolationHistory)) {
-                    globalMeta_ACU.isolationCodeList = legacySettingsObj.dataIsolationHistory;
-                }
-                if (targetCode) {
-                    globalMeta_ACU.activeIsolationCode = targetCode;
-                    // 确保 active 在列表里
-                    globalMeta_ACU.isolationCodeList = [targetCode, ...(globalMeta_ACU.isolationCodeList || [])];
-                }
-                normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
-                globalMeta_ACU.migratedLegacySingleStore = true;
-                saveGlobalMeta_ACU();
-                // 迁移完成后移除 legacy 键，避免后续反复读取造成混乱
-                try {
-                    store?.removeItem?.(STORAGE_KEY_ALL_SETTINGS_ACU);
-                }
-                catch (e) { }
-                try {
-                    store?.removeItem?.(STORAGE_KEY_CUSTOM_TEMPLATE_ACU);
-                }
-                catch (e) { }
-                logDebug_ACU(`[Profile] Migrated legacy single-store -> profile: ${targetCode || '(default)'}`);
-            }
-            catch (e) {
-                logWarn_ACU('[Profile] Legacy migration failed (will keep legacy keys):', e);
-            }
-        }
-        // 3) 决定本次启动要加载的标识 code（优先 globalMeta.active，其次 legacyCode）
-        const activeCode = normalizeIsolationCode_ACU(globalMeta_ACU.activeIsolationCode || legacyCode || '');
-        globalMeta_ACU.activeIsolationCode = activeCode;
-        if (activeCode)
-            addDataIsolationHistory_ACU(activeCode, { save: false });
-        normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
-        saveGlobalMeta_ACU();
-        // 4) 加载模板（按标识 profile）
-        loadTemplateFromStorage_ACU(activeCode);
-        // 5) 加载设置（按标识 profile）
-        const defaultSettings = buildDefaultSettings_ACU();
-        try {
-            const savedSettings = readProfileSettingsFromStorage_ACU(activeCode);
-            if (savedSettings) {
-                // [迁移逻辑] 检查旧的顶层 worldbookConfig
-                if (savedSettings.worldbookConfig) {
-                    logDebug_ACU('Migrating legacy worldbookConfig to character-specific settings.');
-                    // 如果存在，并且没有 characterSettings，则创建一个
-                    if (!savedSettings.characterSettings) {
-                        savedSettings.characterSettings = {};
-                    }
-                    // 将旧配置迁移到 'default' 或一个通用的键下，以便初次加载时使用
-                    // 这里我们假设它应该成为所有未配置角色的基础，但为了简单起见，我们只处理当前角色
-                    const charId = currentChatFileIdentifier_ACU || 'default';
-                    if (!savedSettings.characterSettings[charId]) {
-                        savedSettings.characterSettings[charId] = { worldbookConfig: savedSettings.worldbookConfig };
-                    }
-                    // 删除顶层配置
-                    delete savedSettings.worldbookConfig;
-                }
-                // Deep merge saved settings into defaults to ensure new properties are added
-                _set_settings_ACU(deepMerge_ACU(defaultSettings, savedSettings));
-                // [剧情推进] 迁移/兜底：确保 plotWorldbookConfig 存在且结构完整
-                if (!settings_ACU.plotSettings)
-                    settings_ACU.plotSettings = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
-                if (!settings_ACU.plotSettings.plotWorldbookConfig) {
-                    // 兼容旧字段迁移：worldbookSource/selectedWorldbooks -> plotWorldbookConfig
-                    const legacySource = settings_ACU.plotSettings.worldbookSource || 'character';
-                    const legacyBooks = Array.isArray(settings_ACU.plotSettings.selectedWorldbooks) ? settings_ACU.plotSettings.selectedWorldbooks : [];
-                    settings_ACU.plotSettings.plotWorldbookConfig = buildDefaultPlotWorldbookConfig_ACU();
-                    settings_ACU.plotSettings.plotWorldbookConfig.source = (legacySource === 'manual') ? 'manual' : 'character';
-                    settings_ACU.plotSettings.plotWorldbookConfig.manualSelection = legacyBooks;
-                }
-                if (!settings_ACU.plotPresetBindings || typeof settings_ACU.plotPresetBindings !== 'object' || Array.isArray(settings_ACU.plotPresetBindings)) {
-                    settings_ACU.plotPresetBindings = {};
-                }
-                settings_ACU.currentTemplatePresetName = normalizeTemplatePresetSelectionValue_ACU(settings_ACU.currentTemplatePresetName || '');
-                if (typeof settings_ACU.plotSettings.lastUsedPresetName !== 'string') {
-                    settings_ACU.plotSettings.lastUsedPresetName = '';
-                }
-                // [Profile] 强制以 globalMeta.activeIsolationCode 作为当前标识
-                settings_ACU.dataIsolationCode = activeCode;
-                settings_ACU.dataIsolationEnabled = (activeCode !== '');
-                // 0TK 全局偏好：优先 globalMeta；若缺失则从旧 profile 字段迁移
-                if (typeof globalMeta_ACU.zeroTkOccupyModeGlobal === 'boolean') {
-                    settings_ACU.zeroTkOccupyModeDefault = (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
-                }
-                else {
-                    globalMeta_ACU.zeroTkOccupyModeGlobal = (settings_ACU.zeroTkOccupyModeDefault === true);
-                    saveGlobalMeta_ACU();
-                }
-                // 确保当前角色有配置
-                getCurrentCharSettings_ACU();
-            }
-            else {
-                // No saved settings, use the defaults
-                _set_settings_ACU(defaultSettings);
-                // [剧情推进] 默认兜底
-                if (!settings_ACU.plotSettings.plotWorldbookConfig) {
-                    settings_ACU.plotSettings.plotWorldbookConfig = buildDefaultPlotWorldbookConfig_ACU();
-                }
-                // [Profile] 强制以 globalMeta.activeIsolationCode 作为当前标识
-                settings_ACU.dataIsolationCode = activeCode;
-                settings_ACU.dataIsolationEnabled = (activeCode !== '');
-                if (typeof globalMeta_ACU.zeroTkOccupyModeGlobal === 'boolean') {
-                    settings_ACU.zeroTkOccupyModeDefault = (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
-                }
-                else {
-                    globalMeta_ACU.zeroTkOccupyModeGlobal = (settings_ACU.zeroTkOccupyModeDefault === true);
-                    saveGlobalMeta_ACU();
-                }
-            }
-        }
-        catch (error) {
-            logError_ACU('Failed to load or parse settings, using defaults:', error);
-            _set_settings_ACU(buildDefaultSettings_ACU());
-            settings_ACU.dataIsolationCode = activeCode;
-            settings_ACU.dataIsolationEnabled = (activeCode !== '');
-        }
-        // [兼容] 旧标签排除字段自动迁移为新规则组结构
-        ensureTagRulesCompat_ACU(settings_ACU);
-        if (!Number.isFinite(settings_ACU.maxConcurrentGroups) || settings_ACU.maxConcurrentGroups < 1) {
-            settings_ACU.maxConcurrentGroups = 1;
-        }
-        logDebug_ACU('Settings loaded:', settings_ACU);
-    }
-    // [拆分] loadSettings 的 presentation 版本：加载数据后刷新 UI
-    // presentation 层调用此版本；service 层内部调用上面的 loadSettings_ACU（不触发 UI）
-    function loadSettingsAndRefreshUI_ACU() {
-        loadSettings_ACU();
-        if (typeof syncAllSettingsToUI_ACU === 'function')
-            syncAllSettingsToUI_ACU(settings_ACU);
-    }
-    function loadTemplateFromStorage_ACU(codeOverride = null) {
-        const code = normalizeIsolationCode_ACU((codeOverride !== null && typeof codeOverride !== 'undefined')
-            ? codeOverride
-            : (settings_ACU?.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || ''));
-        // [更新参数哨兵迁移] 旧版本：0 表示"沿用UI"；新版本：-1 表示"沿用UI"，0 表示"禁用/不参与"（仅 updateFrequency 参与禁用语义）
-        function migrateTemplateUpdateConfigSentinel_ACU(templateObj) {
-            if (!templateObj || typeof templateObj !== 'object')
-                return { changed: false, obj: templateObj };
-            const mate = (templateObj.mate && typeof templateObj.mate === 'object') ? templateObj.mate : null;
-            const alreadyMigrated = !!(mate && mate.updateConfigUiSentinel === -1);
-            if (alreadyMigrated)
-                return { changed: false, obj: templateObj };
-            let changed = false;
-            const sheetKeys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
-            for (const k of sheetKeys) {
-                const sheet = templateObj[k];
-                if (!sheet || typeof sheet !== 'object')
-                    continue;
-                const uc = sheet.updateConfig;
-                if (!uc || typeof uc !== 'object')
-                    continue;
-                // sheet 级标记：用于聊天记录里的表格对象（没有 mate）也能识别新语义
-                if (uc.uiSentinel !== -1) {
-                    uc.uiSentinel = -1;
-                    changed = true;
-                }
-                for (const field of ['contextDepth', 'updateFrequency', 'batchSize', 'skipFloors']) {
-                    if (Object.prototype.hasOwnProperty.call(uc, field) && uc[field] === 0) {
-                        uc[field] = -1;
-                        changed = true;
-                    }
-                }
-            }
-            // 写入标记，避免后续把用户显式设置的 0(禁用) 再次误迁移
-            if (!templateObj.mate || typeof templateObj.mate !== 'object') {
-                templateObj.mate = { type: 'chatSheets', version: 1 };
-                changed = true;
-            }
-            else {
-                if (!templateObj.mate.type)
-                    templateObj.mate.type = 'chatSheets';
-                if (!templateObj.mate.version)
-                    templateObj.mate.version = 1;
-            }
-            if (templateObj.mate.updateConfigUiSentinel !== -1) {
-                templateObj.mate.updateConfigUiSentinel = -1;
-                changed = true;
-            }
-            return { changed, obj: templateObj };
-        }
-        try {
-            const savedTemplate = readProfileTemplateFromStorage_ACU(code);
-            if (savedTemplate) {
-                // [修复] 使用 safeJsonParse_ACU 静默处理解析失败，避免误报错误提示
-                const parsedTemplate = safeJsonParse_ACU(savedTemplate, null);
-                if (parsedTemplate && parsedTemplate.mate && Object.keys(parsedTemplate).some(k => k.startsWith('sheet_'))) {
-                    // [迁移] 0(沿用UI) -> -1(沿用UI)，并写入标记
-                    migrateTemplateUpdateConfigSentinel_ACU(parsedTemplate);
-                    // [Profile] 模板载入时先补齐/修复顺序编号，并回写（编号可随导出/导入迁移）
-                    const sheetKeys = Object.keys(parsedTemplate).filter(k => k.startsWith('sheet_'));
-                    ensureSheetOrderNumbers_ACU(parsedTemplate, { baseOrderKeys: sheetKeys, forceRebuild: false });
-                    // [瘦身] 无论是否 changed，都清洗模板（去掉 domain/type/enable/triggerSend*/config/customStyles 等冗余字段）
-                    const sanitizedTemplate = sanitizeChatSheetsObject_ACU(parsedTemplate, { ensureMate: true });
-                    _set_TABLE_TEMPLATE_ACU(JSON.stringify(sanitizedTemplate));
-                    writeProfileTemplateToStorage_ACU(code, TABLE_TEMPLATE_ACU);
-                    logDebug_ACU(`[Profile] Template loaded for code: ${code || '(default)'}`);
-                    return;
-                }
-                else if (parsedTemplate) {
-                    // 解析成功但格式不正确，静默回退到默认模板
-                    logDebug_ACU(`[Profile] Template format invalid for code: ${code || '(default)'}, using default.`);
-                }
-                // parsedTemplate 为 null 时表示解析失败，静默跳过（可能是旧的/其他标识的损坏数据）
-            }
-        }
-        catch (error) {
-            // 静默处理异常，避免误报错误提示困扰用户
-            logDebug_ACU('[Profile] Template load skipped due to error, using default.', error?.message || error);
-        }
-        // No valid template found -> default
-        _set_TABLE_TEMPLATE_ACU(DEFAULT_TABLE_TEMPLATE_ACU);
-        // [新机制] 默认模板也补齐一次编号（仅写入当前 profile，不改源码常量）
-        try {
-            const obj = JSON.parse(TABLE_TEMPLATE_ACU);
-            // 默认模板也写入哨兵标记（便于后续识别新语义）
-            try {
-                migrateTemplateUpdateConfigSentinel_ACU(obj);
-            }
-            catch (e) { }
-            const sheetKeys = Object.keys(obj).filter(k => k.startsWith('sheet_'));
-            if (ensureSheetOrderNumbers_ACU(obj, { baseOrderKeys: sheetKeys, forceRebuild: false })) {
-                const sanitizedTemplate = sanitizeChatSheetsObject_ACU(obj, { ensureMate: true });
-                _set_TABLE_TEMPLATE_ACU(JSON.stringify(sanitizedTemplate));
-            }
-        }
-        catch (e) {
-            // ignore
-        }
-        try {
-            writeProfileTemplateToStorage_ACU(code, TABLE_TEMPLATE_ACU);
-        }
-        catch (e) { }
-        logDebug_ACU(`[Profile] No valid template found, default persisted for code: ${code || '(default)'}`);
-    }
-    function buildDefaultSettings_ACU() {
-        return {
-            apiConfig: { url: '', apiKey: '', model: '', useMainApi: true, max_tokens: 60000, temperature: 1.0 },
-            apiMode: 'custom',
-            tavernProfile: '',
-            streamingEnabled: false, // [新增] 流式传输开关（默认关闭）
-            apiPresets: [],
-            tableApiPreset: '',
-            plotApiPreset: '',
-            charCardPrompt: DEFAULT_CHAR_CARD_PROMPT_ACU,
-            autoUpdateThreshold: DEFAULT_AUTO_UPDATE_THRESHOLD_ACU,
-            autoUpdateFrequency: DEFAULT_AUTO_UPDATE_FREQUENCY_ACU,
-            autoUpdateTokenThreshold: DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU,
-            updateBatchSize: 3,
-            maxConcurrentGroups: 1,
-            autoUpdateEnabled: true,
-            standardizedTableFillEnabled: true, // [新增] 规范填表功能
-            toastMuteEnabled: false,
-            // [剧情推进] 设置
-            plotSettings: JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU)),
-            plotPresetBindings: {}, // [剧情推进] 按聊天记录绑定剧情推进预设
-            currentTemplatePresetName: '', // [模板预设] 当前模板预设名，空表示默认预设
-            // [填表功能] 正文标签提取，从上下文中提取指定标签的内容发送给AI，User回复不受影响
-            tableContextExtractTags: '',
-            tableContextExtractRules: [],
-            // [填表功能] 正文标签排除：将指定标签内容从上下文中移除
-            tableContextExcludeTags: '',
-            tableContextExcludeRules: [],
-            // [填表功能] 仅识别最后一对 <tableEdit> 标签
-            tableEditLastPairOnly: true,
-            removeTags: '',
-            importSplitSize: 10000,
-            importPromptExcludeImportedWorldbookEntries: true, // [新增] 仅外部导入时，填表提示词中的世界书占位符屏蔽所有带"外部导入-"标签的条目
-            skipUpdateFloors: 0, // 跳过更新楼层（全局）
-            retainRecentLayers: 100, // [新增] 保留最近N层本地数据 (0或空=全部保留)
-            manualSelectedTables: [],
-            // [新增] 表格更新锁定（按聊天+隔离标签存储；仅对 updateRow 生效）
-            tableUpdateLocks: {},
-            // [新增] 总结表/总体大纲"编码索引列"特殊锁定（默认锁定）
-            specialIndexLocks: {},
-            // [新增] 0TK占用模式全局默认值：新对话会继承这个值
-            zeroTkOccupyModeDefault: false,
-            // [Profile] dataIsolationEnabled/code 由当前 profile 决定；history 走 globalMeta
-            dataIsolationCode: '',
-            dataIsolationHistory: [], // legacy 字段保留但不再持久化
-            characterSettings: {}, // Start with an empty object
-            knownCustomEntryNames: [], // [新增] 记录已创建的自定义条目名称，用于清理
-            mergeSummaryPrompt: DEFAULT_MERGE_SUMMARY_PROMPT_ACU, // [新增] 合并总结提示词
-            mergeTargetCount: 1, // [新增] 合并目标条数
-            mergeBatchSize: 5, // [新增] 合并批次大小
-            mergeStartIndex: 1, // [新增] 合并起始条数
-            mergeEndIndex: null, // [新增] 合并终止条数
-            autoMergeEnabled: false, // [新增] 是否开启自动合并总结
-            autoMergeThreshold: 20, // [新增] 自动合并总结楼层数
-            autoMergeReserve: 0, // [新增] 保留固定楼层数
-            deleteStartFloor: null, // [新增] 删除起始楼层 (null表示从头开始)
-            deleteEndFloor: null, // [新增] 删除终止楼层 (null表示到末尾)
-            // [新增] 酒馆提示词模板功能
-            promptTemplateSettings: {
-                enabled: true, // 总开关
-                maxNestingDepth: 10, // 最大嵌套深度
-                debugMode: false // 调试模式
-            },
-            // [新增] 正文优化功能
-            contentOptimizationSettings: {
-                enabled: false, // 是否启用正文优化
-                apiPreset: '', // 优化使用的API预设（为空则使用当前配置）
-                seamlessMode: true, // 无感替换模式：显示遮罩，优化完成后直接显示结果
-                autoApply: true, // 是否自动应用优化结果（关闭时显示对比让用户选择）
-                showDiff: true, // 是否显示优化对比（非无感模式下有效）
-                parallelMode: false, // 填表与正文替换并行执行（默认关闭）
-                minLength: 100, // 最小优化长度阈值
-                maxOptimizations: 10, // 单次最大优化项数
-                loopCount: 1, // 循环优化次数
-                retryCount: 3, // 自动重试次数（API调用失败时自动重试，默认3次）
-                extractTags: '', // 正文标签提取（从正文中提取指定标签内容进行优化）
-                extractRules: [], // 正文标签提取规则（结构化）
-                excludeTags: '', // 标签排除（优化时排除指定标签内容）
-                excludeRules: [], // 标签排除规则（结构化）
-                promptGroup: buildDefaultContentOptimizationPromptGroup_ACU(), // 提示词组（段落编辑器）
-                promptPresets: [], // 提示词组预设列表
-            },
-        };
-    }
-    function applyTemplateScopeForCurrentChat_ACU({ isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const migratedScopeState = migrateLegacyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
-        const scopeState = getCurrentChatTemplateScopeState_ACU({ isolationKey: normalizedKey }) || migratedScopeState;
-        const selectedPresetName = normalizeTemplatePresetSelectionValue_ACU(scopeState?.presetName || '');
-        let targetSnapshot = null;
-        if (scopeState?.mode === 'chat_override' && scopeState?.templateStr) {
-            targetSnapshot = sanitizeTemplateSnapshotForChat_ACU(scopeState.templateStr);
-        }
-        else if (scopeState?.mode === 'preset_link') {
-            if (selectedPresetName) {
-                targetSnapshot = sanitizeTemplateSnapshotForChat_ACU(getTemplatePreset_ACU(selectedPresetName)?.templateStr || null);
-            }
-            else {
-                targetSnapshot = getDefaultTemplateSnapshot_ACU();
-            }
-        }
-        if (!targetSnapshot?.templateStr) {
-            targetSnapshot = getGlobalTemplateSnapshotForCurrentProfile_ACU();
-        }
-        if (!targetSnapshot?.templateStr)
-            return null;
-        _set_TABLE_TEMPLATE_ACU(targetSnapshot.templateStr);
-        if (scopeState?.mode === 'chat_override' && scopeState?.templateStr) {
-            logDebug_ACU(`[TemplateScope] Applied chat template override for key [${normalizedKey || '默认'}].`);
-            return {
-                mode: 'chat_override',
-                isolationKey: normalizedKey,
-                presetName: scopeState.presetName || '',
-            };
-        }
-        if (scopeState?.mode === 'preset_link') {
-            logDebug_ACU(`[TemplateScope] Applied linked global preset for key [${normalizedKey || '默认'}]: ${selectedPresetName || '默认预设'}.`);
-            return {
-                mode: 'preset_link',
-                isolationKey: normalizedKey,
-                presetName: selectedPresetName,
-            };
-        }
-        logDebug_ACU(`[TemplateScope] Applied global template for key [${normalizedKey || '默认'}].`);
-        return {
-            mode: 'inherit_global',
-            isolationKey: normalizedKey,
-            presetName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
-        };
-    }
-    // [从 data/repositories/isolation-repo.ts 移入] 切换隔离 Profile（业务编排，不属于 data 层）
-    async function switchIsolationProfile_ACU(newCodeRaw) {
-        const newCode = normalizeIsolationCode_ACU(newCodeRaw);
-        const oldCode = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || '');
-        persistSettingsToStorage_ACU(settings_ACU);
-        loadGlobalMeta_ACU();
-        if (oldCode)
-            addDataIsolationHistory_ACU(oldCode, { save: false });
-        if (newCode)
-            addDataIsolationHistory_ACU(newCode, { save: false });
-        globalMeta_ACU.activeIsolationCode = newCode;
-        normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
-        saveGlobalMeta_ACU();
-        ensureProfileExists_ACU(newCode, { seedFromCurrent: true });
-        loadSettings_ACU();
-        applyTemplateScopeForCurrentChat_ACU({ isolationKey: newCode });
-    }
-
-    /**
-     * presentation/components/template-preset-ui.ts — 模板预设 UI 函数
-     * 从 src/core/02_storage_and_profile.js:20~628 迁移而来
-     */
-    function getTemplatePresetSelectJQ_ACU() {
-        try {
-            if (!$popupInstance_ACU$1 || !$popupInstance_ACU$1.length)
-                return null;
-            const $sel = $popupInstance_ACU$1.find(`#${SCRIPT_ID_PREFIX_ACU}-template-preset-select`);
-            return $sel && $sel.length ? $sel : null;
-        }
-        catch (e) {
-            return null;
-        }
-    }
-    function getTemplateChatPresetSelectJQ_ACU() {
-        try {
-            if (!$popupInstance_ACU$1 || !$popupInstance_ACU$1.length)
-                return null;
-            const $sel = $popupInstance_ACU$1.find(`#${SCRIPT_ID_PREFIX_ACU}-template-chat-preset-select`);
-            return $sel && $sel.length ? $sel : null;
-        }
-        catch (e) {
-            return null;
-        }
-    }
-    function getTemplatePresetDisplayName_ACU(presetName) {
-        const normalizedName = normalizeTemplatePresetSelectionValue_ACU(presetName);
-        return normalizedName || '默认预设';
-    }
-    function resolveActiveTemplatePresetName_ACU({ fallbackToGlobal = true, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const normalizedKey = String(isolationKey ?? '');
-        const chatScopeState = getCurrentChatTemplateScopeState_ACU({ isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
-        const chatPresetName = normalizeTemplatePresetSelectionValue_ACU(chatScopeState?.presetName || '');
-        if (chatPresetName)
-            return chatPresetName;
-        if (!fallbackToGlobal)
-            return '';
-        return getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false });
-    }
-    function getActiveTemplatePresetMeta_ACU({ isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const normalizedKey = String(isolationKey ?? '');
-        const chatScopeState = getCurrentChatTemplateScopeState_ACU({ isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
-        const normalizedMode = normalizeTemplateScopeMode_ACU(chatScopeState?.mode);
-        const effectivePresetName = normalizeTemplatePresetSelectionValue_ACU(resolveActiveTemplatePresetName_ACU({ fallbackToGlobal: true, isolationKey: normalizedKey }));
-        const scope = (normalizedMode === 'chat_override' || normalizedMode === 'preset_link') ? 'chat' : 'global';
-        return {
-            presetName: effectivePresetName,
-            displayName: getTemplatePresetDisplayName_ACU(effectivePresetName),
-            mode: normalizedMode,
-            scope,
-            scopeLabel: scope === 'chat' ? '当前聊天' : '全局',
-        };
-    }
-    function populateTemplatePresetSelectOptions_ACU($select, { extraPresetName = '', extraLabelSuffix = '（仅当前聊天快照）', extraOptions = [] } = {}) {
-        if (!$select || !$select.length)
-            return;
-        const normalizedExtraPresetName = normalizeTemplatePresetSelectionValue_ACU(extraPresetName);
-        const presetNames = listTemplatePresetNames_ACU();
-        const renderedNames = new Set();
-        $select.empty().append(jQuery_API_ACU$1('<option/>').val(DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU).text('默认预设'));
-        presetNames.forEach(name => {
-            const normalizedName = normalizeTemplatePresetSelectionValue_ACU(name);
-            if (!normalizedName || renderedNames.has(normalizedName))
-                return;
-            renderedNames.add(normalizedName);
-            $select.append(jQuery_API_ACU$1('<option/>').val(normalizedName).text(normalizedName));
-        });
-        if (normalizedExtraPresetName && !renderedNames.has(normalizedExtraPresetName)) {
-            renderedNames.add(normalizedExtraPresetName);
-            $select.append(jQuery_API_ACU$1('<option/>').val(normalizedExtraPresetName).text(`${normalizedExtraPresetName}${extraLabelSuffix}`));
-        }
-        (Array.isArray(extraOptions) ? extraOptions : []).forEach(option => {
-            const value = String(option?.value || '').trim();
-            if (!value || renderedNames.has(value))
-                return;
-            renderedNames.add(value);
-            const label = String(option?.label || value).trim() || value;
-            $select.append(jQuery_API_ACU$1('<option/>').val(value).text(label));
-        });
-    }
-    function loadTemplatePresetSelect_ACU({ globalSelectName = null, keepGlobalValue = false } = {}) {
-        if (!$popupInstance_ACU$1 || !$popupInstance_ACU$1.length)
-            return;
-        const presetNames = listTemplatePresetNames_ACU();
-        const globalPresetName = normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }));
-        const chatScopeState = getCurrentChatTemplateScopeState_ACU() || migrateLegacyTemplateScopeForCurrentChat_ACU();
-        const normalizedChatMode = normalizeTemplateScopeMode_ACU(chatScopeState?.mode);
-        const effectiveChatPresetName = resolveActiveTemplatePresetName_ACU({ fallbackToGlobal: true });
-        const chatSelectedPresetName = normalizeTemplatePresetSelectionValue_ACU(chatScopeState?.presetName || effectiveChatPresetName || '');
-        const chatPresetEntries = listChatTemplatePresetEntries_ACU();
-        const localOnlyOptions = chatPresetEntries
-            .filter(entry => {
-            const entryName = normalizeTemplatePresetSelectionValue_ACU(entry?.presetName || '');
-            return !!entryName && !presetNames.includes(entryName);
-        })
-            .map(entry => {
-            const entryName = normalizeTemplatePresetSelectionValue_ACU(entry?.presetName || '');
-            const updatedAtText = (typeof formatPlotScopeUpdatedAt_ACU$1 === 'function')
-                ? formatPlotScopeUpdatedAt_ACU$1(entry?.updatedAt || entry?.archivedAt)
-                : '';
-            return {
-                value: entryName,
-                label: updatedAtText
-                    ? `${getTemplatePresetDisplayName_ACU(entryName)}（当前聊天快照，${updatedAtText}）`
-                    : `${getTemplatePresetDisplayName_ACU(entryName)}（当前聊天快照）`,
-            };
-        });
-        const chatPresetEntryCount = chatPresetEntries.length;
-        const chatExtraPresetName = (() => {
-            if (!chatSelectedPresetName)
-                return '';
-            if (presetNames.includes(chatSelectedPresetName))
-                return '';
-            if (localOnlyOptions.some(option => option.value === chatSelectedPresetName))
-                return '';
-            return chatSelectedPresetName;
-        })();
-        const $globalSelect = getTemplatePresetSelectJQ_ACU();
-        const $chatSelect = getTemplateChatPresetSelectJQ_ACU();
-        const $globalStatus = $popupInstance_ACU$1.find(`#${SCRIPT_ID_PREFIX_ACU}-template-global-scope-status`);
-        const $chatStatus = $popupInstance_ACU$1.find(`#${SCRIPT_ID_PREFIX_ACU}-template-chat-scope-status`);
-        const $chatOriginStatus = $popupInstance_ACU$1.find(`#${SCRIPT_ID_PREFIX_ACU}-template-chat-origin-status`);
-        const $globalDeleteBtn = $popupInstance_ACU$1.find(`#${SCRIPT_ID_PREFIX_ACU}-template-preset-delete`);
-        const hasGlobalPreset = !!globalPresetName && presetNames.includes(globalPresetName);
-        populateTemplatePresetSelectOptions_ACU($globalSelect, {
-            extraPresetName: hasGlobalPreset ? '' : globalPresetName,
-            extraLabelSuffix: '（仅当前全局模板快照）',
-        });
-        populateTemplatePresetSelectOptions_ACU($chatSelect, {
-            extraPresetName: chatExtraPresetName,
-            extraLabelSuffix: normalizedChatMode === 'preset_link' ? '（当前聊天引用）' : '（当前聊天专属预设）',
-            extraOptions: localOnlyOptions,
-        });
-        if ($globalSelect && $globalSelect.length) {
-            let resolvedGlobalValue = globalPresetName;
-            if (globalSelectName !== null && typeof globalSelectName !== 'undefined') {
-                resolvedGlobalValue = normalizeTemplatePresetSelectionValue_ACU(globalSelectName);
-            }
-            else if (keepGlobalValue) {
-                resolvedGlobalValue = normalizeTemplatePresetSelectionValue_ACU($globalSelect.val());
-            }
-            const finalGlobalValue = resolvedGlobalValue && $globalSelect.find(`option[value="${resolvedGlobalValue.replace(/"/g, '\\"')}"]`).length > 0
-                ? resolvedGlobalValue
-                : (hasGlobalPreset || (!!globalPresetName && $globalSelect.find(`option[value="${globalPresetName.replace(/"/g, '\\"')}"]`).length > 0)
-                    ? globalPresetName
-                    : DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU);
-            $globalSelect.val(finalGlobalValue || DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU);
-        }
-        if ($globalDeleteBtn && $globalDeleteBtn.length) {
-            $globalDeleteBtn.toggle(!!globalPresetName && presetNames.includes(globalPresetName));
-        }
-        if ($chatSelect && $chatSelect.length) {
-            const finalChatValue = chatSelectedPresetName && $chatSelect.find(`option[value="${chatSelectedPresetName.replace(/"/g, '\\"')}"]`).length > 0
-                ? chatSelectedPresetName
-                : DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU;
-            $chatSelect.val(finalChatValue || DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU);
-        }
-        if ($globalStatus && $globalStatus.length) {
-            if (globalPresetName && !hasGlobalPreset) {
-                $globalStatus.text(`当前全局模板：${globalPresetName}（预设库已不存在，但当前 profile 仍保留这份模板快照）。`);
-            }
-            else {
-                $globalStatus.text(`当前全局模板：${getTemplatePresetDisplayName_ACU(globalPresetName)}；新聊天会默认继承这里的表格模板。`);
-            }
-        }
-        if ($chatStatus && $chatStatus.length) {
-            if (normalizedChatMode === 'chat_override') {
-                let scopeLabel = '当前聊天专属预设';
-                if (chatScopeState.source === 'legacy_frozen') {
-                    scopeLabel = '旧版聊天冻结模板（已迁移）';
-                }
-                else if (chatScopeState.source === 'legacy_history_frozen') {
-                    scopeLabel = '旧对话历史模板快照（已迁移）';
-                }
-                else if (chatScopeState.source === 'legacy_header_frozen') {
-                    scopeLabel = '旧版表头冻结模板（已迁移）';
-                }
-                $chatStatus.text(`当前聊天：${scopeLabel}；当前实际模板预设为 ${getTemplatePresetDisplayName_ACU(chatSelectedPresetName)}。`);
-            }
-            else if (normalizedChatMode === 'preset_link') {
-                $chatStatus.text(`当前聊天：引用全局预设 ${getTemplatePresetDisplayName_ACU(chatSelectedPresetName)}；打开聊天时会继续沿用这个预设。`);
-            }
-            else {
-                $chatStatus.text(`当前聊天：跟随当前全局；当前实际模板预设为 ${getTemplatePresetDisplayName_ACU(effectiveChatPresetName)}。`);
-            }
-        }
-        if ($chatOriginStatus && $chatOriginStatus.length) {
-            if (normalizedChatMode === 'chat_override') {
-                const detailParts = [];
-                if (chatScopeState.source === 'legacy_frozen') {
-                    detailParts.push('来源语义：从旧版聊天冻结模板迁移');
-                }
-                else if (chatScopeState.source === 'legacy_history_frozen') {
-                    detailParts.push('来源语义：从旧对话实际表格结构迁移');
-                }
-                else if (chatScopeState.source === 'legacy_header_frozen') {
-                    detailParts.push('来源语义：从旧版表头冻结模板迁移');
-                }
-                else {
-                    detailParts.push('来源语义：当前聊天已保存本地模板预设快照');
-                }
-                if (chatScopeState.originGlobalName) {
-                    detailParts.push(`来源全局模板：${getTemplatePresetDisplayName_ACU(chatScopeState.originGlobalName)}`);
-                }
-                if (Number.isFinite(chatScopeState.originGlobalRevision) && chatScopeState.originGlobalRevision > 0) {
-                    detailParts.push(`来源全局版本：v${chatScopeState.originGlobalRevision}`);
-                }
-                const updatedAtText = (typeof formatPlotScopeUpdatedAt_ACU$1 === 'function') ? formatPlotScopeUpdatedAt_ACU$1(chatScopeState.updatedAt) : '';
-                if (updatedAtText) {
-                    detailParts.push(`更新时间：${updatedAtText}`);
-                }
-                if (chatScopeState.source) {
-                    detailParts.push(`写入来源：${chatScopeState.source}`);
-                }
-                if (chatPresetEntryCount > 0) {
-                    detailParts.push(`当前聊天已登记 ${chatPresetEntryCount} 个本地模板预设`);
-                }
-                $chatOriginStatus.text(detailParts.join('；') || '当前聊天正在使用聊天级模板预设快照。');
-            }
-            else if (normalizedChatMode === 'preset_link') {
-                const detailParts = [
-                    '来源语义：当前聊天仅记录预设引用，未保存本地模板快照',
-                    `引用预设：${getTemplatePresetDisplayName_ACU(chatSelectedPresetName)}`,
-                ];
-                const updatedAtText = (typeof formatPlotScopeUpdatedAt_ACU$1 === 'function') ? formatPlotScopeUpdatedAt_ACU$1(chatScopeState?.updatedAt) : '';
-                if (updatedAtText) {
-                    detailParts.push(`更新时间：${updatedAtText}`);
-                }
-                if (chatScopeState?.source) {
-                    detailParts.push(`写入来源：${chatScopeState.source}`);
-                }
-                if (chatPresetEntryCount > 0) {
-                    detailParts.push(`当前聊天可切换/覆盖 ${chatPresetEntryCount} 个本地模板预设`);
-                }
-                $chatOriginStatus.text(detailParts.join('；'));
-            }
-            else if (chatPresetEntryCount > 0) {
-                $chatOriginStatus.text(`当前聊天尚未保存本地模板快照，实际会跟随当前全局模板；但当前聊天已经拥有 ${chatPresetEntryCount} 个可直接切换的本地模板预设。`);
-            }
-            else {
-                $chatOriginStatus.text('当前聊天尚未保存本地模板快照，实际会直接跟随当前全局表格模板。');
-            }
-        }
-    }
-    function refreshTemplatePresetSelectInUI_ACU({ selectName = null, keepValue = false } = {}) {
-        if ($popupInstance_ACU$1 && $popupInstance_ACU$1.length) {
-            loadTemplatePresetSelect_ACU({ globalSelectName: selectName, keepGlobalValue: !!keepValue });
-            return;
-        }
-        const $sel = getTemplatePresetSelectJQ_ACU();
-        if (!$sel || !$sel.length)
-            return;
-        renderTemplatePresetSelect_ACU($sel, { keepValue: !!keepValue });
-        if (selectName === null || typeof selectName === 'undefined')
-            return;
-        const normalizedName = normalizeTemplatePresetSelectionValue_ACU(selectName);
-        $sel.val(normalizedName || DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU);
-    }
-    function ensureUniqueTemplatePresetName_ACU(baseNameRaw) {
-        const baseName = String(baseNameRaw || '').trim();
-        if (!baseName)
-            return '';
-        const names = new Set(listTemplatePresetNames_ACU().map(n => String(n)));
-        if (!names.has(baseName))
-            return baseName;
-        for (let i = 2; i <= 99; i++) {
-            const candidate = `${baseName} (${i})`;
-            if (!names.has(candidate))
-                return candidate;
-        }
-        return `${baseName} (${Date.now()})`;
-    }
-    function buildDefaultTemplatePresetsStore_ACU() {
-        return { version: 1, presets: {} };
-    }
-    function loadTemplatePresetsStore_ACU() {
-        const store = getConfigStorage_ACU();
-        const raw = store?.getItem?.(STORAGE_KEY_TEMPLATE_PRESETS_ACU);
-        const parsed = raw ? safeJsonParse_ACU(raw, null) : null;
-        const base = buildDefaultTemplatePresetsStore_ACU();
-        if (!parsed || typeof parsed !== 'object')
-            return base;
-        const out = { ...base, ...parsed };
-        if (!out.presets || typeof out.presets !== 'object')
-            out.presets = {};
-        return out;
-    }
-    function saveTemplatePresetsStore_ACU(obj) {
-        try {
-            const store = getConfigStorage_ACU();
-            store?.setItem?.(STORAGE_KEY_TEMPLATE_PRESETS_ACU, safeJsonStringify_ACU(obj, '{}'));
-            return true;
-        }
-        catch (e) {
-            logWarn_ACU('[TemplatePresets] Failed to save:', e);
-            return false;
-        }
-    }
-    function listTemplatePresetNames_ACU() {
-        const s = loadTemplatePresetsStore_ACU();
-        return Object.keys(s.presets || {}).sort((a, b) => String(a).localeCompare(String(b)));
-    }
-    function getTemplatePreset_ACU(name) {
-        const s = loadTemplatePresetsStore_ACU();
-        const p = s?.presets?.[String(name || '')];
-        return p && typeof p === 'object' ? p : null;
-    }
-    function upsertTemplatePreset_ACU(nameRaw, templateStr) {
-        const name = String(nameRaw || '').trim();
-        if (!name)
-            return false;
-        const s = loadTemplatePresetsStore_ACU();
-        s.presets = s.presets && typeof s.presets === 'object' ? s.presets : {};
-        s.presets[name] = { templateStr: String(templateStr || ''), updatedAt: Date.now() };
-        return saveTemplatePresetsStore_ACU(s);
-    }
-    function deleteTemplatePreset_ACU(nameRaw) {
-        const name = String(nameRaw || '').trim();
-        if (!name)
-            return false;
-        const s = loadTemplatePresetsStore_ACU();
-        if (!s.presets || typeof s.presets !== 'object')
-            return false;
-        if (!Object.prototype.hasOwnProperty.call(s.presets, name))
-            return false;
-        delete s.presets[name];
-        return saveTemplatePresetsStore_ACU(s);
-    }
-    function normalizeTemplateForPresetSave_ACU() {
-        // 返回：{ templateObj, templateStr } 或 null
-        const obj = parseTableTemplateJson_ACU({ stripSeedRows: false });
-        if (!obj || typeof obj !== 'object')
-            return null;
-        try {
-            const sheetKeys = Object.keys(obj).filter(k => k.startsWith('sheet_'));
-            ensureSheetOrderNumbers_ACU(obj, { baseOrderKeys: sheetKeys, forceRebuild: false });
-        }
-        catch (e) { }
-        const sanitized = sanitizeChatSheetsObject_ACU(obj, { ensureMate: true });
-        const str = safeJsonStringify_ACU(sanitized, '');
-        if (!str)
-            return null;
-        return { templateObj: sanitized, templateStr: str };
-    }
-    function renderTemplatePresetSelect_ACU($select, { keepValue = true } = {}) {
-        try {
-            if (!$select || !$select.length)
-                return;
-            const prev = keepValue ? normalizeTemplatePresetSelectionValue_ACU($select.val()) : '';
-            const names = listTemplatePresetNames_ACU();
-            const persistedName = getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: true, getTemplatePresetFn: getTemplatePreset_ACU });
-            $select.empty();
-            $select.append(jQuery_API_ACU$1('<option/>').val(DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU).text('默认预设'));
-            names.forEach(n => {
-                // 注意：value/text 必须用 DOM 赋值，避免 HTML 转义导致取值失真（比如 &、<、" 等）
-                $select.append(jQuery_API_ACU$1('<option/>').val(String(n)).text(String(n)));
-            });
-            let resolvedValue = DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU;
-            if (keepValue) {
-                if (isDefaultTemplatePresetSelection_ACU(prev)) {
-                    resolvedValue = DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU;
-                }
-                else if (names.includes(prev)) {
-                    resolvedValue = prev;
-                }
-            }
-            if (resolvedValue === DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU && persistedName && names.includes(persistedName)) {
-                resolvedValue = persistedName;
-            }
-            $select.val(resolvedValue);
-        }
-        catch (e) { }
-    }
-    function getDefaultTemplateSnapshot_ACU() {
-        const previousTemplate = TABLE_TEMPLATE_ACU;
-        let snapshot = sanitizeTemplateSnapshotForChat_ACU(DEFAULT_TABLE_TEMPLATE_ACU);
-        if (snapshot?.templateStr) {
-            return snapshot;
-        }
-        try {
-            _set_TABLE_TEMPLATE_ACU(DEFAULT_TABLE_TEMPLATE_ACU);
-            const parsedTemplate = parseTableTemplateJson_ACU({ stripSeedRows: false });
-            snapshot = sanitizeTemplateSnapshotForChat_ACU(parsedTemplate);
-        }
-        catch (e) {
-            snapshot = null;
-        }
-        finally {
-            _set_TABLE_TEMPLATE_ACU(previousTemplate);
-        }
-        return snapshot || sanitizeTemplateSnapshotForChat_ACU(previousTemplate);
-    }
-    function normalizeTemplateOperationScope_ACU(scope) {
-        return scope === 'chat' ? 'chat' : 'global';
-    }
-    function parseImportedTemplateData_ACU(templateData) {
-        let jsonData;
-        if (typeof templateData === 'string') {
-            try {
-                jsonData = JSON.parse(templateData);
-            }
-            catch (parseError) {
-                throw new Error(`JSON解析错误: ${parseError.message}`);
-            }
-        }
-        else if (typeof templateData === 'object' && templateData !== null) {
-            jsonData = JSON.parse(JSON.stringify(templateData));
-        }
-        else {
-            throw new Error('无效的模板数据：必须是 JSON 对象或 JSON 字符串');
-        }
-        if (!jsonData.mate || !jsonData.mate.type || jsonData.mate.type !== 'chatSheets') {
-            throw new Error('缺少 "mate" 对象或 "type" 属性不正确。模板必须包含 `"mate": {"type": "chatSheets", ...}`。');
-        }
-        const sheetKeys = Object.keys(jsonData).filter(k => k.startsWith('sheet_'));
-        if (sheetKeys.length === 0) {
-            throw new Error('模板中未找到任何表格数据 (缺少 "sheet_..." 键)。');
-        }
-        for (const key of sheetKeys) {
-            const sheet = jsonData[key];
-            if (!sheet.name || !sheet.content || !sheet.sourceData || !Array.isArray(sheet.content)) {
-                throw new Error(`表格 "${key}" 结构不完整，缺少 "name"、"content" 或 "sourceData" 关键属性。`);
-            }
-        }
-        try {
-            if (!jsonData.mate || typeof jsonData.mate !== 'object')
-                jsonData.mate = { type: 'chatSheets', version: 1 };
-            if (jsonData.mate.updateConfigUiSentinel !== -1) {
-                const sheetKeys2 = Object.keys(jsonData).filter(k => k.startsWith('sheet_'));
-                for (const k of sheetKeys2) {
-                    const s = jsonData[k];
-                    const uc = s && typeof s === 'object' ? s.updateConfig : null;
-                    if (!uc || typeof uc !== 'object')
-                        continue;
-                    if (uc.uiSentinel !== -1)
-                        uc.uiSentinel = -1;
-                    for (const field of ['contextDepth', 'updateFrequency', 'batchSize', 'skipFloors']) {
-                        if (Object.prototype.hasOwnProperty.call(uc, field) && uc[field] === 0)
-                            uc[field] = -1;
-                    }
-                }
-                jsonData.mate.updateConfigUiSentinel = -1;
-            }
-        }
-        catch (e) { }
-        ensureSheetOrderNumbers_ACU(jsonData, { baseOrderKeys: sheetKeys, forceRebuild: false });
-        const sanitized = sanitizeChatSheetsObject_ACU(jsonData, { ensureMate: true });
-        const snapshot = sanitizeTemplateSnapshotForChat_ACU(sanitized);
-        if (!snapshot?.templateStr || !snapshot?.templateObj) {
-            throw new Error('模板结构无效，无法生成模板快照。');
-        }
-        return {
-            snapshot,
-            templateObj: snapshot.templateObj,
-            templateStr: snapshot.templateStr,
-        };
-    }
-    async function applyTemplateSnapshotToScope_ACU(templateSource, { scope = 'global', source = 'ui', presetName = '', refreshUi = false, save = true, persistChatScope = null, registerChatPresetEntry = null } = {}) {
-        const normalizedScope = normalizeTemplateOperationScope_ACU(scope);
-        const snapshot = sanitizeTemplateSnapshotForChat_ACU(templateSource);
-        if (!snapshot?.templateStr || !snapshot?.templateObj)
-            return false;
-        const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
-        const updateGlobal = normalizedScope === 'global';
-        const effectivePersistChatScope = persistChatScope === null ? !updateGlobal : !!persistChatScope;
-        const effectiveRegisterChatPresetEntry = registerChatPresetEntry === null
-            ? (!updateGlobal && !!effectivePersistChatScope)
-            : !!registerChatPresetEntry;
-        _set_TABLE_TEMPLATE_ACU(snapshot.templateStr);
-        if (updateGlobal) {
-            saveCurrentProfileTemplate_ACU(TABLE_TEMPLATE_ACU);
-        }
-        const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(snapshot.templateObj, { stripSeedRows: false });
-        persistTemplateScopeSelectionState_ACU(normalizedPresetName, {
-            source,
-            updateGlobal,
-            save,
-            persistChatScope: effectivePersistChatScope,
-            templateSource: snapshot.templateStr,
-            guideData,
-            scopeMode: effectivePersistChatScope ? 'chat_override' : 'inherit_global',
-            registerChatPresetEntry: effectiveRegisterChatPresetEntry,
-        });
-        applyTemplateScopeForCurrentChat_ACU();
-        if ($popupInstance_ACU$1 && refreshUi) {
-            loadTemplatePresetSelect_ACU({
-                globalSelectName: updateGlobal ? normalizedPresetName : null,
-                keepGlobalValue: !updateGlobal,
-            });
-        }
-        try {
-            await refreshMergedDataAndNotify_ACU();
-        }
-        catch (e) { }
-        return {
-            scope: normalizedScope,
-            presetName: normalizedPresetName,
-            templateStr: snapshot.templateStr,
-            templateObj: snapshot.templateObj,
-        };
-    }
-    function persistTemplateScopeSelectionState_ACU(presetName, { source = 'ui', updateGlobal = false, save = true, persistChatScope = !updateGlobal, templateSource = TABLE_TEMPLATE_ACU, guideData = null, archivePreviousChatScope = false, scopeMode = persistChatScope ? 'chat_override' : 'inherit_global', registerChatPresetEntry = !updateGlobal && !!persistChatScope && normalizeTemplateScopeMode_ACU(scopeMode) === 'chat_override' } = {}) {
-        void archivePreviousChatScope;
-        const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
-        let shouldSaveSettings = false;
-        let shouldSaveChat = false;
-        if (updateGlobal) {
-            persistCurrentTemplatePresetName_ACU(settings_ACU, normalizedPresetName, { save: false });
-            shouldSaveSettings = true;
-        }
-        else if (persistChatScope) {
-            const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(getCurrentIsolationKey_ACU$1());
-            const normalizedScopeMode = normalizeTemplateScopeMode_ACU(scopeMode);
-            let templateState = null;
-            if (normalizedScopeMode === 'chat_override') {
-                templateState = buildChatTemplateScopeStateFromCurrent_ACU({
-                    isolationKey: normalizedKey,
-                    presetName: normalizedPresetName,
-                    source,
-                    originGlobalName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
-                    originGlobalRevision: 0,
-                    updatedAt: Date.now(),
-                    templateSource,
-                    guideData,
-                });
-            }
-            else if (normalizedScopeMode === 'preset_link') {
-                templateState = buildChatTemplatePresetLinkState_ACU({
-                    isolationKey: normalizedKey,
-                    presetName: normalizedPresetName,
-                    source,
-                    originGlobalName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
-                    originGlobalRevision: 0,
-                    updatedAt: Date.now(),
-                });
-            }
-            else {
-                templateState = { mode: 'inherit_global' };
-            }
-            if (templateState) {
-                setCurrentChatTemplateScopeState_ACU(templateState, {
-                    isolationKey: normalizedKey,
-                    reason: `template_scope_${source}`,
-                });
-                if (normalizedScopeMode === 'chat_override' && registerChatPresetEntry) {
-                    try {
-                        upsertChatTemplatePresetEntry_ACU(templateState, { isolationKey: normalizedKey });
-                    }
-                    catch (e) { }
-                }
-                try {
-                    clearChatSheetGuideDataForIsolationKey_ACU({ isolationKey: normalizedKey });
-                }
-                catch (e) { }
-                shouldSaveChat = true;
-            }
-        }
-        if (save) {
-            if (shouldSaveSettings) {
-                saveSettings_ACU();
-            }
-            if (shouldSaveChat && typeof SillyTavern_API_ACU?.saveChat === 'function') {
-                Promise.resolve()
-                    .then(() => SillyTavern_API_ACU.saveChat())
-                    .catch(error => logWarn_ACU('[TemplateScope] 保存聊天级模板状态失败:', error));
-            }
-        }
-        return normalizedPresetName;
-    }
-    async function applyTemplatePresetToCurrent_ACU(presetName, { source = 'ui', updateGlobal = true, refreshUi = false, save = true, persistChatScope = !updateGlobal } = {}) {
-        const name = normalizeTemplatePresetSelectionValue_ACU(presetName);
-        const isDefaultPreset = isDefaultTemplatePresetSelection_ACU(name);
-        if (!updateGlobal) {
-            const activated = await activateChatTemplatePresetSelection_ACU(name, {
-                source,
-                refreshUi,
-                save,
-            });
-            if (!activated)
-                return false;
-            if ($popupInstance_ACU$1 && refreshUi) {
-                loadTemplatePresetSelect_ACU({ keepGlobalValue: true });
-            }
-            return { ...activated, isDefault: isDefaultPreset };
-        }
-        let snapshot = null;
-        if (isDefaultPreset) {
-            snapshot = getDefaultTemplateSnapshot_ACU();
-        }
-        else {
-            const preset = getTemplatePreset_ACU(name);
-            const raw = preset?.templateStr;
-            if (!raw)
-                return false;
-            snapshot = sanitizeTemplateSnapshotForChat_ACU(raw);
-        }
-        const applied = await applyTemplateSnapshotToScope_ACU(snapshot?.templateStr, {
-            scope: 'global',
-            source,
-            presetName: name,
-            refreshUi,
-            save,
-            persistChatScope,
-        });
-        if (!applied)
-            return false;
-        return { ...applied, isDefault: isDefaultPreset };
-    }
-
-    /**
-     * service/template/template-preset-service.ts — 模板预设纯逻辑函数
-     *
-     * 从 presentation/components/template-preset-ui.ts 中提取的纯数据操作函数。
-     * 不操作 DOM，可被 service 层和 presentation 层共同引用。
-     */
-
-    /**
-     * service/template/chat-scope.ts — 聊天模板/剧情作用域管理 + Sheet Guide + sanitize
-     * 从 src/core/04_shared_helpers.js:37~1382 迁移而来。
-     * 合并 T114~T120: chat-scope + template-archive + sheet-guide + sheet-helpers(部分)
-     */
-    function normalizePlotScopeMode_ACU(mode) {
-        return mode === 'chat_override' ? 'chat_override' : 'inherit_global';
-    }
-    function normalizeChatScopedConfigSource_ACU(source, fallback = 'inherit') {
-        if (typeof source !== 'string')
-            return fallback;
-        const normalized = source.trim();
-        return normalized || fallback;
-    }
-    function sanitizePlotSettingsSnapshotForChat_ACU(plotSettings) {
-        if (!plotSettings || typeof plotSettings !== 'object')
-            return null;
-        const snapshot = cloneScopedConfigData_ACU(plotSettings, null);
-        if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot))
-            return null;
-        delete snapshot.promptPresets;
-        delete snapshot.lastUsedPresetName;
-        delete snapshot.enabled;
-        ensurePlotPromptsArray_ACU(snapshot);
-        ensureLoopPromptsArray_ACU(snapshot);
-        ensurePlotTasksCompat_ACU(snapshot, { syncLegacy: true });
-        snapshot.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(snapshot);
-        setPlotPromptContentByIdForSettings_ACU(snapshot, 'finalSystemDirective', snapshot.finalSystemDirective || '');
-        return snapshot;
-    }
-    function normalizeChatPlotScopeState_ACU(rawState) {
-        const state = (rawState && typeof rawState === 'object' && !Array.isArray(rawState)) ? rawState : {};
-        const snapshot = sanitizePlotSettingsSnapshotForChat_ACU(state.snapshot);
-        return {
-            mode: normalizePlotScopeMode_ACU(state.mode),
-            presetName: normalizePlotPresetSelectionValue_ACU(state.presetName || ''),
-            snapshot,
-            originGlobalName: normalizePlotPresetSelectionValue_ACU(state.originGlobalName || ''),
-            originGlobalRevision: Number.isFinite(state.originGlobalRevision) ? Math.max(0, Math.trunc(state.originGlobalRevision)) : 0,
-            updatedAt: Number.isFinite(state.updatedAt) ? state.updatedAt : 0,
-            source: normalizeChatScopedConfigSource_ACU(state.source, 'inherit'),
-        };
-    }
-    function getCurrentChatPlotScopeState_ACU(chat = SillyTavern_API_ACU?.chat) {
-        const container = getChatScopedConfigContainer_ACU(chat);
-        const rawState = container?.plot;
-        if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState))
-            return null;
-        const normalizedState = normalizeChatPlotScopeState_ACU(rawState);
-        if (normalizedState.mode !== 'chat_override' || !normalizedState.snapshot) {
-            return null;
-        }
-        return normalizedState;
-    }
-    function buildChatPlotScopeStateFromSettings_ACU(plotSettings, { presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now() } = {}) {
-        const snapshot = sanitizePlotSettingsSnapshotForChat_ACU(plotSettings);
-        if (!snapshot)
-            return null;
-        return normalizeChatPlotScopeState_ACU({
-            mode: 'chat_override',
-            presetName,
-            snapshot,
-            originGlobalName,
-            originGlobalRevision,
-            updatedAt,
-            source,
-        });
-    }
-    function setCurrentChatPlotScopeState_ACU(plotState, { reason = '' } = {}) {
-        const chat = SillyTavern_API_ACU?.chat;
-        const first = getChatFirstLayerMessage_ACU(chat);
-        if (!first)
-            return null;
-        const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
-        const normalizedState = normalizeChatPlotScopeState_ACU(plotState);
-        if (normalizedState.mode === 'chat_override' && normalizedState.snapshot) {
-            container.plot = {
-                ...normalizedState,
-                reason: String(reason || ''),
-            };
-        }
-        else {
-            delete container.plot;
-        }
-        const hasPayload = Object.keys(container).some(key => key !== 'version');
-        if (hasPayload) {
-            first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
-        }
-        else {
-            delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
-        }
-        return getCurrentChatPlotScopeState_ACU(chat);
-    }
-    function clearCurrentChatPlotScopeState_ACU() {
-        return setCurrentChatPlotScopeState_ACU({ mode: 'inherit_global' }, { reason: 'clear_plot_override' });
-    }
-    function normalizeTemplateScopeMode_ACU(mode) {
-        if (mode === 'chat_override')
-            return 'chat_override';
-        if (mode === 'preset_link')
-            return 'preset_link';
-        return 'inherit_global';
-    }
-    function normalizeTemplateScopeIsolationKey_ACU(isolationKey = getCurrentIsolationKey_ACU$1()) {
-        return String(isolationKey ?? '');
-    }
-    function sanitizeTemplateSnapshotForChat_ACU(templateSource) {
-        let templateObj = null;
-        if (typeof templateSource === 'string') {
-            templateObj = safeJsonParse_ACU(templateSource, null);
-        }
-        else if (templateSource && typeof templateSource === 'object' && !Array.isArray(templateSource)) {
-            templateObj = cloneScopedConfigData_ACU(templateSource, null);
-        }
-        if (!templateObj || typeof templateObj !== 'object' || Array.isArray(templateObj))
-            return null;
-        try {
-            const sheetKeys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
-            ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: sheetKeys, forceRebuild: false });
-        }
-        catch (e) { }
-        const sanitized = sanitizeChatSheetsObject_ACU(templateObj, { ensureMate: true });
-        const templateStr = safeJsonStringify_ACU(sanitized, '');
-        if (!templateStr)
-            return null;
-        return {
-            templateStr,
-            templateObj: safeJsonParse_ACU(templateStr, null),
-        };
-    }
-    function normalizeChatTemplateScopeState_ACU(rawState, { isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const state = (rawState && typeof rawState === 'object' && !Array.isArray(rawState)) ? rawState : {};
-        const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(state.templateStr || state.templateObj || state.template || null);
-        const guideData = normalizeGuideData_ACU(state.guideData);
-        return {
-            mode: normalizeTemplateScopeMode_ACU(state.mode),
-            isolationKey: normalizeTemplateScopeIsolationKey_ACU(state.isolationKey ?? isolationKey),
-            presetName: normalizeTemplatePresetSelectionValue_ACU(state.presetName || ''),
-            templateStr: templateSnapshot?.templateStr || '',
-            guideData,
-            originGlobalName: normalizeTemplatePresetSelectionValue_ACU(state.originGlobalName || ''),
-            originGlobalRevision: Number.isFinite(state.originGlobalRevision) ? Math.max(0, Math.trunc(state.originGlobalRevision)) : 0,
-            updatedAt: Number.isFinite(state.updatedAt) ? state.updatedAt : 0,
-            source: normalizeChatScopedConfigSource_ACU(state.source, 'inherit'),
-        };
-    }
-    function buildChatTemplatePresetSlotKey_ACU(presetName) {
-        return normalizeTemplatePresetSelectionValue_ACU(presetName) || DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU;
-    }
-    function listChatTemplatePresetEntries_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const entryMap = new Map();
-        getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).forEach(entry => {
-            const slotKey = buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '');
-            const previousEntry = entryMap.get(slotKey);
-            const currentTs = Number(entry?.updatedAt) || Number(entry?.archivedAt) || 0;
-            const previousTs = Number(previousEntry?.updatedAt) || Number(previousEntry?.archivedAt) || 0;
-            if (!previousEntry || currentTs >= previousTs) {
-                entryMap.set(slotKey, entry);
-            }
-        });
-        return Array.from(entryMap.values()).sort((a, b) => {
-            const ta = Number(a?.updatedAt) || Number(a?.archivedAt) || 0;
-            const tb = Number(b?.updatedAt) || Number(b?.archivedAt) || 0;
-            return tb - ta;
-        });
-    }
-    function findChatTemplatePresetEntry_ACU(presetName, { chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const slotKey = buildChatTemplatePresetSlotKey_ACU(presetName);
-        return listChatTemplatePresetEntries_ACU({ chat, isolationKey }).find(entry => buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '') === slotKey) || null;
-    }
-    function upsertChatTemplatePresetEntry_ACU(templateState, { chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
-        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
-            return null;
-        const slotKey = buildChatTemplatePresetSlotKey_ACU(normalizedState.presetName || '');
-        const archivedAt = Date.now();
-        const nextEntries = [
-            {
-                ...normalizedState,
-                archiveKey: slotKey,
-                archivedAt,
-                updatedAt: normalizedState.updatedAt || archivedAt,
-            },
-            ...getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).filter(entry => buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '') !== slotKey),
-        ];
-        setChatTemplateArchiveEntries_ACU(nextEntries, { chat, isolationKey: normalizedKey });
-        return findChatTemplatePresetEntry_ACU(normalizedState.presetName || '', { chat, isolationKey: normalizedKey });
-    }
-    function ensureCurrentChatTemplatePresetEntry_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const currentState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ chat, isolationKey: normalizedKey });
-        const normalizedState = normalizeChatTemplateScopeState_ACU(currentState, { isolationKey: normalizedKey });
-        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
-            return null;
-        const existingEntry = findChatTemplatePresetEntry_ACU(normalizedState.presetName || '', { chat, isolationKey: normalizedKey });
-        const currentFingerprint = buildChatTemplateArchiveFingerprint_ACU(normalizedState, { isolationKey: normalizedKey });
-        const existingFingerprint = existingEntry ? buildChatTemplateArchiveFingerprint_ACU(existingEntry, { isolationKey: normalizedKey }) : '';
-        if (existingEntry && currentFingerprint && existingFingerprint === currentFingerprint) {
-            return existingEntry;
-        }
-        return upsertChatTemplatePresetEntry_ACU(normalizedState, { chat, isolationKey: normalizedKey });
-    }
-    function buildChatTemplatePresetLinkState_ACU({ isolationKey = getCurrentIsolationKey_ACU$1(), presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now() } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        return normalizeChatTemplateScopeState_ACU({
-            mode: 'preset_link',
-            isolationKey: normalizedKey,
-            presetName,
-            originGlobalName,
-            originGlobalRevision,
-            updatedAt,
-            source,
-        }, { isolationKey: normalizedKey });
-    }
-    async function activateChatTemplatePresetSelection_ACU(presetName, { source = 'ui_chat_select', refreshUi = false, save = true } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(getCurrentIsolationKey_ACU$1());
-        const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
-        const localEntry = findChatTemplatePresetEntry_ACU(normalizedPresetName, { isolationKey: normalizedKey });
-        const hasGlobalPreset = !normalizedPresetName || !!getTemplatePreset_ACU(normalizedPresetName)?.templateStr;
-        try {
-            ensureCurrentChatTemplatePresetEntry_ACU({ isolationKey: normalizedKey });
-        }
-        catch (e) { }
-        if (localEntry?.templateStr) {
-            persistTemplateScopeSelectionState_ACU(normalizedPresetName, {
-                source,
-                updateGlobal: false,
-                save,
-                persistChatScope: true,
-                templateSource: localEntry.templateStr,
-                guideData: localEntry.guideData,
-                scopeMode: 'chat_override',
-                registerChatPresetEntry: false,
-            });
-        }
-        else {
-            if (!hasGlobalPreset)
-                return false;
-            const linkState = buildChatTemplatePresetLinkState_ACU({
-                isolationKey: normalizedKey,
-                presetName: normalizedPresetName,
-                source,
-                originGlobalName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
-                originGlobalRevision: 0,
-                updatedAt: Date.now(),
-            });
-            setCurrentChatTemplateScopeState_ACU(linkState, {
-                isolationKey: normalizedKey,
-                reason: `template_scope_${source}`,
-            });
-            try {
-                clearChatSheetGuideDataForIsolationKey_ACU({ isolationKey: normalizedKey });
-            }
-            catch (e) { }
-            if (save && typeof SillyTavern_API_ACU?.saveChat === 'function') {
-                try {
-                    await SillyTavern_API_ACU.saveChat();
-                }
-                catch (error) {
-                    logWarn_ACU('[TemplateScope] 保存聊天级模板预设引用失败:', error);
-                }
-            }
-        }
-        applyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
-        try {
-            await refreshMergedDataAndNotify_ACU();
-        }
-        catch (e) { }
-        return {
-            presetName: normalizedPresetName,
-            mode: localEntry?.templateStr ? 'chat_override' : 'preset_link',
-            fromLocalSnapshot: !!localEntry?.templateStr,
-        };
-    }
-    function buildChatTemplateArchiveFingerprint_ACU(templateState, { isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey });
-        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
-            return '';
-        const raw = safeJsonStringify_ACU({
-            presetName: normalizedState.presetName || '',
-            source: normalizedState.source || '',
-            templateStr: normalizedState.templateStr || '',
-            guideData: normalizeGuideData_ACU(normalizedState.guideData),
-        }, '');
-        return raw ? hashUserInput_ACU(raw) : '';
-    }
-    function getChatTemplateArchiveBaseLabel_ACU(templateState, { fallback = '聊天模板快照' } = {}) {
-        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState);
-        if (normalizedState.source === 'legacy_history_frozen')
-            return '旧对话历史模板快照';
-        if (normalizedState.source === 'legacy_header_frozen')
-            return '旧版表头冻结模板';
-        if (normalizedState.source === 'legacy_frozen')
-            return '旧版聊天冻结模板';
-        const presetName = normalizeTemplatePresetSelectionValue_ACU(normalizedState.presetName || '');
-        return presetName ? getTemplatePresetDisplayName_ACU(presetName) : fallback;
-    }
-    function normalizeChatTemplateArchiveEntry_ACU(rawEntry, { isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const normalizedState = normalizeChatTemplateScopeState_ACU(rawEntry, { isolationKey });
-        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
-            return null;
-        const archiveKey = String(rawEntry?.archiveKey || buildChatTemplateArchiveFingerprint_ACU(normalizedState, { isolationKey: normalizedState.isolationKey }) || '').trim();
-        if (!archiveKey)
-            return null;
-        return {
-            archiveKey,
-            isolationKey: normalizedState.isolationKey,
-            presetName: normalizedState.presetName,
-            templateStr: normalizedState.templateStr,
-            guideData: normalizedState.guideData,
-            originGlobalName: normalizedState.originGlobalName,
-            originGlobalRevision: normalizedState.originGlobalRevision,
-            updatedAt: normalizedState.updatedAt,
-            archivedAt: Number.isFinite(rawEntry?.archivedAt) ? rawEntry.archivedAt : Date.now(),
-            source: normalizedState.source,
-            mode: 'chat_override',
-        };
-    }
-    function getChatTemplateArchiveEntries_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const container = getChatScopedConfigContainer_ACU(chat);
-        const rawSlots = container?.templateArchives;
-        if (!rawSlots || typeof rawSlots !== 'object' || Array.isArray(rawSlots))
-            return [];
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const rawEntries = Array.isArray(rawSlots[normalizedKey]) ? rawSlots[normalizedKey] : [];
-        return rawEntries
-            .map(entry => normalizeChatTemplateArchiveEntry_ACU(entry, { isolationKey: normalizedKey }))
-            .filter(Boolean)
-            .sort((a, b) => (Number(b.archivedAt) || 0) - (Number(a.archivedAt) || 0));
-    }
-    function setChatTemplateArchiveEntries_ACU(entries, { chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const first = getChatFirstLayerMessage_ACU(chat);
-        if (!first)
-            return [];
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
-        const normalizedEntries = (Array.isArray(entries) ? entries : [])
-            .map(entry => normalizeChatTemplateArchiveEntry_ACU(entry, { isolationKey: normalizedKey }))
-            .filter(Boolean)
-            .sort((a, b) => (Number(b.archivedAt) || 0) - (Number(a.archivedAt) || 0))
-            .slice(0, MAX_CHAT_TEMPLATE_ARCHIVES_PER_TAG_ACU);
-        if (normalizedEntries.length > 0) {
-            if (!container.templateArchives || typeof container.templateArchives !== 'object' || Array.isArray(container.templateArchives)) {
-                container.templateArchives = {};
-            }
-            container.templateArchives[normalizedKey] = normalizedEntries;
-        }
-        else if (container.templateArchives && typeof container.templateArchives === 'object' && !Array.isArray(container.templateArchives)) {
-            delete container.templateArchives[normalizedKey];
-            if (Object.keys(container.templateArchives).length === 0)
-                delete container.templateArchives;
-        }
-        const hasPayload = Object.keys(container).some(key => key !== 'version');
-        if (hasPayload) {
-            first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
-        }
-        else {
-            delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
-        }
-        return getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey });
-    }
-    function archiveCurrentChatTemplateScopeState_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1(), nextTemplateState = null, reason = '' } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const currentState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ chat, isolationKey: normalizedKey });
-        const normalizedCurrentState = normalizeChatTemplateScopeState_ACU(currentState, { isolationKey: normalizedKey });
-        if (normalizedCurrentState.mode !== 'chat_override' || !normalizedCurrentState.templateStr)
-            return false;
-        const currentArchiveKey = buildChatTemplateArchiveFingerprint_ACU(normalizedCurrentState, { isolationKey: normalizedKey });
-        if (!currentArchiveKey)
-            return false;
-        const normalizedNextState = nextTemplateState
-            ? normalizeChatTemplateScopeState_ACU(nextTemplateState, { isolationKey: normalizedKey })
-            : null;
-        const nextArchiveKey = normalizedNextState?.templateStr
-            ? buildChatTemplateArchiveFingerprint_ACU(normalizedNextState, { isolationKey: normalizedKey })
-            : '';
-        if (nextArchiveKey && currentArchiveKey === nextArchiveKey)
-            return false;
-        const archivedAt = Date.now();
-        const nextEntries = [
-            {
-                ...normalizedCurrentState,
-                archiveKey: currentArchiveKey,
-                archivedAt,
-                updatedAt: normalizedCurrentState.updatedAt || archivedAt,
-                source: normalizedCurrentState.source || normalizeChatScopedConfigSource_ACU(reason, 'inherit'),
-            },
-            ...getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).filter(entry => entry.archiveKey !== currentArchiveKey),
-        ];
-        setChatTemplateArchiveEntries_ACU(nextEntries, { chat, isolationKey: normalizedKey });
-        return true;
-    }
-    function buildChatTemplateArchiveOptionValue_ACU(archiveKey) {
-        const normalizedKey = String(archiveKey || '').trim();
-        return normalizedKey ? `${CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU}${normalizedKey}` : '';
-    }
-    function isChatTemplateArchiveOptionValue_ACU(value) {
-        return typeof value === 'string' && value.startsWith(CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU);
-    }
-    function parseChatTemplateArchiveOptionValue_ACU(value) {
-        return isChatTemplateArchiveOptionValue_ACU(value)
-            ? String(value.slice(CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU.length)).trim()
-            : '';
-    }
-    function getChatTemplateArchiveOptionLabel_ACU(entry) {
-        const normalizedEntry = normalizeChatTemplateArchiveEntry_ACU(entry);
-        if (!normalizedEntry)
-            return '聊天历史模板快照';
-        const baseLabel = getChatTemplateArchiveBaseLabel_ACU(normalizedEntry);
-        const archivedAtText = (typeof formatPlotScopeUpdatedAt_ACU === 'function') ? formatPlotScopeUpdatedAt_ACU(normalizedEntry.archivedAt || normalizedEntry.updatedAt) : '';
-        return archivedAtText
-            ? `${baseLabel}（聊天历史快照，${archivedAtText}）`
-            : `${baseLabel}（聊天历史快照）`;
-    }
-    async function restoreChatTemplateArchiveEntry_ACU(archiveKey, { chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1(), refreshUi = false, save = true } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const normalizedArchiveKey = String(archiveKey || '').trim();
-        if (!normalizedArchiveKey)
-            return false;
-        const entry = getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).find(item => item.archiveKey === normalizedArchiveKey);
-        if (!entry?.templateStr)
-            return false;
-        persistTemplateScopeSelectionState_ACU(entry.presetName, {
-            source: entry.source || 'ui_chat_archive_restore',
-            updateGlobal: false,
-            save,
-            persistChatScope: true,
-            templateSource: entry.templateStr,
-            guideData: entry.guideData,
-            archivePreviousChatScope: true,
-        });
-        applyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
-        try {
-            await refreshMergedDataAndNotify_ACU();
-        }
-        catch (e) { }
-        return {
-            archiveKey: normalizedArchiveKey,
-            presetName: entry.presetName || '',
-            label: getChatTemplateArchiveOptionLabel_ACU(entry),
-            templateStr: entry.templateStr,
-        };
-    }
-    function getCurrentChatTemplateScopeState_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const container = getChatScopedConfigContainer_ACU(chat);
-        const rawSlots = container?.template;
-        if (!rawSlots || typeof rawSlots !== 'object' || Array.isArray(rawSlots))
-            return null;
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const rawState = rawSlots[normalizedKey];
-        if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState))
-            return null;
-        const normalizedState = normalizeChatTemplateScopeState_ACU(rawState, { isolationKey: normalizedKey });
-        if (normalizedState.mode === 'preset_link') {
-            return normalizedState;
-        }
-        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr) {
-            return null;
-        }
-        return normalizedState;
-    }
-    function buildChatTemplateScopeStateFromCurrent_ACU({ isolationKey = getCurrentIsolationKey_ACU$1(), presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now(), templateSource = TABLE_TEMPLATE_ACU, guideData = null } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateSource);
-        if (!templateSnapshot?.templateStr)
-            return null;
-        const resolvedGuideData = normalizeGuideData_ACU(guideData || getChatSheetGuideDataForIsolationKey_ACU(normalizedKey));
-        return normalizeChatTemplateScopeState_ACU({
-            mode: 'chat_override',
-            isolationKey: normalizedKey,
-            presetName,
-            templateStr: templateSnapshot.templateStr,
-            guideData: resolvedGuideData,
-            originGlobalName,
-            originGlobalRevision,
-            updatedAt,
-            source,
-        }, { isolationKey: normalizedKey });
-    }
-    function setCurrentChatTemplateScopeState_ACU(templateState, { isolationKey = getCurrentIsolationKey_ACU$1(), reason = '' } = {}) {
-        const chat = SillyTavern_API_ACU?.chat;
-        const first = getChatFirstLayerMessage_ACU(chat);
-        if (!first)
-            return null;
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
-        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
-        if (!container.template || typeof container.template !== 'object' || Array.isArray(container.template)) {
-            container.template = {};
-        }
-        if (normalizedState.mode === 'chat_override' && normalizedState.templateStr) {
-            container.template[normalizedKey] = {
-                ...normalizedState,
-                reason: String(reason || ''),
-            };
-        }
-        else if (normalizedState.mode === 'preset_link') {
-            container.template[normalizedKey] = {
-                ...normalizedState,
-                templateStr: '',
-                guideData: null,
-                reason: String(reason || ''),
-            };
-        }
-        else {
-            delete container.template[normalizedKey];
-            if (Object.keys(container.template).length === 0) {
-                delete container.template;
-            }
-        }
-        const hasPayload = Object.keys(container).some(key => key !== 'version');
-        if (hasPayload) {
-            first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
-        }
-        else {
-            delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
-        }
-        return getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
-    }
-    function clearCurrentChatTemplateScopeState_ACU({ isolationKey = getCurrentIsolationKey_ACU$1(), clearGuide = true, archiveCurrent = true } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        if (archiveCurrent) {
-            try {
-                archiveCurrentChatTemplateScopeState_ACU({ isolationKey: normalizedKey, reason: 'clear_template_override' });
-            }
-            catch (e) { }
-        }
-        const result = setCurrentChatTemplateScopeState_ACU({ mode: 'inherit_global' }, {
-            isolationKey: normalizedKey,
-            reason: 'clear_template_override',
-        });
-        if (clearGuide) {
-            try {
-                clearChatSheetGuideDataForIsolationKey_ACU({ isolationKey: normalizedKey });
-            }
-            catch (e) { }
-        }
-        return result;
-    }
-    function getGlobalTemplateSnapshotForCurrentProfile_ACU() {
-        const code = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || '');
-        const previousTemplate = TABLE_TEMPLATE_ACU;
-        const savedTemplate = readProfileTemplateFromStorage_ACU(code);
-        let snapshot = sanitizeTemplateSnapshotForChat_ACU(savedTemplate || previousTemplate);
-        if (snapshot?.templateStr) {
-            return snapshot;
-        }
-        try {
-            _set_TABLE_TEMPLATE_ACU(savedTemplate || DEFAULT_TABLE_TEMPLATE_ACU);
-            const parsedTemplate = parseTableTemplateJson_ACU({ stripSeedRows: false });
-            snapshot = sanitizeTemplateSnapshotForChat_ACU(parsedTemplate);
-        }
-        catch (e) {
-            snapshot = null;
-        }
-        finally {
-            _set_TABLE_TEMPLATE_ACU(previousTemplate);
-        }
-        return snapshot || sanitizeTemplateSnapshotForChat_ACU(previousTemplate);
-    }
-    function normalizeGuideData_ACU(dataObj) {
-        if (!dataObj || typeof dataObj !== 'object')
-            return null;
-        const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
-        // mate 允许覆盖
-        if (dataObj.mate && typeof dataObj.mate === 'object') {
-            out.mate = dataObj.mate;
-        }
-        // 兜底补齐 mate 关键字段（避免旧调用方传入 version=1 导致无法识别新结构）
-        if (!out.mate || typeof out.mate !== 'object')
-            out.mate = { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU };
-        if (!out.mate.type)
-            out.mate.type = 'chatSheets';
-        if (!Number.isFinite(out.mate.version) || Math.trunc(out.mate.version) < CHAT_SHEET_GUIDE_VERSION_ACU)
-            out.mate.version = CHAT_SHEET_GUIDE_VERSION_ACU;
-        Object.keys(dataObj).forEach(k => {
-            if (!k.startsWith('sheet_'))
-                return;
-            const s = dataObj[k];
-            if (!s || typeof s !== 'object')
-                return;
-            // content 只保留表头行
-            const headerRow = Array.isArray(s.content) && Array.isArray(s.content[0]) ? s.content[0] : [null];
-            const keep = {
-                uid: s.uid || k,
-                name: s.name || k,
-                sourceData: s.sourceData || { note: '', initNode: '', insertNode: '', updateNode: '', deleteNode: '' },
-                content: [headerRow],
-                updateConfig: s.updateConfig || { uiSentinel: -1, contextDepth: -1, updateFrequency: -1, batchSize: -1, skipFloors: -1, sendLatestRows: -1, groupId: -1 },
-                exportConfig: ensureExportConfigDefaults_ACU(s.exportConfig, s.name || k),
-            };
-            // v2: 基础数据（仅模板预置/seedRows）；注意：这里绝不从 content 派生，避免把真实数据误当作"基础数据"写入指导表
-            if (Array.isArray(s[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU])) {
-                try {
-                    keep[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(s[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU]));
-                }
-                catch (e) {
-                    keep[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = [];
-                }
-            }
-            if (s[TABLE_ORDER_FIELD_ACU] !== undefined)
-                keep[TABLE_ORDER_FIELD_ACU] = s[TABLE_ORDER_FIELD_ACU];
-            out[k] = keep;
-        });
-        return out;
-    }
-    function materializeDataFromSheetGuide_ACU(guideData, { includeSeedRows = true } = {}) {
-        const normalized = normalizeGuideData_ACU(guideData);
-        if (!normalized)
-            return { mate: { type: 'chatSheets', version: 1 } };
-        const out = { mate: normalized.mate || { type: 'chatSheets', version: 1 } };
-        Object.keys(normalized).forEach(k => {
-            if (!k.startsWith('sheet_'))
-                return;
-            const s = normalized[k];
-            const headerRow = Array.isArray(s?.content?.[0]) ? JSON.parse(JSON.stringify(s.content[0])) : [null];
-            const next = JSON.parse(JSON.stringify(s));
-            // content: header + (可选) seedRows
-            const seedRows = includeSeedRows && Array.isArray(s?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU])
-                ? JSON.parse(JSON.stringify(s[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU]))
-                : [];
-            next.content = [headerRow, ...seedRows];
-            // 保留 seedRows 字段本身（便于后续再次写回/二次处理），但不会影响表格使用者（他们只看 content）
-            out[k] = next;
-        });
-        return out;
-    }
-    function getLegacyHeaderGuideDataForIsolationKey_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const normalizedKey = String(isolationKey ?? '');
-        try {
-            const first = getChatFirstLayerMessage_ACU(chat);
-            const legacyRaw = first ? first[LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU] : null;
-            const legacyObj = legacyRaw ? ((typeof legacyRaw === 'string') ? safeJsonParse_ACU(legacyRaw, null) : legacyRaw) : null;
-            const legacyTags = legacyObj?.tags;
-            const legacySlot = (legacyTags && typeof legacyTags === 'object') ? legacyTags[normalizedKey] : null;
-            const legacyHeaders = Array.isArray(legacySlot?.headers) ? legacySlot.headers : null;
-            if (!legacyHeaders || legacyHeaders.length === 0)
-                return null;
-            const orderedUids = legacyHeaders
-                .map(h => h?.uid)
-                .filter(uid => typeof uid === 'string' && uid.startsWith('sheet_'));
-            if (orderedUids.length === 0)
-                return null;
-            const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
-            const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
-            orderedUids.forEach((uid, idx) => {
-                const base = (templateObj && templateObj[uid])
-                    ? JSON.parse(JSON.stringify(templateObj[uid]))
-                    : { uid, name: uid, content: [[null]], sourceData: {}, updateConfig: {}, exportConfig: {} };
-                if (Array.isArray(base.content) && base.content.length > 1) {
-                    base[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(base.content.slice(1)));
-                    base.content = [base.content[0]];
-                }
-                if (!Array.isArray(base.content) || base.content.length === 0)
-                    base.content = [[null]];
-                base.uid = uid;
-                if (!Number.isFinite(base[TABLE_ORDER_FIELD_ACU]))
-                    base[TABLE_ORDER_FIELD_ACU] = idx;
-                out[uid] = base;
-            });
-            return normalizeGuideData_ACU(out);
-        }
-        catch (e) {
-            return null;
-        }
-    }
-    function getHistoricalTemplateGuideDataForIsolationKey_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        if (!Array.isArray(chat) || chat.length === 0)
-            return null;
-        const historicalData = { mate: { type: 'chatSheets', version: 1 } };
-        const encounteredKeys = [];
-        const encounteredSet = new Set();
-        const appendTables = (dataObj, { summaryOnly = null } = {}) => {
-            if (!dataObj || typeof dataObj !== 'object' || Array.isArray(dataObj))
-                return;
-            Object.keys(dataObj).forEach(key => {
-                if (!key.startsWith('sheet_') || encounteredSet.has(key))
-                    return;
-                const sheet = dataObj[key];
-                if (!sheet || typeof sheet !== 'object' || Array.isArray(sheet))
-                    return;
-                const isSummary = !!sheet.name && isSummaryOrOutlineTable_ACU(sheet.name);
-                if (summaryOnly === true && !isSummary)
-                    return;
-                if (summaryOnly === false && isSummary)
-                    return;
-                historicalData[key] = JSON.parse(JSON.stringify(sheet));
-                encounteredKeys.push(key);
-                encounteredSet.add(key);
-            });
-        };
-        for (let i = chat.length - 1; i >= 0; i--) {
-            const message = chat[i];
-            if (!message || message.is_user)
-                continue;
-            const isolatedContainer = typeof message.TavernDB_ACU_IsolatedData === 'string'
-                ? safeJsonParse_ACU(message.TavernDB_ACU_IsolatedData, null)
-                : message.TavernDB_ACU_IsolatedData;
-            appendTables(isolatedContainer?.[normalizedKey]?.independentData);
-            const msgIdentity = message.TavernDB_ACU_Identity;
-            const isLegacyMatch = settings_ACU.dataIsolationEnabled
-                ? (msgIdentity === settings_ACU.dataIsolationCode)
-                : !msgIdentity;
-            if (!isLegacyMatch)
-                continue;
-            appendTables(message.TavernDB_ACU_IndependentData);
-            appendTables(message.TavernDB_ACU_Data, { summaryOnly: false });
-            appendTables(message.TavernDB_ACU_SummaryData, { summaryOnly: true });
-        }
-        if (encounteredKeys.length === 0)
-            return null;
-        const orderedKeys = encounteredKeys
-            .map((key, index) => ({
-            key,
-            index,
-            order: Number.isFinite(historicalData?.[key]?.[TABLE_ORDER_FIELD_ACU])
-                ? Math.trunc(historicalData[key][TABLE_ORDER_FIELD_ACU])
-                : null,
-        }))
-            .sort((a, b) => {
-            if (a.order !== null && b.order !== null && a.order !== b.order)
-                return a.order - b.order;
-            if (a.order !== null && b.order === null)
-                return -1;
-            if (a.order === null && b.order !== null)
-                return 1;
-            return a.index - b.index;
-        })
-            .map(item => item.key);
-        applySheetOrderNumbers_ACU(historicalData, orderedKeys);
-        return buildChatSheetGuideDataFromData_ACU(historicalData, {
-            preserveSeedRowsFromGuideData: null,
-            seedRowsFromTemplateObj: null,
-            orderedKeys,
-        });
-    }
-    function getLegacyTemplateSnapshotLabel_ACU(source = 'legacy_frozen') {
-        if (source === 'legacy_history_frozen')
-            return '旧对话历史模板快照';
-        if (source === 'legacy_header_frozen')
-            return '旧版表头冻结模板';
-        return '旧版聊天冻结模板';
-    }
-    function buildChatTemplateScopeStateFromGuideData_ACU({ isolationKey = getCurrentIsolationKey_ACU$1(), presetName = '', source = 'legacy_frozen', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now(), guideData = null } = {}) {
-        const normalizedGuideData = normalizeGuideData_ACU(guideData);
-        if (!normalizedGuideData || !Object.keys(normalizedGuideData).some(k => k.startsWith('sheet_')))
-            return null;
-        const templateObj = materializeDataFromSheetGuide_ACU(normalizedGuideData, { includeSeedRows: true });
-        return buildChatTemplateScopeStateFromCurrent_ACU({
-            isolationKey,
-            presetName,
-            source,
-            originGlobalName,
-            originGlobalRevision,
-            updatedAt,
-            templateSource: templateObj,
-            guideData: normalizedGuideData,
-        });
-    }
-    function migrateLegacyTemplateScopeForCurrentChat_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const existingScopeState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
-        if (existingScopeState)
-            return existingScopeState;
-        const persistMigratedState = (guideData, { source = 'legacy_frozen', updatedAt = Date.now() } = {}) => {
-            const templateState = buildChatTemplateScopeStateFromGuideData_ACU({
-                isolationKey: normalizedKey,
-                presetName: getLegacyTemplateSnapshotLabel_ACU(source),
-                source,
-                originGlobalName: '',
-                originGlobalRevision: 0,
-                updatedAt,
-                guideData,
-            });
-            if (!templateState)
-                return null;
-            return setCurrentChatTemplateScopeState_ACU(templateState, {
-                isolationKey: normalizedKey,
-                reason: `template_scope_${source}`,
-            });
-        };
-        const container = getChatSheetGuideContainer_ACU(chat);
-        const legacySlot = container?.tags?.[normalizedKey];
-        const hasExplicitLegacyScopeMode = typeof legacySlot?.templateScopeMode === 'string' && legacySlot.templateScopeMode.trim() !== '';
-        const legacySlotMode = hasExplicitLegacyScopeMode
-            ? normalizeTemplateScopeMode_ACU(legacySlot.templateScopeMode)
-            : 'chat_override';
-        const legacyGuideData = normalizeGuideData_ACU(legacySlot?.data);
-        if (legacySlotMode === 'chat_override' && legacyGuideData && Object.keys(legacyGuideData).some(k => k.startsWith('sheet_'))) {
-            return persistMigratedState(legacyGuideData, {
-                source: 'legacy_frozen',
-                updatedAt: Number(legacySlot?.updatedAt) || Date.now(),
-            });
-        }
-        const historicalGuideData = getHistoricalTemplateGuideDataForIsolationKey_ACU({ chat, isolationKey: normalizedKey });
-        if (historicalGuideData && Object.keys(historicalGuideData).some(k => k.startsWith('sheet_'))) {
-            return persistMigratedState(historicalGuideData, {
-                source: 'legacy_history_frozen',
-                updatedAt: Date.now(),
-            });
-        }
-        const legacyHeaderGuideData = getLegacyHeaderGuideDataForIsolationKey_ACU({ chat, isolationKey: normalizedKey });
-        if (legacyHeaderGuideData && Object.keys(legacyHeaderGuideData).some(k => k.startsWith('sheet_'))) {
-            return persistMigratedState(legacyHeaderGuideData, {
-                source: 'legacy_header_frozen',
-                updatedAt: Date.now(),
-            });
-        }
-        return null;
-    }
-    function clearChatSheetGuideDataForIsolationKey_ACU({ chat = SillyTavern_API_ACU?.chat, isolationKey = getCurrentIsolationKey_ACU$1() } = {}) {
-        const first = getChatFirstLayerMessage_ACU(chat);
-        if (!first)
-            return false;
-        const container = getChatSheetGuideContainer_ACU(chat);
-        if (!container || typeof container !== 'object' || !container.tags || typeof container.tags !== 'object')
-            return false;
-        const normalizedKey = String(isolationKey ?? '');
-        if (!Object.prototype.hasOwnProperty.call(container.tags, normalizedKey))
-            return false;
-        const nextContainer = cloneScopedConfigData_ACU(container, null) || { version: CHAT_SHEET_GUIDE_VERSION_ACU, tags: {} };
-        if (!nextContainer.tags || typeof nextContainer.tags !== 'object')
-            nextContainer.tags = {};
-        delete nextContainer.tags[normalizedKey];
-        if (Object.keys(nextContainer.tags).length === 0) {
-            delete first[CHAT_SHEET_GUIDE_FIELD_ACU];
-        }
-        else {
-            nextContainer.version = CHAT_SHEET_GUIDE_VERSION_ACU;
-            first[CHAT_SHEET_GUIDE_FIELD_ACU] = nextContainer;
-        }
-        return true;
-    }
-    function getChatSheetGuideDataForIsolationKey_ACU(isolationKey) {
-        const chat = SillyTavern_API_ACU?.chat;
-        const normalizedKey = String(isolationKey ?? '');
-        const scopedTemplateState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey })
-            || migrateLegacyTemplateScopeForCurrentChat_ACU({ chat, isolationKey: normalizedKey });
-        const scopedGuideData = normalizeGuideData_ACU(scopedTemplateState?.guideData);
-        if (scopedGuideData && Object.keys(scopedGuideData).some(k => k.startsWith('sheet_'))) {
-            return scopedGuideData;
-        }
-        const buildGuideDataFromTemplateSource_ACU = (templateSource) => {
-            const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateSource);
-            const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateSnapshot?.templateObj, { stripSeedRows: false });
-            return (guideData && Object.keys(guideData).some(k => k.startsWith('sheet_'))) ? guideData : null;
-        };
-        if (scopedTemplateState?.mode === 'chat_override' && scopedTemplateState?.templateStr) {
-            const overrideGuideData = buildGuideDataFromTemplateSource_ACU(scopedTemplateState.templateStr);
-            if (overrideGuideData) {
-                return overrideGuideData;
-            }
-        }
-        if (scopedTemplateState?.mode === 'preset_link') {
-            const linkedPresetName = normalizeTemplatePresetSelectionValue_ACU(scopedTemplateState?.presetName || '');
-            const linkedTemplateSource = linkedPresetName
-                ? (getTemplatePreset_ACU(linkedPresetName)?.templateStr || null)
-                : getDefaultTemplateSnapshot_ACU()?.templateStr;
-            const linkedGuideData = buildGuideDataFromTemplateSource_ACU(linkedTemplateSource);
-            if (linkedGuideData) {
-                return linkedGuideData;
-            }
-        }
-        const activeTemplateGuideData = buildGuideDataFromTemplateSource_ACU(TABLE_TEMPLATE_ACU);
-        if (activeTemplateGuideData) {
-            return activeTemplateGuideData;
-        }
-        const globalSnapshot = getGlobalTemplateSnapshotForCurrentProfile_ACU();
-        const globalGuideData = buildChatSheetGuideDataFromTemplateObj_ACU(globalSnapshot?.templateObj, { stripSeedRows: false });
-        if (globalGuideData && Object.keys(globalGuideData).some(k => k.startsWith('sheet_'))) {
-            return globalGuideData;
-        }
-        return null;
-    }
-    function setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, { reason = '', syncTemplateScope = false, templateSource = null, presetName = '', source = '', updatedAt = Date.now() } = {}) {
-        const chat = SillyTavern_API_ACU?.chat;
-        const first = getChatFirstLayerMessage_ACU(chat);
-        if (!first)
-            return false;
-        const normalized = normalizeGuideData_ACU(guideData);
-        if (!normalized || !Object.keys(normalized).some(k => k.startsWith('sheet_')))
-            return false;
-        const normalizedKey = String(isolationKey ?? '');
-        const existingTemplateScopeState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
-        const normalizedScopeMode = normalizeTemplateScopeMode_ACU(existingTemplateScopeState?.mode);
-        const shouldSyncTemplateScope = !!syncTemplateScope || normalizedScopeMode === 'chat_override' || normalizedScopeMode === 'preset_link';
-        const container = getChatSheetGuideContainer_ACU(chat) || { version: CHAT_SHEET_GUIDE_VERSION_ACU, tags: {} };
-        if (!container.tags || typeof container.tags !== 'object')
-            container.tags = {};
-        container.version = CHAT_SHEET_GUIDE_VERSION_ACU;
-        container.tags[normalizedKey] = {
-            data: normalized,
-            updatedAt,
-            reason: String(reason || ''),
-            templateScopeMode: shouldSyncTemplateScope ? 'chat_override' : 'inherit_global',
-        };
-        first[CHAT_SHEET_GUIDE_FIELD_ACU] = container;
-        if (shouldSyncTemplateScope) {
-            const fallbackTemplateSource = existingTemplateScopeState?.templateStr || materializeDataFromSheetGuide_ACU(normalized, { includeSeedRows: true });
-            const resolvedTemplateSource = templateSource || fallbackTemplateSource;
-            const currentGlobalPresetName = normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }));
-            const resolvedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName || existingTemplateScopeState?.presetName || currentGlobalPresetName);
-            const resolvedSource = normalizeChatScopedConfigSource_ACU(source, existingTemplateScopeState?.source || (syncTemplateScope ? 'ui' : 'inherit'));
-            const templateState = buildChatTemplateScopeStateFromCurrent_ACU({
-                isolationKey: normalizedKey,
-                presetName: resolvedPresetName,
-                source: resolvedSource,
-                originGlobalName: normalizeTemplatePresetSelectionValue_ACU(existingTemplateScopeState?.originGlobalName || currentGlobalPresetName),
-                originGlobalRevision: Number.isFinite(existingTemplateScopeState?.originGlobalRevision)
-                    ? existingTemplateScopeState.originGlobalRevision
-                    : 0,
-                updatedAt,
-                templateSource: resolvedTemplateSource,
-                guideData: normalized,
-            });
-            if (templateState) {
-                setCurrentChatTemplateScopeState_ACU(templateState, {
-                    isolationKey: normalizedKey,
-                    reason: String(reason || `template_scope_${resolvedSource}`),
-                });
-                try {
-                    upsertChatTemplatePresetEntry_ACU(templateState, { isolationKey: normalizedKey });
-                }
-                catch (e) { }
-            }
-        }
-        return true;
-    }
-    // =========================
-    // [新增] seedRows 解析/兜底：用于 $0 注入与"无数据初始化"场景
-    // 目标：
-    // - 新对话首次填表时，即使 currentJsonTableData_ACU 仅有表结构，也能从"内部指导表/模板"取到 seedRows
-    // - 支持隔离标签切换或初始化早期 chat 尚未加载导致的"指导表未命中"情况
-    // 注意：这里只把 seedRows 挂在表对象字段上，不会写入 content（不把模板基础数据当作真实聊天数据）
-    // =========================
-    let _seedRowsTemplateCacheStr_ACU = null;
-    let _seedRowsTemplateCacheObj_ACU = null;
-    function getTemplateObjForSeedRows_ACU() {
-        try {
-            if (_seedRowsTemplateCacheStr_ACU === TABLE_TEMPLATE_ACU && _seedRowsTemplateCacheObj_ACU)
-                return _seedRowsTemplateCacheObj_ACU;
-            const obj = parseTableTemplateJson_ACU({ stripSeedRows: false });
-            _seedRowsTemplateCacheStr_ACU = TABLE_TEMPLATE_ACU;
-            _seedRowsTemplateCacheObj_ACU = obj;
-            return obj;
-        }
-        catch (e) {
-            return null;
-        }
-    }
-    async function ensureChatSheetGuideSeeded_ACU({ reason = 'auto_seed_seedRows', force = false } = {}) {
-        try {
-            const isolationKey = getCurrentIsolationKey_ACU$1();
-            const existing = getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
-            const hasExisting = !!(existing && typeof existing === 'object' && Object.keys(existing).some(k => k.startsWith('sheet_')));
-            if (hasExisting && !force)
-                return existing;
-            const chat = SillyTavern_API_ACU?.chat;
-            if (!chat || !Array.isArray(chat) || chat.length === 0)
-                return existing || null;
-            const templateObj = getTemplateObjForSeedRows_ACU();
-            if (!templateObj)
-                return existing || null;
-            // 用模板构建指导表（content 保留表头；seedRows 写入字段）
-            const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: true });
-            if (!guideData)
-                return existing || null;
-            const ok = setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, { reason });
-            if (ok) {
-                try {
-                    await SillyTavern_API_ACU.saveChat();
-                }
-                catch (e) { }
-                logDebug_ACU(`[SheetGuide] Auto-seeded chat sheet guide for tag [${isolationKey || '无标签'}], reason=${reason}`);
-            }
-            return guideData;
-        }
-        catch (e) {
-            return null;
-        }
-    }
-    function pickAnyGuideSeedRowsSlot_ACU(sheetKey) {
-        try {
-            const chat = SillyTavern_API_ACU?.chat;
-            let best = null; // { ts, seedRows }
-            const applyCandidate = (ts, data) => {
-                const sr = data?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
-                if (!Array.isArray(sr) || sr.length === 0)
-                    return;
-                if (!best || ts > best.ts) {
-                    best = { ts, seedRows: sr };
-                }
-            };
-            const scopedContainer = getChatScopedConfigContainer_ACU(chat);
-            const scopedTemplateSlots = scopedContainer?.template;
-            if (scopedTemplateSlots && typeof scopedTemplateSlots === 'object' && !Array.isArray(scopedTemplateSlots)) {
-                Object.keys(scopedTemplateSlots).forEach(tagKey => {
-                    const slotState = normalizeChatTemplateScopeState_ACU(scopedTemplateSlots[tagKey], { isolationKey: tagKey });
-                    if (slotState.mode !== 'chat_override')
-                        return;
-                    applyCandidate(Number(slotState.updatedAt) || 0, normalizeGuideData_ACU(slotState.guideData));
-                });
-            }
-            if (best) {
-                return JSON.parse(JSON.stringify(best.seedRows));
-            }
-            const container = getChatSheetGuideContainer_ACU(chat);
-            const tags = container?.tags;
-            if (!tags || typeof tags !== 'object')
-                return null;
-            Object.keys(tags).forEach(tagKey => {
-                const slot = tags[tagKey];
-                const ts = Number(slot?.updatedAt) || 0;
-                applyCandidate(ts, normalizeGuideData_ACU(slot?.data));
-            });
-            return best ? JSON.parse(JSON.stringify(best.seedRows)) : null;
-        }
-        catch (e) {
-            return null;
-        }
-    }
-    function getEffectiveSeedRowsForSheet_ACU(sheetKey, { guideData = null, allowTemplateFallback = true } = {}) {
-        try {
-            if (!sheetKey || !String(sheetKey).startsWith('sheet_'))
-                return [];
-            const direct = currentJsonTableData_ACU$1?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
-            if (Array.isArray(direct) && direct.length > 0)
-                return JSON.parse(JSON.stringify(direct));
-            const g = guideData || (() => {
-                const isolationKey = getCurrentIsolationKey_ACU$1();
-                return getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
-            })();
-            const sr1 = g?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
-            if (Array.isArray(sr1) && sr1.length > 0)
-                return JSON.parse(JSON.stringify(sr1));
-            const any = pickAnyGuideSeedRowsSlot_ACU(sheetKey);
-            if (Array.isArray(any) && any.length > 0)
-                return any;
-            if (!allowTemplateFallback)
-                return [];
-            const templateObj = getTemplateObjForSeedRows_ACU();
-            const tplRows = templateObj?.[sheetKey]?.content;
-            if (Array.isArray(tplRows) && tplRows.length > 1)
-                return JSON.parse(JSON.stringify(tplRows.slice(1)));
-            return [];
-        }
-        catch (e) {
-            return [];
-        }
-    }
-    function attachSeedRowsToCurrentDataFromGuide_ACU(guideData) {
-        try {
-            if (!currentJsonTableData_ACU$1 || typeof currentJsonTableData_ACU$1 !== 'object')
-                return false;
-            const g = normalizeGuideData_ACU(guideData);
-            if (!g)
-                return false;
-            let changed = false;
-            Object.keys(currentJsonTableData_ACU$1).forEach(k => {
-                if (!k.startsWith('sheet_'))
-                    return;
-                const table = currentJsonTableData_ACU$1[k];
-                if (!table || typeof table !== 'object')
-                    return;
-                const existing = table?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
-                if (Array.isArray(existing) && existing.length > 0)
-                    return;
-                const sr = g?.[k]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
-                if (Array.isArray(sr) && sr.length > 0) {
-                    table[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(sr));
-                    changed = true;
-                }
-            });
-            return changed;
-        }
-        catch (e) {
-            return false;
-        }
-    }
-    // [新增] 用"当前数据"构建空白指导表：只保留表头行 + 参数（顺序由 getSortedSheetKeys_ACU 的旧逻辑决定，避免递归）
-    function buildChatSheetGuideDataFromData_ACU(dataObj, { preserveSeedRowsFromGuideData = null, seedRowsFromTemplateObj = null, orderedKeys = null } = {}) {
-        if (!dataObj || typeof dataObj !== 'object')
-            return null;
-        const keys = Array.isArray(orderedKeys) && orderedKeys.length
-            ? orderedKeys.filter(k => typeof k === 'string' && k.startsWith('sheet_') && dataObj[k])
-            : getSortedSheetKeys_ACU(dataObj, { ignoreChatGuide: true });
-        const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
-        if (dataObj.mate && typeof dataObj.mate === 'object') {
-            out.mate = JSON.parse(JSON.stringify(dataObj.mate));
-        }
-        out.mate.globalInjectionConfig = ensureGlobalInjectionConfigDefaults_ACU(out.mate.globalInjectionConfig);
-        keys.forEach(k => {
-            const s = dataObj[k];
-            if (!s)
-                return;
-            const headerRow = Array.isArray(s.content) && Array.isArray(s.content[0]) ? JSON.parse(JSON.stringify(s.content[0])) : [null];
-            const blank = {
-                uid: s.uid || k,
-                name: s.name || k,
-                sourceData: s.sourceData ? JSON.parse(JSON.stringify(s.sourceData)) : { note: '', initNode: '', insertNode: '', updateNode: '', deleteNode: '' },
-                content: [headerRow],
-                updateConfig: s.updateConfig ? JSON.parse(JSON.stringify(s.updateConfig)) : { uiSentinel: -1, contextDepth: -1, updateFrequency: -1, batchSize: -1, skipFloors: -1, sendLatestRows: -1, groupId: -1 },
-                exportConfig: ensureExportConfigDefaults_ACU(s.exportConfig ? JSON.parse(JSON.stringify(s.exportConfig)) : null, s.name || k),
-            };
-            // 需求4：结构/表名/参数变更时，仅更新指导表元信息，不修改"基础数据(seedRows)"
-            const preserved = preserveSeedRowsFromGuideData?.[k]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
-            if (Array.isArray(preserved)) {
-                blank[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(preserved));
-            }
-            else {
-                // 需求1：首次生成指导表时，把模板预置数据写入 seedRows（仅在未能从既有指导表继承时）
-                const tplRows = seedRowsFromTemplateObj?.[k]?.content;
-                if (Array.isArray(tplRows) && tplRows.length > 1) {
-                    blank[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(tplRows.slice(1)));
-                }
-            }
-            if (Number.isFinite(s?.[TABLE_ORDER_FIELD_ACU]))
-                blank[TABLE_ORDER_FIELD_ACU] = Math.trunc(s[TABLE_ORDER_FIELD_ACU]);
-            out[k] = blank;
-        });
-        return normalizeGuideData_ACU(out);
-    }
-    // [新增] 用"模板对象"构建空白指导表：只保留表头行 + 参数（模板已有顺序编号）
-    function buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows = true } = {}) {
-        if (!templateObj || typeof templateObj !== 'object')
-            return null;
-        const keys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
-        if (keys.length === 0)
-            return null;
-        // 确保模板编号稳定（缺失则补齐）
-        try {
-            ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: keys, forceRebuild: false });
-        }
-        catch (e) { }
-        const sorted = keys.sort((a, b) => {
-            const ao = Number.isFinite(templateObj?.[a]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(templateObj[a][TABLE_ORDER_FIELD_ACU]) : Infinity;
-            const bo = Number.isFinite(templateObj?.[b]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(templateObj[b][TABLE_ORDER_FIELD_ACU]) : Infinity;
-            if (ao !== bo)
-                return ao - bo;
-            return String(a).localeCompare(String(b));
-        });
-        const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
-        if (templateObj.mate && typeof templateObj.mate === 'object') {
-            out.mate = JSON.parse(JSON.stringify(templateObj.mate));
-        }
-        out.mate.globalInjectionConfig = ensureGlobalInjectionConfigDefaults_ACU(out.mate.globalInjectionConfig);
-        sorted.forEach((k, idx) => {
-            const base = JSON.parse(JSON.stringify(templateObj[k] || {}));
-            base.uid = base.uid || k;
-            base.name = base.name || k;
-            if (!Array.isArray(base.content) || base.content.length === 0)
-                base.content = [[null]];
-            // v2: 保存模板预置数据为 seedRows，但指导表本体 content 仍只保留表头
-            if (Array.isArray(base.content) && base.content.length > 1) {
-                base[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(base.content.slice(1)));
-            }
-            if (stripSeedRows && Array.isArray(base.content) && base.content.length > 1)
-                base.content = [base.content[0]];
-            if (!Number.isFinite(base[TABLE_ORDER_FIELD_ACU]))
-                base[TABLE_ORDER_FIELD_ACU] = idx;
-            out[k] = base;
-        });
-        return normalizeGuideData_ACU(out);
-    }
-    // [新增] 覆盖式更新：用模板写入当前聊天第一层"空白指导表"
-    async function overwriteChatSheetGuideFromTemplate_ACU(templateObj, { reason = 'template_changed', stripSeedRows = true, presetName = '', source = 'ui', syncTemplateScope = false, registerPreset = false } = {}) {
-        const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows });
-        if (!guideData)
-            return false;
-        const isolationKey = getCurrentIsolationKey_ACU$1();
-        const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateObj);
-        const normalizedPresetName = deriveTemplatePresetNameForImport_ACU({ presetName });
-        if (registerPreset && normalizedPresetName && templateSnapshot?.templateStr) {
-            try {
-                const savePresetOk = upsertTemplatePreset_ACU(normalizedPresetName, templateSnapshot.templateStr);
-                if (!savePresetOk) {
-                    logWarn_ACU(`[TemplateScope] 保存模板预设失败：${normalizedPresetName}`);
-                }
-            }
-            catch (e) {
-                logWarn_ACU('[TemplateScope] 保存模板预设失败:', e);
-            }
-        }
-        const ok = setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, {
-            reason,
-            syncTemplateScope,
-            templateSource: templateSnapshot?.templateStr || templateObj,
-            presetName: normalizedPresetName,
-            source,
-        });
-        if (!ok)
-            return false;
-        if (syncTemplateScope) {
-            try {
-                applyTemplateScopeForCurrentChat_ACU();
-            }
-            catch (e) { }
-        }
-        try {
-            await SillyTavern_API_ACU.saveChat();
-        }
-        catch (e) { }
-        try {
-            await refreshMergedDataAndNotify_ACU();
-        }
-        catch (e) { }
-        return true;
-    }
-    // [表格顺序新机制] 获取表格 keys：
-    // - 若当前聊天已存在"空白指导表"：优先按指导表的 orderNo 顺序（可过滤不在指导表里的表）
-    // - 否则：按"编号(orderNo)从小到大"排序；缺编号则回退到模板编号/模板顺序
-    function getSortedSheetKeys_ACU(dataObj, { ignoreChatGuide = false, includeMissingFromGuide = false } = {}) {
-        if (!dataObj || typeof dataObj !== 'object')
-            return [];
-        const existingKeys = Object.keys(dataObj).filter(k => k.startsWith('sheet_'));
-        if (existingKeys.length === 0)
-            return [];
-        // [新增] 聊天级空白指导表：一旦存在，则该聊天不再按模板顺序合并/显示，而是按此指导表作为总指导
-        if (!ignoreChatGuide) {
-            try {
-                const isolationKey = (typeof getCurrentIsolationKey_ACU$1 === 'function') ? getCurrentIsolationKey_ACU$1() : '';
-                const guideData = getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
-                if (guideData && typeof guideData === 'object') {
-                    const guideKeys = Object.keys(guideData).filter(k => k.startsWith('sheet_'));
-                    if (guideKeys.length > 0) {
-                        const sorted = guideKeys.sort((a, b) => {
-                            const ao = Number.isFinite(guideData?.[a]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(guideData[a][TABLE_ORDER_FIELD_ACU]) : Infinity;
-                            const bo = Number.isFinite(guideData?.[b]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(guideData[b][TABLE_ORDER_FIELD_ACU]) : Infinity;
-                            if (ao !== bo)
-                                return ao - bo;
-                            return String(a).localeCompare(String(b));
-                        });
-                        return includeMissingFromGuide ? sorted : sorted.filter(k => dataObj[k]);
-                    }
-                }
-            }
-            catch (e) {
-                // ignore guide failures; fallback to legacy ordering
-            }
-        }
-        // 尝试拿模板做兜底（比如老数据/导入数据缺编号）
-        const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
-        // 先对 dataObj 补齐缺失编号（仅在确实缺失/重复时重建）
-        // baseOrderKeys 的优先级：模板顺序 > 当前对象键顺序（保证"载入模板编好号"后的稳定性）
-        const baseKeys = (() => {
-            const tk = templateObj && typeof templateObj === 'object'
-                ? Object.keys(templateObj).filter(k => k.startsWith('sheet_'))
-                : [];
-            return tk.length ? tk : existingKeys;
-        })();
-        ensureSheetOrderNumbers_ACU(dataObj, { baseOrderKeys: baseKeys, forceRebuild: false });
-        const orderValueOf = (k) => {
-            const v = dataObj?.[k]?.[TABLE_ORDER_FIELD_ACU];
-            if (Number.isFinite(v))
-                return Math.trunc(v);
-            const tv = templateObj?.[k]?.[TABLE_ORDER_FIELD_ACU];
-            if (Number.isFinite(tv))
-                return Math.trunc(tv);
-            return Infinity;
-        };
-        return existingKeys.sort((a, b) => {
-            const ao = orderValueOf(a);
-            const bo = orderValueOf(b);
-            if (ao !== bo)
-                return ao - bo;
-            // 稳定排序：同编号时按名称/键
-            const an = String(dataObj?.[a]?.name || templateObj?.[a]?.name || a);
-            const bn = String(dataObj?.[b]?.name || templateObj?.[b]?.name || b);
-            const c = an.localeCompare(bn);
-            if (c !== 0)
-                return c;
-            return String(a).localeCompare(String(b));
-        });
-    }
-    // [新增] 基于"空白指导表"构建可合并的骨架数据（深拷贝，避免后续修改污染原对象）
-    function buildGuidedBaseDataFromSheetGuide_ACU(guideData) {
-        const normalized = normalizeGuideData_ACU(guideData);
-        if (!normalized)
-            return { mate: { type: 'chatSheets', version: 1 } };
-        try {
-            return JSON.parse(JSON.stringify(normalized));
-        }
-        catch (e) {
-            return normalized;
-        }
-    }
-    // [修复] 按指定顺序重建对象键，避免 Object.keys()/合并/深拷贝导致的顺序漂移
-    function reorderDataBySheetKeys_ACU(dataObj, orderedSheetKeys) {
-        if (!dataObj || typeof dataObj !== 'object')
-            return dataObj;
-        const out = {};
-        // 先保留非 sheet_ 键（mate 等）
-        Object.keys(dataObj).forEach(k => {
-            if (!k.startsWith('sheet_'))
-                out[k] = dataObj[k];
-        });
-        // 再按顺序插入 sheet_ 键
-        const keys = Array.isArray(orderedSheetKeys) ? orderedSheetKeys : getSortedSheetKeys_ACU(dataObj);
-        keys.forEach(k => {
-            if (dataObj[k])
-                out[k] = dataObj[k];
-        });
-        return out;
-    }
-    // =========================
-    // [瘦身/兼容] ChatSheets 表格对象清洗（用于：导出、写入聊天记录、持久化模板）
-    // 目标：
-    // - 与旧模板/旧存档兼容：导入时允许存在冗余字段
-    // - 从现在开始：导出/保存时不再携带历史遗留冗余字段，降低体积
-    // =========================
-    const SHEET_KEEP_KEYS_ACU = new Set([
-        'uid',
-        'name',
-        'sourceData',
-        'content',
-        // [重要] 可视化编辑器/表格配置（更新频率、上下文深度等）依赖该字段
-        'updateConfig',
-        'exportConfig',
-        TABLE_ORDER_FIELD_ACU, // orderNo
-    ]);
-    function sanitizeSheetForStorage_ACU(sheet) {
-        if (!sheet || typeof sheet !== 'object')
-            return sheet;
-        const out = {};
-        SHEET_KEEP_KEYS_ACU.forEach(k => {
-            if (sheet[k] !== undefined)
-                out[k] = sheet[k];
-        });
-        // 兜底：保证结构可被模板导入验证通过
-        if (!out.name && sheet.name)
-            out.name = sheet.name;
-        if (!out.content && Array.isArray(sheet.content))
-            out.content = sheet.content;
-        if (!out.sourceData && sheet.sourceData)
-            out.sourceData = sheet.sourceData;
-        out.exportConfig = ensureExportConfigDefaults_ACU(out.exportConfig, out.name || sheet.name || sheet.uid || '');
-        return out;
-    }
-    function sanitizeChatSheetsObject_ACU(dataObj, { ensureMate = false } = {}) {
-        if (!dataObj || typeof dataObj !== 'object')
-            return dataObj;
-        const out = {};
-        Object.keys(dataObj).forEach(k => {
-            if (k.startsWith('sheet_')) {
-                out[k] = sanitizeSheetForStorage_ACU(dataObj[k]);
-            }
-            else if (k === 'mate') {
-                out.mate = dataObj.mate;
-            }
-            else {
-                // 其它顶层键：为兼容保留
-                out[k] = dataObj[k];
-            }
-        });
-        if (ensureMate) {
-            if (!out.mate || typeof out.mate !== 'object')
-                out.mate = { type: 'chatSheets', version: 1 };
-            if (!out.mate.type)
-                out.mate.type = 'chatSheets';
-            if (!out.mate.version)
-                out.mate.version = 1;
-        }
-        return out;
-    }
-    // [新增] 辅助函数：从上下文中提取指定标签的内容（正文标签提取）
-
-    /**
-     * shared/utils.ts — 纯工具函数
-     *
-     * 零副作用、零全局依赖、零 DOM 操作。
-     * 从 src/core/04_shared_helpers.js 迁移而来。
-     */
-    /**
-     * 清洗聊天文件名：去除路径前缀和扩展名后缀
-     */
-    function cleanChatName_ACU(fileName) {
-        if (!fileName || typeof fileName !== 'string')
-            return 'unknown_chat_source';
-        let cleanedName = fileName;
-        if (fileName.includes('/') || fileName.includes('\\')) {
-            const parts = fileName.split(/[\\/]/);
-            cleanedName = parts[parts.length - 1];
-        }
-        return cleanedName.replace(/\.jsonl$/, '').replace(/\.json$/, '');
-    }
-    /**
-     * 深度合并两个对象（source 覆盖 target）
-     */
-    function deepMerge_ACU(target, source) {
-        const isObject = (obj) => obj && typeof obj === 'object' && !Array.isArray(obj);
-        let output = { ...target };
-        if (isObject(target) && isObject(source)) {
-            Object.keys(source).forEach(key => {
-                if (isObject(source[key])) {
-                    if (!(key in target))
-                        Object.assign(output, { [key]: source[key] });
-                    else
-                        output[key] = deepMerge_ACU(target[key], source[key]);
-                }
-                else {
-                    Object.assign(output, { [key]: source[key] });
-                }
-            });
-        }
-        return output;
-    }
-    /**
-     * 颜色加深/减淡
-     */
-    function lightenDarkenColor_ACU(col, amt) {
-        let usePound = false;
-        if (col.startsWith('#')) {
-            col = col.slice(1);
-            usePound = true;
-        }
-        let num = parseInt(col, 16);
-        let r = (num >> 16) + amt;
-        if (r > 255)
-            r = 255;
-        else if (r < 0)
-            r = 0;
-        let b = ((num >> 8) & 0x00ff) + amt;
-        if (b > 255)
-            b = 255;
-        else if (b < 0)
-            b = 0;
-        let g = (num & 0x0000ff) + amt;
-        if (g > 255)
-            g = 255;
-        else if (g < 0)
-            g = 0;
-        return (usePound ? '#' : '') + ('000000' + ((r << 16) | (b << 8) | g).toString(16)).slice(-6);
-    }
-    /**
-     * 根据背景色计算前景色（黑或白）
-     */
-    function getContrastYIQ_ACU(hexcolor) {
-        if (hexcolor.startsWith('#'))
-            hexcolor = hexcolor.slice(1);
-        var r = parseInt(hexcolor.substr(0, 2), 16);
-        var g = parseInt(hexcolor.substr(2, 2), 16);
-        var b = parseInt(hexcolor.substr(4, 2), 16);
-        var yiq = (r * 299 + g * 587 + b * 114) / 1000;
-        return yiq >= 128 ? '#000000' : '#FFFFFF';
-    }
-    /**
-     * 转义正则表达式特殊字符
-     */
-    function escapeRegExp_ACU(string) {
-        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    }
-    /**
-     * 生成用户输入文本的哈希值（FNV-1a 变体）
-     */
-    function hashUserInput_ACU(text) {
-        if (!text)
-            return '';
-        const normalized = String(text).trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-        let hash = 2166136261;
-        for (let i = 0; i < normalized.length; i++) {
-            hash ^= normalized.charCodeAt(i);
-            hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-        }
-        return hash.toString(36);
-    }
-    /**
-     * 非负整数归一化（fallback 默认 0）
-     */
-    function normalizeNonNegativeInteger_ACU(value, fallbackValue = 0) {
-        const num = Number(value);
-        if (Number.isFinite(num) && num >= 0)
-            return Math.floor(num);
-        const fallback = Number(fallbackValue);
-        return Number.isFinite(fallback) && fallback >= 0 ? Math.floor(fallback) : 0;
-    }
-    /**
-     * 正整数归一化（fallback 默认 1）
-     */
-    function normalizePositiveInteger_ACU(value, fallbackValue = 1) {
-        const num = Number(value);
-        if (Number.isFinite(num) && num > 0)
-            return Math.floor(num);
-        const fallback = Number(fallbackValue);
-        return Number.isFinite(fallback) && fallback > 0 ? Math.floor(fallback) : 1;
-    }
-    /**
-     * 判断表格是否是总结表、总体大纲表或纪要表
-     */
-    function isSummaryOrOutlineTable_ACU(tableName) {
-        if (!tableName || typeof tableName !== 'string')
-            return false;
-        const trimmedName = tableName.trim();
-        return trimmedName === '总结表' || trimmedName === '总体大纲' || trimmedName === '纪要表';
-    }
-    /**
-     * 判断表格是否是标准表（非总结表和总体大纲表）
-     */
-    function isStandardTable_ACU(tableName) {
-        return !isSummaryOrOutlineTable_ACU(tableName);
-    }
-    function normalizeExtractRules_ACU(extractRulesInput, legacyExtractTags = '') {
-        return normalizeExcludeRules_ACU(extractRulesInput, legacyExtractTags);
-    }
-    function normalizeExcludeRules_ACU(excludeRulesInput, legacyExcludeTags = '') {
-        const normalized = [];
-        const dedup = new Set();
-        const pushRule = (startRaw, endRaw) => {
-            const start = String(startRaw || '').trim();
-            const end = String(endRaw || '').trim();
-            if (!start || !end)
-                return;
-            const key = `${start}\u0000${end}`;
-            if (dedup.has(key))
-                return;
-            dedup.add(key);
-            normalized.push({ start, end });
-        };
-        if (Array.isArray(excludeRulesInput)) {
-            excludeRulesInput.forEach(rule => {
-                if (!rule)
-                    return;
-                if (typeof rule === 'string') {
-                    const parts = rule.split('|');
-                    if (parts.length >= 2) {
-                        const start = parts.shift();
-                        const end = parts.join('|');
-                        pushRule(start, end);
-                    }
-                    return;
-                }
-                if (typeof rule === 'object') {
-                    pushRule(rule.start ?? rule.begin ?? rule.open, rule.end ?? rule.close ?? rule.finish);
-                }
-            });
-        }
-        // 兼容旧配置：若未提供新规则，则回退旧标签字符串
-        if (normalized.length === 0) {
-            buildBoundaryRulesFromLegacyTags_ACU(legacyExcludeTags).forEach(rule => pushRule(rule.start, rule.end));
-        }
-        return normalized;
-    }
-    function logDebug_ACU(...args) {
-        if (DEBUG_MODE_ACU)
-            console.log(`[${SCRIPT_ID_PREFIX_ACU}]`, ...args);
-    }
-    function logError_ACU(...args) {
-        console.error(`[${SCRIPT_ID_PREFIX_ACU}]`, ...args);
-    }
-    function logWarn_ACU(...args) {
-        console.warn(`[${SCRIPT_ID_PREFIX_ACU}]`, ...args);
-    }
-    function stripSeedRowsFromTemplate_ACU(templateObj) {
-        if (!templateObj || typeof templateObj !== 'object')
-            return templateObj;
-        Object.keys(templateObj).forEach(k => {
-            if (!k.startsWith('sheet_'))
-                return;
-            const table = templateObj[k];
-            if (!table || !Array.isArray(table.content) || table.content.length === 0)
-                return;
-            const headerRow = table.content[0];
-            // 仅保留表头行，移除所有数据行（包括模板自带的示例/预置数据）
-            table.content = [headerRow];
-        });
-        return templateObj;
-    }
-    function parseTableTemplateJson_ACU({ stripSeedRows = false } = {}) {
-        try {
-            let cleanTemplate = TABLE_TEMPLATE_ACU.trim();
-            cleanTemplate = cleanTemplate.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
-            // [调试] 输出模板字符串的前100个字符，帮助诊断问题
-            logDebug_ACU('[模板解析] cleanTemplate前100字符:', cleanTemplate.substring(0, 100));
-            logDebug_ACU('[模板解析] cleanTemplate长度:', cleanTemplate.length);
-            logDebug_ACU('[模板解析] 首字符:', JSON.stringify(cleanTemplate[0]));
-            logDebug_ACU('[模板解析] 尾字符:', JSON.stringify(cleanTemplate[cleanTemplate.length - 1]));
-            // [修复2026-03-06] 处理DEFAULT_TABLE_TEMPLATE_ACU的双重JSON编码问题
-            // DEFAULT_TABLE_TEMPLATE_ACU 使用模板字符串定义，格式是：`"{...}"`
-            // 问题：模板字符串中的 \n 会被解释为实际换行符，\t 被解释为制表符等
-            // 而JSON规范不允许字符串中包含未转义的控制字符
-            // 解决方案：先将实际的控制字符转义回JSON兼容格式
-            function escapeStringForJson_ACU(str) {
-                // 将字符串中的控制字符转义为JSON兼容格式
-                // 注意顺序很重要：先转义反斜杠，再转义双引号，最后转义控制字符
-                return str
-                    .replace(/\\/g, '\\\\') // 先转义反斜杠
-                    .replace(/"/g, '\\"') // 转义双引号
-                    .replace(/\n/g, '\\n') // 换行符
-                    .replace(/\r/g, '\\r') // 回车符
-                    .replace(/\t/g, '\\t'); // 制表符
-            }
-            let obj = null;
-            // 如果模板字符串以双引号开头和结尾，说明是被引号包围的JSON字符串
-            if (cleanTemplate.startsWith('"') && cleanTemplate.endsWith('"')) {
-                logDebug_ACU('[模板解析] 检测到双引号包围格式');
-                try {
-                    // 方案1：尝试直接解析（如果模板字符串中的转义序列正确）
-                    try {
-                        logDebug_ACU('[模板解析] 尝试方案1：直接解析...');
-                        const unquoted = JSON.parse(cleanTemplate);
-                        logDebug_ACU('[模板解析] 方案1第一次解析成功，类型:', typeof unquoted);
-                        if (typeof unquoted === 'string') {
-                            obj = safeJsonParse_ACU(unquoted, null);
-                            logDebug_ACU('[模板解析] 方案1第二次解析结果:', obj ? '成功' : '失败');
-                            if (obj) {
-                                logDebug_ACU('[模板解析] 方案1成功！');
-                                return stripSeedRows ? stripSeedRowsFromTemplate_ACU(obj) : obj;
-                            }
-                        }
-                        else if (typeof unquoted === 'object' && unquoted !== null) {
-                            logDebug_ACU('[模板解析] 方案1直接得到对象！');
-                            return stripSeedRows ? stripSeedRowsFromTemplate_ACU(unquoted) : unquoted;
-                        }
-                    }
-                    catch (e1) {
-                        logDebug_ACU('[模板解析] 方案1失败:', e1.message);
-                    }
-                    // 方案2：转义控制字符后再解析
-                    logDebug_ACU('[模板解析] 尝试方案2：转义后解析...');
-                    // 去掉首尾引号，转义内部的控制字符，然后解析
-                    const innerContent = cleanTemplate.slice(1, -1);
-                    const escapedContent = escapeStringForJson_ACU(innerContent);
-                    const rewrapped = '"' + escapedContent + '"';
-                    try {
-                        const unquoted = JSON.parse(rewrapped);
-                        logDebug_ACU('[模板解析] 方案2第一次解析成功，类型:', typeof unquoted);
-                        if (typeof unquoted === 'string') {
-                            obj = safeJsonParse_ACU(unquoted, null);
-                            logDebug_ACU('[模板解析] 方案2第二次解析结果:', obj ? '成功' : '失败');
-                            if (obj) {
-                                logDebug_ACU('[模板解析] 方案2成功！');
-                                return stripSeedRows ? stripSeedRowsFromTemplate_ACU(obj) : obj;
-                            }
-                            // 如果safeJsonParse失败，尝试直接JSON.parse
-                            try {
-                                obj = JSON.parse(unquoted);
-                                if (obj) {
-                                    logDebug_ACU('[模板解析] 方案2（fallback）成功！');
-                                    return stripSeedRows ? stripSeedRowsFromTemplate_ACU(obj) : obj;
-                                }
-                            }
-                            catch (e3) {
-                                logDebug_ACU('[模板解析] 方案2 fallback失败:', e3.message);
-                            }
-                        }
-                        else if (typeof unquoted === 'object' && unquoted !== null) {
-                            logDebug_ACU('[模板解析] 方案2直接得到对象！');
-                            return stripSeedRows ? stripSeedRowsFromTemplate_ACU(unquoted) : unquoted;
-                        }
-                    }
-                    catch (e2) {
-                        logDebug_ACU('[模板解析] 方案2失败:', e2.message);
-                    }
-                }
-                catch (e) {
-                    logDebug_ACU('[模板解析] 双引号格式处理失败:', e.message);
-                }
-            }
-            else {
-                logDebug_ACU('[模板解析] 不是双引号包围格式，尝试常规解析...');
-            }
-            // 如果上述处理失败，尝试常规解析
-            if (!obj) {
-                logDebug_ACU('[模板解析] 尝试safeJsonParse_ACU...');
-                obj = safeJsonParse_ACU(cleanTemplate, null);
-                logDebug_ACU('[模板解析] safeJsonParse_ACU结果:', obj ? '成功' : '失败');
-            }
-            // 如果还是失败，尝试转义后解析
-            if (!obj && typeof cleanTemplate === 'string') {
-                logDebug_ACU('[模板解析] 尝试转义后解析...');
-                try {
-                    const escaped = escapeStringForJson_ACU(cleanTemplate);
-                    obj = safeJsonParse_ACU(escaped, null);
-                    logDebug_ACU('[模板解析] 转义后解析结果:', obj ? '成功' : '失败');
-                }
-                catch (e) {
-                    logDebug_ACU('[模板解析] 转义后解析异常:', e.message);
-                }
-            }
-            if (!obj) {
-                logError_ACU('Failed to parse TABLE_TEMPLATE_ACU: safeJsonParse returned null');
-                return null;
-            }
-            logDebug_ACU('[模板解析] 最终成功！');
-            return stripSeedRows ? stripSeedRowsFromTemplate_ACU(obj) : obj;
-        }
-        catch (e) {
-            logError_ACU('Failed to parse TABLE_TEMPLATE_ACU.', e);
-            return null;
-        }
-    }
-    function applySheetOrderNumbers_ACU(dataObj, orderedKeys) {
-        if (!dataObj || typeof dataObj !== 'object')
-            return false;
-        const keys = Array.isArray(orderedKeys) ? orderedKeys : [];
-        let changed = false;
-        keys.forEach((k, idx) => {
-            const sheet = dataObj[k];
-            if (!sheet || typeof sheet !== 'object')
-                return;
-            if (sheet[TABLE_ORDER_FIELD_ACU] !== idx) {
-                sheet[TABLE_ORDER_FIELD_ACU] = idx;
-                changed = true;
-            }
-        });
-        return changed;
-    }
-    function ensureSheetOrderNumbers_ACU(dataObj, { baseOrderKeys = null, forceRebuild = false } = {}) {
-        if (!dataObj || typeof dataObj !== 'object')
-            return false;
-        const sheetKeys = Array.isArray(baseOrderKeys) && baseOrderKeys.length
-            ? baseOrderKeys.filter(k => k && k.startsWith('sheet_') && dataObj[k])
-            : Object.keys(dataObj).filter(k => k.startsWith('sheet_'));
-        if (sheetKeys.length === 0)
-            return false;
-        // 检查现有编号是否合法且不重复
-        const seen = new Set();
-        let needRebuild = !!forceRebuild;
-        for (const k of sheetKeys) {
-            const v = dataObj?.[k]?.[TABLE_ORDER_FIELD_ACU];
-            if (!Number.isFinite(v)) {
-                needRebuild = true;
-                break;
-            }
-            const iv = Math.trunc(v);
-            if (seen.has(iv)) {
-                needRebuild = true;
-                break;
-            }
-            seen.add(iv);
-        }
-        if (!needRebuild)
-            return false;
-        return applySheetOrderNumbers_ACU(dataObj, sheetKeys);
-    }
-    function getTemplateSheetKeys_ACU() {
-        const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
-        if (!templateObj || typeof templateObj !== 'object')
-            return [];
-        const keys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
-        if (keys.length === 0)
-            return [];
-        // 如果模板缺编号（或重复），按现有键顺序补齐。
-        // 注意：当前运行态可能来自"全局模板"也可能来自"当前聊天模板覆写"，
-        // 因此这里不能无条件回写到 profile，否则会把聊天专属模板误污染到全局模板存储里。
-        const changed = ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: keys, forceRebuild: false });
-        if (changed) {
-            try {
-                const normalizedTemplateStr = JSON.stringify(templateObj);
-                _set_TABLE_TEMPLATE_ACU(normalizedTemplateStr);
-                const currentChatTemplateScope = getCurrentChatTemplateScopeState_ACU() || migrateLegacyTemplateScopeForCurrentChat_ACU();
-                if (currentChatTemplateScope?.templateStr) {
-                    const updatedGuideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: false });
-                    const nextState = buildChatTemplateScopeStateFromCurrent_ACU({
-                        isolationKey: currentChatTemplateScope.isolationKey,
-                        presetName: currentChatTemplateScope.presetName,
-                        source: currentChatTemplateScope.source || 'inherit',
-                        originGlobalName: currentChatTemplateScope.originGlobalName,
-                        originGlobalRevision: currentChatTemplateScope.originGlobalRevision,
-                        updatedAt: currentChatTemplateScope.updatedAt || Date.now(),
-                        templateSource: normalizedTemplateStr,
-                        guideData: updatedGuideData || currentChatTemplateScope.guideData,
-                    });
-                    if (nextState) {
-                        setCurrentChatTemplateScopeState_ACU(nextState, {
-                            isolationKey: currentChatTemplateScope.isolationKey,
-                            reason: 'template_scope_order_no_init',
-                        });
-                    }
-                    logDebug_ACU('[OrderNo] Chat template order numbers initialized and persisted to current chat scope.');
-                }
-                else {
-                    // [Profile] 模板随"标识代码(profile)"保存
-                    saveCurrentProfileTemplate_ACU(TABLE_TEMPLATE_ACU);
-                    logDebug_ACU('[OrderNo] Global template order numbers initialized and persisted.');
-                }
-            }
-            catch (e) {
-                logWarn_ACU('[OrderNo] Failed to persist initialized template order numbers:', e);
-            }
-        }
-        // 按 orderNo 排序输出 keys
-        return keys.sort((a, b) => {
-            const ao = Number.isFinite(templateObj[a]?.[TABLE_ORDER_FIELD_ACU]) ? templateObj[a][TABLE_ORDER_FIELD_ACU] : Infinity;
-            const bo = Number.isFinite(templateObj[b]?.[TABLE_ORDER_FIELD_ACU]) ? templateObj[b][TABLE_ORDER_FIELD_ACU] : Infinity;
-            if (ao !== bo)
-                return ao - bo;
-            return String(templateObj[a]?.name || a).localeCompare(String(templateObj[b]?.name || b));
-        });
-    }
-    function getChatFirstLayerMessage_ACU(chat) {
-        if (!Array.isArray(chat) || chat.length === 0)
-            return null;
-        return chat[0] || null;
-    }
-    function cloneScopedConfigData_ACU(value, fallback = null) {
-        if (value === undefined)
-            return fallback;
-        try {
-            return JSON.parse(JSON.stringify(value));
-        }
-        catch (e) {
-            return fallback;
-        }
-    }
-    function formatPlotScopeUpdatedAt_ACU(updatedAt) {
-        const ts = Number(updatedAt) || 0;
-        if (!ts)
-            return '';
-        try {
-            return new Date(ts).toLocaleString('zh-CN', { hour12: false });
-        }
-        catch (error) {
-            return '';
-        }
-    }
-    function isEntryBlocked_ACU(entry) {
-        if (!entry)
-            return false;
-        const blockedKeywords = ["规则", "思维链", "cot", "MVU", "mvu", "变量", "状态", "Status", "Rule", "rule", "检定", "判断", "叙事", "文风", "InitVar", "格式"];
-        const name = entry.comment || entry.name || '';
-        return blockedKeywords.some(keyword => name.includes(keyword));
-    }
-
-    /**
-     * presentation/bootstrap/startup.ts — 启动 + 菜单初始化
-     * 从 features/startup/01_ready_and_menu.js 迁移而来
-     */
-    function addAutoCardMenuItem_ACU() {
-        const parentDoc = SillyTavern_API_ACU?.Chat?.document
-            ? SillyTavern_API_ACU.Chat.document
-            : (window.parent || window).document;
-        if (!parentDoc || !jQuery_API_ACU$1) {
-            logError_ACU('Cannot find parent document or jQuery for ACU menu.');
-            return false;
-        }
-        const extensionsMenu = jQuery_API_ACU$1('#extensionsMenu', parentDoc);
-        if (!extensionsMenu.length) {
-            setTimeout(addAutoCardMenuItem_ACU, 2000);
-            return false;
-        }
-        let $menuItemContainer = jQuery_API_ACU$1(`#${MENU_ITEM_CONTAINER_ID_ACU}`, extensionsMenu);
-        if ($menuItemContainer.length > 0) {
-            $menuItemContainer
-                .find(`#${MENU_ITEM_ID_ACU}`)
-                .off(`click.${SCRIPT_ID_PREFIX_ACU}`)
-                .on(`click.${SCRIPT_ID_PREFIX_ACU}`, async function (e) {
-                e.stopPropagation();
-                const exMenuBtn = jQuery_API_ACU$1('#extensionsMenuButton', parentDoc);
-                if (exMenuBtn.length && extensionsMenu.is(':visible')) {
-                    exMenuBtn.trigger('click');
-                    await new Promise(r => setTimeout(r, 150));
-                }
-                await openAutoCardPopup_ACU();
-            });
-            return true;
-        }
-        $menuItemContainer = jQuery_API_ACU$1(`<div class="extension_container interactable" id="${MENU_ITEM_CONTAINER_ID_ACU}" tabindex="0"></div>`);
-        const menuItemHTML = `<div class="list-group-item flex-container flexGap5 interactable" id="${MENU_ITEM_ID_ACU}" title="打开数据库自动更新工具"><div class="fa-fw fa-solid fa-database extensionsMenuExtensionButton"></div><span>星·数据库 III</span></div>`;
-        const $menuItem = jQuery_API_ACU$1(menuItemHTML);
-        $menuItem.on(`click.${SCRIPT_ID_PREFIX_ACU}`, async function (e) {
-            e.stopPropagation();
-            const exMenuBtn = jQuery_API_ACU$1('#extensionsMenuButton', parentDoc);
-            if (exMenuBtn.length && extensionsMenu.is(':visible')) {
-                exMenuBtn.trigger('click');
-                await new Promise(r => setTimeout(r, 150));
-            }
-            await openAutoCardPopup_ACU();
-        });
-        $menuItemContainer.append($menuItem);
-        extensionsMenu.append($menuItemContainer);
-        logDebug_ACU('ACU Menu item added.');
-        return true;
-    }
-
-    // init.ts — 初始化编排
-    // 从 05_core_tail.js 迁入
-    function mainInitialize_ACU() {
-        // 注入 data 层依赖（打破 data→service 的循环依赖）
-        _injectCharSettingsDeps(() => settings_ACU, () => currentChatFileIdentifier_ACU);
-        _injectIsolationRepoDeps(() => settings_ACU);
-        _injectProfileRepoDeps(() => settings_ACU);
-        _injectTableRepoDeps({
-            getSettings: () => settings_ACU,
-            getCurrentJsonTableData: () => currentJsonTableData_ACU,
-            setCurrentJsonTableData: (v) => _set_currentJsonTableData_ACU(v),
-            getCurrentIsolationKey: () => getCurrentIsolationKey_ACU(),
-            showToastr: (...args) => { try {
-                const { showToastr_ACU } = require('../../presentation/theme/toast');
-                showToastr_ACU(...args);
-            }
-            catch (e) { } },
-            applyTemplateScopeForCurrentChat: (...args) => { const { applyTemplateScopeForCurrentChat_ACU } = require('../settings/settings-service'); return applyTemplateScopeForCurrentChat_ACU(...args); },
-            attachSeedRowsToCurrentDataFromGuide: (...args) => { const m = require('../template/chat-scope'); return m.attachSeedRowsToCurrentDataFromGuide_ACU(...args); },
-            buildChatSheetGuideDataFromData: (...args) => { const m = require('../template/chat-scope'); return m.buildChatSheetGuideDataFromData_ACU(...args); },
-            ensureChatSheetGuideSeeded: (...args) => { const m = require('../template/chat-scope'); return m.ensureChatSheetGuideSeeded_ACU(...args); },
-            getChatSheetGuideDataForIsolationKey: (...args) => { const m = require('../template/chat-scope'); return m.getChatSheetGuideDataForIsolationKey_ACU(...args); },
-            getSortedSheetKeys: (...args) => { const m = require('../template/chat-scope'); return m.getSortedSheetKeys_ACU(...args); },
-            sanitizeSheetForStorage: (...args) => { const m = require('../template/chat-scope'); return m.sanitizeSheetForStorage_ACU(...args); },
-            setChatSheetGuideDataForIsolationKey: (...args) => { const m = require('../template/chat-scope'); return m.setChatSheetGuideDataForIsolationKey_ACU(...args); },
-            deleteAllGeneratedEntries: (...args) => { const m = require('../worldbook/pipeline'); return m.deleteAllGeneratedEntries_ACU(...args); },
-            refreshMergedDataAndNotify: (...args) => { const m = require('../worldbook/pipeline'); return m.refreshMergedDataAndNotify_ACU(...args); },
-            mergeAllIndependentTables: (...args) => { const m = require('./helpers-remaining'); return m.mergeAllIndependentTables_ACU(...args); },
-        });
-        console.log('ACU_INIT_DEBUG: mainInitialize_ACU called.');
-        if (attemptToLoadCoreApis_ACU()) {
-            logDebug_ACU('AutoCardUpdater Initialization successful! Core APIs loaded.');
-            showToastr_ACU('success', '数据库自动更新脚本已加载！', '脚本启动');
-            addAutoCardMenuItem_ACU();
-            loadSettings_ACU();
-            if (SillyTavern_API_ACU &&
-                SillyTavern_API_ACU.eventSource &&
-                typeof SillyTavern_API_ACU.eventSource.on === 'function' &&
-                SillyTavern_API_ACU.eventTypes) {
-                // [调试] 检查可用的事件类型
-                logDebug_ACU('[提示词模板] 可用的事件类型:', Object.keys(SillyTavern_API_ACU.eventTypes));
-                // [提示词模板] 监听 CHAT_COMPLETION_SETTINGS_READY 事件，使用 makeLast 确保在 st-prompt-template 之后执行
-                if (SillyTavern_API_ACU.eventTypes.CHAT_COMPLETION_SETTINGS_READY) {
-                    // 检查是否有 makeLast 方法
-                    if (typeof SillyTavern_API_ACU.eventSource.makeLast === 'function') {
-                        SillyTavern_API_ACU.eventSource.makeLast(SillyTavern_API_ACU.eventTypes.CHAT_COMPLETION_SETTINGS_READY, handleChatCompletionReady_ACU);
-                        logDebug_ACU('[提示词模板] 已注册 CHAT_COMPLETION_SETTINGS_READY 事件监听（makeLast）');
-                    }
-                    else {
-                        // 如果没有 makeLast，使用普通 on
-                        SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.CHAT_COMPLETION_SETTINGS_READY, handleChatCompletionReady_ACU);
-                        logDebug_ACU('[提示词模板] 已注册 CHAT_COMPLETION_SETTINGS_READY 事件监听（on）');
-                    }
-                }
-                SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.CHAT_CHANGED, async (chatFileName) => {
-                    logDebug_ACU(`ACU CHAT_CHANGED event: ${chatFileName}`);
-                    await resetScriptStateForNewChat_ACU(chatFileName);
-                    // [触发门控] 切换聊天时清空“用户发送/生成上下文”，避免跨聊天误触发
-                    generationGate_ACU.lastUserMessageId = null;
-                    generationGate_ACU.lastUserMessageText = '';
-                    generationGate_ACU.lastUserMessageAt = 0;
-                    generationGate_ACU.lastUserSendIntentAt = 0;
-                    generationGate_ACU.lastGeneration = null;
-                    // [触发门控] 每次切换聊天都尝试安装一次 capture 钩子（防止 DOM 重新渲染导致丢失）
-                    installSendIntentCaptureHooks_ACU();
-                    // [剧情推进] 切换聊天时停止循环并加载预设
-                    if (loopState_ACU.isLooping) {
-                        stopAutoLoop_ACU();
-                        showToastr_ACU('info', '切换聊天，自动化循环已停止。');
-                    }
-                    await loadPresetAndCleanCharacterData_ACU();
-                    // [剧情推进] TavernHelper钩子：拦截直接的JS调用
-                    if (!window.original_TavernHelper_generate_ACU) {
-                        if (window.TavernHelper && typeof window.TavernHelper.generate === 'function') {
-                            window.original_TavernHelper_generate_ACU = window.TavernHelper.generate;
-                            window.TavernHelper.generate = async function (...args) {
-                                const options = args[0] || {};
-                                // 注意：TavernHelper.generate 常用于脚本/插件直接触发，这里不依赖“发送意图”，只过滤 quiet/automatic_trigger。
-                                if (isQuietLikeGeneration_ACU('tavernhelper', { quiet_prompt: options.quiet_prompt }) || options.automatic_trigger) {
-                                    return window.original_TavernHelper_generate_ACU.apply(this, args);
-                                }
-                                if (!settings_ACU.plotSettings.enabled || isProcessing_Plot_ACU || loopState_ACU.isRetrying || options.should_stream) {
-                                    return window.original_TavernHelper_generate_ACU.apply(this, args);
-                                }
-                                let userMessage = options.user_input || options.prompt;
-                                if (options.injects?.[0]?.content) {
-                                    userMessage = options.injects[0].content;
-                                }
-                                // 记录本次拦截，供 GENERATION_AFTER_COMMANDS 去重
-                                markPlotIntercept_ACU(userMessage);
-                                try {
-                                    if (userMessage) {
-                                        _set_isProcessing_Plot_ACU(true);
-                                        try {
-                                            // [优化] 传递原始用户输入用于哈希匹配
-                                            // 注意：在 TavernHelper.generate 钩子中，userMessage 就是原始用户输入
-                                            const finalMessage = await runOptimizationLogic_ACU(userMessage, {
-                                                originalUserInput: userMessage,
-                                                hasExistingUserMessage: false,
-                                            });
-                                            // 去重互斥：若本次被判定为重复触发，则不改写 prompt，继续走原始生成
-                                            if (finalMessage && finalMessage.skipped) {
-                                                logDebug_ACU('[剧情推进] Planning skipped in TavernHelper.generate hook (duplicate).');
-                                                _set_isProcessing_Plot_ACU(false);
-                                                return await window.original_TavernHelper_generate_ACU.apply(this, args);
-                                            }
-                                            // 检查是否被中止
-                                            if (finalMessage && finalMessage.aborted) {
-                                                logDebug_ACU('[剧情推进] Generation aborted by user.');
-                                                // 中止剧情规划不应中断酒馆的正常生成流程：直接走原始生成（不改写prompt）
-                                                _set_isProcessing_Plot_ACU(false);
-                                                return await window.original_TavernHelper_generate_ACU.apply(this, args);
-                                            }
-                                            // 如果是在循环模式下且规划未返回有效字符串，视为规划失败，按循环重试次数重试
-                                            if (loopState_ACU.isLooping &&
-                                                loopState_ACU.awaitingReply &&
-                                                (!finalMessage || typeof finalMessage !== 'string')) {
-                                                logWarn_ACU('[剧情推进] [Loop] 规划未产生有效回复，按循环重试规则重试。');
-                                                const loopSettings = settings_ACU.plotSettings.loopSettings || DEFAULT_PLOT_SETTINGS_ACU.loopSettings;
-                                                loopState_ACU.awaitingReply = false;
-                                                await enterLoopRetryFlow_ACU({ loopSettings, shouldDeleteAiReply: false });
-                                                return;
-                                            }
-                                            if (finalMessage && typeof finalMessage === 'string') {
-                                                // 根据来源写回
-                                                if (options.injects?.[0]?.content) {
-                                                    options.injects[0].content = finalMessage;
-                                                }
-                                                else if (options.prompt) {
-                                                    options.prompt = finalMessage;
-                                                }
-                                                else {
-                                                    options.user_input = finalMessage;
-                                                }
-                                                // 添加标志，防止 GENERATION_AFTER_COMMANDS 重复处理
-                                                options._qrf_processed_by_hook = true;
-                                            }
-                                        }
-                                        catch (error) {
-                                            logError_ACU('[剧情推进] Error in TavernHelper.generate hook:', error);
-                                        }
-                                        finally {
-                                            _set_isProcessing_Plot_ACU(false);
-                                        }
-                                    }
-                                    // 关键：等待原始生成完成后再恢复 AI 指令预设
-                                    return await window.original_TavernHelper_generate_ACU.apply(this, args);
-                                }
-                                catch (error) {
-                                    logError_ACU('[剧情推进] Error in TavernHelper.generate hook:', error);
-                                    return window.original_TavernHelper_generate_ACU.apply(this, args);
-                                }
-                            };
-                            logDebug_ACU('[剧情推进] TavernHelper.generate hook registered.');
-                        }
-                    }
-                    // [新增] 切换角色卡（聊天）时，强制从新聊天记录的本地数据读取最新的表格并刷新UI
-                    logDebug_ACU('ACU: Chat changed, forcing reload of table data from new chat history.');
-                    const scheduledChatIdentifier_ACU = cleanChatName_ACU(chatFileName);
-                    // 稍作延迟以确保SillyTavern已完全加载新聊天的消息列表
-                    setTimeout(async () => {
-                        if (scheduledChatIdentifier_ACU && currentChatFileIdentifier_ACU !== scheduledChatIdentifier_ACU) {
-                            logDebug_ACU(`ACU: Skip delayed chat refresh because active chat already changed to "${currentChatFileIdentifier_ACU || '未知'}".`);
-                            return;
-                        }
-                        applyTemplateScopeForCurrentChat_ACU();
-                        // 3. 刷新数据（UI 刷新由 presentation 层负责）
-                        await refreshMergedDataAndNotify_ACU();
-                        // [新增] 再次强制刷新状态显示，确保UI同步
-                        if (typeof updateCardUpdateStatusDisplay_ACU === 'function') {
-                            updateCardUpdateStatusDisplay_ACU();
-                        }
-                        logDebug_ACU('ACU: Chat data reload and UI refresh triggered after chat change (Delayed).');
-                    }, 1200); // 增加延迟到1200ms，给SillyTavern更多的DOM渲染和上下文切换时间
-                });
-                // [触发门控] 记录“用户真实发送”的消息ID，用于剧情推进触发判定
-                if (SillyTavern_API_ACU.eventTypes.MESSAGE_SENT) {
-                    SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.MESSAGE_SENT, (messageId) => {
-                        try {
-                            recordLastUserSend_ACU(messageId);
-                        }
-                        catch (e) { }
-                    });
-                }
-                // [触发门控] 捕捉“用户发送意图”：使用 capture 钩子，确保先于酒馆自身发送逻辑执行
-                installSendIntentCaptureHooks_ACU();
-                // [触发门控] 记录最近一次生成的上下文（用于过滤 quiet/后台生成导致的误触发）
-                if (SillyTavern_API_ACU.eventTypes.GENERATION_STARTED) {
-                    SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_STARTED, (type, params, dryRun) => {
-                        try {
-                            recordGenerationContext_ACU(type, params, dryRun);
-                        }
-                        catch (e) { }
-                    });
-                }
-                if (SillyTavern_API_ACU.eventTypes.GENERATION_ENDED) {
-                    SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_ENDED, (message_id) => {
-                        logDebug_ACU(`ACU GENERATION_ENDED event for message_id: ${message_id}`);
-                        if (shouldProcessAutoTableUpdateForGenerationEnded_ACU()) {
-                            handleNewMessageDebounced_ACU('GENERATION_ENDED');
-                        }
-                        else {
-                            logDebug_ACU('ACU: Skip auto table update due to quiet/background generation.');
-                        }
-                        // [剧情推进] 保存Plot到消息和循环检测
-                        // savePlotToLatestMessage_ACU(); // Moved to runOptimizationLogic_ACU
-                        onLoopGenerationEnded_ACU();
-                    });
-                }
-                // [剧情推进] 拦截用户输入进行剧情规划
-                if (SillyTavern_API_ACU.eventTypes.GENERATION_AFTER_COMMANDS) {
-                    SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_AFTER_COMMANDS, async (type, params, dryRun) => {
-                        // 如果消息已被TavernHelper钩子处理，则跳过
-                        if (params?._qrf_processed_by_hook) {
-                            return;
-                        }
-                        // 只在“用户发送触发的正常生成”时做剧情推进，避免其它插件/后台生成触发
-                        if (!shouldProcessPlotForGeneration_ACU(type, params, dryRun)) {
-                            return;
-                        }
-                        if (type === 'regenerate' || isProcessing_Plot_ACU) {
-                            return;
-                        }
-                        // [去重] 若同一文本刚被 TavernHelper.generate 钩子处理过，则跳过本事件处理，避免重复规划/重复 toast
-                        try {
-                            const lastMsgText = (SillyTavern_API_ACU.chat?.length && SillyTavern_API_ACU.chat[SillyTavern_API_ACU.chat.length - 1]?.is_user)
-                                ? (SillyTavern_API_ACU.chat[SillyTavern_API_ACU.chat.length - 1].mes || '')
-                                : '';
-                            const boxText = getSendTextareaValue_ACU() || '';
-                            if (shouldSkipPlotIntercept_ACU(lastMsgText) || shouldSkipPlotIntercept_ACU(boxText)) {
-                                logDebug_ACU('[剧情推进] Skip GENERATION_AFTER_COMMANDS due to recent TavernHelper.generate interception.');
-                                return;
-                            }
-                        }
-                        catch (e) { }
-                        const chat = SillyTavern_API_ACU.chat;
-                        if (!chat || chat.length === 0) {
-                            return;
-                        }
-                        // [策略1] 检查最新的聊天消息 (主要用于 /send 等命令，这些命令会先创建消息再触发生成)
-                        const lastMessageIndex = chat.length - 1;
-                        const lastMessage = chat[lastMessageIndex];
-                        // 如果是新的用户消息且未被处理，进行剧情规划
-                        if (lastMessage && lastMessage.is_user && !lastMessage._plot_processed) {
-                            lastMessage._plot_processed = true;
-                            const messageToProcess = lastMessage.mes;
-                            if (messageToProcess && messageToProcess.trim().length > 0) {
-                                _set_isProcessing_Plot_ACU(true);
-                                try {
-                                    // 如果是在循环模式下，给消息打上规划标记
-                                    const isLoopTriggered = loopState_ACU.isLooping && loopState_ACU.awaitingReply;
-                                    if (isLoopTriggered) {
-                                        lastMessage._qrf_from_planning = true;
-                                        logDebug_ACU('[剧情推进] [Loop] 标记规划层消息: _qrf_from_planning=true');
-                                    }
-                                    // [优化] 在修改消息之前，先保存原始用户输入的哈希到消息对象上
-                                    // 这样即使消息内容被规划结果替换，保存函数也能通过这个哈希找到正确的消息
-                                    const originalInputHash = hashUserInput_ACU(messageToProcess);
-                                    lastMessage._qrf_plot_pending_hash = originalInputHash;
-                                    logDebug_ACU('[剧情推进] [Plot] 在消息对象上保存原始输入哈希:', originalInputHash);
-                                    // [优化] 传递原始用户输入用于哈希匹配
-                                    // 注意：在策略1中，lastMessage.mes 就是原始用户输入（还未被规划结果替换）
-                                    const finalMessage = await runOptimizationLogic_ACU(messageToProcess, {
-                                        originalUserInput: messageToProcess,
-                                        hasExistingUserMessage: true,
-                                    });
-                                    if (finalMessage && finalMessage.skipped) {
-                                        logDebug_ACU('[剧情推进] Planning skipped in Strategy 1 (duplicate).');
-                                        return;
-                                    }
-                                    if (finalMessage && finalMessage.aborted) {
-                                        logDebug_ACU('[剧情推进] Generation aborted by user in Strategy 1.');
-                                        // [优化] 用户手动中止 => 回退：停止生成 + 删除刚创建的用户楼层（如果是本次输入） + 回填输入框
-                                        if (finalMessage.manual) {
-                                            try {
-                                                if (SillyTavern_API_ACU && typeof SillyTavern_API_ACU.stopGeneration === 'function') {
-                                                    SillyTavern_API_ACU.stopGeneration();
-                                                }
-                                                else if (window.SillyTavern?.stopGeneration) {
-                                                    window.SillyTavern.stopGeneration();
-                                                }
-                                            }
-                                            catch (e) { }
-                                            try {
-                                                const chatNow = SillyTavern_API_ACU.chat;
-                                                const lastNow = chatNow?.length ? chatNow[chatNow.length - 1] : null;
-                                                if (lastNow && lastNow.is_user && String(lastNow.mes || '') === String(messageToProcess || '')) {
-                                                    if (typeof SillyTavern_API_ACU.deleteLastMessage === 'function') {
-                                                        await SillyTavern_API_ACU.deleteLastMessage();
-                                                    }
-                                                    else if (window.SillyTavern?.deleteLastMessage) {
-                                                        await window.SillyTavern.deleteLastMessage();
-                                                    }
-                                                }
-                                            }
-                                            catch (e) { }
-                                            try {
-                                                const t = finalMessage.restoreText ?? messageToProcess;
-                                                setSendTextareaValue_ACU(t);
-                                                ;
-                                            }
-                                            catch (e) { }
-                                        }
-                                        return;
-                                    }
-                                    if (finalMessage && typeof finalMessage === 'string') {
-                                        params.prompt = finalMessage;
-                                        lastMessage.mes = finalMessage;
-                                        // 发送消息更新事件以刷新UI
-                                        SillyTavern_API_ACU.eventSource.emit(SillyTavern_API_ACU.eventTypes.MESSAGE_UPDATED, lastMessageIndex);
-                                        // 清空输入框
-                                        if (getSendTextareaValue_ACU() === messageToProcess) {
-                                            setSendTextareaValue_ACU('');
-                                            ;
-                                        }
-                                    }
-                                }
-                                catch (error) {
-                                    logError_ACU('[剧情推进] Error processing last chat message:', error);
-                                    delete lastMessage._plot_processed; // 允许重试
-                                }
-                                finally {
-                                    _set_isProcessing_Plot_ACU(false);
-                                }
-                                return; // 策略1成功，直接返回，不再执行策略2
-                            }
-                        }
-                        // [策略2 - 受控恢复] 正常发送路径：此时用户楼层还未写入 chat
-                        // 仅当检测到“近期发送意图”时才读取输入框，避免其它插件触发的生成误伤。
-                        if (!isRecentUserSendIntent_ACU())
-                            return;
-                        const textInBox = getSendTextareaValue_ACU();
-                        if (!textInBox || !String(textInBox).trim())
-                            return;
-                        _set_isProcessing_Plot_ACU(true);
-                        try {
-                            // [优化] 传递原始用户输入用于哈希匹配
-                            // 注意：在策略2中，textInBox 就是原始用户输入（还未被规划结果替换）
-                            const originalInputText = String(textInBox);
-                            const finalMessage = await runOptimizationLogic_ACU(originalInputText, {
-                                originalUserInput: originalInputText,
-                                hasExistingUserMessage: false,
-                            });
-                            if (finalMessage && finalMessage.skipped) {
-                                logDebug_ACU('[剧情推进] Planning skipped in Strategy 2 (duplicate).');
-                                return;
-                            }
-                            if (finalMessage && finalMessage.aborted) {
-                                logDebug_ACU('[剧情推进] Generation aborted by user in Strategy 2.');
-                                // 用户手动中止：停止生成，保留输入框内容
-                                if (finalMessage.manual) {
-                                    try {
-                                        if (SillyTavern_API_ACU && typeof SillyTavern_API_ACU.stopGeneration === 'function') {
-                                            SillyTavern_API_ACU.stopGeneration();
-                                        }
-                                        else if (window.SillyTavern?.stopGeneration) {
-                                            window.SillyTavern.stopGeneration();
-                                        }
-                                    }
-                                    catch (e) { }
-                                }
-                                return;
-                            }
-                            if (finalMessage && typeof finalMessage === 'string') {
-                                // 关键：写回输入框 + 写回 params.prompt（供本次生成使用），达到“先规划再发送”的效果
-                                setSendTextareaValue_ACU(finalMessage);
-                                ;
-                                try {
-                                    params.prompt = finalMessage;
-                                }
-                                catch (e) { }
-                            }
-                        }
-                        catch (error) {
-                            logError_ACU('[剧情推进] Error processing textarea input (Strategy 2):', error);
-                        }
-                        finally {
-                            _set_isProcessing_Plot_ACU(false);
-                            // 消费掉本次发送意图，避免同一次生成链路重复触发
-                            generationGate_ACU.lastUserSendIntentAt = 0;
-                        }
-                    });
-                }
-                const chatModificationEvents = ['MESSAGE_DELETED', 'MESSAGE_SWIPED'];
-                chatModificationEvents.forEach(evName => {
-                    if (SillyTavern_API_ACU.eventTypes[evName]) {
-                        SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes[evName], async (data) => {
-                            logDebug_ACU(`ACU ${evName} event detected. Triggering data reload and merge from chat history.`);
-                            clearTimeout(newMessageDebounceTimer_ACU$1);
-                            _set_newMessageDebounceTimer_ACU$1(setTimeout(async () => {
-                                // [修复] 重新合并数据并更新UI和世界书
-                                await refreshMergedDataAndNotify_ACU();
-                            }, 500)); // 使用防抖处理快速滑动
-                        });
-                    }
-                });
-                logDebug_ACU('ACU: All event listeners attached using eventSource.');
-            }
-            else {
-                logWarn_ACU('ACU: Could not attach event listeners because eventSource or eventTypes are missing.');
-            }
-            // [新增] 移除公用的手动更新按钮，改为两个独立的手动更新按钮
-            // if (typeof eventOnButton === 'function') {
-            //     eventOnButton('更新数据库', handleManualUpdateCard_ACU);
-            //     logDebug_ACU(
-            //         "ACU: '更新数据库' button event registered with global eventOnButton.",
-            //     );
-            // } else {
-            //     logWarn_ACU("ACU: Global eventOnButton function is not available.");
-            // }
-            // 修复：移除启动时的状态重置调用。现在完全依赖于SillyTavern加载后触发的第一个CHAT_CHANGED事件来初始化，避免了竞态条件。
-            // [新增修复]：为了解决作为角色脚本加载时可能错过初始CHAT_CHANGED事件的问题，
-            // 我们在初始化时主动获取一次当前聊天信息并进行设置。
-            // 这确保了无论脚本何时加载，都能正确初始化。
-            if (SillyTavern_API_ACU && SillyTavern_API_ACU.chatId) {
-                logDebug_ACU(`ACU: Initializing with current chat on load: ${SillyTavern_API_ACU.chatId}`);
-                // 修复：将初始加载延迟到下一个事件循环，以避免在SillyTavern完全准备好之前运行初始化，从而解决新聊天的竞态条件。
-                // [新增] 使用延迟初始化确保UI就绪
-                setTimeout(async () => {
-                    await resetScriptStateForNewChat_ACU(SillyTavern_API_ACU.chatId);
-                    await loadPresetAndCleanCharacterData_ACU();
-                    // 再次强制刷新数据和UI，确保初始加载时表格显示正确
-                    await loadAllChatMessages_ACU();
-                    await refreshMergedDataAndNotify_ACU();
-                    if (typeof updateCardUpdateStatusDisplay_ACU === 'function') {
-                        updateCardUpdateStatusDisplay_ACU();
-                    }
-                }, 1000);
-            }
-            else {
-                logWarn_ACU('ACU: Could not get current chat ID on initial load. Waiting for CHAT_CHANGED event.');
-            }
-        }
-        else {
-            logError_ACU('ACU: Failed to initialize. Core APIs not available on DOM ready.');
-            console.error('数据库自动更新脚本初始化失败：核心API加载失败。');
-        }
-    }
-
-    /**
-     * service/runtime/event-bus.ts — ACU_EventBus 事件总线
-     *
-     * 轻量级发布/订阅事件总线，用于表示层与服务层之间的解耦通信。
-     * 表示层 emit 事件，服务层 on 监听并处理。
-     *
-     * 参见初版设计 plans/three_layer_refactor_plan.md §5.3
-     */
-    const _handlers = {};
-    const ACU_EventBus = {
-        /**
-         * 注册事件监听器
-         */
-        on(event, handler) {
-            if (!_handlers[event])
-                _handlers[event] = [];
-            _handlers[event].push(handler);
-        },
-        /**
-         * 移除事件监听器
-         */
-        off(event, handler) {
-            const list = _handlers[event];
-            if (!list)
-                return;
-            const idx = list.indexOf(handler);
-            if (idx !== -1)
-                list.splice(idx, 1);
-        },
-        /**
-         * 触发事件
-         */
-        emit(event, ...args) {
-            const list = _handlers[event];
-            if (!list)
-                return;
-            for (const handler of list) {
-                try {
-                    handler(...args);
-                }
-                catch (e) {
-                    console.error(`[ACU_EventBus] Error in handler for "${event}":`, e);
-                }
-            }
-        },
-        /**
-         * 注册一次性监听器
-         */
-        once(event, handler) {
-            const wrapper = (...args) => {
-                ACU_EventBus.off(event, wrapper);
-                handler(...args);
-            };
-            ACU_EventBus.on(event, wrapper);
-        },
-        /**
-         * 清除指定事件的所有监听器（调试用）
-         */
-        clear(event) {
-            if (event) {
-                delete _handlers[event];
-            }
-            else {
-                Object.keys(_handlers).forEach(k => delete _handlers[k]);
-            }
-        }
-    };
+    // Toast 变量已迁移到 service/runtime/toast-service.ts
 
     // update-controls.ts — 对应源文件有跨文件依赖，保留在原位
 

@@ -6,7 +6,8 @@ import { openAutoCardPopup_ACU } from '../../presentation/pages/main-popup';
 import { openNewVisualizer_ACU } from '../../presentation/pages/visualizer';
 import { handleTxtImportAndSplit_ACU } from '../../presentation/components/import-status-ui';
 import { isAutoUpdatingCard_ACU, _set_isAutoUpdatingCard_ACU } from './state-manager';
-import { ACU_TOAST_CATEGORY_ACU, showToastr_ACU } from '../../presentation/theme/toast';
+import { showToastr_ACU } from './toast-service';
+import { ACU_TOAST_CATEGORY_ACU } from '../../shared/constants';
 import { getApiConfigByPreset_ACU } from '../ai/api-call';
 import { handleApiResponse_ACU } from '../ai/prompt-builder';
 import { importCombinedSettings_ACU } from '../data-admin/admin';
@@ -2332,9 +2333,4 @@ const DatabaseAPI_ACU = {
   // --- [核心改造] 结束 ---
 
 
-  // --- Toast / 通知（仅影响本插件的提示外观，不改变业务逻辑） ---
-  export const ACU_TOAST_TITLE_ACU = '星·数据库';
-  export const _acuToastDedup_ACU = new Map(); // key -> ts
-  export let _acuToastStyleInjected_ACU = false;
-
-export function _set__acuToastStyleInjected_ACU(v: any) { _acuToastStyleInjected_ACU = v; }
+  // Toast 变量已迁移到 service/runtime/toast-service.ts
