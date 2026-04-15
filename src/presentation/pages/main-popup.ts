@@ -96,7 +96,7 @@ import { MAIN_POPUP_CSS_ACU } from './main-popup-styles';
         logDebug_ACU('ACU Window closed');
         _set_$popupInstance_ACU(null);
       },
-      onReady: async ($window) => {
+      onReady: async ($window: any) => {
         // 从窗口body中找到实际内容
         const $body = $window.find('.acu-window-body');
         const curDlgCnt = $body.find(`#${POPUP_ID_ACU}`);

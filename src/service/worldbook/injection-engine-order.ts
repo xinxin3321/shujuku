@@ -11,7 +11,7 @@
 //   - "@D 系统深度"对应 position='at_depth_as_system' 且 depth 为数字
 // - 仅用于：OutlineTable、总结条目(含外部导入)、MemoryStart/MemoryEnd
 // =========================
-function buildSystemDepthInjection_ACU(depth) {
+function buildSystemDepthInjection_ACU(depth: any) {
     const d = parseInt(depth, 10);
     return {
         // @D⚙：系统身份 + 固定深度
@@ -20,12 +20,12 @@ function buildSystemDepthInjection_ACU(depth) {
     };
 }
 
-function applySystemDepthInjection_ACU(entry, depth) {
+function applySystemDepthInjection_ACU(entry: any, depth: any) {
     if (!entry || typeof entry !== 'object') return entry;
     return { ...entry, ...buildSystemDepthInjection_ACU(depth) };
 }
 
-function isSystemDepthInjected_ACU(entry, expectedDepth = null) {
+function isSystemDepthInjected_ACU(entry: any, expectedDepth: any = null) {
     if (!entry || typeof entry !== 'object') return false;
     if (entry.position !== 'at_depth_as_system') return false;
     const d = typeof entry.depth === 'number' ? entry.depth : parseInt(String(entry.depth ?? ''), 10);
@@ -45,14 +45,14 @@ function isSystemDepthInjected_ACU(entry, expectedDepth = null) {
 // - 本插件创建的条目之间不重复
 // - 也不与世界书中"任何现有条目"的 order 重复
 // =========================
-export function getEntryOrderNumber_ACU(entry) {
+export function getEntryOrderNumber_ACU(entry: any) {
     const v = entry?.order;
     const n = typeof v === 'number' ? v : parseInt(String(v ?? ''), 10);
     return Number.isFinite(n) ? n : null;
 }
 
-export function buildUsedOrderSet_ACU(entries) {
-    const used = new Set();
+export function buildUsedOrderSet_ACU(entries: any[]): Set<number> {
+    const used = new Set<number>();
     if (!Array.isArray(entries)) return used;
     entries.forEach(e => {
         const n = getEntryOrderNumber_ACU(e);
@@ -61,8 +61,8 @@ export function buildUsedOrderSet_ACU(entries) {
     return used;
 }
 
-function findFirstFreeOrder_ACU(usedSet, preferred = 1, min = 1, max = 99999) {
-    const used = usedSet instanceof Set ? usedSet : new Set();
+function findFirstFreeOrder_ACU(usedSet: Set<number>, preferred = 1, min = 1, max = 99999) {
+    const used = usedSet instanceof Set ? usedSet : new Set<number>();
     let start = parseInt(String(preferred), 10);
     if (!Number.isFinite(start)) start = min;
     if (start < min) start = min;
@@ -77,20 +77,20 @@ function findFirstFreeOrder_ACU(usedSet, preferred = 1, min = 1, max = 99999) {
     return null;
 }
 
-export function allocOrder_ACU(usedSet, preferred = 1, min = 1, max = 99999) {
-    const used = usedSet instanceof Set ? usedSet : new Set();
+export function allocOrder_ACU(usedSet: Set<number>, preferred = 1, min = 1, max = 99999) {
+    const used = usedSet instanceof Set ? usedSet : new Set<number>();
     const o = findFirstFreeOrder_ACU(used, preferred, min, max);
     if (o === null) throw new Error('无法分配可用的世界书条目 order（插入深度）');
     used.add(o);
     return o;
 }
 
-export function allocConsecutiveOrderBlock_ACU(usedSet, blockSize, preferred = 1, min = 1, max = 99999) {
-    const used = usedSet instanceof Set ? usedSet : new Set();
+export function allocConsecutiveOrderBlock_ACU(usedSet: Set<number>, blockSize: number, preferred = 1, min = 1, max = 99999) {
+    const used = usedSet instanceof Set ? usedSet : new Set<number>();
     const size = Math.max(1, parseInt(String(blockSize), 10) || 1);
     const maxStart = max - size + 1;
 
-    const tryFrom = (start) => {
+    const tryFrom = (start: number) => {
         for (let s = start; s <= maxStart; s++) {
             let ok = true;
             for (let i = 0; i < size; i++) {

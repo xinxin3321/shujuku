@@ -30,11 +30,11 @@ export let suppressWorldbookInjectionInGreeting_ACU = false;
 export const loopState_ACU = {
   isLooping: false,
   isRetrying: false,
-  timerId: null,
+  timerId: null as ReturnType<typeof setTimeout> | null,
   retryCount: 0,
   startTime: 0,
   totalDuration: 0,
-  tickInterval: null,
+  tickInterval: null as ReturnType<typeof setInterval> | null,
   awaitingReply: false,
 };
 
@@ -49,7 +49,7 @@ export let tempPlotToSave_ACU: any = null;
 
 export const USER_SEND_TRIGGER_TTL_MS_ACU = 12000;
 export const generationGate_ACU = {
-  lastUserMessageId: null,
+  lastUserMessageId: null as number | null,
   lastUserMessageText: '',
   lastUserMessageAt: 0,
   lastUserSendIntentAt: 0,
@@ -65,7 +65,7 @@ export function isRecentUserSendIntent_ACU() {
   return (Date.now() - generationGate_ACU.lastUserSendIntentAt) <= USER_SEND_TRIGGER_TTL_MS_ACU;
 }
 
-export function recordLastUserSend_ACU(messageId) {
+export function recordLastUserSend_ACU(messageId: any) {
   try {
     const chat = getChatArray_ACU();
     const msg = (chat && typeof messageId === 'number') ? chat[messageId] : null;
@@ -78,11 +78,11 @@ export function recordLastUserSend_ACU(messageId) {
   }
 }
 
-export function recordGenerationContext_ACU(type, params, dryRun) {
+export function recordGenerationContext_ACU(type: any, params: any, dryRun: any) {
   generationGate_ACU.lastGeneration = { type, params, dryRun, at: Date.now() };
 }
 
-export function isQuietLikeGeneration_ACU(type, params) {
+export function isQuietLikeGeneration_ACU(type: any, params: any) {
   if (type === 'quiet') return true;
   if (params && typeof params.quiet_prompt === 'string' && params.quiet_prompt.trim().length > 0) return true;
   return false;
@@ -93,7 +93,7 @@ export function isRecentUserSend_ACU() {
   return (Date.now() - generationGate_ACU.lastUserMessageAt) <= USER_SEND_TRIGGER_TTL_MS_ACU;
 }
 
-export function shouldProcessPlotForGeneration_ACU(type, params, dryRun) {
+export function shouldProcessPlotForGeneration_ACU(type: any, params: any, dryRun: any) {
   if (dryRun) return false;
   if (!settings_ACU?.plotSettings?.enabled) return false;
   if (isQuietLikeGeneration_ACU(type, params)) return false;

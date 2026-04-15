@@ -50,7 +50,7 @@ export function createWorldbookAiApi(_ctx: ApiGroupContext): Record<string, Func
             }
         },
 
-        reoptimizeMessage: async function(messageIndex) {
+        reoptimizeMessage: async function(messageIndex: any) {
             try {
                 return await reoptimizeMessage_ACU(messageIndex);
             } catch (e) {
@@ -59,7 +59,7 @@ export function createWorldbookAiApi(_ctx: ApiGroupContext): Record<string, Func
             }
         },
 
-        cancelContentOptimization: function(reason) {
+        cancelContentOptimization: function(reason: any) {
             try {
                 const result = cancelContentOptimization_ACU(reason);
                 if (result.cancelled) showToastr_ACU('warning', result.reason);
@@ -82,7 +82,7 @@ export function createWorldbookAiApi(_ctx: ApiGroupContext): Record<string, Func
         },
 
         // 设置 OutlineTable 条目启用状态
-        setOutlineEntryEnabled: async function(enabled) {
+        setOutlineEntryEnabled: async function(enabled: any) {
             try {
                 const isEnabled = !!enabled;
                 setZeroTkOccupyMode_ACU(!isEnabled);
@@ -98,7 +98,7 @@ export function createWorldbookAiApi(_ctx: ApiGroupContext): Record<string, Func
         },
 
         // 设置 0TK占用模式
-        setZeroTkOccupyMode: async function(modeEnabled) {
+        setZeroTkOccupyMode: async function(modeEnabled: any) {
             try {
                 setZeroTkOccupyMode_ACU(!!modeEnabled);
                 if (currentJsonTableData_ACU) {
@@ -113,7 +113,7 @@ export function createWorldbookAiApi(_ctx: ApiGroupContext): Record<string, Func
         },
 
         // AI 调用
-        callAI: async function(messages, options: any = {}) {
+        callAI: async function(messages: any[], options: any = {}) {
             try {
                 if (!Array.isArray(messages) || messages.length === 0) {
                     logError_ACU('callAI: messages must be a non-empty array');

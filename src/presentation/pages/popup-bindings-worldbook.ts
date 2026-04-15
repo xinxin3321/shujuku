@@ -13,7 +13,8 @@ import { applyWorldbookEntryFilter_ACU, applyWorldbookListFilter_ACU, applyWorld
 import { getLorebookEntriesByNames_ACU, getWorldBooks_ACU, updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
 import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU, updateOutlineTableEntry_ACU } from '../../service/worldbook/injection-engine';
 import { refreshMergedDataAndNotifyWithUI_ACU } from '../components/pipeline-ui-helpers';
-import { getCurrentWorldbookConfig_ACU, setZeroTkOccupyMode_ACU } from '../../service/settings/settings-service';
+import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-readers';
+import { setZeroTkOccupyMode_ACU } from '../../service/settings/settings-service';
 import { formatJsonToReadable_ACU } from '../../service/runtime/helpers-remaining';
 
 /**
@@ -99,7 +100,7 @@ export async function bindWorldbookEvents_ACU(): Promise<void> {
           } catch (e) {}
           return [...new Set(names.filter(Boolean))];
       };
-      const isWorldbookEntryAllowedForUI_ACU = (entry) => {
+      const isWorldbookEntryAllowedForUI_ACU = (entry: any) => {
           if (!entry) return false;
           const comment = entry.comment || '';
           if (comment.startsWith('TavernDB-ACU-') || comment.startsWith('重要人物条目') || comment.startsWith('总结条目')) {
@@ -109,7 +110,7 @@ export async function bindWorldbookEvents_ACU(): Promise<void> {
           if (!entry.enabled) return false;
           return true;
       };
-      const setWorldbookEntriesSelection_ACU = async (mode) => {
+      const setWorldbookEntriesSelection_ACU = async (mode: any) => {
           const worldbookConfig = getCurrentWorldbookConfig_ACU();
           const bookNames = await resolveWorldbookBookNames_ACU();
           if (!worldbookConfig.enabledEntries) worldbookConfig.enabledEntries = {};
@@ -135,7 +136,7 @@ export async function bindWorldbookEvents_ACU(): Promise<void> {
 
               if ($item.hasClass('selected')) {
                   // Deselect
-                  selection = selection.filter(name => name !== bookName);
+              selection = selection.filter((name: string) => name !== bookName);
               } else {
                   // Select
                   selection.push(bookName);

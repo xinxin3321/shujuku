@@ -107,11 +107,11 @@ import { renderVisualizerConfigMode_ACU } from './visualizer-main-config';
       `;
       $container.html(html);
 
-      const parseIntOrDefault_ACU = (val, defVal) => {
+      const parseIntOrDefault_ACU = (val: any, defVal: number) => {
           const n = parseInt(val, 10);
           return Number.isFinite(n) ? n : defVal;
       };
-      const readPlacementFromInputs_ACU = (prefix, fallbackPlacement) => {
+      const readPlacementFromInputs_ACU = (prefix: string, fallbackPlacement: any) => {
           const position = normalizeLorebookPosition_ACU(jQuery_API_ACU(`#${prefix}-position`).val(), fallbackPlacement.position);
           const depth = parseIntOrDefault_ACU(jQuery_API_ACU(`#${prefix}-depth`).val(), fallbackPlacement.depth);
           const order = parseIntOrDefault_ACU(jQuery_API_ACU(`#${prefix}-order`).val(), fallbackPlacement.order);
@@ -133,7 +133,7 @@ import { renderVisualizerConfigMode_ACU } from './visualizer-main-config';
       });
   }
 
-  export function renderVisualizerDataMode_ACU($container: JQuery<HTMLElement>, sheet) {
+  export function renderVisualizerDataMode_ACU($container: JQuery<HTMLElement>, sheet: any) {
       // Headers
       const headers = sheet.content[0] || [];
       const dataHeaders = headers.slice(1);
@@ -154,7 +154,7 @@ import { renderVisualizerConfigMode_ACU } from './visualizer-main-config';
           </div>
       `;
 
-      rows.forEach((row, rIdx) => {
+      rows.forEach((row: any[], rIdx: number) => {
           const rowLocked = lockState.rows.has(rIdx);
           html += `<div class="acu-data-card">
                       <div class="acu-card-header">
@@ -169,7 +169,7 @@ import { renderVisualizerConfigMode_ACU } from './visualizer-main-config';
                       <div class="acu-card-body">`;
           
           // Render fields (Skip index 0 usually internal ID or null)
-          dataHeaders.forEach((header, colIdx) => {
+          dataHeaders.forEach((header: any, colIdx: number) => {
               const val = row[colIdx + 1] || '';
               const colLocked = lockState.cols.has(colIdx);
               const cellLocked = lockState.cells.has(`${rIdx}:${colIdx}`);

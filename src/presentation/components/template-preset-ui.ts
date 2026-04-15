@@ -35,7 +35,7 @@ import { getTemplatePresetDisplayName_ACU, getTemplatePreset_ACU, listTemplatePr
       }
   }
 
-  function populateTemplatePresetSelectOptions_ACU($select, { extraPresetName = '', extraLabelSuffix = '（仅当前聊天快照）', extraOptions = [] } = {}) {
+  function populateTemplatePresetSelectOptions_ACU($select: JQuery<HTMLElement> | null, { extraPresetName = '', extraLabelSuffix = '（仅当前聊天快照）', extraOptions = [] as any[] } = {}) {
       if (!$select || !$select.length) return;
       const normalizedExtraPresetName = normalizeTemplatePresetSelectionValue_ACU(extraPresetName);
       const presetNames = listTemplatePresetNames_ACU();
@@ -60,7 +60,7 @@ import { getTemplatePresetDisplayName_ACU, getTemplatePreset_ACU, listTemplatePr
       });
   }
 
-  export function loadTemplatePresetSelect_ACU({ globalSelectName = null, keepGlobalValue = false } = {}) {
+  export function loadTemplatePresetSelect_ACU({ globalSelectName = null as string | null, keepGlobalValue = false } = {}) {
       if (!$popupInstance_ACU || !$popupInstance_ACU.length) return;
 
       const presetNames = listTemplatePresetNames_ACU();
@@ -219,7 +219,7 @@ import { getTemplatePresetDisplayName_ACU, getTemplatePreset_ACU, listTemplatePr
       }
   }
 
-  export function refreshTemplatePresetSelectInUI_ACU({ selectName = null, keepValue = false } = {}) {
+  export function refreshTemplatePresetSelectInUI_ACU({ selectName = null as string | null, keepValue = false } = {}) {
       if ($popupInstance_ACU && $popupInstance_ACU.length) {
           loadTemplatePresetSelect_ACU({ globalSelectName: selectName, keepGlobalValue: !!keepValue });
           return;
@@ -235,7 +235,7 @@ import { getTemplatePresetDisplayName_ACU, getTemplatePreset_ACU, listTemplatePr
       $sel.val(normalizedName || DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU);
   }
 
-  function renderTemplatePresetSelect_ACU($select, { keepValue = true } = {}) {
+  function renderTemplatePresetSelect_ACU($select: JQuery<HTMLElement> | null, { keepValue = true } = {}) {
       try {
           if (!$select || !$select.length) return;
           const prev = keepValue ? normalizeTemplatePresetSelectionValue_ACU($select.val()) : '';

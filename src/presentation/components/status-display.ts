@@ -1,5 +1,5 @@
 import { DEFAULT_MERGE_SUMMARY_PROMPT_ACU } from '../../shared/defaults-json.js';
-import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-service';
+import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-readers';
 import { renderPromptSegments_ACU } from './plot-editors';
 import { renderImportTableSelector_ACU, renderManualTableSelector_ACU } from './table-selector';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
@@ -18,14 +18,14 @@ import { $popupInstance_ACU, $statusMessageSpan_ACU, $manualUpdateCardButton_ACU
   }
 
   // [T173] 填表状态消息更新
-  function updateTableFillStatus_ACU(text) {
+  function updateTableFillStatus_ACU(text: string) {
     if (!$statusMessageSpan_ACU && $popupInstance_ACU)
         _assignUIPlaceholders_ACU({ $statusMessageSpan_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-status-message`) });
     if ($statusMessageSpan_ACU) $statusMessageSpan_ACU.text(text);
   }
 
   // [T173] 填表停止按钮绑定
-  export function bindTableFillStopButton_ACU(localAbortController, onStop) {
+  export function bindTableFillStopButton_ACU(localAbortController: any, onStop: any) {
     const $stopButton = jQuery_API_ACU('#acu-stop-update-btn');
     if ($stopButton.length) {
         $stopButton.off('click.acu_stop').on('click.acu_stop', function(e) {
@@ -48,7 +48,7 @@ import { $popupInstance_ACU, $statusMessageSpan_ACU, $manualUpdateCardButton_ACU
   }
 
   // [T174] 更新聊天标题显示
-  function updateChatTitleDisplay_ACU(chatIdentifier) {
+  function updateChatTitleDisplay_ACU(chatIdentifier: string) {
     if (!$popupInstance_ACU) return;
     const $titleElement = $popupInstance_ACU.find('h2#updater-main-title-acu');
     if ($titleElement.length)
@@ -66,7 +66,7 @@ import { $popupInstance_ACU, $statusMessageSpan_ACU, $manualUpdateCardButton_ACU
   }
 
   // [T177] 设置酒馆发送输入框的值并触发 input 事件
-  export function setSendTextareaValue_ACU(text) {
+  export function setSendTextareaValue_ACU(text: string) {
     try {
       jQuery_API_ACU('#send_textarea').val(text);
       jQuery_API_ACU('#send_textarea').trigger('input');
@@ -74,11 +74,11 @@ import { $popupInstance_ACU, $statusMessageSpan_ACU, $manualUpdateCardButton_ACU
   }
 
   // [T178] 将合并/删除设置同步到 UI
-  export function syncMergeSettingsToUI_ACU(s) {
+  export function syncMergeSettingsToUI_ACU(s: any) {
     if (!$popupInstance_ACU) return;
-    const find = (id) => $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-${id}`);
-    const setVal = (id, v) => { const $el = find(id); if ($el.length) $el.val(v); };
-    const setChecked = (id, v) => { const $el = find(id); if ($el.length) $el.prop('checked', !!v); };
+    const find = (id: string) => $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-${id}`);
+    const setVal = (id: string, v: any) => { const $el = find(id); if ($el.length) $el.val(v); };
+    const setChecked = (id: string, v: any) => { const $el = find(id); if ($el.length) $el.prop('checked', !!v); };
     setVal('merge-prompt-template', s.mergeSummaryPrompt || DEFAULT_MERGE_SUMMARY_PROMPT_ACU);
     setVal('merge-target-count', s.mergeTargetCount || 1);
     setVal('merge-batch-size', s.mergeBatchSize || 5);
@@ -92,7 +92,7 @@ import { $popupInstance_ACU, $statusMessageSpan_ACU, $manualUpdateCardButton_ACU
   }
 
   // [T179] 将全部设置同步到 UI（从 service/settings/settings-service.ts 提取）
-  export function syncAllSettingsToUI_ACU(s) {
+  export function syncAllSettingsToUI_ACU(s: any) {
       if (!$popupInstance_ACU) return;
       if ($customApiUrlInput_ACU) $customApiUrlInput_ACU.val(s.apiConfig.url);
       if ($customApiKeyInput_ACU) $customApiKeyInput_ACU.val(s.apiConfig.apiKey);
@@ -118,9 +118,9 @@ import { $popupInstance_ACU, $statusMessageSpan_ACU, $manualUpdateCardButton_ACU
           renderExcludeRuleRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-table-context-extract-rules`, normalizeExtractRules_ACU(s.tableContextExtractRules, s.tableContextExtractTags || ''), { startPlaceholder: '开始词（例如：<think）', endPlaceholder: '结束词（例如：</think>）' });
           renderExcludeRuleRows_ACU(`#${SCRIPT_ID_PREFIX_ACU}-table-context-exclude-rules`, normalizeExcludeRules_ACU(s.tableContextExcludeRules, s.tableContextExcludeTags || ''), { startPlaceholder: '开始词（例如：<thinking）', endPlaceholder: '结束词（例如：</thinking>）' });
       }
-      const find = (id) => $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-${id}`);
-      const setVal = (id, v) => { const $el = find(id); if ($el.length) $el.val(v); };
-      const setChecked = (id, v) => { const $el = find(id); if ($el.length) $el.prop('checked', !!v); };
+      const find = (id: string) => $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-${id}`);
+      const setVal = (id: string, v: any) => { const $el = find(id); if ($el.length) $el.val(v); };
+      const setChecked = (id: string, v: any) => { const $el = find(id); if ($el.length) $el.prop('checked', !!v); };
       setVal('import-split-size', s.importSplitSize);
       setChecked('import-prompt-exclude-imported-worldbook-entries', s.importPromptExcludeImportedWorldbookEntries !== false);
       if ($autoUpdateEnabledCheckbox_ACU) $autoUpdateEnabledCheckbox_ACU.prop('checked', s.autoUpdateEnabled);

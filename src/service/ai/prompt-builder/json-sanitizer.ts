@@ -5,19 +5,19 @@
  */
 
 /** 将全角/中文引号统一为标准双引号 */
-export function normalizeQuotesLayer_ACU(jsonStr) {
+export function normalizeQuotesLayer_ACU(jsonStr: string) {
     if (typeof jsonStr !== 'string' || !jsonStr) return jsonStr;
     return jsonStr.replace(/[""「」『』＂]/g, '"');
 }
 
-export function getNextNonWhitespaceMeta_ACU(text, startIndex) {
+export function getNextNonWhitespaceMeta_ACU(text: string, startIndex: number) {
     for (let i = startIndex; i < text.length; i++) {
         if (!/\s/.test(text[i])) return { char: text[i], index: i };
     }
     return { char: '', index: -1 };
 }
 
-export function isLikelyJsonValueStart_ACU(char) {
+export function isLikelyJsonValueStart_ACU(char: string) {
     return !!char && (
         char === '"' ||
         char === '{' ||
@@ -30,7 +30,7 @@ export function isLikelyJsonValueStart_ACU(char) {
     );
 }
 
-export function isLikelyStringCloser_ACU(text, quoteIndex, stringKind, containerType) {
+export function isLikelyStringCloser_ACU(text: string, quoteIndex: number, stringKind: string | null, containerType: string | null) {
     const nextMeta = getNextNonWhitespaceMeta_ACU(text, quoteIndex + 1);
     const nextChar = nextMeta.char;
     if (!nextChar) return stringKind !== 'key';
@@ -45,7 +45,7 @@ export function isLikelyStringCloser_ACU(text, quoteIndex, stringKind, container
     return isLikelyJsonValueStart_ACU(afterComma) || afterComma === '}' || afterComma === ']';
 }
 
-export function escapeUnescapedQuotesLayer_ACU(jsonStr) {
+export function escapeUnescapedQuotesLayer_ACU(jsonStr: string) {
     if (typeof jsonStr !== 'string') {
         return { success: false, result: jsonStr, error: 'Input is not a string' };
     }
@@ -54,7 +54,7 @@ export function escapeUnescapedQuotesLayer_ACU(jsonStr) {
     let inString = false;
     let escapeNext = false;
     let currentStringKind = null;
-    const containerStack = [];
+    const containerStack: { type: string; expecting: string }[] = [];
 
     const getTopContainer = () => containerStack.length ? containerStack[containerStack.length - 1] : null;
     const markParentValueCompleted = () => {
@@ -150,10 +150,10 @@ export function escapeUnescapedQuotesLayer_ACU(jsonStr) {
         result += char;
     }
 
-    return { success: true, result, error: null };
+    return { success: true, result, error: null as string | null };
 }
 
-export function sanitizeControlCharsLayer_ACU(jsonStr) {
+export function sanitizeControlCharsLayer_ACU(jsonStr: string) {
     if (typeof jsonStr !== 'string' || !jsonStr) return jsonStr;
 
     let result = '';
@@ -204,7 +204,7 @@ export function sanitizeControlCharsLayer_ACU(jsonStr) {
     return result;
 }
 
-export function removeTrailingCommasLayer_ACU(jsonStr) {
+export function removeTrailingCommasLayer_ACU(jsonStr: string) {
     if (typeof jsonStr !== 'string' || !jsonStr) return jsonStr;
 
     let result = '';
@@ -243,17 +243,17 @@ export function removeTrailingCommasLayer_ACU(jsonStr) {
     return result;
 }
 
-export function fixNumericKeysLayer_ACU(jsonStr) {
+export function fixNumericKeysLayer_ACU(jsonStr: string) {
     if (typeof jsonStr !== 'string' || !jsonStr) return jsonStr;
     return jsonStr.replace(/([{,]\s*)(-?\d+)(\s*:)/g, '$1"$2"$3');
 }
 
-export function sanitizeJsonPipeline_ACU(jsonStr) {
+export function sanitizeJsonPipeline_ACU(jsonStr: string) {
     if (typeof jsonStr !== 'string') {
-        return { success: false, result: jsonStr, layersApplied: [], error: 'Input is not a string' };
+        return { success: false, result: jsonStr, layersApplied: [] as string[], error: 'Input is not a string' };
     }
 
-    const layersApplied = [];
+    const layersApplied: string[] = [];
     let current = jsonStr;
 
     const normalizedQuotes = normalizeQuotesLayer_ACU(current);
@@ -284,7 +284,7 @@ export function sanitizeJsonPipeline_ACU(jsonStr) {
 
 // ═══ 松散对象解析 ═══
 
-export function splitTopLevelSegments_ACU(text, delimiterChar = ',') {
+export function splitTopLevelSegments_ACU(text: string, delimiterChar = ',') {
     if (typeof text !== 'string' || !text) return [];
 
     const segments = [];
@@ -337,7 +337,7 @@ export function splitTopLevelSegments_ACU(text, delimiterChar = ',') {
     return segments;
 }
 
-export function findTopLevelDelimiterIndex_ACU(text, delimiterChar = ':') {
+export function findTopLevelDelimiterIndex_ACU(text: string, delimiterChar = ':') {
     if (typeof text !== 'string' || !text) return -1;
 
     let inString = false;
@@ -378,8 +378,8 @@ export function findTopLevelDelimiterIndex_ACU(text, delimiterChar = ':') {
     return -1;
 }
 
-export function tryParseLooseJsonValue_ACU(rawValue) {
-    if (typeof rawValue !== 'string') return { success: true, value: rawValue, error: null };
+export function tryParseLooseJsonValue_ACU(rawValue: any) {
+    if (typeof rawValue !== 'string') return { success: true, value: rawValue, error: null as string | null };
 
     const trimmed = rawValue.trim();
     if (!trimmed) return { success: false, value: null, error: 'Empty value' };
@@ -403,11 +403,11 @@ export function tryParseLooseJsonValue_ACU(rawValue) {
                 return { success: true, value: JSON.parse(sanitizedWrapped.result)[0], error: null };
             } catch (sanitizedError) {}
         }
-        return { success: false, value: null, error: directError?.message || 'Failed to parse loose value' };
+        return { success: false, value: null as any, error: directError?.message || 'Failed to parse loose value' };
     }
 }
 
-export function parseLooseObjectKey_ACU(rawKey) {
+export function parseLooseObjectKey_ACU(rawKey: string) {
     const trimmed = typeof rawKey === 'string' ? rawKey.trim() : '';
     if (!trimmed) return null;
     if (/^-?\d+$/.test(trimmed)) return trimmed;
@@ -420,7 +420,7 @@ export function parseLooseObjectKey_ACU(rawKey) {
     return trimmed.replace(/^["']|["']$/g, '');
 }
 
-export function coerceLooseRowObject_ACU(jsonStr) {
+export function coerceLooseRowObject_ACU(jsonStr: string) {
     if (typeof jsonStr !== 'string') {
         return { success: false, result: null, recoveredKeys: [], error: 'Input is not a string' };
     }
@@ -438,7 +438,7 @@ export function coerceLooseRowObject_ACU(jsonStr) {
         return { success: false, result: null, recoveredKeys: [], error: 'No top-level segments detected' };
     }
 
-    const result = {};
+    const result: Record<string, any> = {};
     let nextAutoKey = 0;
 
     for (const segment of segments) {
@@ -449,7 +449,7 @@ export function coerceLooseRowObject_ACU(jsonStr) {
             if (!parsedKey || !parsedValue.success) {
                 return {
                     success: false,
-                    result: null,
+                    result: null as Record<string, any> | null,
                     recoveredKeys: Object.keys(result),
                     error: `Failed to parse keyed segment: ${segment}`,
                 };

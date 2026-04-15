@@ -13,10 +13,10 @@ import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../../shared/utils';
    * @param colName - 列名（在表头中匹配）
    * @returns {{ success: boolean, value: any, rawValue?: string, error?: string }}
    */
-  export function getCellValue_ACU(allTablesJson, tableName, rowName, colName) {
+  export function getCellValue_ACU(allTablesJson: any, tableName: string, rowName: string, colName: string) {
     try {
       if (!allTablesJson || typeof allTablesJson !== 'object') {
-        return { success: false, value: null, error: '表格数据为空' };
+        return { success: false, value: null as any, error: '表格数据为空' };
       }
       
       const sheets: any[] = Object.values(allTablesJson).filter((x: any) => x && typeof x === 'object' && x.name && x.content);
@@ -42,9 +42,9 @@ import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../../shared/utils';
       
       const normalizedRowName = String(rowName || '').trim();
       const dataRows = targetTable.content.slice(1);
-      const targetRow = dataRows.find(row => {
+      const targetRow = dataRows.find((row: any) => {
         if (!Array.isArray(row)) return false;
-        return row.some(cell => String(cell || '').trim() === normalizedRowName);
+        return row.some((cell: any) => String(cell || '').trim() === normalizedRowName);
       });
       
       if (!targetRow) {
@@ -69,7 +69,7 @@ import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../../shared/utils';
   /**
    * 规范化运算符表达式（将全角运算符转换为半角）
    */
-  export function normalizeOperators_ACU(expression) {
+  export function normalizeOperators_ACU(expression: string) {
     if (!expression || typeof expression !== 'string') return expression;
     return expression
       .replace(/＞/g, '>')
@@ -84,7 +84,7 @@ import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../../shared/utils';
   /**
    * 执行单个值的比较
    */
-  export function compareValue_ACU(cellValue, operator, compareValue) {
+  export function compareValue_ACU(cellValue: any, operator: string, compareValue: any) {
     const numCompareValue = parseFloat(compareValue);
     const isNumericComparison = !isNaN(numCompareValue) && isFinite(numCompareValue);
     
@@ -120,7 +120,7 @@ import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../../shared/utils';
    * - 模糊匹配（某行）：表格名/行名 > 50
    * - 模糊匹配（某列）：表格名/列名 > 50
    */
-  export function evaluateCellExpression_ACU(expression, allTablesJson) {
+  export function evaluateCellExpression_ACU(expression: string, allTablesJson: any) {
     if (!expression || typeof expression !== 'string') return false;
     
     const normalizedExpr = normalizeOperators_ACU(expression);
@@ -194,7 +194,7 @@ import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../../shared/utils';
       const targetName = name1;
       let foundAnyCell = false;
       
-      const targetRow = dataRows.find(row => {
+      const targetRow = dataRows.find((row: any) => {
         if (!Array.isArray(row)) return false;
         return String(row[0] || '').trim() === targetName.trim();
       });

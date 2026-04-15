@@ -31,7 +31,7 @@ export function createCoreDataApi(ctx: ApiGroupContext): Record<string, Function
         },
 
         // 导入并覆盖当前表格数据
-        importTableAsJson: async function(jsonString) {
+        importTableAsJson: async function(jsonString: any) {
             if (typeof jsonString !== 'string' || jsonString.trim() === '') {
                 logError_ACU('importTableAsJson received invalid input.');
                 showToastr_ACU('error', '导入数据失败：输入为空。');
@@ -58,7 +58,7 @@ export function createCoreDataApi(ctx: ApiGroupContext): Record<string, Function
                         if (targetMessage) {
                             // 同步更新 IsolatedData
                             try {
-                                const newIndependentData = {};
+                            const newIndependentData: Record<string, any> = {};
                                 Object.keys(currentJsonTableData_ACU).forEach(k => {
                                     if (k.startsWith('sheet_')) {
                                         newIndependentData[k] = sanitizeSheetForStorage_ACU(currentJsonTableData_ACU[k]);
@@ -164,8 +164,8 @@ export function createCoreDataApi(ctx: ApiGroupContext): Record<string, Function
             const currentThreshold = getEffectiveAutoUpdateThreshold_ACU('manual_update');
 
             const allAiMessageIndices = chatHistory
-                .map((msg, index) => !msg.is_user ? index : -1)
-                .filter(index => index !== -1);
+                .map((msg: any, index: number) => !msg.is_user ? index : -1)
+                .filter((index: number) => index !== -1);
 
             const numberOfAiMessages = allAiMessageIndices.length;
 

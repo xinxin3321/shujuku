@@ -8,7 +8,7 @@
 
 import { STORAGE_KEY_ALL_SETTINGS_ACU, STORAGE_KEY_CUSTOM_TEMPLATE_ACU, normalizeIsolationCode_ACU } from '../../shared/data-constants';
 import { DEFAULT_CHAR_CARD_PROMPT_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_PLOT_SETTINGS_ACU, DEFAULT_TABLE_TEMPLATE_ACU, TABLE_TEMPLATE_ACU, _set_TABLE_TEMPLATE_ACU} from '../../shared/defaults-json.js';
-import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, buildDefaultPlotWorldbookConfig_ACU, defaultWorldbookConfig_ACU } from '../../shared/defaults';
+import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, buildDefaultPlotWorldbookConfig_ACU, buildDefaultContentOptimizationPromptGroup_ACU } from '../../shared/defaults';
 import { addDataIsolationHistory_ACU, ensureProfileExists_ACU, normalizeDataIsolationHistory_ACU } from '../../data/repositories/isolation-repo';
 import { globalMeta_ACU, loadGlobalMeta_ACU, readProfileSettingsFromStorage_ACU, readProfileTemplateFromStorage_ACU, sanitizeSettingsForProfileSave_ACU, saveGlobalMeta_ACU, writeProfileSettingsToStorage_ACU, writeProfileTemplateToStorage_ACU } from '../../data/repositories/profile-repo';
 import { getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
@@ -17,8 +17,8 @@ import { isIndexedDbAvailable_ACU } from '../../shared/idb-import-temp';
 import { configIdbCacheLoaded_ACU, ensureConfigIdbCacheLoaded_ACU, getConfigStorage_ACU, initTavernSettingsBridge_ACU, migrateKeyToTavernStorageIfNeeded_ACU, pendingSettingsReloadFromIdb_ACU, _set_pendingSettingsReloadFromIdb_ACU} from '../../data/storage/tavern-storage';
 import { ensureTagRulesCompat_ACU } from '../plot/plot-logic';
 import { getDefaultTemplateSnapshot_ACU, getTemplatePreset_ACU } from '../template/template-preset-service';
-import { buildDefaultContentOptimizationPromptGroup_ACU } from '../optimization/content-optimization';
 import { currentChatFileIdentifier_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_settings_ACU} from '../runtime/state-manager';
+import { getCurrentCharSettings_ACU, getCurrentWorldbookConfig_ACU } from './settings-readers';
 import { getCurrentChatTemplateScopeState_ACU, getGlobalTemplateSnapshotForCurrentProfile_ACU, migrateLegacyTemplateScopeForCurrentChat_ACU, normalizeTemplateScopeIsolationKey_ACU, sanitizeChatSheetsObject_ACU, sanitizeTemplateSnapshotForChat_ACU } from '../template/chat-scope';
 import { safeJsonParse_ACU } from '../../shared/json-helpers';
 import { deepMerge_ACU, ensureSheetOrderNumbers_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
@@ -232,7 +232,7 @@ export   function loadSettings_ACU() {
   // loadSettingsAndRefreshUI_ACU 已搬到 presentation/components/settings-ui-helpers.ts
 
 
-export   function loadTemplateFromStorage_ACU(codeOverride = null) {
+export   function loadTemplateFromStorage_ACU(codeOverride: any = null) {
       const code = normalizeIsolationCode_ACU(
           (codeOverride !== null && typeof codeOverride !== 'undefined')
               ? codeOverride
@@ -240,7 +240,7 @@ export   function loadTemplateFromStorage_ACU(codeOverride = null) {
       );
 
       // [更新参数哨兵迁移] 旧版本：0 表示"沿用UI"；新版本：-1 表示"沿用UI"，0 表示"禁用/不参与"（仅 updateFrequency 参与禁用语义）
-      function migrateTemplateUpdateConfigSentinel_ACU(templateObj) {
+      function migrateTemplateUpdateConfigSentinel_ACU(templateObj: any) {
           if (!templateObj || typeof templateObj !== 'object') return { changed: false, obj: templateObj };
 
           const mate = (templateObj.mate && typeof templateObj.mate === 'object') ? templateObj.mate : null;
@@ -333,7 +333,7 @@ export   function buildDefaultSettings_ACU() {
           apiMode: 'custom',
           tavernProfile: '',
           streamingEnabled: false, // [新增] 流式传输开关（默认关闭）
-          apiPresets: [],
+          apiPresets: [] as any[],
           tableApiPreset: '',
           plotApiPreset: '',
           charCardPrompt: DEFAULT_CHAR_CARD_PROMPT_ACU,
@@ -351,10 +351,10 @@ export   function buildDefaultSettings_ACU() {
           currentTemplatePresetName: '', // [模板预设] 当前模板预设名，空表示默认预设
           // [填表功能] 正文标签提取，从上下文中提取指定标签的内容发送给AI，User回复不受影响
           tableContextExtractTags: '',
-          tableContextExtractRules: [],
+          tableContextExtractRules: [] as any[],
           // [填表功能] 正文标签排除：将指定标签内容从上下文中移除
           tableContextExcludeTags: '',
-          tableContextExcludeRules: [],
+          tableContextExcludeRules: [] as any[],
           // [填表功能] 仅识别最后一对 <tableEdit> 标签
           tableEditLastPairOnly: true,
           removeTags: '',
@@ -362,7 +362,7 @@ export   function buildDefaultSettings_ACU() {
           importPromptExcludeImportedWorldbookEntries: true, // [新增] 仅外部导入时，填表提示词中的世界书占位符屏蔽所有带"外部导入-"标签的条目
           skipUpdateFloors: 0, // 跳过更新楼层（全局）
           retainRecentLayers: 100, // [新增] 保留最近N层本地数据 (0或空=全部保留)
-          manualSelectedTables: [],
+          manualSelectedTables: [] as any[],
           // [新增] 表格更新锁定（按聊天+隔离标签存储；仅对 updateRow 生效）
           tableUpdateLocks: {},
           // [新增] 总结表/总体大纲"编码索引列"特殊锁定（默认锁定）
@@ -371,19 +371,19 @@ export   function buildDefaultSettings_ACU() {
           zeroTkOccupyModeDefault: false,
           // [Profile] dataIsolationEnabled/code 由当前 profile 决定；history 走 globalMeta
           dataIsolationCode: '',
-          dataIsolationHistory: [], // legacy 字段保留但不再持久化
+          dataIsolationHistory: [] as any[], // legacy 字段保留但不再持久化
           characterSettings: {}, // Start with an empty object
-          knownCustomEntryNames: [], // [新增] 记录已创建的自定义条目名称，用于清理
+          knownCustomEntryNames: [] as any[], // [新增] 记录已创建的自定义条目名称，用于清理
           mergeSummaryPrompt: DEFAULT_MERGE_SUMMARY_PROMPT_ACU, // [新增] 合并总结提示词
           mergeTargetCount: 1, // [新增] 合并目标条数
           mergeBatchSize: 5, // [新增] 合并批次大小
           mergeStartIndex: 1, // [新增] 合并起始条数
-          mergeEndIndex: null, // [新增] 合并终止条数
+          mergeEndIndex: null as number | null, // [新增] 合并终止条数
           autoMergeEnabled: false, // [新增] 是否开启自动合并总结
           autoMergeThreshold: 20, // [新增] 自动合并总结楼层数
           autoMergeReserve: 0, // [新增] 保留固定楼层数
-          deleteStartFloor: null, // [新增] 删除起始楼层 (null表示从头开始)
-          deleteEndFloor: null, // [新增] 删除终止楼层 (null表示到末尾)
+          deleteStartFloor: null as number | null, // [新增] 删除起始楼层 (null表示从头开始)
+          deleteEndFloor: null as number | null, // [新增] 删除终止楼层 (null表示到末尾)
           // [新增] 酒馆提示词模板功能
           promptTemplateSettings: {
             enabled: true,           // 总开关
@@ -403,11 +403,11 @@ export   function buildDefaultSettings_ACU() {
             loopCount: 1,                      // 循环优化次数
             retryCount: 3,                     // 自动重试次数（API调用失败时自动重试，默认3次）
             extractTags: '',                   // 正文标签提取（从正文中提取指定标签内容进行优化）
-            extractRules: [],                  // 正文标签提取规则（结构化）
+            extractRules: [] as any[],                  // 正文标签提取规则（结构化）
             excludeTags: '',                   // 标签排除（优化时排除指定标签内容）
-            excludeRules: [],                  // 标签排除规则（结构化）
+            excludeRules: [] as any[],                  // 标签排除规则（结构化）
             promptGroup: buildDefaultContentOptimizationPromptGroup_ACU(), // 提示词组（段落编辑器）
-            promptPresets: [],                 // 提示词组预设列表
+            promptPresets: [] as any[],                 // 提示词组预设列表
           },
       };
   }
@@ -493,44 +493,7 @@ export function persistCurrentTemplatePresetName_ACU(settingsObj: any, presetNam
     return normalizedPresetName;
 }
 
-// [从 data/repositories/character-settings-repo.ts 移入] 角色专属设置（业务逻辑：读 settings → deep merge 默认值 → 写回）
-export function getCurrentCharSettings_ACU() {
-    const charId = currentChatFileIdentifier_ACU || 'default';
-    if (!settings_ACU.characterSettings) {
-        settings_ACU.characterSettings = {};
-    }
-    const globalZeroTkDefault =
-        (typeof globalMeta_ACU?.zeroTkOccupyModeGlobal === 'boolean')
-            ? (globalMeta_ACU.zeroTkOccupyModeGlobal === true)
-            : (settings_ACU?.zeroTkOccupyModeDefault === true);
-    if (!settings_ACU.characterSettings[charId]) {
-        const worldbookConfigForNewChat = JSON.parse(JSON.stringify(defaultWorldbookConfig_ACU));
-        worldbookConfigForNewChat.zeroTkOccupyMode = globalZeroTkDefault;
-        worldbookConfigForNewChat.outlineEntryEnabled = !globalZeroTkDefault;
-        settings_ACU.characterSettings[charId] = {
-            worldbookConfig: worldbookConfigForNewChat,
-        };
-        logDebug_ACU(`Created new character settings for: ${charId}`);
-    }
-    try {
-        const existingCfg = settings_ACU.characterSettings[charId].worldbookConfig || {};
-        const mergedCfg = deepMerge_ACU(
-            JSON.parse(JSON.stringify(defaultWorldbookConfig_ACU)),
-            existingCfg,
-        );
-        mergedCfg.zeroTkOccupyMode = globalZeroTkDefault;
-        mergedCfg.outlineEntryEnabled = !globalZeroTkDefault;
-        settings_ACU.characterSettings[charId].worldbookConfig = mergedCfg;
-    } catch (e) {
-        // ignore
-    }
-    return settings_ACU.characterSettings[charId];
-}
-
-export function getCurrentWorldbookConfig_ACU() {
-    return getCurrentCharSettings_ACU().worldbookConfig;
-}
-
+// getCurrentCharSettings_ACU 和 getCurrentWorldbookConfig_ACU 已移至 settings-readers.ts
 // [从 popup-bindings.ts / api-registry.ts 提取] 切换 0TK 占用模式的完整业务流程
 export function setZeroTkOccupyMode_ACU(modeEnabled: boolean) {
     const cfg = getCurrentWorldbookConfig_ACU();

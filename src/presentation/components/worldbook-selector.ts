@@ -1,6 +1,6 @@
 import { DEFAULT_PLOT_SETTINGS_ACU } from '../../shared/defaults-json.js';
 import { buildDefaultPlotWorldbookConfig_ACU } from '../../shared/defaults';
-import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-service';
+import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-readers';
 import { jQuery_API_ACU } from '../../shared/host-api';
 import { getCharLorebooks_ACU } from '../../data/gateways/worldbook-gateway';
 import { settings_ACU } from '../../service/runtime/state-manager';
@@ -67,7 +67,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
               return;
           }
           const cfg = getPlotWorldbookConfig_ACU();
-          bookNames.forEach(bookName => {
+          bookNames.forEach((bookName: string) => {
               const isSelected = (cfg.manualSelection || []).includes(bookName);
               const itemHtml = `
                   <div class="qrf_worldbook_list_item ${isSelected ? 'selected' : ''}" data-book-name="${escapeHtml_ACU(bookName)}">
@@ -94,7 +94,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
 
       const cfg = getPlotWorldbookConfig_ACU();
       const source = cfg.source;
-      let bookNames = [];
+              let bookNames: string[] = [];
 
       if (source === 'character') {
         const charLorebooks = await getCharLorebooks_ACU({ type: 'all' });
@@ -111,18 +111,17 @@ import { $popupInstance_ACU } from '../state/ui-refs';
       }
 
       try {
-          if (!cfg.enabledEntries) cfg.enabledEntries = {};
-          const entriesMap = await getLorebookEntriesByNames_ACU(bookNames);
-          const groups = [];
+          if (!cfg.enabledEntries) cfg.enabledEntries = {} as Record<string, any>;
+          const entriesMap: Record<string, any[]> = await getLorebookEntriesByNames_ACU(bookNames) as Record<string, any[]>;
+              const groups: Record<string, any>[] = [];
           const expandByDefault = bookNames.length === 1;
           let settingsChanged = false;
 
           for (const bookName of bookNames) {
               const bookEntries = Array.isArray(entriesMap[bookName]) ? entriesMap[bookName] : [];
-              if (typeof cfg.enabledEntries[bookName] === 'undefined') {
-                  // 默认启用时：仅对“非数据库生成条目”做默认勾选（数据库生成条目不在UI显示，也不需要用户勾选）
-                  cfg.enabledEntries[bookName] = bookEntries
-                      .filter(entry => {
+              if (typeof (cfg.enabledEntries as Record<string, any>)[bookName] === 'undefined') {
+                  // 默认启用时：仅对"非数据库生成条目"做默认勾选（数据库生成条目不在UI显示，也不需要用户勾选）
+                  (cfg.enabledEntries as Record<string, any>)[bookName] = bookEntries                      .filter((entry: Record<string, any>) => {
                           const comment = entry?.comment || entry?.name || '';
                           let normalizedComment = String(comment).replace(/^ACU-\[[^\]]+\]-/, '');
                           normalizedComment = normalizedComment.replace(/^外部导入-(?:[^-]+-)?/, '');
@@ -139,13 +138,13 @@ import { $popupInstance_ACU } from '../state/ui-refs';
                           if (isEntryBlocked_ACU(entry)) return false;
                           return true;
                       })
-                      .map(entry => entry.uid);
+                      .map((entry: Record<string, any>) => entry.uid);
                   settingsChanged = true;
               }
 
-              const enabledEntries = Array.isArray(cfg.enabledEntries[bookName]) ? cfg.enabledEntries[bookName] : [];
-              const visibleEntries = [];
-              bookEntries.forEach(entry => {
+              const enabledEntries = Array.isArray((cfg.enabledEntries as Record<string, any>)[bookName]) ? (cfg.enabledEntries as Record<string, any>)[bookName] : [];
+              const visibleEntries: Record<string, any>[] = [];
+              bookEntries.forEach((entry: Record<string, any>) => {
                   const comment = entry?.comment || entry?.name || '';
                   let normalizedComment = String(comment).replace(/^ACU-\[[^\]]+\]-/, '');
                   normalizedComment = normalizedComment.replace(/^外部导入-(?:[^-]+-)?/, '');
@@ -208,7 +207,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
           const bookNames = await getWorldbookNames_ACU();
           // 添加默认选项
           $select.append(`<option value="character">角色卡绑定世界书</option>`);
-          bookNames.forEach(bookName => {
+          bookNames.forEach((bookName: string) => {
               $select.append(`<option value="${escapeHtml_ACU(bookName)}">${escapeHtml_ACU(bookName)}</option>`);
           });
           // 设置当前选中的值
@@ -226,7 +225,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
   }
 
   // [新增] 辅助函数：检查条目是否包含屏蔽词
-  export function isEntryBlocked_ACU(entry) {
+  export function isEntryBlocked_ACU(entry: Record<string, any> | null) {
       if (!entry) return false;
       const blockedKeywords = ["规则", "思维链", "cot", "MVU", "mvu", "变量", "状态", "Status", "Rule", "rule", "检定", "判断", "叙事", "文风", "InitVar", "格式"];
       const name = entry.comment || entry.name || ''; // In ST, 'comment' is often the display name
@@ -235,7 +234,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
 
   const WORLDBOOK_ENTRY_LAZY_PAGE_SIZE_ACU = 80;
 
-  function buildWorldbookEntryCheckboxId_ACU(prefix, bookName, uid) {
+  function buildWorldbookEntryCheckboxId_ACU(prefix: string, bookName: string, uid: any) {
       const safePrefix = String(prefix || 'wb-entry').replace(/[^a-zA-Z0-9_-]+/g, '-');
       const safeBook = String(bookName || 'book')
           .replace(/[^a-zA-Z0-9_-]+/g, '-')
@@ -247,12 +246,12 @@ import { $popupInstance_ACU } from '../state/ui-refs';
   function createLazyWorldbookEntryViewState_ACU(groups: any[] = [], options: any = {}) {
       const normalizedGroups = (Array.isArray(groups) ? groups : []).map(group => ({
           bookName: String(group?.bookName || ''),
-          entries: Array.isArray(group?.entries) ? group.entries.map(entry => ({ ...entry })) : [],
-          filteredEntries: null,
+          entries: Array.isArray(group?.entries) ? group.entries.map((entry: any) => ({ ...entry })) : [],
+          filteredEntries: null as any[] | null,
           loadedCount: 0,
           expanded: group?.expanded === true,
-          expandedBeforeFilter: undefined,
-      })).filter(group => group.bookName);
+          expandedBeforeFilter: undefined as boolean | undefined,
+      })).filter((group: any) => group.bookName);
 
       return {
           groups: normalizedGroups,
@@ -264,27 +263,27 @@ import { $popupInstance_ACU } from '../state/ui-refs';
       };
   }
 
-  function getLazyWorldbookEntrySource_ACU(group) {
+  function getLazyWorldbookEntrySource_ACU(group: Record<string, any> | null) {
       if (!group) return [];
       if (Array.isArray(group.filteredEntries)) return group.filteredEntries;
       return Array.isArray(group.entries) ? group.entries : [];
   }
 
-  function findLazyWorldbookEntryGroupState_ACU($list, bookName) {
+  function findLazyWorldbookEntryGroupState_ACU($list: JQuery<HTMLElement>, bookName: string) {
       if (!$list || !$list.length) return null;
       const state = $list.data('acuLazyWorldbookState');
       if (!state || !Array.isArray(state.groups)) return null;
-      return state.groups.find(group => String(group.bookName) === String(bookName)) || null;
+      return state.groups.find((group: any) => String(group.bookName) === String(bookName)) || null;
   }
 
-  function findLazyWorldbookEntryGroupElement_ACU($list: JQuery<HTMLElement>, bookName) {
+  function findLazyWorldbookEntryGroupElement_ACU($list: JQuery<HTMLElement>, bookName: string) {
       if (!$list || !$list.length) return jQuery_API_ACU();
       return $list.find('.qrf_worldbook_entry_group').filter(function() {
           return String(jQuery_API_ACU(this).data('book-name') || '') === String(bookName);
       }).first();
   }
 
-  function updateLazyWorldbookEntryGroupMeta_ACU($list, bookName) {
+  function updateLazyWorldbookEntryGroupMeta_ACU($list: JQuery<HTMLElement>, bookName: string) {
       if (!$list || !$list.length) return;
       const state = $list.data('acuLazyWorldbookState');
       const group = findLazyWorldbookEntryGroupState_ACU($list, bookName);
@@ -321,9 +320,9 @@ import { $popupInstance_ACU } from '../state/ui-refs';
           : Math.min(sourceEntries.length, (group.loadedCount || 0) + state.pageSize);
       group.loadedCount = nextCount;
 
-      const visibleEntries = sourceEntries.slice(0, nextCount);
+          const visibleEntries = sourceEntries.slice(0, nextCount);
       const html = visibleEntries.length > 0
-          ? visibleEntries.map(entry => {
+          ? visibleEntries.map((entry: Record<string, any>) => {
               const checkboxId = entry.checkboxId || buildWorldbookEntryCheckboxId_ACU(state.checkboxIdPrefix, entry.bookName || bookName, entry.uid);
               const labelText = entry.label || `条目 ${entry.uid}`;
               const disabledStyle = entry.disabled ? 'style="opacity:0.6; text-decoration: line-through;"' : '';
@@ -349,7 +348,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
           return;
       }
 
-      const html = state.groups.map(group => `
+      const html = state.groups.map((group: Record<string, any>) => `
           <div class="qrf_worldbook_entry_group" data-book-name="${escapeHtml_ACU(group.bookName)}" style="margin-bottom: 8px;">
               <div class="qrf_worldbook_entry_header" data-book-name="${escapeHtml_ACU(group.bookName)}" style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-weight: bold; border-bottom: 1px solid; padding-bottom: 4px;">
                   <button type="button" class="qrf_worldbook_entry_toggle button" style="padding: 2px 8px; font-size: 0.8em;">${group.expanded ? '收起' : '展开'}</button>
@@ -363,7 +362,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
           </div>`).join('');
 
       $list.html(html);
-      state.groups.forEach(group => {
+      state.groups.forEach((group: Record<string, any>) => {
           if (group.expanded) {
               renderLazyWorldbookEntryItems_ACU($list, group.bookName, { reset: true });
           } else {
@@ -372,7 +371,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
       });
   }
 
-  export function toggleLazyWorldbookEntryGroup_ACU($list, bookName, expanded = null) {
+  export function toggleLazyWorldbookEntryGroup_ACU($list: JQuery<HTMLElement>, bookName: string, expanded: boolean | null = null) {
       if (!$list || !$list.length) return;
       const group = findLazyWorldbookEntryGroupState_ACU($list, bookName);
       if (!group) return;
@@ -385,10 +384,10 @@ import { $popupInstance_ACU } from '../state/ui-refs';
       }
   }
 
-  export function updateLazyWorldbookEntryCheckedState_ACU($list, bookName, uid, checked) {
+  export function updateLazyWorldbookEntryCheckedState_ACU($list: JQuery<HTMLElement>, bookName: string, uid: any, checked: boolean) {
       const group = findLazyWorldbookEntryGroupState_ACU($list, bookName);
       if (!group) return;
-      const syncCheckedState = entries => {
+      const syncCheckedState = (entries: any[]) => {
           if (!Array.isArray(entries)) return;
           entries.forEach(entry => {
               if (String(entry?.uid) === String(uid)) {
@@ -400,7 +399,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
       syncCheckedState(group.filteredEntries);
   }
 
-  function applyLazyWorldbookEntryFilter_ACU($list, rawQuery) {
+  function applyLazyWorldbookEntryFilter_ACU($list: JQuery<HTMLElement>, rawQuery: any) {
       if (!$list || !$list.length) return false;
       const state = $list.data('acuLazyWorldbookState');
       if (!state || !Array.isArray(state.groups)) return false;
@@ -409,14 +408,14 @@ import { $popupInstance_ACU } from '../state/ui-refs';
       const wasFiltering = state.isFiltering === true;
 
       if (q && !wasFiltering) {
-          state.groups.forEach(group => {
+      state.groups.forEach((group: Record<string, any>) => {
               group.expandedBeforeFilter = group.expanded;
           });
       }
 
       if (!q) {
           state.isFiltering = false;
-          state.groups.forEach(group => {
+          state.groups.forEach((group: Record<string, any>) => {
               group.filteredEntries = null;
               group.loadedCount = 0;
               if (typeof group.expandedBeforeFilter === 'boolean') {
@@ -435,12 +434,12 @@ import { $popupInstance_ACU } from '../state/ui-refs';
       }
 
       state.isFiltering = true;
-      state.groups.forEach(group => {
+      state.groups.forEach((group: Record<string, any>) => {
           const bookText = String(group.bookName || '').toLowerCase();
           if (bookText.includes(q)) {
               group.filteredEntries = Array.isArray(group.entries) ? group.entries.slice() : [];
           } else {
-              group.filteredEntries = (Array.isArray(group.entries) ? group.entries : []).filter(entry => {
+              group.filteredEntries = (Array.isArray(group.entries) ? group.entries : []).filter((entry: any) => {
                   const hay = String(entry.searchText || entry.label || `条目 ${entry.uid}`).toLowerCase();
                   return hay.includes(q);
               });
@@ -463,11 +462,11 @@ import { $popupInstance_ACU } from '../state/ui-refs';
   // =========================
   // [UI] 世界书筛选工具：注入目标(select) / 手动选择(list) / 条目列表(entry list)
   // =========================
-  function normalizeFilterText_ACU(v) {
+  function normalizeFilterText_ACU(v: any) {
       return String(v ?? '').trim().toLowerCase();
   }
 
-  export function applyWorldbookSelectFilter_ACU($select: JQuery<HTMLElement>, rawQuery) {
+  export function applyWorldbookSelectFilter_ACU($select: JQuery<HTMLElement>, rawQuery: any) {
       if (!$select || !$select.length) return;
       const q = normalizeFilterText_ACU(rawQuery);
       const currentVal = String($select.val() ?? '');
@@ -481,7 +480,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
       });
   }
 
-  export function applyWorldbookListFilter_ACU($listContainer: JQuery<HTMLElement>, rawQuery) {
+  export function applyWorldbookListFilter_ACU($listContainer: JQuery<HTMLElement>, rawQuery: any) {
       if (!$listContainer || !$listContainer.length) return;
       const q = normalizeFilterText_ACU(rawQuery);
       $listContainer.find('.qrf_worldbook_list_item').each(function() {
@@ -491,7 +490,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
       });
   }
 
-  export function applyWorldbookEntryFilter_ACU($entryList: JQuery<HTMLElement>, rawQuery) {
+  export function applyWorldbookEntryFilter_ACU($entryList: JQuery<HTMLElement>, rawQuery: any) {
       if (!$entryList || !$entryList.length) return;
       if (applyLazyWorldbookEntryFilter_ACU($entryList, rawQuery)) return;
 
@@ -535,7 +534,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
       try {
           const bookNames = await getWorldbookNames_ACU();
           // 只添加世界书选项，不添加角色卡绑定和常规更新目标选项
-          bookNames.forEach(bookName => {
+          bookNames.forEach((bookName: string) => {
               $select.append(`<option value="${escapeHtml_ACU(bookName)}">${escapeHtml_ACU(bookName)}</option>`);
           });
           // 设置当前选中的值
@@ -562,7 +561,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
               return;
           }
           const worldbookConfig = getCurrentWorldbookConfig_ACU();
-          bookNames.forEach(bookName => {
+          bookNames.forEach((bookName: string) => {
               const isSelected = worldbookConfig.manualSelection.includes(bookName);
               const itemHtml = `
                   <div class="qrf_worldbook_list_item ${isSelected ? 'selected' : ''}" data-book-name="${escapeHtml_ACU(bookName)}">
@@ -588,7 +587,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
       
       const worldbookConfig = getCurrentWorldbookConfig_ACU();
       const source = worldbookConfig.source;
-      let bookNames = [];
+              let bookNames: string[] = [];
 
       if (source === 'character') {
         const charLorebooks = await getCharLorebooks_ACU({ type: 'all' });
@@ -606,17 +605,17 @@ import { $popupInstance_ACU } from '../state/ui-refs';
 
       try {
           if (!worldbookConfig.enabledEntries) worldbookConfig.enabledEntries = {};
-          const entriesMap = await getLorebookEntriesByNames_ACU(bookNames);
-          const groups = [];
+          const entriesMap: Record<string, any[]> = await getLorebookEntriesByNames_ACU(bookNames) as Record<string, any[]>;
+              const groups: Record<string, any>[] = [];
           const expandByDefault = bookNames.length === 1;
           let settingsChanged = false; // Flag to check if we need to save settings
           for (const bookName of bookNames) {
               const bookEntries = Array.isArray(entriesMap[bookName]) ? entriesMap[bookName] : [];
               // If no setting exists for this book, default to all entries enabled.
-              if (typeof worldbookConfig.enabledEntries[bookName] === 'undefined') {
+              if (typeof (worldbookConfig.enabledEntries as Record<string, any>)[bookName] === 'undefined') {
                   // [修改] 默认启用时，过滤掉自动生成的条目
-                  worldbookConfig.enabledEntries[bookName] = bookEntries
-                      .filter(entry => {
+                  (worldbookConfig.enabledEntries as Record<string, any>)[bookName] = bookEntries
+                      .filter((entry: Record<string, any>) => {
                           const comment = entry.comment || '';
                           // 过滤自动生成的条目
                           if (comment.startsWith('TavernDB-ACU-') || comment.startsWith('重要人物条目') || comment.startsWith('总结条目')) {
@@ -628,13 +627,13 @@ import { $popupInstance_ACU } from '../state/ui-refs';
                           }
                           return true;
                       })
-                      .map(entry => entry.uid);
+                      .map((entry: Record<string, any>) => entry.uid);
                   settingsChanged = true;
               }
               
-              const enabledEntries = Array.isArray(worldbookConfig.enabledEntries[bookName]) ? worldbookConfig.enabledEntries[bookName] : [];
-              const visibleEntries = [];
-              bookEntries.forEach(entry => {
+              const enabledEntries = Array.isArray((worldbookConfig.enabledEntries as Record<string, any>)[bookName]) ? (worldbookConfig.enabledEntries as Record<string, any>)[bookName] : [];
+              const visibleEntries: Record<string, any>[] = [];
+              bookEntries.forEach((entry: Record<string, any>) => {
                   // [新增] 在UI列表显示时，也过滤掉自动生成的条目，不显示给用户
                   const comment = entry.comment || '';
                   if (comment.startsWith('TavernDB-ACU-') || comment.startsWith('重要人物条目') || comment.startsWith('总结条目')) {

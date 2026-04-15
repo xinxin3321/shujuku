@@ -168,7 +168,7 @@ import { buildDefaultExportConfig_ACU, ensureExportConfigDefaults_ACU, getInject
   // [重要] 此函数只删除各楼层的表格数据（TavernDB_ACU_Data/IsolatedData等），
   //        不会删除聊天第一层的"空白指导表"（TavernDB_ACU_InternalSheetGuide），
   //        指导表用于保存表头结构和填表参数，作为该聊天的总指导。
-  export async function deleteLocalDataInChat_ACU(mode = 'current', startFloor = null, endFloor = null) {
+  export async function deleteLocalDataInChat_ACU(mode = 'current', startFloor: any = null, endFloor: any = null) {
       // mode: 'current' (删除当前标识的数据) | 'all' (删除所有数据)
       // startFloor/endFloor: 楼层范围 (1-based, null表示不限制)
       const chat = getChatArray_ACU();

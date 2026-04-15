@@ -25,7 +25,7 @@ import { migrateLegacyTemplateScopeForCurrentChat_ACU, clearChatSheetGuideDataFo
 import { sanitizeChatSheetsObject_ACU } from './chat-scope-sheet';
 import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
 
-  export function normalizeTemplateScopeMode_ACU(mode) {
+  export function normalizeTemplateScopeMode_ACU(mode: string) {
       if (mode === 'chat_override') return 'chat_override';
       if (mode === 'preset_link') return 'preset_link';
       return 'inherit_global';
@@ -35,7 +35,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       return String(isolationKey ?? '');
   }
 
-  export function sanitizeTemplateSnapshotForChat_ACU(templateSource) {
+  export function sanitizeTemplateSnapshotForChat_ACU(templateSource: any) {
       let templateObj = null;
       if (typeof templateSource === 'string') {
           templateObj = safeJsonParse_ACU(templateSource, null);
@@ -60,7 +60,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       };
   }
 
-  export function normalizeChatTemplateScopeState_ACU(rawState, { isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+  export function normalizeChatTemplateScopeState_ACU(rawState: any, { isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const state = (rawState && typeof rawState === 'object' && !Array.isArray(rawState)) ? rawState : {};
       const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(state.templateStr || state.templateObj || state.template || null);
       const guideData = normalizeGuideData_ACU(state.guideData);
@@ -77,14 +77,14 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       };
   }
 
-  function buildChatTemplatePresetSlotKey_ACU(presetName) {
+  function buildChatTemplatePresetSlotKey_ACU(presetName: string) {
       return normalizeTemplatePresetSelectionValue_ACU(presetName) || DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU;
   }
 
   export function listChatTemplatePresetEntries_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       const entryMap = new Map();
-      getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).forEach(entry => {
+      getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).forEach((entry: any) => {
           const slotKey = buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '');
           const previousEntry = entryMap.get(slotKey);
           const currentTs = Number(entry?.updatedAt) || Number(entry?.archivedAt) || 0;
@@ -93,19 +93,19 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
               entryMap.set(slotKey, entry);
           }
       });
-      return Array.from(entryMap.values()).sort((a, b) => {
+      return Array.from(entryMap.values()).sort((a: any, b: any) => {
           const ta = Number(a?.updatedAt) || Number(a?.archivedAt) || 0;
           const tb = Number(b?.updatedAt) || Number(b?.archivedAt) || 0;
           return tb - ta;
       });
   }
 
-  function findChatTemplatePresetEntry_ACU(presetName, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+  function findChatTemplatePresetEntry_ACU(presetName: string, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const slotKey = buildChatTemplatePresetSlotKey_ACU(presetName);
       return listChatTemplatePresetEntries_ACU({ chat, isolationKey }).find(entry => buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '') === slotKey) || null;
   }
 
-  export function upsertChatTemplatePresetEntry_ACU(templateState, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+  export function upsertChatTemplatePresetEntry_ACU(templateState: Record<string, any>, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
       if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr) return null;
@@ -119,7 +119,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
               archivedAt,
               updatedAt: normalizedState.updatedAt || archivedAt,
           },
-          ...getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).filter(entry => buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '') !== slotKey),
+          ...getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).filter((entry: any) => buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '') !== slotKey),
       ];
       setChatTemplateArchiveEntries_ACU(nextEntries, { chat, isolationKey: normalizedKey });
       return findChatTemplatePresetEntry_ACU(normalizedState.presetName || '', { chat, isolationKey: normalizedKey });
@@ -153,7 +153,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       }, { isolationKey: normalizedKey });
   }
 
-  export async function activateChatTemplatePresetSelection_ACU(presetName, { source = 'ui_chat_select', save = true } = {}) {
+  export async function activateChatTemplatePresetSelection_ACU(presetName: string, { source = 'ui_chat_select', save = true } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(getCurrentIsolationKey_ACU());
       const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
       const localEntry = findChatTemplatePresetEntry_ACU(normalizedPresetName, { isolationKey: normalizedKey });
@@ -209,7 +209,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       };
   }
 
-  function buildChatTemplateArchiveFingerprint_ACU(templateState, { isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+  function buildChatTemplateArchiveFingerprint_ACU(templateState: Record<string, any>, { isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey });
       if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr) return '';
       const raw = safeJsonStringify_ACU({
@@ -221,7 +221,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       return raw ? hashUserInput_ACU(raw) : '';
   }
 
-  function getChatTemplateArchiveBaseLabel_ACU(templateState, { fallback = '聊天模板快照' } = {}) {
+  function getChatTemplateArchiveBaseLabel_ACU(templateState: Record<string, any>, { fallback = '聊天模板快照' } = {}) {
       const normalizedState = normalizeChatTemplateScopeState_ACU(templateState);
       if (normalizedState.source === 'legacy_history_frozen') return '旧对话历史模板快照';
       if (normalizedState.source === 'legacy_header_frozen') return '旧版表头冻结模板';
@@ -230,7 +230,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       return presetName ? getTemplatePresetDisplayName_ACU(presetName) : fallback;
   }
 
-  function normalizeChatTemplateArchiveEntry_ACU(rawEntry, { isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+  function normalizeChatTemplateArchiveEntry_ACU(rawEntry: any, { isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const normalizedState = normalizeChatTemplateScopeState_ACU(rawEntry, { isolationKey });
       if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr) return null;
       const archiveKey = String(rawEntry?.archiveKey || buildChatTemplateArchiveFingerprint_ACU(normalizedState, { isolationKey: normalizedState.isolationKey }) || '').trim();
@@ -255,14 +255,14 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       const rawSlots = container?.templateArchives;
       if (!rawSlots || typeof rawSlots !== 'object' || Array.isArray(rawSlots)) return [];
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-      const rawEntries = Array.isArray(rawSlots[normalizedKey]) ? rawSlots[normalizedKey] : [];
+      const rawEntries = Array.isArray((rawSlots as Record<string, any>)[normalizedKey]) ? (rawSlots as Record<string, any>)[normalizedKey] : [];
       return rawEntries
-          .map(entry => normalizeChatTemplateArchiveEntry_ACU(entry, { isolationKey: normalizedKey }))
+          .map((entry: any) => normalizeChatTemplateArchiveEntry_ACU(entry, { isolationKey: normalizedKey }))
           .filter(Boolean)
-          .sort((a, b) => (Number(b.archivedAt) || 0) - (Number(a.archivedAt) || 0));
+          .sort((a: any, b: any) => (Number(b.archivedAt) || 0) - (Number(a.archivedAt) || 0));
   }
 
-  function setChatTemplateArchiveEntries_ACU(entries, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+  function setChatTemplateArchiveEntries_ACU(entries: any[], { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const first = getChatFirstLayerMessage_ACU(chat);
       if (!first) return [];
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
@@ -270,16 +270,16 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       const normalizedEntries = (Array.isArray(entries) ? entries : [])
           .map(entry => normalizeChatTemplateArchiveEntry_ACU(entry, { isolationKey: normalizedKey }))
           .filter(Boolean)
-          .sort((a, b) => (Number(b.archivedAt) || 0) - (Number(a.archivedAt) || 0))
+          .sort((a: any, b: any) => (Number(b.archivedAt) || 0) - (Number(a.archivedAt) || 0))
           .slice(0, MAX_CHAT_TEMPLATE_ARCHIVES_PER_TAG_ACU);
 
       if (normalizedEntries.length > 0) {
           if (!container.templateArchives || typeof container.templateArchives !== 'object' || Array.isArray(container.templateArchives)) {
-              container.templateArchives = {};
+              container.templateArchives = {} as Record<string, any>;
           }
-          container.templateArchives[normalizedKey] = normalizedEntries;
+          (container.templateArchives as Record<string, any>)[normalizedKey] = normalizedEntries;
       } else if (container.templateArchives && typeof container.templateArchives === 'object' && !Array.isArray(container.templateArchives)) {
-          delete container.templateArchives[normalizedKey];
+          delete (container.templateArchives as Record<string, any>)[normalizedKey];
           if (Object.keys(container.templateArchives).length === 0) delete container.templateArchives;
       }
 
@@ -293,7 +293,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       return getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey });
   }
 
-  function archiveCurrentChatTemplateScopeState_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU(), nextTemplateState = null, reason = '' } = {}) {
+  function archiveCurrentChatTemplateScopeState_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU(), nextTemplateState = null as any, reason = '' } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       const currentState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ chat, isolationKey: normalizedKey });
       const normalizedCurrentState = normalizeChatTemplateScopeState_ACU(currentState, { isolationKey: normalizedKey });
@@ -319,28 +319,28 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
               updatedAt: normalizedCurrentState.updatedAt || archivedAt,
               source: normalizedCurrentState.source || normalizeChatScopedConfigSource_ACU(reason, 'inherit'),
           },
-          ...getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).filter(entry => entry.archiveKey !== currentArchiveKey),
+          ...getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).filter((entry: any) => entry.archiveKey !== currentArchiveKey),
       ];
       setChatTemplateArchiveEntries_ACU(nextEntries, { chat, isolationKey: normalizedKey });
       return true;
   }
 
-  function buildChatTemplateArchiveOptionValue_ACU(archiveKey) {
+  function buildChatTemplateArchiveOptionValue_ACU(archiveKey: string) {
       const normalizedKey = String(archiveKey || '').trim();
       return normalizedKey ? `${CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU}${normalizedKey}` : '';
   }
 
-  function isChatTemplateArchiveOptionValue_ACU(value) {
+  function isChatTemplateArchiveOptionValue_ACU(value: any) {
       return typeof value === 'string' && value.startsWith(CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU);
   }
 
-  function parseChatTemplateArchiveOptionValue_ACU(value) {
+  function parseChatTemplateArchiveOptionValue_ACU(value: string) {
       return isChatTemplateArchiveOptionValue_ACU(value)
           ? String(value.slice(CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU.length)).trim()
           : '';
   }
 
-  function getChatTemplateArchiveOptionLabel_ACU(entry) {
+  function getChatTemplateArchiveOptionLabel_ACU(entry: Record<string, any>) {
       const normalizedEntry = normalizeChatTemplateArchiveEntry_ACU(entry);
       if (!normalizedEntry) return '聊天历史模板快照';
       const baseLabel = getChatTemplateArchiveBaseLabel_ACU(normalizedEntry);
@@ -350,11 +350,11 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
           : `${baseLabel}（聊天历史快照）`;
   }
 
-  async function restoreChatTemplateArchiveEntry_ACU(archiveKey, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU(), save = true } = {}) {
+  async function restoreChatTemplateArchiveEntry_ACU(archiveKey: string, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU(), save = true } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       const normalizedArchiveKey = String(archiveKey || '').trim();
       if (!normalizedArchiveKey) return false;
-      const entry = getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).find(item => item.archiveKey === normalizedArchiveKey);
+      const entry = getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).find((item: any) => item.archiveKey === normalizedArchiveKey);
       if (!entry?.templateStr) return false;
 
       persistTemplateScopeSelectionState_ACU(entry.presetName, {
@@ -383,7 +383,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       if (!rawSlots || typeof rawSlots !== 'object' || Array.isArray(rawSlots)) return null;
 
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-      const rawState = rawSlots[normalizedKey];
+      const rawState = (rawSlots as Record<string, any>)[normalizedKey];
       if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState)) return null;
 
       const normalizedState = normalizeChatTemplateScopeState_ACU(rawState, { isolationKey: normalizedKey });
@@ -415,7 +415,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       }, { isolationKey: normalizedKey });
   }
 
-  export function setCurrentChatTemplateScopeState_ACU(templateState, { isolationKey = getCurrentIsolationKey_ACU(), reason = '' } = {}) {
+  export function setCurrentChatTemplateScopeState_ACU(templateState: Record<string, any>, { isolationKey = getCurrentIsolationKey_ACU(), reason = '' } = {}) {
       const chat = getChatArray_ACU();
       const first = getChatFirstLayerMessage_ACU(chat);
       if (!first) return null;
@@ -425,23 +425,23 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
 
       if (!container.template || typeof container.template !== 'object' || Array.isArray(container.template)) {
-          container.template = {};
+          container.template = {} as Record<string, any>;
       }
 
       if (normalizedState.mode === 'chat_override' && normalizedState.templateStr) {
-          container.template[normalizedKey] = {
+          (container.template as Record<string, any>)[normalizedKey] = {
               ...normalizedState,
               reason: String(reason || ''),
           };
       } else if (normalizedState.mode === 'preset_link') {
-          container.template[normalizedKey] = {
+          (container.template as Record<string, any>)[normalizedKey] = {
               ...normalizedState,
               templateStr: '',
               guideData: null,
               reason: String(reason || ''),
           };
       } else {
-          delete container.template[normalizedKey];
+          delete (container.template as Record<string, any>)[normalizedKey];
           if (Object.keys(container.template).length === 0) {
               delete container.template;
           }
@@ -497,8 +497,3 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
 
       return snapshot || sanitizeTemplateSnapshotForChat_ACU(previousTemplate);
   }
-
-
-
-
-

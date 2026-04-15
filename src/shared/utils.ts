@@ -136,7 +136,7 @@ export function isStandardTable_ACU(tableName: string): boolean {
 
 
 // 标签列表解析：支持英文逗号/中文逗号/空格分隔
-function parseTagList_ACU(input) {
+function parseTagList_ACU(input: string) {
     if (!input || typeof input !== 'string') return [];
     return input
         .split(/[,，\s]+/g)
@@ -151,16 +151,16 @@ export function buildBoundaryRulesFromLegacyTags_ACU(tagsText = '') {
     return tags.map(tag => ({ start: `<${tag}`, end: `</${tag}>` }));
 }
 
-export   function normalizeExtractRules_ACU(extractRulesInput, legacyExtractTags = '') {
+export   function normalizeExtractRules_ACU(extractRulesInput: any, legacyExtractTags = '') {
       return normalizeExcludeRules_ACU(extractRulesInput, legacyExtractTags);
   }
 
 
-export   function normalizeExcludeRules_ACU(excludeRulesInput, legacyExcludeTags = '') {
-      const normalized = [];
+export   function normalizeExcludeRules_ACU(excludeRulesInput: any, legacyExcludeTags = '') {
+      const normalized: any[] = [];
       const dedup = new Set();
 
-      const pushRule = (startRaw, endRaw) => {
+      const pushRule = (startRaw: any, endRaw: any) => {
           const start = String(startRaw || '').trim();
           const end = String(endRaw || '').trim();
           if (!start || !end) return;
@@ -197,22 +197,22 @@ export   function normalizeExcludeRules_ACU(excludeRulesInput, legacyExcludeTags
   }
 
 
-export   function logDebug_ACU(...args) {
+export   function logDebug_ACU(...args: any[]) {
     if (DEBUG_MODE_ACU) console.log(`[${SCRIPT_ID_PREFIX_ACU}]`, ...args);
   }
 
 
-export   function logError_ACU(...args) {
+export   function logError_ACU(...args: any[]) {
     console.error(`[${SCRIPT_ID_PREFIX_ACU}]`, ...args);
   }
 
 
-export   function logWarn_ACU(...args) {
+export   function logWarn_ACU(...args: any[]) {
     console.warn(`[${SCRIPT_ID_PREFIX_ACU}]`, ...args);
   }
 
 
-export   function stripSeedRowsFromTemplate_ACU(templateObj) {
+export   function stripSeedRowsFromTemplate_ACU(templateObj: any) {
       if (!templateObj || typeof templateObj !== 'object') return templateObj;
       Object.keys(templateObj).forEach(k => {
           if (!k.startsWith('sheet_')) return;
@@ -243,7 +243,7 @@ export   function parseTableTemplateJson_ACU({ stripSeedRows = false } = {}) {
           // 而JSON规范不允许字符串中包含未转义的控制字符
           // 解决方案：先将实际的控制字符转义回JSON兼容格式
           
-          function escapeStringForJson_ACU(str) {
+          function escapeStringForJson_ACU(str: string) {
               // 将字符串中的控制字符转义为JSON兼容格式
               // 注意顺序很重要：先转义反斜杠，再转义双引号，最后转义控制字符
               return str
@@ -353,7 +353,7 @@ export   function parseTableTemplateJson_ACU({ stripSeedRows = false } = {}) {
   }
 
 
-export   function applySheetOrderNumbers_ACU(dataObj, orderedKeys) {
+export   function applySheetOrderNumbers_ACU(dataObj: Record<string, any>, orderedKeys: string[]) {
       if (!dataObj || typeof dataObj !== 'object') return false;
       const keys = Array.isArray(orderedKeys) ? orderedKeys : [];
       let changed = false;
@@ -369,7 +369,7 @@ export   function applySheetOrderNumbers_ACU(dataObj, orderedKeys) {
   }
 
 
-export   function ensureSheetOrderNumbers_ACU(dataObj, { baseOrderKeys = null, forceRebuild = false } = {}) {
+export   function ensureSheetOrderNumbers_ACU(dataObj: Record<string, any>, { baseOrderKeys = null as string[] | null, forceRebuild = false } = {}) {
       if (!dataObj || typeof dataObj !== 'object') return false;
       const sheetKeys = Array.isArray(baseOrderKeys) && baseOrderKeys.length
           ? baseOrderKeys.filter(k => k && k.startsWith('sheet_') && dataObj[k])
@@ -395,13 +395,13 @@ export   function ensureSheetOrderNumbers_ACU(dataObj, { baseOrderKeys = null, f
 
 
 
-export   function getChatFirstLayerMessage_ACU(chat) {
+export   function getChatFirstLayerMessage_ACU(chat: any[]) {
       if (!Array.isArray(chat) || chat.length === 0) return null;
       return chat[0] || null;
   }
 
 
-export   function cloneScopedConfigData_ACU(value, fallback = null) {
+export   function cloneScopedConfigData_ACU(value: any, fallback: any = null) {
       if (value === undefined) return fallback;
       try {
           return JSON.parse(JSON.stringify(value));
@@ -410,7 +410,7 @@ export   function cloneScopedConfigData_ACU(value, fallback = null) {
       }
   }
 
-  export function formatPlotScopeUpdatedAt_ACU(updatedAt) {
+  export function formatPlotScopeUpdatedAt_ACU(updatedAt: any) {
     const ts = Number(updatedAt) || 0;
     if (!ts) return '';
     try {
@@ -421,7 +421,7 @@ export   function cloneScopedConfigData_ACU(value, fallback = null) {
   }
 
 
-  export function isEntryBlocked_ACU(entry) {
+  export function isEntryBlocked_ACU(entry: any) {
     if (!entry) return false;
     const blockedKeywords = ["规则", "思维链", "cot", "MVU", "mvu", "变量", "状态", "Status", "Rule", "rule", "检定", "判断", "叙事", "文风", "InitVar", "格式"];
     const name = entry.comment || entry.name || '';

@@ -8,7 +8,7 @@ import { getCharLorebooks_ACU } from '../../../data/gateways/character-gateway';
 import { getLorebookEntries_ACU } from '../../../data/gateways/worldbook-gateway';
 import { getIsolationPrefix_ACU } from '../../worldbook/injection-engine';
 
-  export function formatTableDataForLLM_ACU(jsonData) {
+  export function formatTableDataForLLM_ACU(jsonData: any) {
     if (!jsonData || typeof jsonData !== 'object' || Object.keys(jsonData).length === 0) {
       return '当前无任何可用的表格数据。';
     }
@@ -23,11 +23,11 @@ import { getIsolationPrefix_ACU } from '../../worldbook/injection-engine';
           const headers = sheet.content[0].slice(1);
           const rows = sheet.content.slice(1);
 
-          rows.forEach((row, rowIndex) => {
+          rows.forEach((row: any, rowIndex: number) => {
             const rowData = row.slice(1);
             let rowOutput = '';
             let hasContent = false;
-            headers.forEach((header, index) => {
+            headers.forEach((header: any, index: number) => {
               const cellValue = rowData[index];
               if (cellValue !== null && cellValue !== undefined && String(cellValue).trim() !== '') {
                 rowOutput += `  - ${header}: ${cellValue}\n`;
@@ -47,7 +47,7 @@ import { getIsolationPrefix_ACU } from '../../worldbook/injection-engine';
   }
 
   /** 从世界书获取"纪要索引"条目内容（用于$5优先替换） */
-  export async function getSummaryIndexContentForPlot_ACU(plotSettings) {
+  export async function getSummaryIndexContentForPlot_ACU(plotSettings: any) {
     try {
       const plotCfg = plotSettings?.plotWorldbookConfig;
       const worldbookSource = plotCfg?.source || 'character';
@@ -88,7 +88,7 @@ import { getIsolationPrefix_ACU } from '../../worldbook/injection-engine';
   }
 
   /** [剧情推进专用] $5 只注入"总体大纲"表（含表头） */
-  export function formatOutlineTableForPlot_ACU(allTablesJson) {
+  export function formatOutlineTableForPlot_ACU(allTablesJson: any) {
     try {
       if (!allTablesJson || typeof allTablesJson !== 'object') {
         return '总体大纲表：未获取到表格数据。';
@@ -100,19 +100,19 @@ import { getIsolationPrefix_ACU } from '../../worldbook/injection-engine';
       }
 
       const headerRow = Array.isArray(outline.content[0]) ? outline.content[0] : [];
-      const headers = headerRow.slice(1).map(h => String(h ?? '').trim()).filter(Boolean);
+      const headers = headerRow.slice(1).map((h: any) => String(h ?? '').trim()).filter(Boolean);
       let out = `## 表格: 总体大纲\n`;
       out += headers.length ? `Columns: ${headers.join(', ')}\n` : 'Columns: (无表头)\n';
 
-      const rows = outline.content.slice(1).filter(r => Array.isArray(r));
+      const rows = outline.content.slice(1).filter((r: any) => Array.isArray(r));
       if (rows.length === 0) {
         out += '(无数据行)\n';
         return out;
       }
 
-      rows.forEach((row, idx) => {
+      rows.forEach((row: any, idx: number) => {
         const cells = row.slice(1);
-        const parts = [];
+        const parts: string[] = [];
         for (let i = 0; i < headers.length; i++) {
           const v = cells[i];
           if (v !== null && v !== undefined && String(v).trim() !== '') {
@@ -128,7 +128,7 @@ import { getIsolationPrefix_ACU } from '../../worldbook/injection-engine';
   }
 
   /** [剧情推进专用] $5 从纪要表本地数据读取概要和编码索引两列 */
-  export function formatSummaryIndexForPlot_ACU(allTablesJson) {
+  export function formatSummaryIndexForPlot_ACU(allTablesJson: any) {
     try {
       if (!allTablesJson || typeof allTablesJson !== 'object') {
         logDebug_ACU('[剧情推进] formatSummaryIndexForPlot_ACU: 未获取到表格数据');
@@ -153,11 +153,11 @@ import { getIsolationPrefix_ACU } from '../../worldbook/injection-engine';
       const headerRow = Array.isArray(summaryTable.content[0]) ? summaryTable.content[0] : [];
       logDebug_ACU('[剧情推进] formatSummaryIndexForPlot_ACU: 纪要表表头:', JSON.stringify(headerRow));
       
-      const summaryColIdx = headerRow.findIndex(h => {
+      const summaryColIdx = headerRow.findIndex((h: any) => {
         const name = String(h ?? '').trim();
         return name === '概览' || name === '概要';
       });
-      const indexColIdx = headerRow.findIndex(h => String(h ?? '').trim() === '编码索引');
+      const indexColIdx = headerRow.findIndex((h: any) => String(h ?? '').trim() === '编码索引');
       
       if (summaryColIdx === -1 || indexColIdx === -1) {
         logWarn_ACU('[剧情推进] formatSummaryIndexForPlot_ACU: 未找到概要列或编码索引列，概要列索引=', summaryColIdx, ', 编码索引列索引=', indexColIdx);
@@ -167,13 +167,13 @@ import { getIsolationPrefix_ACU } from '../../worldbook/injection-engine';
       let out = `## 表格: 纪要索引\n`;
       out += `Columns: 概要, 编码索引\n`;
 
-      const rows = summaryTable.content.slice(1).filter(r => Array.isArray(r));
+      const rows = summaryTable.content.slice(1).filter((r: any) => Array.isArray(r));
       if (rows.length === 0) {
         out += '(无数据行)\n';
         return { success: true, content: out };
       }
 
-      rows.forEach((row, idx) => {
+      rows.forEach((row: any, idx: number) => {
         const summary = row[summaryColIdx] ? String(row[summaryColIdx]).trim() : '';
         const indexCode = row[indexColIdx] ? String(row[indexColIdx]).trim() : '';
         if (summary || indexCode) {

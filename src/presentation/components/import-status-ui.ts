@@ -191,7 +191,7 @@ export   async function getImportWorldbookTarget_ACU() {
   }
 
   // [T176] 控制注入按钮启用/禁用
-  export function setImportInjectButtonEnabled_ACU(enabled) {
+  export function setImportInjectButtonEnabled_ACU(enabled: boolean) {
     if (!$popupInstance_ACU) return;
     const $btn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-inject-imported-txt-button`);
     if ($btn.length) $btn.prop('disabled', !enabled);

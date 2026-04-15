@@ -36,7 +36,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../../service/runtime/help
    * 更新循环UI状态
 
    */
-  export function updateLoopUIStatus_ACU(isRunning) {
+  export function updateLoopUIStatus_ACU(isRunning: boolean) {
     if (!$popupInstance_ACU) return;
     const $startBtn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-start-loop-btn`);
     const $stopBtn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-stop-loop-btn`);
@@ -59,14 +59,14 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../../service/runtime/help
   /**
    * 更新循环倒计时显示
    */
-  export function updateLoopTimerDisplay_ACU(timeLeftFormatted) {
+  export function updateLoopTimerDisplay_ACU(timeLeftFormatted: string) {
     if (!$popupInstance_ACU) return;
     $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-loop-timer-display`).text(`(剩余: ${timeLeftFormatted})`);
   }
 
 
   // --- API / 设置 UI ---
-  export function updateApiModeView_ACU(apiMode) {
+  export function updateApiModeView_ACU(apiMode: string) {
     if (!$popupInstance_ACU) return;
     const $customApiBlock = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-custom-api-settings-block`);
     const $tavernApiBlock = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-tavern-api-profile-block`);
@@ -178,7 +178,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../../service/runtime/help
   }
 
   // --- [新增] API预设管理函数 ---
-  export function saveApiPreset_ACU(presetName) {
+  export function saveApiPreset_ACU(presetName: string) {
     if (!presetName || !presetName.trim()) {
       showToastr_ACU('warning', '请输入预设名称。');
       return false;
@@ -193,7 +193,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../../service/runtime/help
     };
     
     // 检查是否已存在同名预设
-    const existingIndex = settings_ACU.apiPresets.findIndex(p => p.name === presetName);
+    const existingIndex = settings_ACU.apiPresets.findIndex((p: any) => p.name === presetName);
     if (existingIndex >= 0) {
       settings_ACU.apiPresets[existingIndex] = newPreset;
       showToastr_ACU('success', `API预设 "${presetName}" 已更新。`);
@@ -207,8 +207,8 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../../service/runtime/help
     return true;
   }
 
-  export function loadApiPreset_ACU(presetName) {
-    const preset = settings_ACU.apiPresets.find(p => p.name === presetName);
+  export function loadApiPreset_ACU(presetName: string) {
+    const preset = settings_ACU.apiPresets.find((p: any) => p.name === presetName);
     if (!preset) {
       showToastr_ACU('error', `未找到预设 "${presetName}"。`);
       return false;
@@ -224,8 +224,8 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../../service/runtime/help
     return true;
   }
 
-  export function deleteApiPreset_ACU(presetName) {
-    const index = settings_ACU.apiPresets.findIndex(p => p.name === presetName);
+  export function deleteApiPreset_ACU(presetName: string) {
+    const index = settings_ACU.apiPresets.findIndex((p: any) => p.name === presetName);
     if (index < 0) {
       showToastr_ACU('error', `未找到预设 "${presetName}"。`);
       return false;
@@ -256,7 +256,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../../service/runtime/help
     const $apiPresetSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-preset-select`);
     if ($apiPresetSelect.length) {
       $apiPresetSelect.empty().append('<option value="">-- 选择预设 --</option>');
-      presets.forEach(p => {
+      presets.forEach((p: any) => {
         $apiPresetSelect.append(`<option value="${p.name}">${p.name}</option>`);
       });
     }
@@ -265,7 +265,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../../service/runtime/help
     const $tableApiPresetSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-table-api-preset-select`);
     if ($tableApiPresetSelect.length) {
       $tableApiPresetSelect.empty().append('<option value="">使用当前API配置</option>');
-      presets.forEach(p => {
+      presets.forEach((p: any) => {
         $tableApiPresetSelect.append(`<option value="${p.name}">${p.name}</option>`);
       });
       $tableApiPresetSelect.val(settings_ACU.tableApiPreset || '');
@@ -275,7 +275,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../../service/runtime/help
     const $plotApiPresetSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-api-preset-select`);
     if ($plotApiPresetSelect.length) {
       $plotApiPresetSelect.empty().append('<option value="">使用当前API配置</option>');
-      presets.forEach(p => {
+      presets.forEach((p: any) => {
         $plotApiPresetSelect.append(`<option value="${p.name}">${p.name}</option>`);
       });
       $plotApiPresetSelect.val(settings_ACU.plotApiPreset || '');
@@ -285,7 +285,7 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../../service/runtime/help
     const $optimizationApiPresetSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-api-preset`);
     if ($optimizationApiPresetSelect.length) {
       $optimizationApiPresetSelect.empty().append('<option value="">使用当前API配置</option>');
-      presets.forEach(p => {
+      presets.forEach((p: any) => {
         $optimizationApiPresetSelect.append(`<option value="${p.name}">${p.name}</option>`);
       });
       $optimizationApiPresetSelect.val(settings_ACU.contentOptimizationSettings?.apiPreset || '');

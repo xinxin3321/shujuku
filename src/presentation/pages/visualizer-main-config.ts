@@ -35,11 +35,11 @@ import { closeACUWindow } from '../window/window-system';
 // 循环 import — 运行时安全
 import { renderVisualizerMain_ACU } from './visualizer-main-render';
 
-  export function renderVisualizerConfigMode_ACU($container, sheet) {
+  export function renderVisualizerConfigMode_ACU($container: any, sheet: any) {
       const config = ensureSheetExportConfigDefaults_ACU(sheet);
       const updateConfig = sheet.updateConfig || {};
       const sourceData = sheet.sourceData || {};
-      const ucVal = (v) => (Number.isFinite(v) ? v : -1);
+      const ucVal = (v: any) => (Number.isFinite(v) ? v : -1);
       const entryPlacement = normalizePlacementConfig_ACU(config.entryPlacement, DEFAULT_ENTRY_PLACEMENT_ACU);
       const extraIndexPlacement = normalizePlacementConfig_ACU(config.extraIndexPlacement, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU);
       const fixedDefaults = getFixedPlacementDefaultsForTable_ACU(sheet.name);
@@ -47,13 +47,13 @@ import { renderVisualizerMain_ACU } from './visualizer-main-render';
       const fixedIndexPlacement = normalizePlacementConfig_ACU(config.fixedIndexPlacement, fixedDefaults.index);
       const dataHeaders = Array.isArray(sheet?.content?.[0]) ? sheet.content[0].slice(1) : [];
       const selectedExtraIndexColumns = Array.isArray(config.extraIndexColumns)
-          ? [...new Set(config.extraIndexColumns.filter(col => dataHeaders.includes(col)))]
+          ? [...new Set(config.extraIndexColumns.filter((col: any) => dataHeaders.includes(col)))]
           : [];
       const extraIndexColumnModes = (config.extraIndexColumnModes && typeof config.extraIndexColumnModes === 'object')
           ? config.extraIndexColumnModes
           : {};
       const extraIndexColumnsHtml = dataHeaders.length > 0
-          ? dataHeaders.map((header, colIdx) => {
+          ? dataHeaders.map((header: any, colIdx: number) => {
                 const checked = selectedExtraIndexColumns.includes(header);
                 const modeVal = extraIndexColumnModes[header] === 'index_only' ? 'index_only' : 'both';
                 return `
@@ -342,7 +342,7 @@ import { renderVisualizerMain_ACU } from './visualizer-main-render';
       
       function renderCols() {
           $colList.empty();
-          headers.forEach((h, idx) => {
+          headers.forEach((h: any, idx: number) => {
               if (idx === 0) return; // Skip ID
               const $item = jQuery_API_ACU(`
                   <div class="acu-col-item">
@@ -367,7 +367,7 @@ import { renderVisualizerMain_ACU } from './visualizer-main-render';
           if (confirm('删除列将同时删除该列的所有数据，确定吗？')) {
               // [修复] headers 是 sheet.content[0] 的引用，只需对数据行执行splice，避免双重删除
               headers.splice(idx, 1);
-              sheet.content.slice(1).forEach(row => row.splice(idx, 1));
+              sheet.content.slice(1).forEach((row: any) => row.splice(idx, 1));
               renderCols();
           }
       });
@@ -377,7 +377,7 @@ import { renderVisualizerMain_ACU } from './visualizer-main-render';
           if (newName) {
               headers.push(newName);
               // Update all rows
-              sheet.content.forEach((row, i) => {
+              sheet.content.forEach((row: any, i: number) => {
                   if (i > 0) row.push('');
               });
               renderCols();
@@ -396,7 +396,7 @@ import { renderVisualizerMain_ACU } from './visualizer-main-render';
               renderVisualizerMain_ACU();
           });
       }
-      const parseIntOrDefault_ACU = (val, defVal) => {
+      const parseIntOrDefault_ACU = (val: any, defVal: any) => {
           const n = parseInt(val, 10);
           return Number.isFinite(n) ? n : defVal;
       };
@@ -458,7 +458,7 @@ import { renderVisualizerMain_ACU } from './visualizer-main-render';
           sheet.exportConfig.injectionTemplate = jQuery_API_ACU(this).val();
       });
 
-      const readPlacementFromInputs_ACU = (prefix, fallbackPlacement) => {
+      const readPlacementFromInputs_ACU = (prefix: string, fallbackPlacement: any) => {
           const position = normalizeLorebookPosition_ACU(jQuery_API_ACU(`#${prefix}-position`).val(), fallbackPlacement.position);
           const depth = parseIntOrDefault_ACU(jQuery_API_ACU(`#${prefix}-depth`).val(), fallbackPlacement.depth);
           const order = parseIntOrDefault_ACU(jQuery_API_ACU(`#${prefix}-order`).val(), fallbackPlacement.order);
@@ -477,8 +477,8 @@ import { renderVisualizerMain_ACU } from './visualizer-main-render';
           ensureExportConfig();
           const enabled = jQuery_API_ACU('#cfg-extra-index-enabled').is(':checked');
           sheet.exportConfig.extraIndexEnabled = enabled;
-          const selectedColumns = [];
-          const modeMap = {};
+          const selectedColumns: string[] = [];
+          const modeMap: Record<string, string> = {};
           jQuery_API_ACU('.cfg-extra-index-col-check').each(function() {
               const colIdx = parseInt(jQuery_API_ACU(this).attr('data-col-idx'), 10);
               const colName = dataHeaders[colIdx];

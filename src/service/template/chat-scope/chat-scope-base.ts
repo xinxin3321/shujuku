@@ -12,7 +12,7 @@ import { ensureExportConfigDefaults_ACU } from '../../worldbook/injection-engine
  * @param fallback 默认值，默认 'inherit'
  * @returns 规范化后的来源字符串
  */
-export function normalizeChatScopedConfigSource_ACU(source, fallback = 'inherit') {
+export function normalizeChatScopedConfigSource_ACU(source: any, fallback = 'inherit') {
     if (typeof source !== 'string') return fallback;
     const normalized = source.trim();
     return normalized || fallback;
@@ -22,7 +22,7 @@ export function normalizeChatScopedConfigSource_ACU(source, fallback = 'inherit'
  * 规范化 sheet guide 数据对象——只保留表头行、sourceData、updateConfig、exportConfig、seedRows
  * 被 B、D、E 三组广泛使用，提取到 base 层避免循环依赖
  */
-export function normalizeGuideData_ACU(dataObj) {
+export function normalizeGuideData_ACU(dataObj: any) {
     if (!dataObj || typeof dataObj !== 'object') return null;
     const out: any = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
     if (dataObj.mate && typeof dataObj.mate === 'object') {
@@ -36,7 +36,7 @@ export function normalizeGuideData_ACU(dataObj) {
         const s = dataObj[k];
         if (!s || typeof s !== 'object') return;
         const headerRow = Array.isArray(s.content) && Array.isArray(s.content[0]) ? s.content[0] : [null];
-        const keep = {
+        const keep: Record<string, any> = {
             uid: s.uid || k,
             name: s.name || k,
             sourceData: s.sourceData || { note: '', initNode: '', insertNode: '', updateNode: '', deleteNode: '' },

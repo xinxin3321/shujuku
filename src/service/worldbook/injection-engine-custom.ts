@@ -2,7 +2,7 @@
  * service/worldbook/injection-engine-custom.ts — 自定义表格导出
  * 从 injection-engine.ts 拆出
  */
-import { getCurrentWorldbookConfig_ACU } from '../settings/settings-service';
+import { getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
 import { settings_ACU } from '../runtime/state-manager';
 import { isWorldbookApiAvailable_ACU, getLorebookEntries_ACU, setLorebookEntries_ACU, createLorebookEntries_ACU, deleteLorebookEntries_ACU } from '../../data/gateways/worldbook-gateway';
 import { saveSettings_ACU } from '../settings/settings-service';
@@ -17,7 +17,7 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
   // [新增] 处理自定义表格导出逻辑
   // [修复] 当 mergedData 为空/null 时，仍需执行"清理旧自定义导出条目"逻辑，
   // 避免删除楼层回溯到空数据时旧条目残留在世界书中。
-  export async function updateCustomTableExports_ACU(mergedData, isImport = false) {
+  export async function updateCustomTableExports_ACU(mergedData: Record<string, any> | null, isImport = false) {
       if (!isWorldbookApiAvailable_ACU()) return;
       const primaryLorebookName = await getInjectionTargetLorebook_ACU();
       if (!primaryLorebookName) return;
@@ -28,7 +28,7 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
       // [修改] 外部导入时只使用"外部导入-"前缀，不再包含"TavernDB-ACU-CustomExport-"
       const exportPrefix = isoPrefix + (isImport ? IMPORT_PREFIX : '');
       // [修复] 外部导入时的条目命名辅助函数：只使用"外部导入-"前缀
-      const getImportEntryName = (name) => isImport ? `${exportPrefix}${name}` : `${exportPrefix}TavernDB-ACU-CustomExport-${name}`;
+      const getImportEntryName = (name: string) => isImport ? `${exportPrefix}${name}` : `${exportPrefix}TavernDB-ACU-CustomExport-${name}`;
       // [修改] 定义旧版前缀用于清理（非外部导入模式）
       const baseLegacyPrefix = 'TavernDB-ACU-CustomExport';
       const LEGACY_EXPORT_PREFIX = isoPrefix + baseLegacyPrefix;
@@ -83,8 +83,8 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
           // 每次更新时，我们重置 knownNames 列表（仅非外部导入模式）
           // 外部导入模式不维护 knownNames，避免影响第三方世界书
           if (!isImport) {
-              if (isoPrefix) knownNames = knownNames.filter(name => !name.startsWith(isoPrefix));
-              else knownNames = knownNames.filter(name => name.startsWith('ACU-'));
+              if (isoPrefix) knownNames = knownNames.filter((name: string) => !name.startsWith(isoPrefix));
+              else knownNames = knownNames.filter((name: string) => name.startsWith('ACU-'));
           }
 
           // [修复] 如果 mergedData 为空，清理完旧条目后直接返回，不再尝试创建新条目
@@ -99,15 +99,15 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
           }
 
           // 2. Create new entries
-          const entriesToCreate = [];
+          const entriesToCreate: Record<string, any>[] = [];
           // [新增] 创建后 order 强制回写计划（按 comment 匹配 uid 再 setLorebookEntries）
           // 目的：防止创建接口把重复 order 自动改写，导致"同表行条目仍然各占一个深度"
-          const postCreateOrderFixPlan = []; // [{ comment, order }]
+          const postCreateOrderFixPlan: { comment: string; order: number; placement?: Record<string, any> }[] = [];
           // [新增] 用于合并同名条目的分组对象
-          const mergedEntriesMap = {}; // Key: entryName + type + keywords, Value: { contentParts, config }
+          const mergedEntriesMap: Record<string, any> = {};
           
           // [FIX] 定义 newGeneratedNames 用于收集本次生成的名称
-          const newGeneratedNames = [];
+          const newGeneratedNames: string[] = [];
 
           // [FIX] 重新定义 tableKeys (之前的定义在 if 块内，这里无法访问)
           const tableKeys = getSortedSheetKeys_ACU(mergedData);
@@ -118,17 +118,17 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
           let nextCustomExportOrder = 10000; // 维持原本"自定义导出"大致优先级区间
           // [优化] 不允许重复 order：为每个条目分配唯一 order，并整体避开世界书现有 order
           const CUSTOM_EXPORT_ORDER_GAP = 1;
-          const toIntOrFallback_ACU = (v, fb) => {
+          const toIntOrFallback_ACU = (v: any, fb: number): number => {
               const n = parseInt(v, 10);
               return Number.isFinite(n) ? n : fb;
           };
-          const calcPreferredBlockStart_ACU = (baseOrder, leadingSlots = 0, fallback = 1) => {
+          const calcPreferredBlockStart_ACU = (baseOrder: any, leadingSlots = 0, fallback = 1): number => {
               const o = toIntOrFallback_ACU(baseOrder, fallback);
               return Math.max(1, o - Math.max(0, toIntOrFallback_ACU(leadingSlots, 0)));
           };
           
           // [新增] 解析注入模板，提取用于前后包裹的常量条目内容
-          const parseWrapperTemplate = templateStr => {
+          const parseWrapperTemplate = (templateStr: string | null | undefined): { before: string; after: string } | null => {
               if (!templateStr || typeof templateStr !== 'string') return null;
               const markerIndex = templateStr.indexOf('$1');
               if (markerIndex === -1) return null;
@@ -139,7 +139,7 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
           };
 
           // [新增] 统一的条目内容生成器，支持在包裹模式下忽略自定义模板
-          const buildEntryContent = (entryName, tableData, template, ignoreTemplate = false, fallbackTemplate = null, isSplitMode = false) => {
+          const buildEntryContent = (entryName: string, tableData: string, template: string | null | undefined, ignoreTemplate = false, fallbackTemplate: string | null = null, isSplitMode = false): string => {
               let finalTemplate = ignoreTemplate ? null : template;
               if (!finalTemplate) {
                   if (fallbackTemplate) {
@@ -156,7 +156,7 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
               return finalTemplate.replace('$1', tableData);
           };
 
-          const buildMarkdownTableFromRows_ACU = (headerList, rowList) => {
+          const buildMarkdownTableFromRows_ACU = (headerList: string[], rowList: any[]): string => {
               if (!Array.isArray(headerList) || headerList.length === 0) return '';
               const lines = [];
               lines.push(`| ${headerList.join(' | ')} |`);
@@ -171,7 +171,7 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
               return lines.join('\n');
           };
 
-          const resolveExtraIndexSpec_ACU = (cfg, originalHeaders, rawRows, defaultName) => {
+          const resolveExtraIndexSpec_ACU = (cfg: Record<string, any> | null, originalHeaders: string[], rawRows: any[][], defaultName: string) => {
               if (!cfg || cfg.extraIndexEnabled !== true) return null;
               if (!Array.isArray(originalHeaders) || originalHeaders.length === 0) return null;
               const selectedRaw = Array.isArray(cfg.extraIndexColumns) ? cfg.extraIndexColumns : [];
@@ -181,9 +181,9 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
               const modeMap = (cfg.extraIndexColumnModes && typeof cfg.extraIndexColumnModes === 'object')
                   ? cfg.extraIndexColumnModes
                   : {};
-              const selectedMeta = selectedCols.map((col: any) => {
+              const selectedMeta = selectedCols.map((col: string) => {
                   const idx = originalHeaders.indexOf(col);
-                  const mode = (modeMap as any)[col] === 'index_only' ? 'index_only' : 'both';
+                  const mode = (modeMap as Record<string, string>)[col] === 'index_only' ? 'index_only' : 'both';
                   return { name: col, idx, mode };
               }).filter(m => m.idx >= 0);
               if (selectedMeta.length === 0) return null;
@@ -195,7 +195,7 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
                   .map((_, idx) => idx)
                   .filter(idx => !indexOnlySet.has(idx));
               const mainCols = mainColIndexes.map(idx => originalHeaders[idx]);
-              const mapRowsByIndexes = (rows, indexes) => {
+              const mapRowsByIndexes = (rows: any[][], indexes: number[]): string[][] => {
                   const safeRows = Array.isArray(rows) ? rows : [];
                   return safeRows.map(row => indexes.map(i => {
                       const v = Array.isArray(row) ? row[i] : '';
@@ -212,7 +212,7 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
               };
           };
 
-          const buildExtraIndexEntryBlock_ACU = ({ exportPrefix, extraIndexSpec, templateStr, startOrder, placement, usedOrderSet, enabled = true }) => {
+          const buildExtraIndexEntryBlock_ACU = ({ exportPrefix, extraIndexSpec, templateStr, startOrder, placement, usedOrderSet, enabled = true }: { exportPrefix: string; extraIndexSpec: any; templateStr?: string; startOrder: number; placement: Record<string, any>; usedOrderSet?: Set<any>; enabled?: boolean }) => {
               if (!extraIndexSpec) return { entries: [], names: [], plans: [], nextOrder: startOrder, span: 0 };
               const cursor = allocOrder_ACU(usedOrderSet || usedOrders, startOrder, 1, 99999);
               const names = [];
@@ -271,9 +271,9 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
               const tableName = table.name;
               const entryPlacement = normalizePlacementConfig_ACU(config.entryPlacement, DEFAULT_ENTRY_PLACEMENT_ACU);
               const extraIndexPlacement = normalizePlacementConfig_ACU(config.extraIndexPlacement, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU);
-              const headers = table.content[0] ? table.content[0].slice(1) : [];
-              const rows = table.content.slice(1).map(row => row.slice(1));
-              const hasAnyNonEmptyExportCell_ACU = row => Array.isArray(row) && row.some(cell => {
+              const headers: string[] = table.content[0] ? table.content[0].slice(1) : [];
+              const rows = table.content.slice(1).map((row: any[]) => row.slice(1));
+              const hasAnyNonEmptyExportCell_ACU = (row: any[]) => Array.isArray(row) && row.some((cell: any) => {
                   const text = cell === null || cell === undefined ? '' : String(cell);
                   return text.trim() !== '';
               });
@@ -362,12 +362,12 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
                   }
 
                   const dataOrder = orderCursor++;
-                  mainRows.forEach((rowData, i) => {
+                  mainRows.forEach((rowData: any[], i: number) => {
                       const entryName = config.entryName ? `${config.entryName}-${i + 1}` : `${tableName}-${i + 1}`;
-                      let keys = [];
+                      let keys: string[] = [];
                       if (config.keywords) {
                           const keywordList = splitKeywordsByComma_ACU(config.keywords);
-                          keywordList.forEach(k => {
+                          keywordList.forEach((k: string) => {
                               const colIndex = headers.indexOf(k);
                               if (colIndex !== -1) {
                                   const rawRowData = rows[i] || [];
@@ -518,7 +518,7 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
                       mergedEntriesMap[mergeKey].tableHeaders = [];
                   }
                   mergedEntriesMap[mergeKey].tableHeaders.push({ name: tableName, headers: headers });
-                  const rowsOnly = rows.map(row => `| ${row.join(' | ')} |`).join('\n');
+                  const rowsOnly = rows.map((row: any[]) => `| ${row.join(' | ')} |`).join('\n');
                   mergedEntriesMap[mergeKey].tableContents.push(rowsOnly);
                   
                   if (config.preventRecursion === false) {
@@ -536,8 +536,8 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
               const useWrapperEntries = !!(group.useWrapperEntries && (wrapperParts?.before || wrapperParts?.after));
               const groupPlacement = normalizePlacementConfig_ACU(group.entryPlacement, DEFAULT_ENTRY_PLACEMENT_ACU);
 
-              const blockEntries = [];
-              const allHeadersContent = group.tableHeaders ? group.tableHeaders.map(th => {
+              const blockEntries: Record<string, any>[] = [];
+              const allHeadersContent = group.tableHeaders ? group.tableHeaders.map((th: { name: string; headers: string[] }) => {
                   return `# ${th.name}\n\n| ${th.headers.join(' | ')} |\n|${th.headers.map(() => '---').join('|')}|`;
               }).join('\n\n') : '';
 
@@ -596,9 +596,9 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
                   try {
                       const latest = await getLorebookEntries_ACU(primaryLorebookName);
                       const byComment = new Map();
-                      latest.forEach(e => { if (e?.comment) byComment.set(e.comment, e); });
-                      const updates = [];
-                      postCreateOrderFixPlan.forEach(p => {
+                      latest.forEach((e: any) => { if (e?.comment) byComment.set(e.comment, e); });
+                      const updates: Record<string, any>[] = [];
+                      postCreateOrderFixPlan.forEach((p) => {
                           const e = byComment.get(p.comment);
                           if (e?.uid != null && Number.isFinite(p.order)) {
                               const fixed = applyPlacementToEntry_ACU({ uid: e.uid, order: p.order }, p.placement || DEFAULT_ENTRY_PLACEMENT_ACU);

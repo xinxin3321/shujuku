@@ -28,7 +28,7 @@ export function createTemplatePresetApi(ctx: ApiGroupContext): Record<string, Fu
             }
         },
 
-        switchTemplatePreset: async function(presetName, options: any = {}) {
+        switchTemplatePreset: async function(presetName: any, options: any = {}) {
             try {
                 const { scope = 'global' } = options || {};
                 const normalizedScope = normalizeTemplateOperationScope_ACU(scope);
@@ -62,7 +62,7 @@ export function createTemplatePresetApi(ctx: ApiGroupContext): Record<string, Fu
             }
         },
 
-        injectTemplatePresetToCurrentChat: async function(presetName) {
+        injectTemplatePresetToCurrentChat: async function(presetName: any) {
             try {
                 return await ctx.getApi().switchTemplatePreset(presetName, { scope: 'chat' });
             } catch (e) {
@@ -71,7 +71,7 @@ export function createTemplatePresetApi(ctx: ApiGroupContext): Record<string, Fu
             }
         },
 
-        importTemplateFromData: async function(templateData, options: any = {}) {
+        importTemplateFromData: async function(templateData: any, options: any = {}) {
             try {
                 const { scope = 'global', presetName = '' } = options || {};
                 const normalizedScope = normalizeTemplateOperationScope_ACU(scope);

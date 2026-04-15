@@ -10,6 +10,7 @@
     "strictBindCallApply": true,
     "strictFunctionTypes": true,
     "noImplicitThis": true,
+    "noImplicitAny": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

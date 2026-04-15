@@ -26,7 +26,7 @@ import { _acuVisState } from './visualizer';
           // guidedKeys 可能为空（无 guide 或 guide 读取失败），此时用 allKeys 作为基准
           const base = (Array.isArray(guidedKeys) && guidedKeys.length) ? guidedKeys : allKeys;
           // 追加不在 guide 里的新表，确保新增表可见且可保存
-          const missing = allKeys.filter(k => !base.includes(k));
+          const missing = allKeys.filter((k: string) => !base.includes(k));
           return [...base, ...missing];
       })();
 
@@ -38,9 +38,9 @@ import { _acuVisState } from './visualizer';
       // existingKeys 使用 orderNo 排序（已对缺失编号做兜底补齐）
       const existingKeys = allKeys;
       // 过滤掉已删除的
-      _acuVisState.sheetOrder = _acuVisState.sheetOrder.filter(k => existingKeys.includes(k));
+      _acuVisState.sheetOrder = _acuVisState.sheetOrder.filter((k: string) => existingKeys.includes(k));
       // 添加新增的（未在顺序列表中的）
-      existingKeys.forEach(k => {
+      existingKeys.forEach((k: string) => {
           if (!_acuVisState.sheetOrder.includes(k)) {
               _acuVisState.sheetOrder.push(k);
           }
@@ -54,7 +54,7 @@ import { _acuVisState } from './visualizer';
   }
 
   // [新增] 移动表格顺序
-  export function moveSheetOrder_ACU(key, direction) {
+  export function moveSheetOrder_ACU(key: string, direction: string) {
       const order = getOrderedSheetKeys_ACU();
       const currentIndex = order.indexOf(key);
       if (currentIndex === -1) return;
@@ -79,7 +79,7 @@ import { _acuVisState } from './visualizer';
       const sheetKeys = getOrderedSheetKeys_ACU();
       const totalSheets = sheetKeys.length;
       
-      sheetKeys.forEach((key, index) => {
+      sheetKeys.forEach((key: string, index: number) => {
           const sheet = _acuVisState.tempData[key];
           if (!sheet) return;
           
@@ -143,7 +143,7 @@ import { _acuVisState } from './visualizer';
                   }
                   delete _acuVisState.tempData[keyToDelete];
                   // 从顺序列表中移除
-                  _acuVisState.sheetOrder = _acuVisState.sheetOrder.filter(k => k !== keyToDelete);
+      _acuVisState.sheetOrder = _acuVisState.sheetOrder.filter((k: string) => k !== keyToDelete);
                   if (_acuVisState.currentSheetKey === keyToDelete) {
                       const remainingKeys = getOrderedSheetKeys_ACU();
                       _acuVisState.currentSheetKey = remainingKeys.length > 0 ? remainingKeys[0] : null;

@@ -11,7 +11,7 @@ import { isGenerateRawAvailable_ACU, generateRaw_ACU, sendConnectionManagerReque
 import { logDebug_ACU, logError_ACU, logWarn_ACU, normalizeExcludeRules_ACU } from '../../../shared/utils';
 import { applyExcludeRulesToText_ACU, getLatestAIMessageContent_ACU, getPlotFromHistory_ACU, parseIfBlocksInContent_ACU, parseRandomTags_ACU, replaceRandomVariables_ACU } from '../../runtime/helpers-remaining';
 
-  function normalizeRoleForApi_ACU(role) {
+  function normalizeRoleForApi_ACU(role: any) {
     const ru = String(role || '').toUpperCase();
     const rl = String(role || '').toLowerCase();
     if (ru === 'AI' || ru === 'ASSISTANT' || rl === 'assistant') return 'assistant';
@@ -20,7 +20,7 @@ import { applyExcludeRulesToText_ACU, getLatestAIMessageContent_ACU, getPlotFrom
     return 'user';
   }
 
-  export async function callCustomOpenAI_ACU(dynamicContent, abortController = null, options = null) {
+  export async function callCustomOpenAI_ACU(dynamicContent: any, abortController: AbortController | null = null, options: any = null) {
     const localAbortController = abortController || new AbortController();
     _set_currentAbortController_ACU(localAbortController);
     trackAbortController_ACU(localAbortController);
@@ -66,7 +66,7 @@ import { applyExcludeRulesToText_ACU, getLatestAIMessageContent_ACU, getPlotFrom
 
     const tableExcludeTags = (settings_ACU.tableContextExcludeTags || '').trim();
     const tableExcludeRules = normalizeExcludeRules_ACU(settings_ACU.tableContextExcludeRules, tableExcludeTags);
-    const filterTableInjectedContent = (value, placeholderKey = '') => {
+    const filterTableInjectedContent = (value: any, placeholderKey = '') => {
         const text = value !== undefined && value !== null ? String(value) : '';
         if (!['$0', '$1', '$4', '$6', '$8', '$U', '$C'].includes(placeholderKey)) return text;
         return applyExcludeRulesToText_ACU(text, { excludeRules: tableExcludeRules, excludeTags: tableExcludeTags });
@@ -286,7 +286,7 @@ import { applyExcludeRulesToText_ACU, getLatestAIMessageContent_ACU, getPlotFrom
 
   // ═══ 流式/非流式响应处理 ═══
 
-  async function streamToText_ACU(response, signal = null) {
+  async function streamToText_ACU(response: any, signal: AbortSignal | null = null) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let fullContent = '';
@@ -329,7 +329,7 @@ import { applyExcludeRulesToText_ACU, getLatestAIMessageContent_ACU, getPlotFrom
     return fullContent;
   }
 
-  async function parseNonStreamResponse_ACU(response) {
+  async function parseNonStreamResponse_ACU(response: any) {
     try {
         const data = await response.json();
         if (data?.choices?.[0]?.message?.content) {
@@ -349,7 +349,7 @@ import { applyExcludeRulesToText_ACU, getLatestAIMessageContent_ACU, getPlotFrom
     }
   }
 
-  export async function handleApiResponse_ACU(response, signal = null) {
+  export async function handleApiResponse_ACU(response: any, signal: AbortSignal | null = null) {
     if (settings_ACU.streamingEnabled) {
         return await streamToText_ACU(response, signal);
     } else {

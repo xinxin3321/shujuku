@@ -20,7 +20,7 @@ import { applyContextTagFilters_ACU } from '../../../service/runtime/helpers-rem
 import { getActivePlotEditorSettings_ACU, getPlotPromptContentByIdFromSettings_ACU, setPlotPromptContentByIdForSettings_ACU, ensureLoopPromptsArray_ACU } from '../../../service/plot/plot-logic';
 
 
-  function schedulePlotSettingsUiRefresh_ACU(plotSettingsOverride = null) {
+  function schedulePlotSettingsUiRefresh_ACU(plotSettingsOverride: any = null) {
     if (!$popupInstance_ACU || !$popupInstance_ACU.length) return;
  
     const refreshTarget = plotSettingsOverride || getActivePlotEditorSettings_ACU();
@@ -39,7 +39,7 @@ import { getActivePlotEditorSettings_ACU, getPlotPromptContentByIdFromSettings_A
     setTimeout(runRefresh, 0);
   }
 
-  export function renderExcludeRuleRows_ACU(containerSelector, rules, { startPlaceholder = '开始词', endPlaceholder = '结束词', fallbackRules = [] } = {}) {
+  export function renderExcludeRuleRows_ACU(containerSelector: string, rules: any, { startPlaceholder = '开始词', endPlaceholder = '结束词', fallbackRules = [] as any[] } = {}) {
     if (!$popupInstance_ACU) return;
     const $container = $popupInstance_ACU.find(containerSelector);
     if (!$container.length) return;
@@ -65,7 +65,7 @@ import { getActivePlotEditorSettings_ACU, getPlotPromptContentByIdFromSettings_A
     rows.forEach(rule => appendRow(rule));
   }
 
-  export function appendExcludeRuleRow_ACU(containerSelector, { startPlaceholder = '开始词', endPlaceholder = '结束词' } = {}) {
+  export function appendExcludeRuleRow_ACU(containerSelector: string, { startPlaceholder = '开始词', endPlaceholder = '结束词' } = {}) {
     if (!$popupInstance_ACU) return;
     const $container = $popupInstance_ACU.find(containerSelector);
     if (!$container.length) return;
@@ -79,11 +79,11 @@ import { getActivePlotEditorSettings_ACU, getPlotPromptContentByIdFromSettings_A
     $container.append(rowHtml);
   }
 
-  export function readExcludeRulesFromRows_ACU(containerSelector) {
+  export function readExcludeRulesFromRows_ACU(containerSelector: string) {
     if (!$popupInstance_ACU) return [];
     const $container = $popupInstance_ACU.find(containerSelector);
     if (!$container.length) return [];
-    const collected = [];
+    const collected: any[] = [];
     $container.find('.acu-exclude-rule-row').each(function() {
       const start = String(jQuery_API_ACU(this).find('.acu-exclude-rule-start').val() || '').trim();
       const end = String(jQuery_API_ACU(this).find('.acu-exclude-rule-end').val() || '').trim();
@@ -92,16 +92,16 @@ import { getActivePlotEditorSettings_ACU, getPlotPromptContentByIdFromSettings_A
     return normalizeExcludeRules_ACU(collected, '');
   }
 
-  function getPlotPromptContentById_ACU(promptId) {
+  function getPlotPromptContentById_ACU(promptId: string) {
     return getPlotPromptContentByIdFromSettings_ACU(settings_ACU?.plotSettings, promptId);
   }
 
-  function setPlotPromptContentById_ACU(promptId, content) {
+  function setPlotPromptContentById_ACU(promptId: string, content: string) {
     setPlotPromptContentByIdForSettings_ACU(settings_ACU?.plotSettings, promptId, content);
   }
 
   // --- [剧情推进] 循环提示词列表渲染和管理 ---
-  export function renderLoopPromptsList_ACU(plotSettingsOverride = null) {
+  export function renderLoopPromptsList_ACU(plotSettingsOverride: any = null) {
     const $container = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompts-container`);
     if (!$container.length) return;
 
@@ -109,7 +109,7 @@ import { getActivePlotEditorSettings_ACU, getPlotPromptContentByIdFromSettings_A
     if (!plotSettings) return;
 
     ensureLoopPromptsArray_ACU(plotSettings);
-    const prompts = plotSettings.loopSettings.quickReplyContent || [];
+    const prompts: any[] = plotSettings.loopSettings.quickReplyContent || [];
 
     $container.empty();
 
@@ -118,7 +118,7 @@ import { getActivePlotEditorSettings_ACU, getPlotPromptContentByIdFromSettings_A
       return;
     }
 
-    prompts.forEach((prompt, index) => {
+    prompts.forEach((prompt: any, index: number) => {
       const $item = jQuery_API_ACU('<div>', {
         class: 'loop-prompt-item',
         style: 'display: flex; gap: 8px; align-items: flex-start; padding: 10px; background: var(--background_light); border: 1px solid var(--border_color_light); border-radius: 6px;'
@@ -164,7 +164,7 @@ import { getActivePlotEditorSettings_ACU, getPlotPromptContentByIdFromSettings_A
     if (!plotSettings) return;
 
     ensureLoopPromptsArray_ACU(plotSettings);
-    const prompts = [];
+    const prompts: string[] = [];
 
     $popupInstance_ACU.find('.loop-prompt-textarea').each(function() {
       const content = String(jQuery_API_ACU(this).val() || '').trim();
@@ -180,10 +180,10 @@ import { getActivePlotEditorSettings_ACU, getPlotPromptContentByIdFromSettings_A
 
   // --- [剧情推进] 临时替换"AI指令预设"(settings_ACU.charCardPrompt)，并在生成结束后恢复 ---
   let plotPromptOverrideActive_ACU = false;
-  let plotPromptOverrideBackup_ACU = null;
+  let plotPromptOverrideBackup_ACU: any = null;
 
   // [剧情推进] 去重锁：避免同一次发送被 TavernHelper.generate 钩子 + GENERATION_AFTER_COMMANDS 双重处理导致重复 toast/误报失败
-  function buildPlotModifiedCharCardPrompt_ACU(original) {
+  function buildPlotModifiedCharCardPrompt_ACU(original: any) {
     const originalArr = Array.isArray(original)
       ? original
       : (typeof original === 'string' ? [{ role: 'USER', content: original }] : []);
@@ -195,7 +195,7 @@ import { getActivePlotEditorSettings_ACU, getPlotPromptContentByIdFromSettings_A
 
     if (!plotMain && !plotTask) return cloned;
 
-    const getMainSlot = seg => {
+    const getMainSlot = (seg: any) => {
       if (!seg) return '';
       const slot = String(seg.mainSlot || '').toUpperCase();
       if (slot === 'A' || slot === 'B') return slot;
@@ -206,8 +206,8 @@ import { getActivePlotEditorSettings_ACU, getPlotPromptContentByIdFromSettings_A
 
     // 简化逻辑：只替换内容，不插入、不改role、不改结构
     // 1) 定位主提示词A/B：优先 mainSlot，其次旧 isMain/isMain2
-    let mainAIdx = cloned.findIndex(p => getMainSlot(p) === 'A');
-    let mainBIdx = cloned.findIndex(p => getMainSlot(p) === 'B');
+    let mainAIdx = cloned.findIndex((p: any) => getMainSlot(p) === 'A');
+    let mainBIdx = cloned.findIndex((p: any) => getMainSlot(p) === 'B');
 
     if (plotMain && mainAIdx !== -1 && cloned[mainAIdx]) {
       cloned[mainAIdx].content = plotMain;

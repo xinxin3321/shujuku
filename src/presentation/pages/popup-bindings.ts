@@ -5,7 +5,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
 import { getCurrentCharPrimaryLorebook_ACU } from '../../data/gateways/worldbook-gateway';
 import { currentChatFileIdentifier_ACU, currentJsonTableData_ACU, settings_ACU } from '../../service/runtime/state-manager';
 import { $popupInstance_ACU, _assignUIPlaceholders_ACU } from '../state/ui-refs';
-import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-service';
+import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-readers';
 import { saveSettingsAndNotify_ACU, loadSettingsAndRefreshUI_ACU } from '../components/settings-ui-helpers';
 import { deleteAllGeneratedEntries_ACU, updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
 import { populateInjectionTargetSelector_ACU, populateImportWorldbookTargetSelector_ACU } from '../components/worldbook-selector';
@@ -170,7 +170,7 @@ import { bindOptimizationEvents_ACU } from './popup-bindings-optimization';
         // API Mode switching logic
         if ($apiModeRadios.length) {
             $apiModeRadios.on('change', function() {
-                const selectedMode = jQuery_API_ACU(this).val();
+                const selectedMode = String(jQuery_API_ACU(this).val() || '');
                 settings_ACU.apiMode = selectedMode;
                 saveSettingsAndNotify_ACU();
                 updateApiModeView_ACU(selectedMode);

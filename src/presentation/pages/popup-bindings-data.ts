@@ -336,14 +336,14 @@ export async function bindDataEvents_ACU(): Promise<void> {
 
       // --- [新增] API预设管理事件绑定 ---
       $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-save-api-preset`).on('click', function() {
-        const presetName = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-preset-name`).val();
+        const presetName = String($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-preset-name`).val() || '');
         if (saveApiPreset_ACU(presetName)) {
           $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-preset-name`).val('');
         }
       });
 
       $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-load-api-preset`).on('click', function() {
-        const presetName = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-preset-select`).val();
+        const presetName = String($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-preset-select`).val() || '');
         if (presetName) {
           loadApiPreset_ACU(presetName);
         } else {
@@ -352,7 +352,7 @@ export async function bindDataEvents_ACU(): Promise<void> {
       });
 
       $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-delete-api-preset`).on('click', function() {
-        const presetName = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-preset-select`).val();
+        const presetName = String($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-preset-select`).val() || '');
         if (presetName) {
           if (confirm(`确定要删除API预设 "${presetName}" 吗？`)) {
             deleteApiPreset_ACU(presetName);

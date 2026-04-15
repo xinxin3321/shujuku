@@ -17,7 +17,7 @@ import { logDebug_ACU, logWarn_ACU } from '../../shared/utils';
  *   - { skipped: true }: 重复触发被跳过
  *   - { aborted: true, manual: true, restoreText: string }: 用户中止
  */
-export async function runOptimizationLogicWithUI_ACU(userMessage, options: any = {}) {
+export async function runOptimizationLogicWithUI_ACU(userMessage: any, options: any = {}) {
   // 1. 创建带中止按钮的进度 toast
   const toastMsg = `
       <div style="display: flex; align-items: center; justify-content: space-between;">

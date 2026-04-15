@@ -18,14 +18,14 @@ export interface ApiGroupContext {
 export function createCallbackApi(ctx: ApiGroupContext): Record<string, Function> {
     return {
         // 注册表格更新回调
-        registerTableUpdateCallback: function(callback) {
+        registerTableUpdateCallback: function(callback: Function) {
             if (typeof callback === 'function' && !ctx.tableUpdateCallbacks.includes(callback)) {
                 ctx.tableUpdateCallbacks.push(callback);
                 logDebug_ACU('A new table update callback has been registered.');
             }
         },
         // 注销表格更新回调
-        unregisterTableUpdateCallback: function(callback) {
+        unregisterTableUpdateCallback: function(callback: Function) {
             const index = ctx.tableUpdateCallbacks.indexOf(callback);
             if (index > -1) {
                 ctx.tableUpdateCallbacks.splice(index, 1);
@@ -47,7 +47,7 @@ export function createCallbackApi(ctx: ApiGroupContext): Record<string, Function
             });
         },
         // 注册"填表开始"回调
-        registerTableFillStartCallback: function(callback) {
+        registerTableFillStartCallback: function(callback: Function) {
             if (typeof callback === 'function' && !ctx.tableFillStartCallbacks.includes(callback)) {
                 ctx.tableFillStartCallbacks.push(callback);
                 logDebug_ACU('A new table fill start callback has been registered.');

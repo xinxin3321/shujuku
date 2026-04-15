@@ -10,7 +10,7 @@ import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } 
 import { applySummaryIndexSequenceToTable_ACU, formatSummaryIndexCode_ACU, getSummaryIndexColumnIndex_ACU, getTableLocksForSheet_ACU, isSpecialIndexLockEnabled_ACU } from '../../runtime/helpers-remaining';
 import { sanitizeJsonPipeline_ACU, coerceLooseRowObject_ACU } from './json-sanitizer';
 
-  function normalizeAiResponseForTableEditParsing_ACU(text) {
+  function normalizeAiResponseForTableEditParsing_ACU(text: string) {
     if (typeof text !== 'string') return '';
     let cleaned = text.trim();
     cleaned = cleaned.replace(/'\s*\+\s*'/g, '');
@@ -21,7 +21,7 @@ import { sanitizeJsonPipeline_ACU, coerceLooseRowObject_ACU } from './json-sanit
     return cleaned;
   }
 
-  export function extractTableEditInner_ACU(text, options: any = {}) {
+  export function extractTableEditInner_ACU(text: string, options: any = {}) {
     const { allowNoTableEditTags = true, useLastPairOnly = (settings_ACU?.tableEditLastPairOnly !== false) } = options;
     const cleaned = normalizeAiResponseForTableEditParsing_ACU(text);
     if (!cleaned) return null;
@@ -62,7 +62,7 @@ import { sanitizeJsonPipeline_ACU, coerceLooseRowObject_ACU } from './json-sanit
       });
     }
 
-    const hasCommands = (s) => /(insertRow|updateRow|deleteRow)\s*\(/.test(s);
+    const hasCommands = (s: string) => /(insertRow|updateRow|deleteRow)\s*\(/.test(s);
     const candidates = commentBlocks.filter(b => hasCommands(b.content));
     if (!candidates.length) return null;
 
@@ -95,7 +95,7 @@ import { sanitizeJsonPipeline_ACU, coerceLooseRowObject_ACU } from './json-sanit
     return { inner: chosen.raw, cleaned, mode: 'comment_fallback', hasOpen, hasClose };
   }
 
-  export function parseAndApplyTableEdits_ACU(aiResponse, updateMode = 'standard', isImportMode = false) {
+  export function parseAndApplyTableEdits_ACU(aiResponse: string, updateMode = 'standard', isImportMode = false) {
     if (!currentJsonTableData_ACU) {
         logError_ACU('Cannot apply edits, currentJsonTableData_ACU is not loaded.');
         return false;
@@ -154,7 +154,7 @@ import { sanitizeJsonPipeline_ACU, coerceLooseRowObject_ACU } from './json-sanit
     }
     
     // 二次处理：拆分挤在一行里的多条指令
-    const finalCommandLines = [];
+    const finalCommandLines: string[] = [];
     commandLines.forEach(line => {
         const multiCommandPattern = /(?:^|;\s*)((?:insertRow|deleteRow|updateRow)\s*\()/g;
         const positions = [];
@@ -177,10 +177,10 @@ import { sanitizeJsonPipeline_ACU, coerceLooseRowObject_ACU } from './json-sanit
     const sheetKeysForIndexing = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
     const sheets = sheetKeysForIndexing.map(key => currentJsonTableData_ACU[key]);
     let appliedEdits = 0;
-    const editCountsByTable = {};
+    const editCountsByTable: Record<string, number> = {};
 
     // 指令解析函数
-    const parseTableEditCommandLine_ACU = (rawLine) => {
+    const parseTableEditCommandLine_ACU = (rawLine: string) => {
         try {
             let commandLineWithoutComment = rawLine;
             if (commandLineWithoutComment.match(/\)\s*;?\s*\/\/.*$/)) {
@@ -272,7 +272,7 @@ import { sanitizeJsonPipeline_ACU, coerceLooseRowObject_ACU } from './json-sanit
     }
 
     // seedRows 物化
-    const materializeSeedRowsIfNeeded_ACU = (table) => {
+    const materializeSeedRowsIfNeeded_ACU = (table: any) => {
         try {
             if (!table || typeof table !== 'object') return;
             if (!Array.isArray(table.content) || table.content.length !== 1) return;
@@ -334,12 +334,12 @@ import { sanitizeJsonPipeline_ACU, coerceLooseRowObject_ACU } from './json-sanit
                         break;
                     }
                     if (table && table.content && typeof data === 'object') {
-                        const newRow = [null];
+                        const newRow: any[] = [null];
                         const headers = table.content[0].slice(1);
                         const specialIndexCol = (isSummaryTable && sheetKey && isSpecialIndexLockEnabled_ACU(sheetKey))
                             ? getSummaryIndexColumnIndex_ACU(table)
                             : -1;
-                        headers.forEach((_, colIndex) => {
+                        headers.forEach((_: any, colIndex: number) => {
                             let nextVal = data[colIndex] || (data[String(colIndex)] || "");
                             if (colIndex === specialIndexCol) {
                                 nextVal = formatSummaryIndexCode_ACU(table.content.length);
@@ -474,7 +474,7 @@ import { sanitizeJsonPipeline_ACU, coerceLooseRowObject_ACU } from './json-sanit
     });
     
     // 收集所有被修改的表格 key
-    const modifiedSheetKeys = [];
+    const modifiedSheetKeys: string[] = [];
     Object.keys(editCountsByTable).forEach(tableName => {
         if (editCountsByTable[tableName] > 0) {
             const sheetKey = Object.keys(currentJsonTableData_ACU).find(k => currentJsonTableData_ACU[k].name === tableName);

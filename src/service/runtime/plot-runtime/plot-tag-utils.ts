@@ -7,7 +7,7 @@ import { logWarn_ACU } from '../../../shared/utils';
 import { normalizePositiveInteger_ACU } from '../../../shared/utils';
 import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRandomTags_ACU, replaceRandomVariables_ACU, parseCalcTags_ACU, parseMaxTags_ACU, parseMinTags_ACU, replaceCalcVariables_ACU, replaceMaxVariables_ACU, replaceMinVariables_ACU, parseIfBlockRecursive_ACU } from '../template-vars';
 
-  export function getNormalizedPlotMessageRole_ACU(role) {
+  export function getNormalizedPlotMessageRole_ACU(role: string | null) {
     const ru = String(role || '').toUpperCase();
     if (ru === 'AI' || ru === 'ASSISTANT') return 'assistant';
     if (ru === 'SYSTEM') return 'system';
@@ -15,7 +15,7 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     return String(role || 'user').toLowerCase();
   }
 
-  export async function tryRenderPlotTemplateWithEjs_ACU(content) {
+  export async function tryRenderPlotTemplateWithEjs_ACU(content: string) {
     if (!content) return '';
     if ((window as any).EjsTemplate && typeof (window as any).EjsTemplate.evalTemplate === 'function') {
       try {
@@ -39,7 +39,7 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     return content;
   }
 
-  function clonePlotTemplateVariableMap_ACU(store) {
+  function clonePlotTemplateVariableMap_ACU(store: Record<string, any> | null) {
     return store && typeof store === 'object' ? { ...store } : {};
   }
 
@@ -53,7 +53,7 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     };
   }
 
-  function restorePlotTemplateVariables_ACU(snapshot) {
+  function restorePlotTemplateVariables_ACU(snapshot: Record<string, any> | null) {
     setTemplateVariableStores_ACU({
       randomVariables_ACU: clonePlotTemplateVariableMap_ACU(snapshot?.randomVariables),
       calcVariables_ACU: clonePlotTemplateVariableMap_ACU(snapshot?.calcVariables),
@@ -62,7 +62,7 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     });
   }
 
-  function runWithIsolatedPlotTemplateVariables_ACU(callback) {
+  function runWithIsolatedPlotTemplateVariables_ACU(callback: () => any) {
     const previousSnapshot = capturePlotTemplateVariables_ACU();
     restorePlotTemplateVariables_ACU(null);
     try {
@@ -72,7 +72,7 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     }
   }
 
-  export function renderPlotTaskContentWithIsolatedVariables_ACU(content, sharedContext) {
+  export function renderPlotTaskContentWithIsolatedVariables_ACU(content: string, sharedContext: Record<string, any>) {
     const contextForCalc = { allTablesJson: sharedContext.allTablesJson };
     const contextForIf = {
       seedContent: sharedContext.seedContentForConditional,
@@ -96,7 +96,7 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
 
   // ═══ XML 标签提取与占位符 ═══
 
-  export function extractLastTagContent_ACU(text, rawTagName) {
+  export function extractLastTagContent_ACU(text: string, rawTagName: string) {
     if (!text || !rawTagName) return null;
     const tagName = String(rawTagName).trim();
     if (!tagName) return null;
@@ -115,16 +115,16 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     return String(text).slice(contentStart, closeIdx);
   }
 
-  export function extractPlotTagsFromResponse_ACU(text, extractTags) {
+  export function extractPlotTagsFromResponse_ACU(text: string, extractTags: string) {
     const tagNames = String(extractTags || '')
       .split(',')
-      .map(tag => tag.trim())
+      .map((tag: string) => tag.trim())
       .filter(Boolean);
 
-    const extractedTags = {};
-    const injectedFragments = [];
+    const extractedTags: Record<string, string> = {};
+    const injectedFragments: string[] = [];
 
-    tagNames.forEach(tagName => {
+    tagNames.forEach((tagName: string) => {
       const content = extractLastTagContent_ACU(text, tagName);
       if (content !== null) {
         extractedTags[tagName] = content;
@@ -139,7 +139,7 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     };
   }
 
-  export function extractAllTagContents_ACU(text, rawTagName) {
+  export function extractAllTagContents_ACU(text: string, rawTagName: string) {
     if (!text || !rawTagName) return [];
     const tagName = String(rawTagName).trim();
     if (!tagName) return [];
@@ -164,9 +164,9 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     return contents;
   }
 
-  export function getPlotPlaceholderTagNames_ACU(text) {
+  export function getPlotPlaceholderTagNames_ACU(text: string) {
     const placeholderPattern = /\{\{(\w+)\}\}/g;
-    const names = [];
+    const names: string[] = [];
     let match;
 
     while ((match = placeholderPattern.exec(String(text || ''))) !== null) {
@@ -177,13 +177,13 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     return [...new Set(names)];
   }
 
-  export function buildPlotTagMapFromText_ACU(text, requestedTagNames = null) {
+  export function buildPlotTagMapFromText_ACU(text: string, requestedTagNames: string[] | null = null) {
     const sourceText = String(text || '');
     const tagMap = new Map();
     if (!sourceText.trim()) return tagMap;
 
     if (Array.isArray(requestedTagNames) && requestedTagNames.length > 0) {
-      [...new Set(requestedTagNames.map(tagName => String(tagName || '').trim()).filter(Boolean))].forEach(tagName => {
+      [...new Set(requestedTagNames.map((tagName: string) => String(tagName || '').trim()).filter(Boolean))].forEach((tagName: string) => {
         const contents = extractAllTagContents_ACU(sourceText, tagName);
         if (contents.length > 0) {
           tagMap.set(tagName, contents);
@@ -204,15 +204,15 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     return tagMap;
   }
 
-  export function buildPlotTagBlock_ACU(tagName, contents) {
+  export function buildPlotTagBlock_ACU(tagName: string, contents: any) {
     const normalizedTagName = String(tagName || '').trim();
     if (!normalizedTagName) return '';
-    const normalizedContents = (Array.isArray(contents) ? contents : [contents]).map(content => content ?? '');
+    const normalizedContents = (Array.isArray(contents) ? contents : [contents]).map((content: any) => content ?? '');
     if (!normalizedContents.length) return '';
     return `<${normalizedTagName}>${normalizedContents.join('\n\n')}</${normalizedTagName}>`;
   }
 
-  export function replacePlotTagPlaceholders_ACU(text, tagSourceMap) {
+  export function replacePlotTagPlaceholders_ACU(text: string, tagSourceMap: Map<string, any>) {
     const sourceText = String(text || '');
     if (!sourceText) return '';
     const placeholderPattern = /\{\{(\w+)\}\}/g;
@@ -225,19 +225,19 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
 
   // ═══ Task 结果排序/聚合/构建 ═══
 
-  export function sortPlotTaskResults_ACU(results) {
+  export function sortPlotTaskResults_ACU(results: any[]) {
     return (Array.isArray(results) ? [...results] : [])
       .filter(Boolean)
       .sort((a, b) => (normalizePositiveInteger_ACU(a?.stage, 1) - normalizePositiveInteger_ACU(b?.stage, 1)) || ((a?.order ?? 0) - (b?.order ?? 0)));
   }
 
-  export function aggregatePlotTaskTags_ACU(taskResults) {
+  export function aggregatePlotTaskTags_ACU(taskResults: any[]) {
     const aggregated = new Map();
     const sortedResults = sortPlotTaskResults_ACU(taskResults);
 
-    sortedResults.forEach(result => {
+    sortedResults.forEach((result: Record<string, any>) => {
       if (!result?.success || !result.extractedTags || typeof result.extractedTags !== 'object') return;
-      Object.entries(result.extractedTags).forEach(([tagName, content]) => {
+      Object.entries(result.extractedTags).forEach(([tagName, content]: [string, any]) => {
         if (!aggregated.has(tagName)) aggregated.set(tagName, []);
         aggregated.get(tagName).push(content ?? '');
       });
@@ -246,9 +246,9 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     return aggregated;
   }
 
-  export function buildAggregatedPlotTagBlocks_ACU(aggregatedTags) {
+  export function buildAggregatedPlotTagBlocks_ACU(aggregatedTags: Map<string, any>) {
     if (!(aggregatedTags instanceof Map) || aggregatedTags.size === 0) return '';
-    const blocks = [];
+    const blocks: string[] = [];
     aggregatedTags.forEach((contents, tagName) => {
       const block = buildPlotTagBlock_ACU(tagName, contents);
       if (block) blocks.push(block);
@@ -256,7 +256,7 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     return blocks.join('\n\n');
   }
 
-  export function buildPlotRawFallbackText_ACU(taskResults) {
+  export function buildPlotRawFallbackText_ACU(taskResults: any[]) {
     const successfulResults = sortPlotTaskResults_ACU(taskResults)
       .filter(result => result?.success && typeof result.rawResponse === 'string' && result.rawResponse.trim());
 
@@ -270,11 +270,11 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
       .join('\n\n');
   }
 
-  export function buildPlotSaveContentFromTaskResults_ACU(taskResults) {
+  export function buildPlotSaveContentFromTaskResults_ACU(taskResults: any[]) {
     return buildPlotRawFallbackText_ACU(taskResults);
   }
 
-  export function buildFinalPlotInjectionMessage_ACU(finalSystemDirectiveContent, taskResults, aggregatedTags) {
+  export function buildFinalPlotInjectionMessage_ACU(finalSystemDirectiveContent: string, taskResults: any[], aggregatedTags: Map<string, any>) {
     const defaultDirective = '[SYSTEM_DIRECTIVE: You are a storyteller. The following <plot> block is your absolute script for this turn. You MUST follow the <directive> within it to generate the story.]';
     const baseDirective = String(finalSystemDirectiveContent || '').trim() || defaultDirective;
     const rawFallbackText = buildPlotRawFallbackText_ACU(taskResults);
@@ -298,7 +298,7 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
           return '';
         });
 
-        const unusedTagBlocks = [];
+        const unusedTagBlocks: string[] = [];
         aggregatedTags.forEach((contents, tagName) => {
           if (matchedTags.has(tagName)) return;
           unusedTagBlocks.push(`<${tagName}>${(Array.isArray(contents) ? contents : [contents]).map(content => content ?? '').join('\n\n')}</${tagName}>`);

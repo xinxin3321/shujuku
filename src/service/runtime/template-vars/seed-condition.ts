@@ -20,7 +20,7 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
    * @param plotContent - 最新一层的推进数据（$6），可选
    * @returns 是否匹配
    */
-  export function evaluateSeedExpression_ACU(expression, content, plotContent = '') {
+  export function evaluateSeedExpression_ACU(expression: string, content: string, plotContent: string = '') {
     if (!expression || typeof expression !== 'string') return false;
     if (!content || typeof content !== 'string') return false;
     if (!plotContent || typeof plotContent !== 'string') {
@@ -33,7 +33,7 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
     const combinedContent = content + '\n' + plotContent;
     const lowerContent = combinedContent.toLowerCase();
     
-    const checkKeyword = (keyword) => {
+    const checkKeyword = (keyword: string) => {
       const kw = keyword.trim();
       if (!kw) return false;
       
@@ -46,15 +46,15 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
       return lowerContent.includes(kw.toLowerCase());
     };
     
-    const checkAndGroup = (group) => {
-      const keywords = group.split('&').map(k => k.trim()).filter(k => k);
+    const checkAndGroup = (group: string) => {
+      const keywords = group.split('&').map((k: string) => k.trim()).filter((k: string) => k);
       if (keywords.length === 0) return false;
       return keywords.every(kw => checkKeyword(kw));
     };
     
-    const _parenResults = {};
+    const _parenResults: Record<string, boolean> = {};
     
-    const processExpression = (expr) => {
+    const processExpression = (expr: string): boolean => {
       let processed = expr;
       const parenRegex = /\(([^()]+)\)/g;
       let match;
@@ -68,7 +68,7 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
         idx++;
       }
       
-      const orParts = processed.split(',').map(p => p.trim()).filter(p => p);
+      const orParts = processed.split(',').map((p: string) => p.trim()).filter((p: string) => p);
       
       if (orParts.length > 1) {
         return orParts.some(part => {
@@ -102,7 +102,7 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
   /**
    * 解析单个子条件（seed:、cell:、random:、calc:、max:、min:）
    */
-  function evaluateSubCondition_ACU(subCondition, context) {
+  function evaluateSubCondition_ACU(subCondition: string, context: Record<string, any>) {
     if (!subCondition || typeof subCondition !== 'string') return false;
     
     const trimmed = subCondition.trim();
@@ -154,7 +154,7 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
   }
 
   /** 解析计算变量条件表达式 */
-  function evaluateCalcCondition_ACU(expression) {
+  function evaluateCalcCondition_ACU(expression: string) {
     if (!expression || typeof expression !== 'string') return false;
     
     const expr = normalizeOperators_ACU(expression).trim();
@@ -197,7 +197,7 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
   }
 
   /** 解析最大值变量条件表达式 */
-  function evaluateMaxCondition_ACU(expression) {
+  function evaluateMaxCondition_ACU(expression: string) {
     if (!expression || typeof expression !== 'string') return false;
     
     const expr = normalizeOperators_ACU(expression).trim();
@@ -240,7 +240,7 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
   }
 
   /** 解析最小值变量条件表达式 */
-  function evaluateMinCondition_ACU(expression) {
+  function evaluateMinCondition_ACU(expression: string) {
     if (!expression || typeof expression !== 'string') return false;
     
     const expr = normalizeOperators_ACU(expression).trim();
@@ -283,7 +283,7 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
   }
 
   /** 解析随机数条件表达式 */
-  function evaluateRandomExpression_ACU(expression) {
+  function evaluateRandomExpression_ACU(expression: string) {
     if (!expression || typeof expression !== 'string') return false;
     
     const expr = normalizeOperators_ACU(expression).trim();
@@ -310,7 +310,7 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
       return false;
     }
     
-    let randomValue = null;
+    let randomValue: number | null = null;
     
     const inlineMatch = randomRef.match(/^(\d+)-(\d+)$/);
     if (inlineMatch) {
@@ -341,7 +341,7 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
    * 解析统一条件表达式（支持括号分组、& 和 , 运算符）
    * 运算优先级：括号 > & (AND) > , (OR)
    */
-  export function evaluateCondExpression_ACU(expression, context) {
+  export function evaluateCondExpression_ACU(expression: string, context: Record<string, any>) {
     if (!expression || typeof expression !== 'string') return false;
     
     const expr = expression.trim();
@@ -355,9 +355,9 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
       }
     };
     
-    const parseOrExpr = () => {
+    const parseOrExpr = (): boolean => {
       skipWhitespace();
-      let result = parseAndExpr();
+      let result: boolean = parseAndExpr();
       
       while (pos < expr.length) {
         skipWhitespace();
@@ -374,9 +374,9 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
       return result;
     };
     
-    const parseAndExpr = () => {
+    const parseAndExpr = (): boolean => {
       skipWhitespace();
-      let result = parsePrimary();
+      let result: boolean = parsePrimary();
       
       while (pos < expr.length) {
         skipWhitespace();
@@ -393,7 +393,7 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
       return result;
     };
     
-    const parsePrimary = () => {
+    const parsePrimary = (): boolean => {
       skipWhitespace();
       
       if (pos >= expr.length) return false;
@@ -408,7 +408,7 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
       if (expr[pos] === '(') {
         pos++;
         skipWhitespace();
-        const result = parseOrExpr();
+        const result: boolean = parseOrExpr();
         skipWhitespace();
         if (pos < expr.length && expr[pos] === ')') {
           pos++;
@@ -443,7 +443,7 @@ import { getRandomVariable_ACU, getCalcVariable_ACU, getMaxVariable_ACU, getMinV
    * 2. <if cell="表格名/行名/列名 > 50">内容</if>
    * 3. <if cond="条件表达式">内容</if>
    */
-  export function parseConditionalTemplate_ACU(templateContent, seedContent, allTablesJson, plotContent = '') {
+  export function parseConditionalTemplate_ACU(templateContent: string, seedContent: string, allTablesJson: Record<string, any>, plotContent: string = '') {
     if (!templateContent || typeof templateContent !== 'string') {
       return templateContent || '';
     }

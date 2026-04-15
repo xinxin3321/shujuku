@@ -11,21 +11,9 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
  * service/optimization/content-optimization.ts — 正文优化服务逻辑
  * 从 src/core/02_storage_and_profile.js:630~1325 迁移而来。
  */
-  export function buildDefaultContentOptimizationPromptGroup_ACU({ mainContent = '' } = {}) {
-    const src = DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU;
-    const base = Array.isArray(src) ? JSON.parse(JSON.stringify(src)) : [];
-    
-    // 如果提供了主内容，替换 $CONTENT 占位符
-    if (mainContent) {
-      base.forEach(item => {
-        if (item.content && typeof item.content === 'string') {
-          item.content = item.content.replace(/\$CONTENT/g, mainContent);
-        }
-      });
-    }
-    
-    return base;
-  }
+  // buildDefaultContentOptimizationPromptGroup_ACU 已移至 shared/defaults.ts
+  // 此处 re-export 保持向后兼容
+  export { buildDefaultContentOptimizationPromptGroup_ACU } from '../../shared/defaults';
 
   // --- [正文优化] 核心函数 ---
   
@@ -140,7 +128,7 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
       
      // 替换占位符并转换role为小写（某些API如豆包只接受小写role）
      const messages = JSON.parse(JSON.stringify(promptGroup));
-     messages.forEach(item => {
+     messages.forEach((item: any) => {
        if (item.content && typeof item.content === 'string') {
          // 替换 $CONTENT 占位符
          item.content = item.content.replace(/\$CONTENT/g, content);
@@ -291,9 +279,9 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
   /**
    * 获取正文优化使用的API配置
    */
-  async function getOptimizationApiConfig_ACU(presetName) {
+  async function getOptimizationApiConfig_ACU(presetName: string) {
     if (presetName && settings_ACU.apiPresets) {
-      const preset = settings_ACU.apiPresets.find(p => p.name === presetName);
+      const preset = settings_ACU.apiPresets.find((p: any) => p.name === presetName);
       if (preset) {
         if (preset.apiMode === 'tavern') {
           return {
@@ -323,8 +311,8 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
    * @param {number} maxOptimizations - 最大优化项数
    * @returns {object} { success, optimizations, summary, error }
    */
-  function parseOptimizationResponse_ACU(responseContent, maxOptimizations = 10) {
-    function extractBalancedJsonObject_ACU(text) {
+  function parseOptimizationResponse_ACU(responseContent: string, maxOptimizations = 10) {
+    function extractBalancedJsonObject_ACU(text: string) {
       const start = text.indexOf('{');
       if (start < 0) return '';
 
@@ -364,7 +352,7 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
       return text.slice(start);
     }
 
-    function sanitizeOptimizationJson_ACU(jsonStr) {
+    function sanitizeOptimizationJson_ACU(jsonStr: string) {
       if (!jsonStr) return '';
 
       let sanitized = String(jsonStr)
@@ -386,7 +374,7 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
       return sanitized;
     }
 
-    function normalizeOptimizationItem_ACU(opt) {
+    function normalizeOptimizationItem_ACU(opt: any) {
       if (!opt || typeof opt !== 'object') return null;
 
       const type = typeof opt.type === 'string' ? opt.type.trim() : 'replace';
@@ -407,7 +395,7 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
       };
     }
 
-    function extractStringField_ACU(source, fieldName) {
+    function extractStringField_ACU(source: string, fieldName: string) {
       if (typeof source !== 'string' || !fieldName) return '';
       const fieldPattern = new RegExp(`"${fieldName}"\\s*:\\s*"`);
       const match = fieldPattern.exec(source);
@@ -450,7 +438,7 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
         .replace(/\\\\/g, '\\');
     }
 
-    function salvageOptimizationResponse_ACU(rawText) {
+    function salvageOptimizationResponse_ACU(rawText: string) {
       if (typeof rawText !== 'string' || !rawText.trim()) return null;
 
       const containerText = extractBalancedJsonObject_ACU(rawText) || rawText;
@@ -602,8 +590,8 @@ import { formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getLatest
   
  
   export let contentOptimizationAbortRequested_ACU = false;
-  export let optimizationProgressToast_ACU = null;
-  let lastOptimizedMessageMeta_ACU = null;
+  export let optimizationProgressToast_ACU: any = null;
+  let lastOptimizedMessageMeta_ACU: any = null;
 
   export function setLastOptimizationBase_ACU(payload: any = {}) {
     const cache = {

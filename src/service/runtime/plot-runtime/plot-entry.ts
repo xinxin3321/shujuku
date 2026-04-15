@@ -11,7 +11,7 @@ import { runPlotTasksRuntime_ACU } from './plot-task-engine';
   /**
    * 核心优化逻辑（纯 service 层：读数据→业务决策→写数据→构造返回值）。
    */
-  export async function runOptimizationLogic_ACU(userMessage, options: any = {}) {
+  export async function runOptimizationLogic_ACU(userMessage: any, options: any = {}) {
     const { originalUserInput, hasExistingUserMessage = false } = options;
     const inputForHash = originalUserInput || userMessage;
 

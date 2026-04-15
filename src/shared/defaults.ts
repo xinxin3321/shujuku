@@ -33,3 +33,22 @@ export const defaultWorldbookConfig_ACU = {
   outlineEntryEnabled: true,
   zeroTkOccupyMode: false,
 };
+
+import { DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU } from './defaults-json.js';
+
+/** 构建默认正文优化提示词组（纯数据构造，无运行时依赖） */
+export function buildDefaultContentOptimizationPromptGroup_ACU({ mainContent = '' } = {}) {
+    const src = DEFAULT_CONTENT_OPTIMIZATION_PROMPT_GROUP_ACU;
+    const base = Array.isArray(src) ? JSON.parse(JSON.stringify(src)) : [];
+
+    // 如果提供了主内容，替换 $CONTENT 占位符
+    if (mainContent) {
+        base.forEach((item: any) => {
+            if (item.content && typeof item.content === 'string') {
+                item.content = item.content.replace(/\$CONTENT/g, mainContent);
+            }
+        });
+    }
+
+    return base;
+}

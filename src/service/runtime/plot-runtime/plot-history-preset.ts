@@ -116,7 +116,7 @@ import { applyPlotPresetToSettings_ACU, clearPlotPresetBindingForChat_ACU, ensur
 
   // ═══ 历史记录读写 ═══
 
-  function findPlotHistoryAnchorIndex_ACU(chat, options: any = {}) {
+  function findPlotHistoryAnchorIndex_ACU(chat: any[], options: any = {}) {
     if (!Array.isArray(chat) || chat.length === 0) return -1;
     const beforeUserInputHash = String(options?.beforeUserInputHash || '').trim();
     const beforeUserInputText = String(options?.beforeUserInputText || '');
@@ -140,7 +140,7 @@ import { applyPlotPresetToSettings_ACU, clearPlotPresetBindingForChat_ACU, ensur
     return -1;
   }
 
-  function getPlotHistorySearchUpperBound_ACU(chat, options: any = {}) {
+  function getPlotHistorySearchUpperBound_ACU(chat: any[], options: any = {}) {
     if (!Array.isArray(chat) || chat.length === 0) return -1;
 
     if (Number.isFinite(options?.beforeIndex)) {

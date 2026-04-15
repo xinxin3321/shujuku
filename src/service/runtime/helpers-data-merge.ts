@@ -45,8 +45,8 @@ import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStand
       logDebug_ACU(`[Merge] Template/Guide filter: ${templateSheetKeys.length} tables allowed (${hasSheetGuide ? 'guide' : 'template'})`);
 
       // 1. [优化] 不使用模板作为基础，动态收集聊天记录中的所有实际数据
-      let mergedData = {};
-      const foundSheets = {};
+      let mergedData: Record<string, any> = {};
+      const foundSheets: Record<string, boolean> = {};
 
       for (let i = chat.length - 1; i >= 0; i--) {
           const message = chat[i];
@@ -269,8 +269,8 @@ import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStand
 
   // [重构] 刷新合并数据并通知前端和更新世界书
 
-  export function formatJsonToReadable_ACU(jsonData) {
-    if (!jsonData) return { readableText: "数据库为空。", importantPersonsTable: null, summaryTable: null, outlineTable: null };
+  export function formatJsonToReadable_ACU(jsonData: Record<string, any> | null) {
+    if (!jsonData) return { readableText: "数据库为空。", importantPersonsTable: null as any, summaryTable: null as any, outlineTable: null as any };
 
     let readableText = '';
     let importantPersonsTable = null;
@@ -280,7 +280,7 @@ import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStand
 
     const tableIndexes = getSortedSheetKeys_ACU(jsonData);
     
-    tableIndexes.forEach((sheetKey, tableIndex) => {
+    tableIndexes.forEach((sheetKey: string, tableIndex: number) => {
         const table = jsonData[sheetKey];
         if (!table || !table.name || !table.content) return;
 
@@ -314,7 +314,7 @@ import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStand
         
         const rows = table.content.slice(1);
         if (rows.length > 0) {
-            rows.forEach(row => {
+            rows.forEach((row: any[]) => {
                 const rowData = row.slice(1);
                 readableText += `| ${rowData.join(' | ')} |\n`;
             });
@@ -332,7 +332,7 @@ import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStand
   // =========================
   const GREETING_LOCAL_BASE_STATE_MARKER_ACU = 'ACU_TEMPLATE_BASE_STATE_LOCAL_V1';
 
-  function isNewChatGreetingStage_ACU(chat) {
+  function isNewChatGreetingStage_ACU(chat: any[]) {
       if (!Array.isArray(chat) || chat.length === 0) return false;
       const hasAnyUserMessage = chat.some(m => m && m.is_user);
       if (hasAnyUserMessage) return false;
@@ -341,7 +341,7 @@ import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStand
   }
 
   // [健全性] 你要求的监视点：任何"仅单一AI楼层、没有任何User回复"的聊天记录，都不进行世界书注入
-  function isSingleAiNoUserChat_ACU(chat) {
+  function isSingleAiNoUserChat_ACU(chat: any[]) {
       if (!Array.isArray(chat) || chat.length === 0) return false;
       const userCount = chat.filter(m => m && m.is_user).length;
       const aiCount = chat.filter(m => m && !m.is_user).length;
@@ -365,9 +365,9 @@ import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStand
       }
   }
 
-  function buildTemplateBaseStateDataForLocalStorage_ACU(templateObj) {
+  function buildTemplateBaseStateDataForLocalStorage_ACU(templateObj: Record<string, any> | null) {
       if (!templateObj || typeof templateObj !== 'object') return null;
-      const out = { mate: { type: 'chatSheets', version: 1 } };
+      const out: Record<string, any> = { mate: { type: 'chatSheets', version: 1 } };
       const sheetKeys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
       if (sheetKeys.length === 0) return null;
       sheetKeys.forEach(k => {
@@ -402,7 +402,7 @@ import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStand
           const tagData = initIsolatedTagSlot_ACU(greetingMsg, isolationKey);
 
           // 写入 independentData（只写 sheet_，不强制 modifiedKeys）
-          const indep = {};
+          const indep: Record<string, any> = {};
           Object.keys(baseData).forEach(k => {
               if (!k.startsWith('sheet_')) return;
               indep[k] = JSON.parse(JSON.stringify(baseData[k]));
@@ -445,7 +445,7 @@ import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStand
 
   // [新增] 直接将模板数据填充到第一楼的实际表格数据
   // 用于 initGameSession 场景，确保模板中的所有表格数据（包括种子数据）都被写入第一楼
-  export async function fillFirstLayerWithTemplateData_ACU(templateObj, { reason = 'game_init', presetName = '', source = 'game_init', registerPreset = true } = {}) {
+  export async function fillFirstLayerWithTemplateData_ACU(templateObj: Record<string, any>, { reason = 'game_init', presetName = '', source = 'game_init', registerPreset = true } = {}) {
       try {
           const chat = getChatArray_ACU();
           if (!chat || !Array.isArray(chat) || chat.length === 0) {
@@ -483,7 +483,7 @@ import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStand
           }
 
           // 构建完整的表格数据（包含所有种子数据）
-          const fullData = { mate: { type: 'chatSheets', version: 1 } };
+          const fullData: Record<string, any> = { mate: { type: 'chatSheets', version: 1 } };
           sheetKeys.forEach(k => {
               fullData[k] = JSON.parse(JSON.stringify(templateObj[k]));
           });
@@ -494,7 +494,7 @@ import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStand
           const tagData = initIsolatedTagSlot_ACU(firstMsg, isolationKey);
 
           // 写入 independentData（包含所有表格的完整数据）
-          const indep = {};
+          const indep: Record<string, any> = {};
           sheetKeys.forEach(k => {
               indep[k] = JSON.parse(JSON.stringify(fullData[k]));
           });
@@ -532,7 +532,7 @@ import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStand
       }
   }
 
-  function parseReadableToJson_ACU(text) {
+  function parseReadableToJson_ACU(text: string) {
     if (!currentJsonTableData_ACU) {
         logError_ACU("Parsing failed: currentJsonTableData_ACU is not available.");
         return null;
@@ -543,7 +543,7 @@ import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStand
         const newJsonData = JSON.parse(JSON.stringify(currentJsonTableData_ACU)); 
         const tablesText = text.trim().split('# ').slice(1);
 
-        const parsedSheetContents = {};
+        const parsedSheetContents: Record<string, any[][]> = {};
 
         for (const tableText of tablesText) {
             const lines = tableText.trim().split('\n');

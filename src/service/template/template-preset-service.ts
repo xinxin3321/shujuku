@@ -36,7 +36,7 @@ function loadTemplatePresetsStore_ACU() {
     return out;
 }
 
-function saveTemplatePresetsStore_ACU(obj) {
+function saveTemplatePresetsStore_ACU(obj: any) {
     try {
         const store = getConfigStorage_ACU();
         store?.setItem?.(STORAGE_KEY_TEMPLATE_PRESETS_ACU, safeJsonStringify_ACU(obj, '{}'));
@@ -54,13 +54,13 @@ export function listTemplatePresetNames_ACU() {
     return Object.keys(s.presets || {}).sort((a, b) => String(a).localeCompare(String(b)));
 }
 
-export function getTemplatePreset_ACU(name) {
+export function getTemplatePreset_ACU(name: string) {
     const s = loadTemplatePresetsStore_ACU();
     const p = s?.presets?.[String(name || '')];
     return p && typeof p === 'object' ? p : null;
 }
 
-export function upsertTemplatePreset_ACU(nameRaw, templateStr) {
+export function upsertTemplatePreset_ACU(nameRaw: string, templateStr: string) {
     const name = String(nameRaw || '').trim();
     if (!name) return false;
     const s = loadTemplatePresetsStore_ACU();
@@ -69,7 +69,7 @@ export function upsertTemplatePreset_ACU(nameRaw, templateStr) {
     return saveTemplatePresetsStore_ACU(s);
 }
 
-export function deleteTemplatePreset_ACU(nameRaw) {
+export function deleteTemplatePreset_ACU(nameRaw: string) {
     const name = String(nameRaw || '').trim();
     if (!name) return false;
     const s = loadTemplatePresetsStore_ACU();
@@ -81,7 +81,7 @@ export function deleteTemplatePreset_ACU(nameRaw) {
 
 // ═══ 纯逻辑工具函数 ═══
 
-export function getTemplatePresetDisplayName_ACU(presetName) {
+export function getTemplatePresetDisplayName_ACU(presetName: string) {
     const normalizedName = normalizeTemplatePresetSelectionValue_ACU(presetName);
     return normalizedName || '默认预设';
 }
@@ -112,7 +112,7 @@ export function getActiveTemplatePresetMeta_ACU({ isolationKey = getCurrentIsola
     };
 }
 
-export function ensureUniqueTemplatePresetName_ACU(baseNameRaw) {
+export function ensureUniqueTemplatePresetName_ACU(baseNameRaw: string) {
     const baseName = String(baseNameRaw || '').trim();
     if (!baseName) return '';
     const names = new Set(listTemplatePresetNames_ACU().map(n => String(n)));
@@ -124,7 +124,7 @@ export function ensureUniqueTemplatePresetName_ACU(baseNameRaw) {
     return `${baseName} (${Date.now()})`;
 }
 
-export function normalizeTemplateOperationScope_ACU(scope) {
+export function normalizeTemplateOperationScope_ACU(scope: string) {
     return scope === 'chat' ? 'chat' : 'global';
 }
 
@@ -161,7 +161,7 @@ export function getDefaultTemplateSnapshot_ACU() {
     return snapshot || sanitizeTemplateSnapshotForChat_ACU(previousTemplate);
 }
 
-export function parseImportedTemplateData_ACU(templateData) {
+export function parseImportedTemplateData_ACU(templateData: any) {
     let jsonData;
 
     if (typeof templateData === 'string') {
@@ -225,7 +225,10 @@ export function parseImportedTemplateData_ACU(templateData) {
 
 // ═══ 模板作用域持久化（纯数据操作） ═══
 
-export function persistTemplateScopeSelectionState_ACU(presetName, { source = 'ui', updateGlobal = false, save = true, persistChatScope = !updateGlobal, templateSource = TABLE_TEMPLATE_ACU, guideData = null, archivePreviousChatScope = false, scopeMode = persistChatScope ? 'chat_override' : 'inherit_global', registerChatPresetEntry = !updateGlobal && !!persistChatScope && normalizeTemplateScopeMode_ACU(scopeMode) === 'chat_override' } = {}) {
+export function persistTemplateScopeSelectionState_ACU(presetName: string, { source = 'ui', updateGlobal = false, save = true, persistChatScope = undefined as boolean | undefined, templateSource = TABLE_TEMPLATE_ACU, guideData = null as any, archivePreviousChatScope = false, scopeMode = undefined as string | undefined, registerChatPresetEntry = undefined as boolean | undefined } = {}) {
+    const _persistChatScope = persistChatScope ?? !updateGlobal;
+    const _scopeMode = scopeMode ?? (_persistChatScope ? 'chat_override' : 'inherit_global');
+    const _registerChatPresetEntry = registerChatPresetEntry ?? (!updateGlobal && !!_persistChatScope && normalizeTemplateScopeMode_ACU(_scopeMode) === 'chat_override');
     void archivePreviousChatScope;
     const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
     let shouldSaveSettings = false;
@@ -234,9 +237,9 @@ export function persistTemplateScopeSelectionState_ACU(presetName, { source = 'u
     if (updateGlobal) {
         persistCurrentTemplatePresetName_ACU(settings_ACU, normalizedPresetName, { save: false });
         shouldSaveSettings = true;
-    } else if (persistChatScope) {
+    } else if (_persistChatScope) {
         const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(getCurrentIsolationKey_ACU());
-        const normalizedScopeMode = normalizeTemplateScopeMode_ACU(scopeMode);
+        const normalizedScopeMode = normalizeTemplateScopeMode_ACU(_scopeMode);
         let templateState = null;
 
         if (normalizedScopeMode === 'chat_override') {
@@ -268,7 +271,7 @@ export function persistTemplateScopeSelectionState_ACU(presetName, { source = 'u
                 isolationKey: normalizedKey,
                 reason: `template_scope_${source}`,
             });
-            if (normalizedScopeMode === 'chat_override' && registerChatPresetEntry) {
+            if (normalizedScopeMode === 'chat_override' && _registerChatPresetEntry) {
                 try {
                     upsertChatTemplatePresetEntry_ACU(templateState, { isolationKey: normalizedKey });
                 } catch (e) {}
@@ -296,7 +299,7 @@ export function persistTemplateScopeSelectionState_ACU(presetName, { source = 'u
 
 // ═══ 模板应用（纯业务逻辑，不做 UI 刷新） ═══
 
-export async function applyTemplateSnapshotToScope_ACU(templateSource, { scope = 'global', source = 'ui', presetName = '', save = true, persistChatScope = null, registerChatPresetEntry = null } = {}) {
+export async function applyTemplateSnapshotToScope_ACU(templateSource: any, { scope = 'global', source = 'ui', presetName = '', save = true, persistChatScope = null as boolean | null, registerChatPresetEntry = null as boolean | null } = {}) {
     const normalizedScope = normalizeTemplateOperationScope_ACU(scope);
     const snapshot = sanitizeTemplateSnapshotForChat_ACU(templateSource);
     if (!snapshot?.templateStr || !snapshot?.templateObj) return false;
@@ -334,7 +337,8 @@ export async function applyTemplateSnapshotToScope_ACU(templateSource, { scope =
     };
 }
 
-export async function applyTemplatePresetToCurrent_ACU(presetName, { source = 'ui', updateGlobal = true, save = true, persistChatScope = !updateGlobal } = {}) {
+export async function applyTemplatePresetToCurrent_ACU(presetName: string, { source = 'ui', updateGlobal = true, save = true, persistChatScope = undefined as boolean | undefined } = {}) {
+    const _persistChatScope = persistChatScope ?? !updateGlobal;
     const name = normalizeTemplatePresetSelectionValue_ACU(presetName);
     const isDefaultPreset = isDefaultTemplatePresetSelection_ACU(name);
 
@@ -362,7 +366,7 @@ export async function applyTemplatePresetToCurrent_ACU(presetName, { source = 'u
         source,
         presetName: name,
         save,
-        persistChatScope,
+        persistChatScope: _persistChatScope,
     });
     if (!applied) return false;
 

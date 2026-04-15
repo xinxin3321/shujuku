@@ -19,7 +19,7 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
         getPlotPresets: function() {
             try {
                 const presets = settings_ACU.plotSettings?.promptPresets || [];
-                return presets.map(p => normalizePlotPresetExcludeRules_ACU(p));
+                return presets.map((p: any) => normalizePlotPresetExcludeRules_ACU(p));
             } catch (e) {
                 logError_ACU('getPlotPresets failed:', e);
                 return [];
@@ -35,7 +35,7 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
             }
         },
 
-        switchPlotPreset: function(presetName) {
+        switchPlotPreset: function(presetName: any) {
             try {
                 if (presetName === undefined || presetName === null) {
                     logError_ACU('switchPlotPreset: Invalid preset name provided.');
@@ -60,7 +60,7 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
             }
         },
 
-        injectPlotPresetToCurrentChat: function(presetName) {
+        injectPlotPresetToCurrentChat: function(presetName: any) {
             try {
                 if (presetName === undefined || presetName === null) {
                     logError_ACU('injectPlotPresetToCurrentChat: Invalid preset name provided.');
@@ -85,13 +85,13 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
             }
         },
 
-        getPlotPresetDetails: function(presetName) {
+        getPlotPresetDetails: function(presetName: any) {
             try {
                 if (!presetName || typeof presetName !== 'string') {
                     return null;
                 }
                 const presets = settings_ACU.plotSettings?.promptPresets || [];
-                const preset = presets.find(p => p.name === presetName);
+                const preset = presets.find((p: any) => p.name === presetName);
                 return preset ? normalizePlotPresetExcludeRules_ACU(preset) : null;
             } catch (e) {
                 logError_ACU('getPlotPresetDetails failed:', e);
@@ -102,14 +102,14 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
         getPlotPresetNames: function() {
             try {
                 const presets = settings_ACU.plotSettings?.promptPresets || [];
-                return presets.map(p => p.name);
+                return presets.map((p: any) => p.name);
             } catch (e) {
                 logError_ACU('getPlotPresetNames failed:', e);
                 return [];
             }
         },
 
-        importPlotPresetFromData: async function(presetData, options: any = {}) {
+        importPlotPresetFromData: async function(presetData: any, options: any = {}) {
             try {
                 const { overwrite = false, switchTo = false } = options;
                 let preset;
@@ -132,7 +132,7 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
 
                 const presetName = preset.name.trim();
                 const presets = settings_ACU.plotSettings?.promptPresets || [];
-                const existingIndex = presets.findIndex(p => p.name === presetName);
+                const existingIndex = presets.findIndex((p: any) => p.name === presetName);
                 const normalizedPreset = normalizePlotPresetExcludeRules_ACU(preset);
                 normalizedPreset.name = presetName;
 
@@ -144,7 +144,7 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
                         logDebug_ACU(`[API] importPlotPresetFromData: 覆盖已存在的预设 "${presetName}"`);
                     } else {
                         let counter = 1;
-                        while (presets.some(p => p.name === finalName)) {
+                        while (presets.some((p: any) => p.name === finalName)) {
                             finalName = `${presetName} (${counter})`;
                             counter++;
                         }
@@ -179,7 +179,7 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
             }
         },
 
-        importPlotPresetsFromData: async function(presetsArray, options: any = {}) {
+        importPlotPresetsFromData: async function(presetsArray: any[], options: any = {}) {
             try {
                 if (!Array.isArray(presetsArray)) {
                     return { success: false, message: '输入必须是数组', imported: 0, failed: 0, details: [] };
@@ -216,7 +216,7 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
         exportAllPlotPresets: function() {
             try {
                 const presets = settings_ACU.plotSettings?.promptPresets || [];
-                return presets.map(p => normalizePlotPresetExcludeRules_ACU(p));
+                return presets.map((p: any) => normalizePlotPresetExcludeRules_ACU(p));
             } catch (e) {
                 logError_ACU('exportAllPlotPresets failed:', e);
                 return [];
@@ -227,7 +227,7 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
         // 游戏初始化 API
         // =========================
 
-        initGameSession: async function(characterData, options: any = {}) {
+        initGameSession: async function(characterData: any, options: any = {}) {
             const result = {
                 success: false,
                 templateInjected: false,

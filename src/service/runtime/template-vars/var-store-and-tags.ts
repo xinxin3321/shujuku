@@ -6,10 +6,10 @@
 import { logDebug_ACU, logWarn_ACU } from '../../../shared/utils';
 import { getCellValue_ACU } from './cell-utils';
 
-  let randomVariables_ACU = {};
-  let calcVariables_ACU = {};
-  let maxVariables_ACU = {};
-  let minVariables_ACU = {};
+  let randomVariables_ACU: Record<string, any> = {};
+  let calcVariables_ACU: Record<string, any> = {};
+  let maxVariables_ACU: Record<string, any> = {};
+  let minVariables_ACU: Record<string, any> = {};
 
   /** 获取模板变量存储的当前快照（供 plot-runtime 跨模块读取） */
   export function getTemplateVariableStores_ACU() {
@@ -35,7 +35,7 @@ import { getCellValue_ACU } from './cell-utils';
    * - <random min="1" max="100" /> - 生成随机数并替换标签
    * - <random id="dice" min="1" max="6" /> - 生成随机数并存储为变量
    */
-  export function parseRandomTags_ACU(content) {
+  export function parseRandomTags_ACU(content: string) {
     if (!content || typeof content !== 'string') {
       return content || '';
     }
@@ -85,7 +85,7 @@ import { getCellValue_ACU } from './cell-utils';
   /**
    * 替换随机数变量引用 $random:id
    */
-  export function replaceRandomVariables_ACU(content) {
+  export function replaceRandomVariables_ACU(content: string) {
     if (!content || typeof content !== 'string') {
       return content || '';
     }
@@ -102,7 +102,7 @@ import { getCellValue_ACU } from './cell-utils';
   /**
    * 获取随机数变量值（用于条件判断）
    */
-  export function getRandomVariable_ACU(id) {
+  export function getRandomVariable_ACU(id: string) {
     if (randomVariables_ACU.hasOwnProperty(id)) {
       return randomVariables_ACU[id];
     }
@@ -117,9 +117,9 @@ import { getCellValue_ACU } from './cell-utils';
    * 解析表达式中的变量引用，返回数值
    * 支持：cell:表名/行名/列名、$random:id、$calc:id、$max:id、$min:id
    */
-  export function parseCalcExpressionValue_ACU(expr, context) {
+  export function parseCalcExpressionValue_ACU(expr: string, context: Record<string, any>) {
     if (!expr || typeof expr !== 'string') {
-      return { success: false, value: null, error: '表达式为空' };
+      return { success: false, value: null as number | null, error: '表达式为空' };
     }
 
     const trimmed = expr.trim();
@@ -134,7 +134,7 @@ import { getCellValue_ACU } from './cell-utils';
       if (parts.length !== 3) {
         return { success: false, value: null, error: `cell 路径格式错误: ${cellPath}` };
       }
-      const [tableName, rowName, colName] = parts.map(p => p.trim());
+    const [tableName, rowName, colName] = parts.map((p: string) => p.trim());
       const cellValue: any = getCellValue_ACU(tableName, rowName, colName, context.allTablesJson);
       if (cellValue === null || cellValue === undefined || cellValue === '') {
         return { success: false, value: null, error: `cell 值不存在: ${cellPath}` };
@@ -153,9 +153,8 @@ import { getCellValue_ACU } from './cell-utils';
       if (randomValue === null) {
         return { success: false, value: null, error: `随机数变量不存在: ${randomId}` };
       }
-      return { success: true, value: randomValue, error: null };
+      return { success: true, value: randomValue, error: null as string | null };
     }
-
     const calcMatch = trimmed.match(/^\$calc:([a-zA-Z_][a-zA-Z0-9_]*)$/i);
     if (calcMatch) {
       const calcId = calcMatch[1];
@@ -189,9 +188,9 @@ import { getCellValue_ACU } from './cell-utils';
   /**
    * 计算表达式（支持四则运算和括号）
    */
-  function evaluateCalcExpression_ACU(expr, context) {
+  function evaluateCalcExpression_ACU(expr: string, context: Record<string, any>) {
     if (!expr || typeof expr !== 'string') {
-      return { success: false, value: null, error: '表达式为空' };
+      return { success: false, value: null as number | null, error: '表达式为空' };
     }
 
     let processedExpr = expr.trim();
@@ -201,7 +200,7 @@ import { getCellValue_ACU } from './cell-utils';
       if (parts.length !== 3) {
         return 'NaN';
       }
-      const [tableName, rowName, colName] = parts.map(p => p.trim());
+    const [tableName, rowName, colName] = parts.map((p: string) => p.trim());
       const cellValue: any = getCellValue_ACU(tableName, rowName, colName, context.allTablesJson);
       if (cellValue === null || cellValue === undefined || cellValue === '') {
         return 'NaN';
@@ -265,7 +264,7 @@ import { getCellValue_ACU } from './cell-utils';
   /**
    * 解析计算变量标签 <calc id="xxx" expr="表达式" />
    */
-  export function parseCalcTags_ACU(content, context) {
+  export function parseCalcTags_ACU(content: string, context: Record<string, any>) {
     if (!content || typeof content !== 'string') {
       return content || '';
     }
@@ -302,7 +301,7 @@ import { getCellValue_ACU } from './cell-utils';
   /**
    * 解析最大值变量标签 <max id="xxx" values="值1, 值2, ..." />
    */
-  export function parseMaxTags_ACU(content, context) {
+  export function parseMaxTags_ACU(content: string, context: Record<string, any>) {
     if (!content || typeof content !== 'string') {
       return content || '';
     }
@@ -323,7 +322,7 @@ import { getCellValue_ACU } from './cell-utils';
       const id = idMatch[1].trim();
       const valuesStr = valuesMatch[1].trim();
 
-      const valueExprs = valuesStr.split(',').map(v => v.trim()).filter(v => v);
+      const valueExprs = valuesStr.split(',').map((v: string) => v.trim()).filter((v: string) => v);
       if (valueExprs.length === 0) {
         logWarn_ACU('[最大值变量] 值列表为空:', id);
         return match;
@@ -349,7 +348,7 @@ import { getCellValue_ACU } from './cell-utils';
   /**
    * 解析最小值变量标签 <min id="xxx" values="值1, 值2, ..." />
    */
-  export function parseMinTags_ACU(content, context) {
+  export function parseMinTags_ACU(content: string, context: Record<string, any>) {
     if (!content || typeof content !== 'string') {
       return content || '';
     }
@@ -370,7 +369,7 @@ import { getCellValue_ACU } from './cell-utils';
       const id = idMatch[1].trim();
       const valuesStr = valuesMatch[1].trim();
 
-      const valueExprs = valuesStr.split(',').map(v => v.trim()).filter(v => v);
+      const valueExprs = valuesStr.split(',').map((v: string) => v.trim()).filter((v: string) => v);
       if (valueExprs.length === 0) {
         logWarn_ACU('[最小值变量] 值列表为空:', id);
         return match;
@@ -394,7 +393,7 @@ import { getCellValue_ACU } from './cell-utils';
   }
 
   /** 替换计算变量引用 $calc:id */
-  export function replaceCalcVariables_ACU(content) {
+  export function replaceCalcVariables_ACU(content: string) {
     if (!content || typeof content !== 'string') {
       return content || '';
     }
@@ -409,7 +408,7 @@ import { getCellValue_ACU } from './cell-utils';
   }
 
   /** 替换最大值变量引用 $max:id */
-  export function replaceMaxVariables_ACU(content) {
+  export function replaceMaxVariables_ACU(content: string) {
     if (!content || typeof content !== 'string') {
       return content || '';
     }
@@ -424,7 +423,7 @@ import { getCellValue_ACU } from './cell-utils';
   }
 
   /** 替换最小值变量引用 $min:id */
-  export function replaceMinVariables_ACU(content) {
+  export function replaceMinVariables_ACU(content: string) {
     if (!content || typeof content !== 'string') {
       return content || '';
     }
@@ -439,7 +438,7 @@ import { getCellValue_ACU } from './cell-utils';
   }
 
   /** 获取计算变量值（用于条件判断） */
-  export function getCalcVariable_ACU(id) {
+  export function getCalcVariable_ACU(id: string) {
     if (calcVariables_ACU.hasOwnProperty(id)) {
       return calcVariables_ACU[id];
     }
@@ -447,7 +446,7 @@ import { getCellValue_ACU } from './cell-utils';
   }
 
   /** 获取最大值变量值（用于条件判断） */
-  export function getMaxVariable_ACU(id) {
+  export function getMaxVariable_ACU(id: string) {
     if (maxVariables_ACU.hasOwnProperty(id)) {
       return maxVariables_ACU[id];
     }
@@ -455,7 +454,7 @@ import { getCellValue_ACU } from './cell-utils';
   }
 
   /** 获取最小值变量值（用于条件判断） */
-  export function getMinVariable_ACU(id) {
+  export function getMinVariable_ACU(id: string) {
     if (minVariables_ACU.hasOwnProperty(id)) {
       return minVariables_ACU[id];
     }

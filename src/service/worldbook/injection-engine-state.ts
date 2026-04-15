@@ -2,7 +2,7 @@
  * service/worldbook/injection-engine-state.ts — 状态重置、目标获取、隔离前缀、条目清理、聊天历史清理
  * 从 injection-engine.ts 拆出
  */
-import { getCurrentWorldbookConfig_ACU } from '../settings/settings-service';
+import { getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
 import { CHAT_SHEET_GUIDE_FIELD_ACU } from '../../data/storage/chat-history';
 import { currentChatFileIdentifier_ACU, currentJsonTableData_ACU, settings_ACU, _set_currentChatFileIdentifier_ACU, _set_allChatMessages_ACU, _set_lastTotalAiMessages_ACU } from '../runtime/state-manager';
 import { getLorebookEntries_ACU, deleteLorebookEntries_ACU, getCurrentCharPrimaryLorebook_ACU as gwGetCurrentCharPrimaryLorebook_ACU } from '../../data/gateways/worldbook-gateway';
@@ -39,7 +39,7 @@ import { purgeSheetKeysFromMessage_ACU } from '../../data/repositories/chat-mess
       }
   }
 
-  export async function resetScriptStateForNewChat_ACU(chatFileName) {
+  export async function resetScriptStateForNewChat_ACU(chatFileName: string) {
     // 修复：当增量更新失败时，chatFileName 可能会暂时变为 null。
     // 之前的逻辑会清除数据库状态，导致"初始化失败"的错误。
     // 新逻辑：如果收到的 chatFileName 无效，则记录一个警告并忽略此事件，
@@ -103,7 +103,7 @@ import { purgeSheetKeysFromMessage_ACU } from '../../data/repositories/chat-mess
       return '';
   }
 
-  async function deleteAllGeneratedEntries_ACU(targetLorebook = null) {
+  async function deleteAllGeneratedEntries_ACU(targetLorebook: string | null = null) {
     const primaryLorebookName = targetLorebook || (await getInjectionTargetLorebook_ACU());
     if (!primaryLorebookName) return;
 
@@ -205,9 +205,9 @@ import { purgeSheetKeysFromMessage_ACU } from '../../data/repositories/chat-mess
             // 注意：如果是"新聊天"，我们其实是重置。
             if (settings_ACU.knownCustomEntryNames) {
                 if (settings_ACU.dataIsolationEnabled) {
-                    settings_ACU.knownCustomEntryNames = settings_ACU.knownCustomEntryNames.filter(n => !n.startsWith(isolationPrefix));
+                    settings_ACU.knownCustomEntryNames = settings_ACU.knownCustomEntryNames.filter((n: string) => !n.startsWith(isolationPrefix));
                 } else {
-                    settings_ACU.knownCustomEntryNames = settings_ACU.knownCustomEntryNames.filter(n => n.startsWith('ACU-[')); // 只保留隔离的
+                    settings_ACU.knownCustomEntryNames = settings_ACU.knownCustomEntryNames.filter((n: string) => n.startsWith('ACU-[')); // 只保留隔离的
                 }
                 saveSettings_ACU();
             }
@@ -221,7 +221,7 @@ import { purgeSheetKeysFromMessage_ACU } from '../../data/repositories/chat-mess
   // [可视化删表-硬删除] 追溯整个聊天记录，删除指定 sheetKey 的所有本地表格数据（新版+旧版）
   // 设计目标：即使后续有"按原楼层写回"的流程，也不会把旧表复活
   // =========================
-  export async function purgeSheetKeysFromChatHistoryHard_ACU(sheetKeysToPurge) {
+  export async function purgeSheetKeysFromChatHistoryHard_ACU(sheetKeysToPurge: string[]) {
       const keys = Array.isArray(sheetKeysToPurge)
           ? [...new Set(sheetKeysToPurge.filter(k => typeof k === 'string' && k.startsWith('sheet_')))]
           : [];
@@ -230,10 +230,10 @@ import { purgeSheetKeysFromMessage_ACU } from '../../data/repositories/chat-mess
       const chat = getChatArray_ACU();
       if (!Array.isArray(chat) || chat.length === 0) return { changed: false, changedCount: 0 };
 
-      const safeClone = (obj) => {
+      const safeClone = (obj: any) => {
           try { return JSON.parse(JSON.stringify(obj)); } catch (e) { return obj; }
       };
-      const parseMaybeJson = (v) => {
+      const parseMaybeJson = (v: any) => {
           if (!v) return null;
           if (typeof v === 'string') {
               try { return JSON.parse(v); } catch (e) { return null; }

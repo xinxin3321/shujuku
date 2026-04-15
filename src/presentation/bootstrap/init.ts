@@ -43,7 +43,7 @@ function installSendIntentCaptureHooks_ACU() {
 
     const ta = doc.getElementById('send_textarea');
     if (ta && !(window as any).__ACU_sendIntentHooksInstalled.enter) {
-      ta.addEventListener('keydown', (e) => {
+      ta.addEventListener('keydown', (e: Event) => {
         try {
           const key = (e as KeyboardEvent).key || (e as KeyboardEvent).code;
           if ((key === 'Enter' || key === 'NumpadEnter') && !(e as KeyboardEvent).shiftKey) {
@@ -103,7 +103,7 @@ export   function mainInitialize_ACU() {
           }
         }
         
-        SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.CHAT_CHANGED, async chatFileName => {
+        SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.CHAT_CHANGED, async (chatFileName: string) => {
           logDebug_ACU(`ACU CHAT_CHANGED event: ${chatFileName}`);
           await resetScriptStateForNewChat_ACU(chatFileName);
 
@@ -128,7 +128,7 @@ export   function mainInitialize_ACU() {
           if (!(window as any).original_TavernHelper_generate_ACU) {
             if ((window as any).TavernHelper && typeof (window as any).TavernHelper.generate === 'function') {
               (window as any).original_TavernHelper_generate_ACU = (window as any).TavernHelper.generate;
-              (window as any).TavernHelper.generate = async function (...args) {
+              (window as any).TavernHelper.generate = async function (...args: any[]) {
                 const options = args[0] || {};
 
                 // 注意：TavernHelper.generate 常用于脚本/插件直接触发，这里不依赖“发送意图”，只过滤 quiet/automatic_trigger。
@@ -159,14 +159,14 @@ export   function mainInitialize_ACU() {
                       });
 
                       // 去重互斥：若本次被判定为重复触发，则不改写 prompt，继续走原始生成
-                      if (finalMessage && finalMessage.skipped) {
+                      if (finalMessage && (finalMessage as any).skipped) {
                         logDebug_ACU('[剧情推进] Planning skipped in TavernHelper.generate hook (duplicate).');
                         _set_isProcessing_Plot_ACU(false);
                         return await (window as any).original_TavernHelper_generate_ACU.apply(this, args);
                       }
 
                       // 检查是否被中止
-                      if (finalMessage && finalMessage.aborted) {
+                      if (finalMessage && (finalMessage as any).aborted) {
                         logDebug_ACU('[剧情推进] Generation aborted by user.');
                         // 中止剧情规划不应中断酒馆的正常生成流程：直接走原始生成（不改写prompt）
                         _set_isProcessing_Plot_ACU(false);
@@ -243,7 +243,7 @@ export   function mainInitialize_ACU() {
 
         // [触发门控] 记录“用户真实发送”的消息ID，用于剧情推进触发判定
         if (SillyTavern_API_ACU.eventTypes.MESSAGE_SENT) {
-          SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.MESSAGE_SENT, (messageId) => {
+          SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.MESSAGE_SENT, (messageId: any) => {
             try {
               recordLastUserSend_ACU(messageId);
             } catch (e) {}
@@ -255,14 +255,14 @@ export   function mainInitialize_ACU() {
 
         // [触发门控] 记录最近一次生成的上下文（用于过滤 quiet/后台生成导致的误触发）
         if (SillyTavern_API_ACU.eventTypes.GENERATION_STARTED) {
-          SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_STARTED, (type, params, dryRun) => {
+          SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_STARTED, (type: any, params: any, dryRun: any) => {
             try {
               recordGenerationContext_ACU(type, params, dryRun);
             } catch (e) {}
           });
         }
         if (SillyTavern_API_ACU.eventTypes.GENERATION_ENDED) {
-            SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_ENDED, (message_id) => {
+            SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_ENDED, (message_id: any) => {
                 logDebug_ACU(`ACU GENERATION_ENDED event for message_id: ${message_id}`);
                 if (shouldProcessAutoTableUpdateForGenerationEnded_ACU()) {
                   handleNewMessageDebounced_ACU('GENERATION_ENDED');
@@ -278,7 +278,7 @@ export   function mainInitialize_ACU() {
 
         // [剧情推进] 拦截用户输入进行剧情规划
         if (SillyTavern_API_ACU.eventTypes.GENERATION_AFTER_COMMANDS) {
-          SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_AFTER_COMMANDS, async (type, params, dryRun) => {
+          SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.GENERATION_AFTER_COMMANDS, async (type: any, params: any, dryRun: any) => {
             // 如果消息已被TavernHelper钩子处理，则跳过
             if (params?._qrf_processed_by_hook) {
               return;
@@ -294,11 +294,11 @@ export   function mainInitialize_ACU() {
 
             // [去重] 若同一文本刚被 TavernHelper.generate 钩子处理过，则跳过本事件处理，避免重复规划/重复 toast
             try {
-              const lastMsgText = (SillyTavern_API_ACU.chat?.length && SillyTavern_API_ACU.chat[SillyTavern_API_ACU.chat.length - 1]?.is_user)
-                ? (SillyTavern_API_ACU.chat[SillyTavern_API_ACU.chat.length - 1].mes || '')
+              const lastMsgText = (SillyTavern_API_ACU.chat?.length && (SillyTavern_API_ACU.chat as any)[SillyTavern_API_ACU.chat.length - 1]?.is_user)
+                ? ((SillyTavern_API_ACU.chat as any)[SillyTavern_API_ACU.chat.length - 1].mes || '')
                 : '';
-              const boxText = getSendTextareaValue_ACU() || '';
-              if (shouldSkipPlotIntercept_ACU(lastMsgText) || shouldSkipPlotIntercept_ACU(boxText)) {
+              const boxText = String(getSendTextareaValue_ACU() || '');
+              if (shouldSkipPlotIntercept_ACU(String(lastMsgText)) || shouldSkipPlotIntercept_ACU(boxText)) {
                 logDebug_ACU('[剧情推进] Skip GENERATION_AFTER_COMMANDS due to recent TavernHelper.generate interception.');
                 return;
               }
@@ -341,15 +341,15 @@ export   function mainInitialize_ACU() {
                     hasExistingUserMessage: true,
                   });
 
-                  if (finalMessage && finalMessage.skipped) {
+                  if (finalMessage && (finalMessage as any).skipped) {
                     logDebug_ACU('[剧情推进] Planning skipped in Strategy 1 (duplicate).');
                     return;
                   }
 
-                  if (finalMessage && finalMessage.aborted) {
+                  if (finalMessage && (finalMessage as any).aborted) {
                     logDebug_ACU('[剧情推进] Generation aborted by user in Strategy 1.');
                     // [优化] 用户手动中止 => 回退：停止生成 + 删除刚创建的用户楼层（如果是本次输入） + 回填输入框
-                    if (finalMessage.manual) {
+                    if ((finalMessage as any).manual) {
                       try {
                         if (SillyTavern_API_ACU && typeof SillyTavern_API_ACU.stopGeneration === 'function') {
                           SillyTavern_API_ACU.stopGeneration();
@@ -369,7 +369,7 @@ export   function mainInitialize_ACU() {
                         }
                       } catch (e) {}
                       try {
-                        const t = finalMessage.restoreText ?? messageToProcess;
+                        const t = (finalMessage as any).restoreText ?? messageToProcess;
                         setSendTextareaValue_ACU(t);
                       } catch (e) {}
                     }
@@ -414,15 +414,15 @@ export   function mainInitialize_ACU() {
                 hasExistingUserMessage: false,
               });
 
-              if (finalMessage && finalMessage.skipped) {
+              if (finalMessage && (finalMessage as any).skipped) {
                 logDebug_ACU('[剧情推进] Planning skipped in Strategy 2 (duplicate).');
                 return;
               }
 
-              if (finalMessage && finalMessage.aborted) {
+              if (finalMessage && (finalMessage as any).aborted) {
                 logDebug_ACU('[剧情推进] Generation aborted by user in Strategy 2.');
                 // 用户手动中止：停止生成，保留输入框内容
-                if (finalMessage.manual) {
+                if ((finalMessage as any).manual) {
                   try {
                     if (SillyTavern_API_ACU && typeof SillyTavern_API_ACU.stopGeneration === 'function') {
                       SillyTavern_API_ACU.stopGeneration();
@@ -451,7 +451,7 @@ export   function mainInitialize_ACU() {
         const chatModificationEvents = ['MESSAGE_DELETED', 'MESSAGE_SWIPED'];
         chatModificationEvents.forEach(evName => {
             if (SillyTavern_API_ACU.eventTypes[evName]) {
-                SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes[evName], async (data) => {
+                SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes[evName], async (data: any) => {
                     logDebug_ACU(`ACU ${evName} event detected. Triggering data reload and merge from chat history.`);
                     clearTimeout(newMessageDebounceTimer_ACU);
                     _set_newMessageDebounceTimer_ACU(setTimeout(async () => {

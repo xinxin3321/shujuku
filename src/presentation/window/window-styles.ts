@@ -19,7 +19,7 @@ import { topLevelWindow_ACU } from '../../shared/env';
     }
   }
 
-  export function setACUTheme_ACU(theme) {
+  export function setACUTheme_ACU(theme: string) {
     const normalizedTheme = theme === 'silk' ? 'silk' : 'ink';
     try {
       const store = getConfigStorage_ACU();
@@ -30,7 +30,7 @@ import { topLevelWindow_ACU } from '../../shared/env';
     return normalizedTheme;
   }
 
-  export function applyACUThemeToDocument_ACU(targetDoc, theme = null) {
+  export function applyACUThemeToDocument_ACU(targetDoc: Document | null, theme: string | null = null) {
     const doc = targetDoc || (topLevelWindow_ACU?.document || document);
     const activeTheme = theme === 'silk' || theme === 'ink' ? theme : getACUTheme_ACU();
     const body = doc?.body;
@@ -40,16 +40,16 @@ import { topLevelWindow_ACU } from '../../shared/env';
     return activeTheme;
   }
 
-  export function syncACUThemeButtons_ACU(targetDoc) {
+  export function syncACUThemeButtons_ACU(targetDoc: Document | null) {
     const doc = targetDoc || (topLevelWindow_ACU?.document || document);
     const activeTheme = applyACUThemeToDocument_ACU(doc);
     const nextThemeLabel = activeTheme === 'silk' ? '墨纸' : '素纱';
     const nextThemeTitle = activeTheme === 'silk' ? '切换为墨纸主题' : '切换为素纱主题';
     try {
-      doc.querySelectorAll('.acu-window-btn.theme-toggle .acu-theme-toggle-text').forEach((el) => {
+      doc.querySelectorAll('.acu-window-btn.theme-toggle .acu-theme-toggle-text').forEach((el: Element) => {
         el.textContent = nextThemeLabel;
       });
-      doc.querySelectorAll('.acu-window-btn.theme-toggle').forEach((el) => {
+      doc.querySelectorAll('.acu-window-btn.theme-toggle').forEach((el: Element) => {
         el.setAttribute('title', nextThemeTitle);
       });
     } catch (e) {
@@ -58,7 +58,7 @@ import { topLevelWindow_ACU } from '../../shared/env';
     return activeTheme;
   }
 
-  export function toggleACUTheme_ACU(targetDoc) {
+  export function toggleACUTheme_ACU(targetDoc: Document | null) {
     const nextTheme = getACUTheme_ACU() === 'silk' ? 'ink' : 'silk';
     setACUTheme_ACU(nextTheme);
     applyACUThemeToDocument_ACU(targetDoc, nextTheme);
@@ -71,8 +71,8 @@ import { topLevelWindow_ACU } from '../../shared/env';
     const targetWin = topLevelWindow_ACU || window;
     const targetDoc = targetWin.document;
     
-    if (targetWin[ACU_WINDOW_STYLES_INJECTED_FLAG]) return;
-    targetWin[ACU_WINDOW_STYLES_INJECTED_FLAG] = true;
+    if ((targetWin as any)[ACU_WINDOW_STYLES_INJECTED_FLAG]) return;
+    (targetWin as any)[ACU_WINDOW_STYLES_INJECTED_FLAG] = true;
     
     const css = `
       /* ═══════════════════════════════════════════════════════════════

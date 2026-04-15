@@ -10,7 +10,7 @@ import { saveSettings_ACU } from '../settings/settings-service';
 
 // ═══ 状态变量 ═══
 
-export let activePlotEditorSettings_ACU = null;
+export let activePlotEditorSettings_ACU: any = null;
 export let currentPlotTaskEditorId_ACU = '';
 export let currentEditablePlotPresetState_ACU = {
   initialized: false,
@@ -21,9 +21,9 @@ export let currentEditablePlotPresetState_ACU = {
 
 // ═══ setter 函数 ═══
 
-export function _set_activePlotEditorSettings_ACU(v) { activePlotEditorSettings_ACU = v; }
-export function _set_currentPlotTaskEditorId_ACU(v) { currentPlotTaskEditorId_ACU = v; }
-export function _set_currentEditablePlotPresetState_ACU(v) { currentEditablePlotPresetState_ACU = v; }
+export function _set_activePlotEditorSettings_ACU(v: any) { activePlotEditorSettings_ACU = v; }
+export function _set_currentPlotTaskEditorId_ACU(v: any) { currentPlotTaskEditorId_ACU = v; }
+export function _set_currentEditablePlotPresetState_ACU(v: any) { currentEditablePlotPresetState_ACU = v; }
 
 // ═══ 纯逻辑函数 ═══
 
@@ -33,7 +33,7 @@ export function buildDefaultPlotPromptGroup_ACU({ mainAContent = '', mainBConten
         ? JSON.parse(JSON.stringify(src))
         : (typeof src === 'string' && (src as string).trim() ? [{ role: 'USER', content: src, deletable: false, mainSlot: 'A', isMain: true }] : []);
 
-    const getMainSlot = seg => {
+    const getMainSlot = (seg: any) => {
         if (!seg) return '';
         const slot = String(seg.mainSlot || '').toUpperCase();
         if (slot === 'A' || slot === 'B') return slot;
@@ -42,8 +42,8 @@ export function buildDefaultPlotPromptGroup_ACU({ mainAContent = '', mainBConten
         return '';
     };
 
-    let aIdx = base.findIndex(s => getMainSlot(s) === 'A');
-    let bIdx = base.findIndex(s => getMainSlot(s) === 'B');
+    let aIdx = base.findIndex((s: any) => getMainSlot(s) === 'A');
+    let bIdx = base.findIndex((s: any) => getMainSlot(s) === 'B');
     if (aIdx === -1) {
         base.unshift({ role: 'SYSTEM', content: '', deletable: false, mainSlot: 'A', isMain: true });
         aIdx = 0;
@@ -58,7 +58,7 @@ export function buildDefaultPlotPromptGroup_ACU({ mainAContent = '', mainBConten
     return base;
 }
 
-function getLegacyPlotPromptContent_ACU(plotSettings, promptId) {
+function getLegacyPlotPromptContent_ACU(plotSettings: any, promptId: string) {
     try {
         const p = plotSettings?.prompts;
         if (!p) return '';
@@ -71,7 +71,7 @@ function getLegacyPlotPromptContent_ACU(plotSettings, promptId) {
     return '';
 }
 
-export function ensurePlotPromptGroup_ACU(plotSettings, { persist = false } = {}) {
+export function ensurePlotPromptGroup_ACU(plotSettings: any, { persist = false } = {}) {
     if (!plotSettings) return;
     if (Array.isArray(plotSettings.promptGroup) && plotSettings.promptGroup.length > 0) return;
 

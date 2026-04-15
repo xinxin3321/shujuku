@@ -22,7 +22,7 @@ import { getActivePlotEditorSettings_ACU, getPlotPromptContentByIdFromSettings_A
 // 循环 import — 运行时安全
 import { getOriginalContent_ACU, reoptimizeMessage_ACU, replaceChatMessage_ACU } from './optimization-ui-exec';
 
-  export function showOptimizationDiffDialogForLoop_ACU(messageIndex, result, callback) {
+  export function showOptimizationDiffDialogForLoop_ACU(messageIndex: number, result: any, callback: Function) {
     const isLastLoop = result.currentLoop >= result.totalLoops;
     const applyButtonText = isLastLoop ? '应用并完成' : '应用并继续';
     const originalContent = getOriginalContent_ACU(messageIndex) || result.optimizedContent;
@@ -51,7 +51,7 @@ import { getOriginalContent_ACU, reoptimizeMessage_ACU, replaceChatMessage_ACU }
         <p style="margin: 0 0 12px 0; color: var(--acu-text-dim, #8a8075);">${result.summary}</p>
         ${result.totalLoops > 1 ? `<p style="margin: 0 0 12px 0; color: var(--acu-text-mute, #6a6055); font-size: 12px;">进度: 第 ${result.currentLoop}/${result.totalLoops} 轮</p>` : ''}
         <div class="optimization-list" style="margin-bottom: 16px; max-height: 400px; overflow-y: auto;">
-          ${result.optimizations.map((opt, i) => `
+          ${result.optimizations.map((opt: any, i: number) => `
             <div class="optimization-item" style="
               background: rgba(0, 0, 0, 0.2);
               border-radius: 1px;
@@ -191,7 +191,7 @@ import { getOriginalContent_ACU, reoptimizeMessage_ACU, replaceChatMessage_ACU }
   /**
    * 显示优化对比对话框
    */
-  export function showOptimizationDiffDialog_ACU(messageIndex, result) {
+  export function showOptimizationDiffDialog_ACU(messageIndex: number, result: any) {
     const originalContent = getOriginalContent_ACU(messageIndex) || result.optimizedContent;
     const dialogHtml = `
       <div class="acu-optimization-dialog acu-dialog-classic" style="
@@ -216,7 +216,7 @@ import { getOriginalContent_ACU, reoptimizeMessage_ACU, replaceChatMessage_ACU }
         <h3 style="margin: 0 0 16px 0; color: var(--acu-accent, #7d4940); font-size: 1.1em; letter-spacing: 1px;">正文替换建议</h3>
         <p style="margin: 0 0 12px 0; color: var(--acu-text-dim, #8a8075);">${result.summary || `共 ${result.optimizations.length} 处替换建议`}</p>
         <div class="optimization-list" style="margin-bottom: 16px;">
-          ${result.optimizations.map((opt, i) => `
+          ${result.optimizations.map((opt: any, i: number) => `
             <div class="optimization-item" style="
               background: rgba(0, 0, 0, 0.2);
               border-radius: 1px;
@@ -330,7 +330,7 @@ import { getOriginalContent_ACU, reoptimizeMessage_ACU, replaceChatMessage_ACU }
   /**
    * 显示优化结果摘要
    */
-  export function showOptimizationDiff_ACU(messageIndex, result) {
+  export function showOptimizationDiff_ACU(messageIndex: number, result: any) {
     const message = `正文替换完成，共 ${result.optimizations.length} 处改进`;
     const reoptButtonHtml = `<button id="acu-opt-toast-reoptimize" style="border: 1px solid var(--acu-accent, #7d4940); color: var(--acu-accent, #7d4940); background: transparent; padding: 5px 10px; border-radius: 1px; cursor: pointer; float: right; margin-left: 15px; font-size: 0.85em; font-family: inherit;" onmouseover="this.style.backgroundColor='var(--acu-accent, #7d4940); color: var(--acu-bg-0, #24221f);'" onmouseout="this.style.backgroundColor='transparent'; this.style.color='var(--acu-accent, #7d4940);'">🔄 重新优化</button>`;
     const html = result.summary

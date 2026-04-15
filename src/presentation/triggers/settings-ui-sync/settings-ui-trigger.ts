@@ -277,7 +277,7 @@ import { purgeOldLayerData_ACU } from './settings-ui-config';
     // [优化] 分组执行
     // 将待更新的表按 (groupId + indices + batchSize) 进行分组，以便不同编号的表拆分并发
     // Key: groupId + '|' + indices.join(',') + '|' + batchSize
-    const updateGroups = {};
+    const updateGroups: Record<string, any> = {};
     
     tablesToUpdate.forEach(item => {
         const key = item.groupId + '|' + item.indices.join(',') + '|' + item.batchSize;
@@ -405,7 +405,7 @@ import { purgeOldLayerData_ACU } from './settings-ui-config';
       // 未曾手动选择过：默认全选
       if (!settings_ACU.hasManualSelection) return availableKeys;
 
-      const validSaved = saved.filter(k => availableKeys.includes(k));
+      const validSaved = saved.filter((k: string) => availableKeys.includes(k));
 
       // 已手动选择过：严格按保存的交集，不再自动补全新表，防止回退全选
       return validSaved;

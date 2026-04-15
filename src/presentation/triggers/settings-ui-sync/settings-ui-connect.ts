@@ -98,7 +98,7 @@ import { triggerAutomaticUpdateIfNeeded_ACU } from './settings-ui-trigger';
 
       if (modelsList.length > 0) {
         modelsFound = true;
-        modelsList.forEach(model => {
+        modelsList.forEach((model: any) => {
           const modelName = typeof model === 'string' ? model : model.id;
           if (modelName) {
             const selected = modelName === currentSelectedModel ? ' selected' : '';

@@ -113,7 +113,7 @@ async function saveToLatestFloorAndRefresh(
 
 export function createTableCrudApi(ctx: ApiGroupContext): Record<string, Function> {
     return {
-        updateCell: async function(tableName, rowIndex, colIdentifier, value) {
+        updateCell: async function(tableName: string, rowIndex: number, colIdentifier: string | number, value: any) {
             try {
                 if (!currentJsonTableData_ACU) {
                     logError_ACU('updateCell: No table data loaded.');
@@ -164,7 +164,7 @@ export function createTableCrudApi(ctx: ApiGroupContext): Record<string, Functio
             }
         },
 
-        updateRow: async function(tableName, rowIndex, data) {
+        updateRow: async function(tableName: string, rowIndex: number, data: Record<string, any>) {
             try {
                 if (!currentJsonTableData_ACU) {
                     logError_ACU('updateRow: No table data loaded.');
@@ -214,7 +214,7 @@ export function createTableCrudApi(ctx: ApiGroupContext): Record<string, Functio
             }
         },
 
-        insertRow: async function(tableName, data) {
+        insertRow: async function(tableName: string, data: Record<string, any>) {
             try {
                 if (!currentJsonTableData_ACU) {
                     logError_ACU('insertRow: No table data loaded.');
@@ -253,7 +253,7 @@ export function createTableCrudApi(ctx: ApiGroupContext): Record<string, Functio
             }
         },
 
-        deleteRow: async function(tableName, rowIndex) {
+        deleteRow: async function(tableName: string, rowIndex: number) {
             try {
                 if (!currentJsonTableData_ACU) {
                     logError_ACU('deleteRow: No table data loaded.');

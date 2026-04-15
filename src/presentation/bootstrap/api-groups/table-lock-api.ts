@@ -17,7 +17,7 @@ import type { ApiGroupContext } from './callback-api';
 
 export function createTableLockApi(_ctx: ApiGroupContext): Record<string, Function> {
     return {
-        getTableLockState: function(sheetKey) {
+        getTableLockState: function(sheetKey: string) {
             try {
                 if (!sheetKey) return null;
                 const lockState = getTableLocksForSheet_ACU(sheetKey);
@@ -31,7 +31,7 @@ export function createTableLockApi(_ctx: ApiGroupContext): Record<string, Functi
                 return null;
             }
         },
-        setTableLockState: function(sheetKey, lockState: any = {}, { merge = false } = {}) {
+        setTableLockState: function(sheetKey: string, lockState: any = {}, { merge = false } = {}) {
             try {
                 if (!sheetKey) return false;
                 const base = merge ? getTableLocksForSheet_ACU(sheetKey) : { rows: new Set(), cols: new Set(), cells: new Set() };
@@ -39,9 +39,9 @@ export function createTableLockApi(_ctx: ApiGroupContext): Record<string, Functi
                 const cols = Array.isArray(lockState.cols) ? lockState.cols : [];
                 const cells = Array.isArray(lockState.cells) ? lockState.cells : [];
 
-                rows.forEach(v => { if (Number.isFinite(v)) base.rows.add(v); });
-                cols.forEach(v => { if (Number.isFinite(v)) base.cols.add(v); });
-                cells.forEach(v => {
+                rows.forEach((v: any) => { if (Number.isFinite(v)) base.rows.add(v); });
+                cols.forEach((v: any) => { if (Number.isFinite(v)) base.cols.add(v); });
+                cells.forEach((v: any) => {
                     if (typeof v === 'string') base.cells.add(v);
                     else if (Array.isArray(v) && v.length >= 2 && Number.isFinite(v[0]) && Number.isFinite(v[1])) {
                         base.cells.add(`${v[0]}:${v[1]}`);
@@ -55,7 +55,7 @@ export function createTableLockApi(_ctx: ApiGroupContext): Record<string, Functi
                 return false;
             }
         },
-        clearTableLocks: function(sheetKey) {
+        clearTableLocks: function(sheetKey: string) {
             try {
                 if (!sheetKey) return false;
                 saveTableLocksForSheet_ACU(sheetKey, { rows: new Set(), cols: new Set(), cells: new Set() });
@@ -65,7 +65,7 @@ export function createTableLockApi(_ctx: ApiGroupContext): Record<string, Functi
                 return false;
             }
         },
-        lockTableRow: function(sheetKey, rowIndex, locked = true) {
+        lockTableRow: function(sheetKey: string, rowIndex: number, locked = true) {
             try {
                 if (!sheetKey || !Number.isFinite(rowIndex)) return false;
                 const lockState = getTableLocksForSheet_ACU(sheetKey);
@@ -78,7 +78,7 @@ export function createTableLockApi(_ctx: ApiGroupContext): Record<string, Functi
                 return false;
             }
         },
-        lockTableCol: function(sheetKey, colIndex, locked = true) {
+        lockTableCol: function(sheetKey: string, colIndex: number, locked = true) {
             try {
                 if (!sheetKey || !Number.isFinite(colIndex)) return false;
                 const lockState = getTableLocksForSheet_ACU(sheetKey);
@@ -91,7 +91,7 @@ export function createTableLockApi(_ctx: ApiGroupContext): Record<string, Functi
                 return false;
             }
         },
-        lockTableCell: function(sheetKey, rowIndex, colIndex, locked = true) {
+        lockTableCell: function(sheetKey: string, rowIndex: number, colIndex: number, locked = true) {
             try {
                 if (!sheetKey || !Number.isFinite(rowIndex) || !Number.isFinite(colIndex)) return false;
                 const lockState = getTableLocksForSheet_ACU(sheetKey);
@@ -105,7 +105,7 @@ export function createTableLockApi(_ctx: ApiGroupContext): Record<string, Functi
                 return false;
             }
         },
-        toggleTableRowLock: function(sheetKey, rowIndex) {
+        toggleTableRowLock: function(sheetKey: string, rowIndex: number) {
             try {
                 if (!sheetKey || !Number.isFinite(rowIndex)) return false;
                 toggleRowLock_ACU(sheetKey, rowIndex);
@@ -115,7 +115,7 @@ export function createTableLockApi(_ctx: ApiGroupContext): Record<string, Functi
                 return false;
             }
         },
-        toggleTableColLock: function(sheetKey, colIndex) {
+        toggleTableColLock: function(sheetKey: string, colIndex: number) {
             try {
                 if (!sheetKey || !Number.isFinite(colIndex)) return false;
                 toggleColLock_ACU(sheetKey, colIndex);
@@ -125,7 +125,7 @@ export function createTableLockApi(_ctx: ApiGroupContext): Record<string, Functi
                 return false;
             }
         },
-        toggleTableCellLock: function(sheetKey, rowIndex, colIndex) {
+        toggleTableCellLock: function(sheetKey: string, rowIndex: number, colIndex: number) {
             try {
                 if (!sheetKey || !Number.isFinite(rowIndex) || !Number.isFinite(colIndex)) return false;
                 toggleCellLock_ACU(sheetKey, rowIndex, colIndex);
@@ -135,7 +135,7 @@ export function createTableLockApi(_ctx: ApiGroupContext): Record<string, Functi
                 return false;
             }
         },
-        getSpecialIndexLockEnabled: function(sheetKey) {
+        getSpecialIndexLockEnabled: function(sheetKey: string) {
             try {
                 if (!sheetKey) return null;
                 return isSpecialIndexLockEnabled_ACU(sheetKey);
@@ -144,7 +144,7 @@ export function createTableLockApi(_ctx: ApiGroupContext): Record<string, Functi
                 return null;
             }
         },
-        setSpecialIndexLockEnabled: function(sheetKey, enabled) {
+        setSpecialIndexLockEnabled: function(sheetKey: string, enabled: boolean) {
             try {
                 if (!sheetKey) return false;
                 setSpecialIndexLockEnabled_ACU(sheetKey, !!enabled);

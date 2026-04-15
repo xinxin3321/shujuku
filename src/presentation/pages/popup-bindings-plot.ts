@@ -39,7 +39,7 @@ export async function bindPlotEvents_ACU(): Promise<void> {
       const $plotFinalDirective = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-final-directive`);
       if ($plotFinalDirective.length) {
         $plotFinalDirective.on('input change', function() {
-          const value = jQuery_API_ACU(this).val() || '';
+          const value = jQuery_API_ACU(this).val() as string || '';
           const plotSettings = getActivePlotEditorSettings_ACU();
           if (!plotSettings) return;
           plotSettings.finalSystemDirective = value;
@@ -307,9 +307,9 @@ export async function bindPlotEvents_ACU(): Promise<void> {
       });
 
       // 提示词内容变化时自动保存（防抖）
-      let saveLoopPromptsTimeout = null;
+      let saveLoopPromptsTimeout: ReturnType<typeof setTimeout> | null = null;
       $popupInstance_ACU.on('input', '.loop-prompt-textarea', function() {
-        clearTimeout(saveLoopPromptsTimeout);
+        clearTimeout(saveLoopPromptsTimeout!);
         saveLoopPromptsTimeout = setTimeout(() => {
           saveLoopPromptsFromUI_ACU();
         }, 500);
@@ -384,7 +384,7 @@ export async function bindPlotEvents_ACU(): Promise<void> {
           }
 
           const presets = settings_ACU.plotSettings.promptPresets || [];
-          const selectedPreset = presets.find(p => p.name === selectedName);
+          const selectedPreset = presets.find((p: any) => p.name === selectedName);
 
           if (!selectedPreset) {
             showToastr_ACU('error', '找不到选中的全局预设。');
@@ -423,7 +423,7 @@ export async function bindPlotEvents_ACU(): Promise<void> {
           }
 
           const presets = settings_ACU.plotSettings.promptPresets || [];
-          const existingIndex = presets.findIndex(p => p.name === selectedName);
+          const existingIndex = presets.findIndex((p: any) => p.name === selectedName);
 
           if (existingIndex === -1) {
             showToastr_ACU('error', '找不到要覆盖的全局预设。');
@@ -478,7 +478,7 @@ export async function bindPlotEvents_ACU(): Promise<void> {
           }
 
           const presets = settings_ACU.plotSettings.promptPresets || [];
-          const indexToDelete = presets.findIndex(p => p.name === selectedName);
+          const indexToDelete = presets.findIndex((p: any) => p.name === selectedName);
 
           if (indexToDelete > -1) {
             presets.splice(indexToDelete, 1);
@@ -545,15 +545,15 @@ export async function bindPlotEvents_ACU(): Promise<void> {
               let importedCount = 0;
               let overwrittenCount = 0;
 
-              importedPresets.forEach(preset => {
+              importedPresets.forEach((preset: any) => {
                 if (preset && typeof preset.name === 'string' && preset.name.length > 0) {
-                  const getLegacyPromptFromThree_ACU = (p, id) => {
+                  const getLegacyPromptFromThree_ACU = (p: any, id: any) => {
                     if (!p) return '';
                     if (Array.isArray(p)) return (p.find(x => x && x.id === id)?.content) || '';
                     if (typeof p === 'object') return p[id] || '';
                     return '';
                   };
-                  const looksLikePromptGroupSegments = (arr) => {
+                  const looksLikePromptGroupSegments = (arr: any) => {
                     if (!Array.isArray(arr) || arr.length === 0) return false;
                     const x = arr[0];
                     return x && typeof x === 'object' && 'role' in x && 'content' in x && !('id' in x);
@@ -595,7 +595,7 @@ export async function bindPlotEvents_ACU(): Promise<void> {
                     loopSettings: preset.loopSettings || DEFAULT_PLOT_SETTINGS_ACU.loopSettings
                   });
 
-                  const existingIndex = currentPresets.findIndex(p => p.name === preset.name);
+                  const existingIndex = currentPresets.findIndex((p: any) => p.name === preset.name);
 
                   if (existingIndex !== -1) {
                     currentPresets[existingIndex] = presetData;
@@ -618,7 +618,7 @@ export async function bindPlotEvents_ACU(): Promise<void> {
                 showToastr_ACU('success', messages.join(' '));
 
                 // 导入后：自动选择第一个有效全局预设并加载到UI（方便继续修改）
-                const firstValid = importedPresets.find(p => p && typeof p.name === 'string' && p.name.length > 0);
+                const firstValid = importedPresets.find((p: any) => p && typeof p.name === 'string' && p.name.length > 0);
                 if (firstValid && $plotPresetSelect && $plotPresetSelect.length) {
                   setTimeout(() => {
                     $plotPresetSelect.val(firstValid.name).trigger('change');
@@ -696,7 +696,7 @@ export async function bindPlotEvents_ACU(): Promise<void> {
             const bookName = jQuery_API_ACU(this).data('book-name');
             if (!bookName) return;
             let selection = Array.isArray(cfg.manualSelection) ? cfg.manualSelection : [];
-            if (selection.includes(bookName)) selection = selection.filter(x => x !== bookName);
+            if (selection.includes(bookName)) selection = selection.filter((x: any) => x !== bookName);
             else selection = [...selection, bookName];
             cfg.manualSelection = selection;
             saveSettingsAndNotify_ACU();
@@ -723,7 +723,7 @@ export async function bindPlotEvents_ACU(): Promise<void> {
           } catch (e) {}
           return names;
         };
-        const isPlotEntryAllowed_ACU = (entry) => {
+        const isPlotEntryAllowed_ACU = (entry: any) => {
           if (!entry) return false;
           const comment = entry.comment || entry.name || '';
           // UI 不显示数据库生成条目（含隔离/外部导入前缀），因此"全选/全不选"也只作用于非数据库条目
@@ -741,7 +741,7 @@ export async function bindPlotEvents_ACU(): Promise<void> {
           if (!entry.enabled) return false;
           return true;
         };
-        const setPlotEntriesSelection_ACU = async (mode) => {
+        const setPlotEntriesSelection_ACU = async (mode: string) => {
           // mode: 'all' | 'none'
           const bookNames = await resolvePlotBookNames_ACU();
           if (!cfg.enabledEntries) cfg.enabledEntries = {};
@@ -802,7 +802,7 @@ export async function bindPlotEvents_ACU(): Promise<void> {
             const list = cfg.enabledEntries[bookName];
             const checked = jQuery_API_ACU(this).is(':checked');
             if (checked && !list.includes(uid)) list.push(uid);
-            if (!checked && list.includes(uid)) cfg.enabledEntries[bookName] = list.filter(x => x !== uid);
+            if (!checked && list.includes(uid)) cfg.enabledEntries[bookName] = list.filter((x: any) => x !== uid);
             updateLazyWorldbookEntryCheckedState_ACU($plotEntryList, bookName, uid, checked);
             saveSettingsAndNotify_ACU();
           });
@@ -819,7 +819,7 @@ export async function bindPlotEvents_ACU(): Promise<void> {
         }
         if ($plotEntryFilter.length) {
           $plotEntryFilter.off('input.acu_plot_wb').on('input.acu_plot_wb', function() {
-            applyWorldbookEntryFilter_ACU($plotEntryList, jQuery_API_ACU(this).val());
+            applyWorldbookEntryFilter_ACU($plotEntryList, jQuery_API_ACU(this).val() as string);
           });
         }
 

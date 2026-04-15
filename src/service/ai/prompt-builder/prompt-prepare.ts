@@ -11,7 +11,7 @@ import { getCombinedWorldbookContent_ACU } from '../../worldbook/pipeline';
 import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../../shared/utils';
 import { applyContextTagFilters_ACU } from '../../runtime/helpers-remaining';
 
-  export async function prepareAIInput_ACU(messages, updateMode = 'standard', targetSheetKeys = null, options: any = {}) {
+  export async function prepareAIInput_ACU(messages: any[], updateMode = 'standard', targetSheetKeys: string[] | null = null, options: any = {}) {
     if (!currentJsonTableData_ACU) {
         logError_ACU('prepareAIInput_ACU: Cannot prepare AI input, currentJsonTableData_ACU is null.');
         return null;
@@ -26,7 +26,7 @@ import { applyContextTagFilters_ACU } from '../../runtime/helpers-remaining';
     } catch (e) {}
 
     let tableDataText = '';
-    let _seedRowsTablesUsed_ACU = [];
+    let _seedRowsTablesUsed_ACU: string[] = [];
     const tableIndexes = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
     tableIndexes.forEach((sheetKey, tableIndex) => {
         const table = currentJsonTableData_ACU[sheetKey];
@@ -72,7 +72,7 @@ import { applyContextTagFilters_ACU } from '../../runtime/helpers-remaining';
 
         if (effectiveAllRows.length === 0) {
             tableDataText += `[${tableIndex}:${table.name}]\n`;
-            const headers = table.content[0] ? table.content[0].slice(1).map((h, i) => `[${i}:${h}]`).join(', ') : 'No Headers';
+            const headers = table.content[0] ? table.content[0].slice(1).map((h: any, i: number) => `[${i}:${h}]`).join(', ') : 'No Headers';
             tableDataText += `  Columns: ${headers}\n`;
 
             if (table.sourceData) {
@@ -83,7 +83,7 @@ import { applyContextTagFilters_ACU } from '../../runtime/helpers-remaining';
             tableDataText += `  (该表格为空，请进行初始化。)\n\n`;
         } else {
             tableDataText += `[${tableIndex}:${table.name}]\n`;
-            const headers = table.content[0] ? table.content[0].slice(1).map((h, i) => `[${i}:${h}]`).join(', ') : 'No Headers';
+            const headers = table.content[0] ? table.content[0].slice(1).map((h: any, i: number) => `[${i}:${h}]`).join(', ') : 'No Headers';
             tableDataText += `  Columns: ${headers}\n`;
             if (table.sourceData) {
                 tableDataText += `  - Note: ${table.sourceData.note || 'N/A'}\n`;
@@ -114,7 +114,7 @@ import { applyContextTagFilters_ACU } from '../../runtime/helpers-remaining';
             }
 
             if (rowsToProcess.length > 0) {
-                rowsToProcess.forEach((row, index) => {
+                rowsToProcess.forEach((row: any, index: number) => {
                     const originalRowIndex = startIndex + index;
                     const rowData = row.slice(1).join(', ');
                     tableDataText += `  [${originalRowIndex}] ${rowData}\n`;
@@ -136,7 +136,7 @@ import { applyContextTagFilters_ACU } from '../../runtime/helpers-remaining';
         const excludeTags = (settings_ACU.tableContextExcludeTags || '').trim();
         const excludeRules = normalizeExcludeRules_ACU(settings_ACU.tableContextExcludeRules, excludeTags);
 
-        messagesText += messages.map(msg => {
+        messagesText += messages.map((msg: any) => {
             const prefix = msg.is_user ? getUserName_ACU() : msg.name || '角色';
             let content = msg.mes || msg.message || '';
 

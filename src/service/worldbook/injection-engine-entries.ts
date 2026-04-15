@@ -2,7 +2,7 @@
  * service/worldbook/injection-engine-entries.ts — 大纲表、总结表、重要人物表注入
  * 从 injection-engine.ts 拆出
  */
-import { getCurrentWorldbookConfig_ACU } from '../settings/settings-service';
+import { getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
 import { isWorldbookApiAvailable_ACU, getLorebookEntries_ACU, setLorebookEntries_ACU, createLorebookEntries_ACU, deleteLorebookEntries_ACU } from '../../data/gateways/worldbook-gateway';
 import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
 import { getImportBatchPrefix_ACU } from '../../shared/constants';
@@ -10,13 +10,13 @@ import { ensureExportConfigDefaults_ACU, normalizePlacementConfig_ACU, getFixedP
 import { buildUsedOrderSet_ACU, allocOrder_ACU, allocConsecutiveOrderBlock_ACU } from './injection-engine-order';
 import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './injection-engine-state';
 
-  export function splitKeywordsByComma_ACU(text) {
+  export function splitKeywordsByComma_ACU(text: string) {
       const raw = String(text || '').trim();
       if (!raw) return [];
       return raw.split(/[,，]/).map(k => k.trim()).filter(Boolean);
   }
 
-  export async function updateOutlineTableEntry_ACU(outlineTable, isImport = false) { // [外部导入] 添加 isImport 标志
+  export async function updateOutlineTableEntry_ACU(outlineTable: any, isImport = false) { // [外部导入] 添加 isImport 标志
     if (!isWorldbookApiAvailable_ACU()) return;
     const primaryLorebookName = await getInjectionTargetLorebook_ACU();
     if (!primaryLorebookName) {
@@ -75,7 +75,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
             content += `|${headers.map(() => '---').join('|')}|\n`;
         }
         const rows = outlineTable.content.slice(1);
-        rows.forEach(row => {
+        rows.forEach((row: any) => {
             content += `| ${row.slice(1).join(' | ')} |\n`;
         });
 
@@ -143,7 +143,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
     }
   }
 
-  export async function updateSummaryTableEntries_ACU(summaryTable, isImport = false) { // [外部导入] 添加 isImport 标志
+  export async function updateSummaryTableEntries_ACU(summaryTable: any, isImport = false) { // [外部导入] 添加 isImport 标志
     if (!isWorldbookApiAvailable_ACU()) return;
     const primaryLorebookName = await getInjectionTargetLorebook_ACU();
     if (!primaryLorebookName) {
@@ -196,12 +196,12 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
             return;
         }
 
-        const entriesToCreate = [];
+        const entriesToCreate: any[] = [];
         // [优化] 总结表"按表占深度"：所有总结行共用同一个 order(深度)，避免 N 行占 N 个深度
         // 注意：MemoryStart / MemoryEnd 的"3深度成组"会在 updateReadableLorebookEntry_ACU 中统一对齐并保证连续
         const sharedSummaryDataOrder = allocOrder_ACU(usedOrders, summaryFixedPlacement.order, 1, 99999);
         
-        summaryRows.forEach((row, i) => {
+        summaryRows.forEach((row: any, i: number) => {
             const rowData = row.slice(1);
             const keywordsRaw = rowData[keywordColumnIndex];
             if (!keywordsRaw) return; // Skip if no keywords
@@ -251,7 +251,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
     }
   }
 
-  export async function updateImportantPersonsRelatedEntries_ACU(importantPersonsTable, isImport = false) { // [外部导入] 添加 isImport 标志
+  export async function updateImportantPersonsRelatedEntries_ACU(importantPersonsTable: any, isImport = false) { // [外部导入] 添加 isImport 标志
     if (!isWorldbookApiAvailable_ACU()) return;
     const primaryLorebookName = await getInjectionTargetLorebook_ACU();
     if (!primaryLorebookName) {
@@ -308,16 +308,16 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
             return;
         }
 
-        const personEntriesToCreate = [];
-        const personNames = [];
+        const personEntriesToCreate: any[] = [];
+        const personNames: string[] = [];
 
         // 2.1 准备要创建的人物条目
-        const buildPersonNameKeywords_ACU = (rawName) => {
+        const buildPersonNameKeywords_ACU = (rawName: string) => {
             const raw = String(rawName || '').trim();
             if (!raw) return [];
             const baseParts = splitKeywordsByComma_ACU(raw);
             const parts = baseParts.length > 0 ? baseParts : [raw];
-            const keys = [];
+            const keys: string[] = [];
             parts.forEach(part => {
                 if (!part) return;
                 keys.push(part);
@@ -332,7 +332,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
             return [...new Set(keys)];
         };
 
-        personRows.forEach((row, i) => {
+        personRows.forEach((row: any, i: number) => {
             const rowData = row.slice(1);
             const personName = rowData[nameColumnIndex];
             if (!personName) return;
@@ -376,7 +376,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
         indexContent += `| ${headers[nameColumnIndex]} |\n|---|\n` + personNames.map(name => `| ${name} |`).join('\n');
         // indexContent 已是纯文本，由 Wrapper 条目包裹
 
-        const indexEntryData = {
+        const indexEntryData: Record<string, any> = {
             comment: PERSON_INDEX_COMMENT,
             content: indexContent,
             keys: [PERSON_INDEX_COMMENT + "-Key"],

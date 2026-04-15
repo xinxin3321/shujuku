@@ -15,7 +15,7 @@ import { $popupInstance_ACU, $charCardPromptSegmentsContainer_ACU, $plotPromptSe
 import { DEFAULT_PLOT_SETTINGS_ACU } from '../../shared/defaults-json.js';
 import { jQuery_API_ACU } from '../../shared/host-api';
 
-  export function renderPromptSegments_ACU(segments) {
+  export function renderPromptSegments_ACU(segments: any) {
       if (!$charCardPromptSegmentsContainer_ACU) return;
       $charCardPromptSegmentsContainer_ACU.empty();
       
@@ -46,7 +46,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
 
 
 
-      segments.forEach((segment, index) => {
+      segments.forEach((segment: any, index: number) => {
           const roleUpper = String(segment?.role || '').toUpperCase();
           const roleLower = String(segment?.role || '').toLowerCase();
           const mainSlot = (segment && (String(segment.mainSlot || '').toUpperCase() || (segment.isMain ? 'A' : (segment.isMain2 ? 'B' : '')))) || '';
@@ -85,7 +85,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
 
   export function getCharCardPromptFromUI_ACU() {
       if (!$charCardPromptSegmentsContainer_ACU) return [];
-      const segments = [];
+      const segments: any[] = [];
       $charCardPromptSegmentsContainer_ACU.find('.prompt-segment').each(function() {
           const $segment = jQuery_API_ACU(this);
           const role = $segment.find('.prompt-segment-role').val();
@@ -115,7 +115,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
   // --- [剧情推进] 独立提示词组（段落编辑器） ---
   // buildDefaultPlotPromptGroup_ACU, getLegacyPlotPromptContent_ACU, ensurePlotPromptGroup_ACU 已搬到 service/plot/plot-state.ts
 
-  export function renderPlotPromptSegments_ACU(segments) {
+  export function renderPlotPromptSegments_ACU(segments: any) {
       if ((!$plotPromptSegmentsContainer_ACU || !$plotPromptSegmentsContainer_ACU.length) && $popupInstance_ACU) {
           _assignUIPlaceholders_ACU({ $plotPromptSegmentsContainer_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-prompt-segments-container`) });
       }
@@ -132,7 +132,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
           segments = JSON.parse(JSON.stringify(activeSettings?.promptGroup || []));
       }
 
-      const getMainSlot = seg => {
+      const getMainSlot = (seg: any) => {
           if (!seg) return '';
           const slot = String(seg.mainSlot || '').toUpperCase();
           if (slot === 'A' || slot === 'B') return slot;
@@ -141,7 +141,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
           return '';
       };
 
-      segments.forEach((segment, index) => {
+      segments.forEach((segment: any, index: number) => {
           const roleUpper = String(segment?.role || '').toUpperCase();
           const roleLower = String(segment?.role || '').toLowerCase();
           const mainSlot = getMainSlot(segment);
@@ -180,7 +180,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
 
   export function getPlotPromptGroupFromUI_ACU() {
       if (!$plotPromptSegmentsContainer_ACU) return [];
-      const segments = [];
+      const segments: any[] = [];
       $plotPromptSegmentsContainer_ACU.find('.plot-prompt-segment').each(function() {
           const $segment = jQuery_API_ACU(this);
           const role = $segment.find('.plot-prompt-segment-role').val();
@@ -206,8 +206,8 @@ import { jQuery_API_ACU } from '../../shared/host-api';
       return segments;
   }
 
-  export function normalizePlotTaskListForEditor_ACU(tasks) {
-      return (Array.isArray(tasks) ? tasks : []).map((task, index) => normalizePlotTask_ACU({
+  export function normalizePlotTaskListForEditor_ACU(tasks: any[]) {
+      return (Array.isArray(tasks) ? tasks : []).map((task: any, index: number) => normalizePlotTask_ACU({
           ...(task || {}),
           order: index,
       }, {
@@ -216,12 +216,12 @@ import { jQuery_API_ACU } from '../../shared/host-api';
       }));
   }
 
-  export function getPrimaryPlotTask_ACU(plotSettings) {
+  export function getPrimaryPlotTask_ACU(plotSettings: Record<string, any>) {
       const tasks = Array.isArray(plotSettings?.plotTasks) ? plotSettings.plotTasks : normalizePlotTasks_ACU(plotSettings);
-      return tasks.find(task => task && task.enabled !== false) || tasks[0] || null;
+      return tasks.find((task: any) => task && task.enabled !== false) || tasks[0] || null;
   }
 
-  export function syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings) {
+  export function syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings: Record<string, any>) {
       if (!plotSettings || typeof plotSettings !== 'object') return null;
       const primaryTask = getPrimaryPlotTask_ACU(plotSettings);
       if (primaryTask) {
@@ -242,9 +242,9 @@ import { jQuery_API_ACU } from '../../shared/host-api';
           return { tasks: [], selectedTask: null, selectedIndex: -1 };
       }
 
-      let selectedIndex = tasks.findIndex(task => task && task.id === currentPlotTaskEditorId_ACU);
+      let selectedIndex = tasks.findIndex((task: any) => task && task.id === currentPlotTaskEditorId_ACU);
       if (selectedIndex === -1 && autoSelect) {
-          const fallbackTask = tasks.find(task => task && task.enabled !== false) || tasks[0];
+          const fallbackTask = tasks.find((task: any) => task && task.enabled !== false) || tasks[0];
           selectedIndex = tasks.indexOf(fallbackTask);
           _set_currentPlotTaskEditorId_ACU(fallbackTask?.id || '');
       }
@@ -272,7 +272,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
           return;
       }
 
-      tasks.forEach((task, index) => {
+      tasks.forEach((task: any, index: number) => {
           const isSelected = selectedTask?.id === task.id;
           const enabledText = task.enabled !== false ? '启用' : '停用';
           const enabledColor = task.enabled !== false ? 'var(--green)' : 'var(--red)';
@@ -344,7 +344,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
           fallbackTask: selectedTask,
       });
 
-      const nextTasks = normalizePlotTaskListForEditor_ACU(tasks.map((task, index) => index === selectedIndex ? updatedTask : task));
+      const nextTasks = normalizePlotTaskListForEditor_ACU(tasks.map((task: any, index: number) => index === selectedIndex ? updatedTask : task));
       plotSettings.plotTasks = nextTasks;
       _set_currentPlotTaskEditorId_ACU(updatedTask.id);
       syncLegacyPlotSettingsFromPrimaryTask_ACU(plotSettings);
@@ -365,7 +365,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
       const defaultStage = normalizePositiveInteger_ACU(tasks[tasks.length - 1]?.stage, 1);
       let serial = tasks.length + 1;
       let taskId = `plotTask${serial}`;
-      while (tasks.some(task => task && task.id === taskId)) {
+      while (tasks.some((task: any) => task && task.id === taskId)) {
           serial += 1;
           taskId = `plotTask${serial}`;
       }
@@ -389,7 +389,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
       }, 300);
   }
 
-  export function selectPlotTaskForEditing_ACU(taskId, { saveCurrent = true } = {}) {
+  export function selectPlotTaskForEditing_ACU(taskId: string, { saveCurrent = true } = {}) {
       const plotSettings = getActivePlotEditorSettings_ACU();
       if (!plotSettings || !taskId) return;
       if (saveCurrent) {
@@ -430,7 +430,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
           return;
       }
 
-      const nextTasks = normalizePlotTaskListForEditor_ACU(tasks.filter((_, index) => index !== selectedIndex));
+      const nextTasks = normalizePlotTaskListForEditor_ACU(tasks.filter((_: any, index: number) => index !== selectedIndex));
       const fallbackIndex = Math.min(selectedIndex, nextTasks.length - 1);
       plotSettings.plotTasks = nextTasks;
       _set_currentPlotTaskEditorId_ACU(nextTasks[fallbackIndex]?.id || nextTasks[0]?.id || '');
@@ -441,7 +441,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
       showToastr_ACU('success', '剧情任务已删除。');
   }
 
-  export function moveCurrentPlotTask_ACU(direction) {
+  export function moveCurrentPlotTask_ACU(direction: string) {
       const plotSettings = getActivePlotEditorSettings_ACU();
       if (!plotSettings) return;
       const { tasks, selectedTask, selectedIndex } = getCurrentPlotTaskEditorState_ACU(plotSettings, { autoSelect: true });
@@ -466,18 +466,18 @@ import { jQuery_API_ACU } from '../../shared/host-api';
 
   export let isAutoUpdatingCard_ACU = false; // Tracks if an update is in progress
   export let wasStoppedByUser_ACU = false; // [新增] 标记更新是否被用户手动终止
-  export let newMessageDebounceTimer_ACU = null;
-  export let currentAbortController_ACU = null; // [新增] 用于中止正在进行的AI请求
+  export let newMessageDebounceTimer_ACU: ReturnType<typeof setTimeout> | null = null;
+  export let currentAbortController_ACU: AbortController | null = null; // [新增] 用于中止正在进行的AI请求
   // activePlotEditorSettings_ACU, currentPlotTaskEditorId_ACU, currentEditablePlotPresetState_ACU 已搬到 service/plot/plot-state.ts
-  export let plotTaskEditorAutoSaveTimer_ACU = null;
+  export let plotTaskEditorAutoSaveTimer_ACU: ReturnType<typeof setTimeout> | null = null;
   export let activeAbortControllers_ACU: Set<AbortController> = new Set(); // [新增] 并发请求的 AbortController 集合
   export let manualExtraHint_ACU = ''; // [新增] 手动更新时的额外提示词（一次性）
 
-  export function trackAbortController_ACU(controller) {
+  export function trackAbortController_ACU(controller: AbortController) {
       if (controller) activeAbortControllers_ACU.add(controller);
   }
 
-  export function untrackAbortController_ACU(controller) {
+  export function untrackAbortController_ACU(controller: AbortController) {
       if (controller) activeAbortControllers_ACU.delete(controller);
   }
 

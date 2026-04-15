@@ -20,7 +20,7 @@ import { $popupInstance_ACU, $plotPromptSegmentsContainer_ACU, $plotTaskListCont
     /**
      * 加载剧情推进设置到UI
      */
-    export function loadPlotSettingsToUI_ACU(plotSettingsOverride = null) {
+    export function loadPlotSettingsToUI_ACU(plotSettingsOverride: any = null) {
       if (!$popupInstance_ACU) return;
  
       _assignUIPlaceholders_ACU({
@@ -97,14 +97,14 @@ import { $popupInstance_ACU, $plotPromptSegmentsContainer_ACU, $plotTaskListCont
 
       $select.find('option:not(:first)').remove();
 
-      presets.forEach(preset => {
+      presets.forEach((preset: any) => {
         if (preset && preset.name) {
           $select.append(`<option value="${preset.name}">${preset.name}</option>`);
         }
       });
 
       // 恢复之前选中的值（如果还存在）
-      if (currentValue && presets.find(p => p.name === currentValue)) {
+      if (currentValue && presets.find((p: any) => p.name === currentValue)) {
         $select.val(currentValue);
         if ($deleteBtn.length) $deleteBtn.show();
       } else {
@@ -125,7 +125,7 @@ import { $popupInstance_ACU, $plotPromptSegmentsContainer_ACU, $plotTaskListCont
 
       const name = presetName.trim();
       const presets = settings_ACU.contentOptimizationSettings.promptPresets || [];
-      const existingIndex = presets.findIndex(p => p.name === name);
+      const existingIndex = presets.findIndex((p: any) => p.name === name);
 
       if (existingIndex !== -1) {
         if (!confirm(`预设 "${name}" 已存在。是否覆盖？`)) {
@@ -229,7 +229,7 @@ import { $popupInstance_ACU, $plotPromptSegmentsContainer_ACU, $plotTaskListCont
     /**
      * 渲染正文优化提示词段落
      */
-    export function renderOptimizationPromptSegments_ACU(segments) {
+    export function renderOptimizationPromptSegments_ACU(segments: any[]) {
       if (!$popupInstance_ACU) return;
       const $container = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-optimization-prompt-segments-container`);
       if (!$container.length) return;
@@ -299,7 +299,7 @@ import { $popupInstance_ACU, $plotPromptSegmentsContainer_ACU, $plotTaskListCont
     export function getOptimizationPromptGroupFromUI_ACU() {
       if (!$popupInstance_ACU) return [];
 
-      const segments = [];
+      const segments: any[] = [];
       const $segments = $popupInstance_ACU.find('.optimization-prompt-segment');
 
       $segments.each(function() {
@@ -345,12 +345,12 @@ import { $popupInstance_ACU, $plotPromptSegmentsContainer_ACU, $plotTaskListCont
     /**
      * 加载剧情预设选择器
      */
-    function getPlotPresetDisplayName_ACU(presetName) {
+    function getPlotPresetDisplayName_ACU(presetName: string) {
       const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
       return normalizedPresetName || '默认预设';
     }
 
-    export function formatPlotScopeUpdatedAt_ACU(updatedAt) {
+    export function formatPlotScopeUpdatedAt_ACU(updatedAt: any) {
       const ts = Number(updatedAt) || 0;
       if (!ts) return '';
       try {
@@ -360,14 +360,14 @@ import { $popupInstance_ACU, $plotPromptSegmentsContainer_ACU, $plotTaskListCont
       }
     }
 
-    function populatePlotPresetSelectOptions_ACU($select, presets, { extraPresetName = '' } = {}) {
+    function populatePlotPresetSelectOptions_ACU($select: any, presets: any[], { extraPresetName = '' } = {}) {
       if (!$select || !$select.length) return;
 
       const normalizedExtraPresetName = normalizePlotPresetSelectionValue_ACU(extraPresetName);
       const normalizedPresetNames = new Set();
       $select.empty().append(`<option value="${DEFAULT_PRESET_OPTION_VALUE_ACU}">默认预设</option>`);
 
-      presets.forEach(preset => {
+      presets.forEach((preset: any) => {
         const presetName = normalizePlotPresetSelectionValue_ACU(preset?.name);
         if (!presetName || normalizedPresetNames.has(presetName)) return;
         normalizedPresetNames.add(presetName);
@@ -406,7 +406,7 @@ import { $popupInstance_ACU, $plotPromptSegmentsContainer_ACU, $plotTaskListCont
         $chatSelect.find(`option[value="${DEFAULT_PRESET_OPTION_VALUE_ACU}"]`).text('跟随全局');
       }
 
-      const hasGlobalPreset = !!globalPresetName && presets.some(p => normalizePlotPresetSelectionValue_ACU(p?.name) === globalPresetName);
+      const hasGlobalPreset = !!globalPresetName && presets.some((p: any) => normalizePlotPresetSelectionValue_ACU(p?.name) === globalPresetName);
       const hasChatPreset = !!chatSelectedPresetName && $chatSelect.find(`option[value="${chatSelectedPresetName.replace(/"/g, '\\"')}"]`).length > 0;
       const hasValidExplicitChatPreset = !!explicitChatPresetName && !!findPlotPresetByName_ACU(explicitChatPresetName);
 
@@ -452,7 +452,7 @@ import { $popupInstance_ACU, $plotPromptSegmentsContainer_ACU, $plotTaskListCont
     /**
      * 加载预设到UI
      */
-    function loadPlotPresetToUI_ACU(preset) {
+    function loadPlotPresetToUI_ACU(preset: any) {
       if (!$popupInstance_ACU || !preset) return;
 
       const presetName = preset.name || '默认预设';
@@ -497,7 +497,7 @@ import { $popupInstance_ACU, $plotPromptSegmentsContainer_ACU, $plotTaskListCont
       currentSettings.loopSettings = {
         ...(currentSettings.loopSettings || {}),
         quickReplyContent: (() => {
-          const prompts = [];
+          const prompts: any[] = [];
           $popupInstance_ACU.find('.loop-prompt-textarea').each(function() {
             const content = String(jQuery_API_ACU(this).val() || '').trim();
             if (content) prompts.push(content);
@@ -531,7 +531,7 @@ import { $popupInstance_ACU, $plotPromptSegmentsContainer_ACU, $plotTaskListCont
       if (!name) return;
 
       const presets = settings_ACU.plotSettings.promptPresets || [];
-      const existingIndex = presets.findIndex(p => p.name === name);
+      const existingIndex = presets.findIndex((p: any) => p.name === name);
 
       const currentSettings = getCurrentPlotSettingsFromUI_ACU();
       if (!currentSettings || typeof currentSettings !== 'object') {

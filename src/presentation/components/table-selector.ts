@@ -34,8 +34,8 @@ import { $manualTableSelector_ACU, $importTableSelector_ACU } from '../state/ui-
       });
       html += '</div>';
       $manualTableSelector_ACU.html(html);
-      $manualTableSelector_ACU.off('change', 'input[type="checkbox"]').on('change', 'input[type="checkbox"]', function() {
-          const checkedKeys = [];
+    $manualTableSelector_ACU.off('change', 'input[type="checkbox"]').on('change', 'input[type="checkbox"]', function() {
+          const checkedKeys: string[] = [];
           $manualTableSelector_ACU.find('input[type="checkbox"]:checked').each(function() {
               const key = jQuery_API_ACU(this).data('key');
               if (key) checkedKeys.push(key);
@@ -49,7 +49,7 @@ import { $manualTableSelector_ACU, $importTableSelector_ACU } from '../state/ui-
   // 优先从当前UI读取勾选的表，若UI未渲染则回退到已保存选择
   export function getManualSelectionFromUI_ACU() {
       if ($manualTableSelector_ACU && $manualTableSelector_ACU.length) {
-          const keys = [];
+          const keys: string[] = [];
           $manualTableSelector_ACU.find('input[type="checkbox"]:checked').each(function() {
               const k = jQuery_API_ACU(this).data('key');
               if (k) keys.push(k);
@@ -89,7 +89,7 @@ import { $manualTableSelector_ACU, $importTableSelector_ACU } from '../state/ui-
       // 未曾手动选择过：默认全选
       if (!settings_ACU.hasImportTableSelection) return availableKeys;
 
-      const validSaved = saved.filter(k => availableKeys.includes(k));
+      const validSaved = saved.filter((k: string) => availableKeys.includes(k));
       return validSaved;
   }
 
@@ -125,7 +125,7 @@ import { $manualTableSelector_ACU, $importTableSelector_ACU } from '../state/ui-
       html += '</div>';
       $importTableSelector_ACU.html(html);
       $importTableSelector_ACU.off('change', 'input[type="checkbox"]').on('change', 'input[type="checkbox"]', function() {
-          const checkedKeys = [];
+          const checkedKeys: string[] = [];
           $importTableSelector_ACU.find('input[type="checkbox"]:checked').each(function() {
               const key = jQuery_API_ACU(this).data('key');
               if (key) checkedKeys.push(key);
@@ -138,7 +138,7 @@ import { $manualTableSelector_ACU, $importTableSelector_ACU } from '../state/ui-
 
   export function getImportSelectionFromUI_ACU() {
       if ($importTableSelector_ACU && $importTableSelector_ACU.length) {
-          const keys = [];
+          const keys: string[] = [];
           $importTableSelector_ACU.find('input[type="checkbox"]:checked').each(function() {
               const k = jQuery_API_ACU(this).data('key');
               if (k) keys.push(k);

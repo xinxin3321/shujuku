@@ -23,7 +23,7 @@ import { collectManualExtraHint_ACU } from './settings-ui-sync';
 import { parseAndApplyTableEdits_ACU, prepareAIInput_ACU } from '../../service/ai/prompt-builder';
 import { buildGuidedBaseDataFromSheetGuide_ACU, getSortedSheetKeys_ACU, sanitizeSheetForStorage_ACU } from '../../service/template/chat-scope';
 
-export   async function processUpdates_ACU(indicesToUpdate, mode = 'auto', options: any = {}) {
+export   async function processUpdates_ACU(indicesToUpdate: number[], mode = 'auto', options: any = {}) {
       if (!indicesToUpdate || indicesToUpdate.length === 0) {
           return true;
       }
@@ -97,7 +97,7 @@ export   async function processUpdates_ACU(indicesToUpdate, mode = 'auto', optio
 
           // Step 2: 为每个表格单独查找该批次开始位置之前的最新数据
           // 使用 map 跟踪每个表格是否已找到
-          const batchFoundSheets = {};
+          const batchFoundSheets: Record<string, boolean> = {};
           batchSheetKeys.forEach(k => batchFoundSheets[k] = false);
 
           // 遍历当前批次开始位置之前的所有消息
@@ -331,8 +331,8 @@ export   async function handleManualUpdate_ACU() {
 
         // 手动更新仍使用 UI 的上下文与批次设置，但按模板 groupId 拆成多组并发处理
         const templateData = parseTableTemplateJson_ACU({ stripSeedRows: true }) || {};
-        const updateGroups = {};
-        targetKeys.forEach(sheetKey => {
+        const updateGroups: Record<string, any> = {};
+        targetKeys.forEach((sheetKey: string) => {
             const tableGroupId = Number.isFinite(templateData?.[sheetKey]?.updateConfig?.groupId)
                 ? Math.trunc(templateData[sheetKey].updateConfig.groupId)
                 : -1;
@@ -401,16 +401,16 @@ export   async function handleManualUpdate_ACU() {
   }
 
 
-export   async function proceedWithCardUpdate_ACU(messagesToUse, batchToastMessage = '正在填表，请稍候...', saveTargetIndex = -1, isImportMode = false, updateMode = 'standard', isSilentMode = false, targetSheetKeys = null, requestOptions = null) {
+export   async function proceedWithCardUpdate_ACU(messagesToUse: any[], batchToastMessage = '正在填表，请稍候...', saveTargetIndex = -1, isImportMode = false, updateMode = 'standard', isSilentMode = false, targetSheetKeys: string[] | null = null, requestOptions: Record<string, any> | null = null) {
     // UI 状态更新通过 presentation 层函数
-    const statusUpdate = (text) => {
+    const statusUpdate = (text: string) => {
         if (!isSilentMode && $statusMessageSpan_ACU) $statusMessageSpan_ACU.text(text);
     };
 
     const localAbortController = new AbortController();
     let loadingToast = null;
     let success = false;
-    let modifiedKeys = []; // [修复] 提升作用域
+    let modifiedKeys: string[] = []; // [修复] 提升作用域
     const maxRetries = settings_ACU.tableMaxRetries || 3; // [修改] 使用可配置的重试次数，默认3次
 
     try {
@@ -559,7 +559,7 @@ export   async function proceedWithCardUpdate_ACU(messagesToUse, batchToastMessa
                 // [核心修复] 仅保存实际发生变化的表格
                 let keysToPersist = modifiedKeys;
                 if (targetSheetKeys && Array.isArray(targetSheetKeys)) {
-                    keysToPersist = keysToPersist.filter(k => targetSheetKeys.includes(k));
+                    keysToPersist = keysToPersist.filter((k: string) => targetSheetKeys.includes(k));
                 }
                 
                 // [优化] 检查是否是首次初始化（聊天记录中没有任何数据库记录）
@@ -662,7 +662,7 @@ export   async function proceedWithCardUpdate_ACU(messagesToUse, batchToastMessa
   }
 
 
-export   async function saveCurrentDataForTable_ACU(sheetKey) {
+export   async function saveCurrentDataForTable_ACU(sheetKey: string) {
       try {
           if (!currentJsonTableData_ACU || !currentJsonTableData_ACU[sheetKey]) {
               logWarn_ACU('saveCurrentDataForTable_ACU: No data to save.');

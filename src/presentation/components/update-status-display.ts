@@ -50,7 +50,7 @@ import { $popupInstance_ACU, $cardUpdateStatusDisplay_ACU } from '../state/ui-re
       const sheetKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
       const tableCount = sheetKeys.length;
       let totalRowCount = 0;
-      let nextUpdates = [];
+      let nextUpdates: any[] = [];
       let tableStatusRows = "";
 
       sheetKeys.forEach(key => {

@@ -75,9 +75,9 @@ export async function bindStatusEvents_ACU(): Promise<void> {
       
 
       // [优化] 填表相关参数：取消"保存按钮"，改为输入后自动保存（与剧情推进一致）
-      const bindAutoSaveNumberInput_ACU = ($input, saveFn, debounceMs = 450) => {
+      const bindAutoSaveNumberInput_ACU = ($input: JQuery<HTMLElement> | null, saveFn: Function, debounceMs = 450) => {
           if (!$input || !$input.length || typeof saveFn !== 'function') return;
-          let t = null;
+          let t: ReturnType<typeof setTimeout> | null = null;
           const run = () => saveFn({ silent: true, skipReload: true });
           $input.off('input.acu_autosave change.acu_autosave blur.acu_autosave')
               .on('input.acu_autosave', function() {

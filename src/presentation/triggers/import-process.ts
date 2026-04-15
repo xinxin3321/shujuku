@@ -222,8 +222,8 @@ export   async function processImportedTxtAsUpdates_ACU() {
     const allTargetEntries = await getLorebookEntries_ACU(importTarget);
           
           // 从模板数据中提取所有表格的 entryName 和其他标识信息（用于清理自定义导出条目）
-          const templateEntryNames = [];
-          const templateTableNames = []; // 备用：表格原始名称
+          const templateEntryNames: string[] = [];
+          const templateTableNames: string[] = []; // 备用：表格原始名称
           if (finalDataForInjection) {
               const sheetKeys = getSortedSheetKeys_ACU(finalDataForInjection);
               sheetKeys.forEach(sheetKey => {
@@ -428,7 +428,7 @@ export   async function deleteImportedEntries_ACU() {
 
 
 
-export   async function loadImportedJsonDataFromLorebook_ACU(targetLorebook, modeSuffix = '-Selected') {
+export   async function loadImportedJsonDataFromLorebook_ACU(targetLorebook: string, modeSuffix = '-Selected') {
     if (!isWorldbookApiAvailable_ACU() || !targetLorebook) return null;
       const jsonStorageComment = getImportJsonStorageComment_ACU(modeSuffix);
       const allEntries = await getLorebookEntries_ACU(targetLorebook);
@@ -443,11 +443,11 @@ export   async function loadImportedJsonDataFromLorebook_ACU(targetLorebook, mod
   }
 
 
-export   async function saveImportedJsonDataToLorebook_ACU(targetLorebook, jsonData, modeSuffix = '-Selected') {
+export   async function saveImportedJsonDataToLorebook_ACU(targetLorebook: string, jsonData: any, modeSuffix = '-Selected') {
       if (!isWorldbookApiAvailable_ACU() || !targetLorebook || !jsonData) return false;
       const jsonStorageComment = getImportJsonStorageComment_ACU(modeSuffix);
       const allEntries = await getLorebookEntries_ACU(targetLorebook);
-      const usedOrders = buildUsedOrderSet_ACU(allEntries);
+      const usedOrders = buildUsedOrderSet_ACU(allEntries) as Set<number>;
       const existingEntry = allEntries.find(entry => entry.comment === jsonStorageComment);
       const finalJsonString = JSON.stringify(jsonData, null, 2);
       const newEntryData = {
@@ -471,7 +471,7 @@ export   async function saveImportedJsonDataToLorebook_ACU(targetLorebook, jsonD
   }
 
 
-export   async function deleteImportedJsonDataFromLorebook_ACU(targetLorebook, modeSuffix = '-Selected') {
+export   async function deleteImportedJsonDataFromLorebook_ACU(targetLorebook: string, modeSuffix = '-Selected') {
       if (!isWorldbookApiAvailable_ACU() || !targetLorebook) return false;
       const jsonStorageComment = getImportJsonStorageComment_ACU(modeSuffix);
       const entriesNow = await getLorebookEntries_ACU(targetLorebook);

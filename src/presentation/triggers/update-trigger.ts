@@ -25,11 +25,11 @@ import { getEffectiveAutoUpdateThreshold_ACU } from '../../service/runtime/helpe
  * 从 features/ui/01_update_trigger.js 迁移而来
  */
 
-  async function proceedWithCardUpdate_ACU(messagesToUse, batchToastMessage = '正在填表，请稍候...', saveTargetIndex = -1, isImportMode = false, updateMode = 'standard', isSilentMode = false, targetSheetKeys = null, requestOptions = null) {
+  async function proceedWithCardUpdate_ACU(messagesToUse: any[], batchToastMessage = '正在填表，请稍候...', saveTargetIndex = -1, isImportMode = false, updateMode = 'standard', isSilentMode = false, targetSheetKeys: string[] | null = null, requestOptions: Record<string, any> | null = null) {
     if (!$statusMessageSpan_ACU && $popupInstance_ACU)
         _assignUIPlaceholders_ACU({ $statusMessageSpan_ACU: $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-status-message`) });
 
-    const statusUpdate = (text) => {
+    const statusUpdate = (text: string) => {
         // [新增] 静默模式下不更新状态消息
         if (!isSilentMode && $statusMessageSpan_ACU) $statusMessageSpan_ACU.text(text);
     };
@@ -37,7 +37,7 @@ import { getEffectiveAutoUpdateThreshold_ACU } from '../../service/runtime/helpe
     const localAbortController = new AbortController();
     let loadingToast = null;
     let success = false;
-    let modifiedKeys = []; // [修复] 提升作用域
+    let modifiedKeys: string[] = []; // [修复] 提升作用域
     const maxRetries = settings_ACU.tableMaxRetries || 3; // [修改] 使用可配置的重试次数，默认3次
 
     try {
@@ -218,7 +218,7 @@ import { getEffectiveAutoUpdateThreshold_ACU } from '../../service/runtime/helpe
                 // [核心修复] 仅保存实际发生变化的表格
                 let keysToPersist = modifiedKeys;
                 if (targetSheetKeys && Array.isArray(targetSheetKeys)) {
-                    keysToPersist = keysToPersist.filter(k => targetSheetKeys.includes(k));
+                    keysToPersist = keysToPersist.filter((k: string) => targetSheetKeys.includes(k));
                 }
                 
                 // [优化] 检查是否是首次初始化（聊天记录中没有任何数据库记录）
@@ -449,13 +449,13 @@ import { getEffectiveAutoUpdateThreshold_ACU } from '../../service/runtime/helpe
           const maxRows = allSummaryRows.length;
           const totalBatches = Math.ceil(maxRows / batchSize);
           
-          let accumulatedSummary = [];
+          let accumulatedSummary: any[] = [];
 
           // [新增] 手动合并纪要：为"第一批次"提供一个稳定的索引锚点。
           // 规则：第一批次的纪要表从"本次合并范围起点 startIndex 之前"的已有表格数据中，
           // 抽取最近 2 条作为填表基础；若不足 2 条则取现有全部；若没有则留空。
           // 注意：该逻辑仅用于手动合并纪要，不影响自动合并纪要 performAutoMergeSummary_ACU。
-          const pickLastRowsBeforeIndex_ACU = (allRows, beforeIndex, count) => {
+          const pickLastRowsBeforeIndex_ACU = (allRows: any[], beforeIndex: number, count: number) => {
               if (!Array.isArray(allRows) || allRows.length === 0) return [];
               const end = Math.max(0, Math.min(Number.isFinite(beforeIndex) ? beforeIndex : 0, allRows.length));
               const start = Math.max(0, end - (Number.isFinite(count) ? count : 0));
@@ -469,21 +469,21 @@ import { getEffectiveAutoUpdateThreshold_ACU } from '../../service/runtime/helpe
               const endIdx = startIdx + batchSize;
               const batchSummaryRows = allSummaryRows.slice(startIdx, endIdx);
 
-              const formatRows = (rows, displayStartIndex) => rows.map((r, idx) => `[${displayStartIndex + idx}] ${r.slice(1).join(', ')}`).join('\n');
+              const formatRows = (rows: any[], displayStartIndex: number) => rows.map((r: any, idx: number) => `[${displayStartIndex + idx}] ${r.slice(1).join(', ')}`).join('\n');
               const textA = batchSummaryRows.length > 0 ? formatRows(batchSummaryRows, (startIndex + 1) + startIdx) : "(本批次无新增纪要数据)";
               
               let textBase = "";
               const summaryTableObj = currentJsonTableData_ACU[summaryKey];
               
-              const formatTableStructure = (tableName, currentRows, originalTableObj, tableIndex) => {
+              const formatTableStructure = (tableName: string, currentRows: any[], originalTableObj: Record<string, any>, tableIndex: number) => {
                   let str = `[${tableIndex}:${tableName}]\n`;
-                  const headers = originalTableObj.content[0] ? originalTableObj.content[0].slice(1).map((h, i) => `[${i}:${h}]`).join(', ') : 'No Headers';
+                  const headers = originalTableObj.content[0] ? originalTableObj.content[0].slice(1).map((h: any, i: number) => `[${i}:${h}]`).join(', ') : 'No Headers';
                   str += `  Columns: ${headers}\n`;
                   if (originalTableObj.sourceData) {
                       str += `  - Note: ${originalTableObj.sourceData.note || 'N/A'}\n`;
                   }
                   if (currentRows && currentRows.length > 0) {
-                      currentRows.forEach((row, rIdx) => { str += `  [${rIdx}] ${row.join(', ')}\n`; });
+                      currentRows.forEach((row: any, rIdx: number) => { str += `  [${rIdx}] ${row.join(', ')}\n`; });
                   } else {
                       str += `  (Table Empty - No rows yet)\n`;
                   }
@@ -532,14 +532,14 @@ import { getEffectiveAutoUpdateThreshold_ACU } from '../../service/runtime/helpe
                   
                   let messagesToUse = JSON.parse(JSON.stringify(settings_ACU.charCardPrompt || [DEFAULT_CHAR_CARD_PROMPT_ACU]));
                   let mainPromptSegment =
-                      messagesToUse.find(m => (String(m?.mainSlot || '').toUpperCase() === 'A') || m?.isMain) ||
-                      messagesToUse.find(m => m && m.content && m.content.includes("你接下来需要扮演一个填表用的美杜莎"));
+                      messagesToUse.find((m: any) => (String(m?.mainSlot || '').toUpperCase() === 'A') || m?.isMain) ||
+                      messagesToUse.find((m: any) => m && m.content && m.content.includes("你接下来需要扮演一个填表用的美杜莎"));
                   if (mainPromptSegment) {
                       mainPromptSegment.content = currentPrompt;
                   } else {
                       messagesToUse.push({ role: 'USER', content: currentPrompt });
                   }
-                  const finalMessages = messagesToUse.map(m => ({ role: m.role.toLowerCase(), content: m.content }));
+                  const finalMessages = messagesToUse.map((m: any) => ({ role: m.role.toLowerCase(), content: m.content }));
 
                   try {
                       if (settings_ACU.apiMode === 'tavern') {
@@ -573,9 +573,9 @@ import { getEffectiveAutoUpdateThreshold_ACU } from '../../service/runtime/helpe
                       }
 
                       const editsString = extractResult.inner;
-                      const newSummaryRows = [];
+                      const newSummaryRows: any[] = [];
                       
-                      editsString.split('\n').forEach(line => {
+                      editsString.split('\n').forEach((line: string) => {
                           const match = line.trim().match(/insertRow\s*\(\s*(\d+)\s*,\s*(\{.*?\}|\[.*?\])\s*\)/);
                           if (match) {
                               try {
@@ -583,8 +583,8 @@ import { getEffectiveAutoUpdateThreshold_ACU } from '../../service/runtime/helpe
                                   let rowData = JSON.parse(match[2].replace(/'/g, '"'));
                                   if (typeof rowData === 'object' && !Array.isArray(rowData)) {
                                       // 将对象格式转换为数组格式，添加null作为ID列
-                                      const sortedKeys = Object.keys(rowData).sort((a,b) => parseInt(a) - parseInt(b));
-                                      const dataColumns = sortedKeys.map(k => rowData[k]);
+                                      const sortedKeys = Object.keys(rowData).sort((a: string, b: string) => parseInt(a) - parseInt(b));
+                                      const dataColumns = sortedKeys.map((k: string) => rowData[k]);
                                       rowData = [null, ...dataColumns]; // ID列(null) + 数据列
                                   }
                                   // 只处理纪要表（tableIdx === 0）

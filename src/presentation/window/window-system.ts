@@ -73,7 +73,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
    * @param {string} windowId - 窗口ID
    * @param {object} state - 窗口状态 { width, height, isMaximized }
    */
-  export function saveWindowState_ACU(windowId, state) {
+  export function saveWindowState_ACU(windowId: string, state: any) {
     try {
       const states = getWindowStates_ACU();
       states[windowId] = state;
@@ -113,7 +113,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
    * @param {function} [options.onReady] - 窗口就绪回调（DOM已插入）
    * @returns {jQuery} 窗口jQuery对象
    */
-  export function createACUWindow(options) {
+  export function createACUWindow(options: any) {
     const {
       id,
       title = '窗口',
@@ -325,7 +325,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
     
     // 拖拽移动 —— 事件绑定到主窗口 document
     let isDragging = false;
-    let dragStartX, dragStartY, windowStartX, windowStartY;
+    let dragStartX: number = 0, dragStartY: number = 0, windowStartX: number = 0, windowStartY: number = 0;
     
     $window.find('.acu-window-header').on('mousedown', (e: any) => {
       if ($(e.target).closest('.acu-window-controls').length) return;
@@ -449,7 +449,7 @@ import { jQuery_API_ACU } from '../../shared/host-api';
   /**
    * 关闭指定窗口
    */
-  export function closeACUWindow(id) {
+  export function closeACUWindow(id: string) {
     const $window = ACU_WindowManager.getWindow(id);
     if ($window) {
       // 获取主窗口 jQuery

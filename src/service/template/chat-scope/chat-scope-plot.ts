@@ -8,11 +8,11 @@ import { getChatArray_ACU } from '../../../data/gateways/chat-gateway';
 import { CHAT_SCOPED_CONFIG_FIELD_ACU, getChatScopedConfigContainer_ACU, normalizeChatScopedConfigContainer_ACU } from '../../../data/storage/chat-history';
 import { normalizeChatScopedConfigSource_ACU } from './chat-scope-base';
 
-  function normalizePlotScopeMode_ACU(mode) {
+  function normalizePlotScopeMode_ACU(mode: any) {
       return mode === 'chat_override' ? 'chat_override' : 'inherit_global';
   }
 
-  export function sanitizePlotSettingsSnapshotForChat_ACU(plotSettings) {
+  export function sanitizePlotSettingsSnapshotForChat_ACU(plotSettings: any) {
       if (!plotSettings || typeof plotSettings !== 'object') return null;
       const snapshot = cloneScopedConfigData_ACU(plotSettings, null);
       if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
@@ -29,7 +29,7 @@ import { normalizeChatScopedConfigSource_ACU } from './chat-scope-base';
       return snapshot;
   }
 
-  function normalizeChatPlotScopeState_ACU(rawState) {
+  function normalizeChatPlotScopeState_ACU(rawState: any) {
       const state = (rawState && typeof rawState === 'object' && !Array.isArray(rawState)) ? rawState : {};
       const snapshot = sanitizePlotSettingsSnapshotForChat_ACU(state.snapshot);
       return {
@@ -55,7 +55,7 @@ import { normalizeChatScopedConfigSource_ACU } from './chat-scope-base';
       return normalizedState;
   }
 
-  export function buildChatPlotScopeStateFromSettings_ACU(plotSettings, { presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now() } = {}) {
+  export function buildChatPlotScopeStateFromSettings_ACU(plotSettings: any, { presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now() } = {}) {
       const snapshot = sanitizePlotSettingsSnapshotForChat_ACU(plotSettings);
       if (!snapshot) return null;
 
@@ -70,7 +70,7 @@ import { normalizeChatScopedConfigSource_ACU } from './chat-scope-base';
       });
   }
 
-  export function setCurrentChatPlotScopeState_ACU(plotState, { reason = '' } = {}) {
+  export function setCurrentChatPlotScopeState_ACU(plotState: any, { reason = '' } = {}) {
       const chat = getChatArray_ACU();
       const first = getChatFirstLayerMessage_ACU(chat);
       if (!first) return null;

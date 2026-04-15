@@ -8,7 +8,7 @@ export const DEFAULT_EXTRA_INDEX_PLACEMENT_ACU = Object.freeze({ position: 'at_d
 const DEFAULT_FIXED_PLACEMENT_ACU = Object.freeze({ position: 'at_depth_as_system', depth: 2, order: 99990 });
 const DEFAULT_FIXED_INDEX_PLACEMENT_ACU = Object.freeze({ position: 'at_depth_as_system', depth: 2, order: 99991 });
 
-export function normalizeLorebookPosition_ACU(position, fallback = 'at_depth_as_system') {
+export function normalizeLorebookPosition_ACU(position: any, fallback = 'at_depth_as_system') {
     const raw = String(position ?? '').trim().toLowerCase();
     if (raw === 'at_depth_as_system' || raw === 'system') return 'at_depth_as_system';
     // [修复] 返回 API 期望的正确值：before_character_definition / after_character_definition
@@ -18,7 +18,7 @@ export function normalizeLorebookPosition_ACU(position, fallback = 'at_depth_as_
     return fallback;
 }
 
-export function normalizePlacementConfig_ACU(rawPlacement, fallbackPlacement) {
+export function normalizePlacementConfig_ACU(rawPlacement: any, fallbackPlacement: any) {
     const fallback = fallbackPlacement || DEFAULT_ENTRY_PLACEMENT_ACU;
     const source = (rawPlacement && typeof rawPlacement === 'object') ? rawPlacement : {};
     const depthRaw = parseInt(source.depth, 10);
@@ -30,24 +30,24 @@ export function normalizePlacementConfig_ACU(rawPlacement, fallbackPlacement) {
     };
 }
 
-export function isSummaryTableName_ACU(name) {
+export function isSummaryTableName_ACU(name: string) {
     return String(name || '').trim() === '总结表';
 }
 
-export function isOutlineTableName_ACU(name) {
+export function isOutlineTableName_ACU(name: string) {
     return String(name || '').trim() === '总体大纲';
 }
 
-export function isImportantPersonsTableName_ACU(name) {
+export function isImportantPersonsTableName_ACU(name: string) {
     return String(name || '').trim() === '重要人物表';
 }
 
-function isGlobalDataTableName_ACU(name) {
+function isGlobalDataTableName_ACU(name: string) {
     const n = String(name || '').trim();
     return n === '全局数据表' || n === '全局表';
 }
 
-export function getFixedPlacementDefaultsForTable_ACU(tableName) {
+export function getFixedPlacementDefaultsForTable_ACU(tableName: string) {
     const name = String(tableName || '').trim();
     if (isSummaryTableName_ACU(name)) {
         return {
@@ -92,7 +92,7 @@ export function buildDefaultExportConfig_ACU(tableName = '') {
         injectionTemplate: '',
         extraIndexEnabled: false,
         extraIndexEntryName: `${tableName || '表格'}-索引`,
-        extraIndexColumns: [],
+        extraIndexColumns: [] as string[],
         extraIndexColumnModes: {},
         extraIndexInjectionTemplate: '',
         entryPlacement: { ...DEFAULT_ENTRY_PLACEMENT_ACU },
@@ -110,7 +110,7 @@ export function buildDefaultGlobalInjectionConfig_ACU() {
     };
 }
 
-export function ensureGlobalInjectionConfigDefaults_ACU(rawConfig) {
+export function ensureGlobalInjectionConfigDefaults_ACU(rawConfig: any) {
     const base = buildDefaultGlobalInjectionConfig_ACU();
     const raw = (rawConfig && typeof rawConfig === 'object') ? rawConfig : {};
     return {
@@ -119,7 +119,7 @@ export function ensureGlobalInjectionConfigDefaults_ACU(rawConfig) {
     };
 }
 
-export function getGlobalInjectionConfigFromData_ACU(dataObj, { ensureWriteBack = false } = {}) {
+export function getGlobalInjectionConfigFromData_ACU(dataObj: any, { ensureWriteBack = false } = {}) {
     const defaults = buildDefaultGlobalInjectionConfig_ACU();
     const cfg = ensureGlobalInjectionConfigDefaults_ACU(dataObj?.mate?.globalInjectionConfig);
     if (ensureWriteBack && dataObj && typeof dataObj === 'object') {
@@ -134,7 +134,7 @@ export function getGlobalInjectionConfigFromData_ACU(dataObj, { ensureWriteBack 
     };
 }
 
-export function ensureExportConfigDefaults_ACU(exportConfig, tableName = '') {
+export function ensureExportConfigDefaults_ACU(exportConfig: any, tableName = '') {
     const base = buildDefaultExportConfig_ACU(tableName);
     const raw = (exportConfig && typeof exportConfig === 'object') ? exportConfig : {};
     const merged = { ...base, ...raw };
@@ -145,13 +145,13 @@ export function ensureExportConfigDefaults_ACU(exportConfig, tableName = '') {
     return merged;
 }
 
-export function ensureSheetExportConfigDefaults_ACU(sheet) {
+export function ensureSheetExportConfigDefaults_ACU(sheet: any) {
     if (!sheet || typeof sheet !== 'object') return buildDefaultExportConfig_ACU('');
     sheet.exportConfig = ensureExportConfigDefaults_ACU(sheet.exportConfig, sheet.name || sheet.uid || '');
     return sheet.exportConfig;
 }
 
-export function applyPlacementToEntry_ACU(entry, placement) {
+export function applyPlacementToEntry_ACU(entry: any, placement: any) {
     if (!entry || typeof entry !== 'object') return entry;
     const p = normalizePlacementConfig_ACU(placement, DEFAULT_ENTRY_PLACEMENT_ACU);
     const out = { ...entry, position: p.position };
@@ -163,7 +163,7 @@ export function applyPlacementToEntry_ACU(entry, placement) {
     return out;
 }
 
-export function isEntryPlacementMatched_ACU(entry, placement) {
+export function isEntryPlacementMatched_ACU(entry: any, placement: any) {
     const p = normalizePlacementConfig_ACU(placement, DEFAULT_ENTRY_PLACEMENT_ACU);
     const ep = normalizeLorebookPosition_ACU(entry?.position, p.position);
     if (ep !== p.position) return false;

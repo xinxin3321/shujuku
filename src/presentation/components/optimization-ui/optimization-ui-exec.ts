@@ -23,7 +23,7 @@ import { showOptimizationOverlay_ACU, hideOptimizationOverlay_ACU, showOptimizat
 // 循环 import — 运行时安全
 import { showOptimizationDiffDialogForLoop_ACU, showOptimizationDiff_ACU } from './optimization-ui-diff';
 
-  export async function replaceChatMessage_ACU(messageIndex, newContent, options: any = {}) {
+  export async function replaceChatMessage_ACU(messageIndex: number, newContent: string, options: any = {}) {
     try {
       logDebug_ACU(`[正文优化] replaceChatMessage_ACU 开始执行, messageIndex=${messageIndex}, newContent长度=${newContent?.length || 0}`);
       
@@ -94,7 +94,7 @@ import { showOptimizationDiffDialogForLoop_ACU, showOptimizationDiff_ACU } from 
    * @param {number} messageIndex - 消息索引
    * @returns {string|null} 原始内容，如果不存在则返回 null
    */
-  export function getOriginalContent_ACU(messageIndex) {
+  export function getOriginalContent_ACU(messageIndex: number) {
     const cachedBase = getLastOptimizationBase_ACU();
     if (cachedBase?.baseContent) {
       const chat = getChatArray_ACU();
@@ -122,7 +122,7 @@ import { showOptimizationDiffDialogForLoop_ACU, showOptimizationDiff_ACU } from 
    * @param {number} messageIndex - 消息索引
    * @returns {Promise<boolean>} 是否成功
    */
-  export async function reoptimizeMessage_ACU(messageIndex) {
+  export async function reoptimizeMessage_ACU(messageIndex: number) {
     const config = settings_ACU.contentOptimizationSettings || {};
     _set_contentOptimizationAbortRequested_ACU(false);
     
@@ -212,7 +212,7 @@ import { showOptimizationDiffDialogForLoop_ACU, showOptimizationDiff_ACU } from 
    * @param {object} result - 优化结果
    * @param {string} originalContent - 原始内容
    */
-  function showReoptimizationDialog_ACU(messageIndex, result, originalContent) {
+  function showReoptimizationDialog_ACU(messageIndex: number, result: any, originalContent: string) {
     const dialogHtml = `
       <div class="acu-optimization-dialog acu-dialog-classic" style="
         position: fixed;
@@ -236,7 +236,7 @@ import { showOptimizationDiffDialogForLoop_ACU, showOptimizationDiff_ACU } from 
         <h3 style="margin: 0 0 8px 0; color: var(--acu-accent, #7d4940); font-size: 1.1em; letter-spacing: 1px;">🔄 重新优化结果</h3>
         <p style="margin: 0 0 12px 0; color: var(--acu-text-dim, #8a8075);">${result.summary}</p>
         <div class="optimization-list" style="margin-bottom: 16px; max-height: 400px; overflow-y: auto;">
-          ${result.optimizations.map((opt, i) => `
+          ${result.optimizations.map((opt: any, i: number) => `
             <div class="optimization-item" style="
               background: rgba(0, 0, 0, 0.2);
               border-radius: 1px;
@@ -340,7 +340,7 @@ import { showOptimizationDiffDialogForLoop_ACU, showOptimizationDiff_ACU } from 
    * @param {number} messageIndex - AI消息索引
    * @returns {Promise<boolean>} 是否成功
    */
-  export async function executeContentOptimization_ACU(messageIndex) {
+  export async function executeContentOptimization_ACU(messageIndex: number) {
     const config = settings_ACU.contentOptimizationSettings || {};
     _set_contentOptimizationAbortRequested_ACU(false);
     
@@ -408,7 +408,7 @@ import { showOptimizationDiffDialogForLoop_ACU, showOptimizationDiff_ACU } from 
       ensureOptimizationNotCancelled_ACU();
       if (config.autoApply || config.seamlessMode) {
         let currentContent = content;
-        let totalOptimizations = [];
+        let totalOptimizations: any[] = [];
         let finalOptimizedContent = content;
         
         for (let loop = 1; loop <= loopCount; loop++) {
@@ -524,7 +524,7 @@ import { showOptimizationDiffDialogForLoop_ACU, showOptimizationDiff_ACU } from 
    * @param {Array} totalOptimizations - 累计优化项（内部使用）
    * @returns {Promise<boolean>} 是否成功
    */
-  async function executeContentOptimizationWithConfirm_ACU(messageIndex, content, userMessage, totalLoops, currentLoop = 1, currentContent = null, totalOptimizations = []) {
+  async function executeContentOptimizationWithConfirm_ACU(messageIndex: number, content: string, userMessage: string, totalLoops: number, currentLoop = 1, currentContent: string | null = null, totalOptimizations: any[] = []) {
     // 使用传入的当前内容，或者原始内容
     let workingContent = currentContent !== null ? currentContent : content;
     
@@ -579,7 +579,7 @@ import { showOptimizationDiffDialogForLoop_ACU, showOptimizationDiff_ACU } from 
         currentLoop: currentLoop,
         totalLoops: totalLoops,
         totalOptimizations: newTotalOptimizations
-      }, async (action) => {
+      }, async (action: string) => {
         if (action === 'apply') {
           // 用户确认应用
           if (currentLoop < totalLoops) {

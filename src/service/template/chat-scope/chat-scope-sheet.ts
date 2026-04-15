@@ -23,7 +23,7 @@ import { normalizeGuideData_ACU } from './chat-scope-base';
 import { getCurrentChatTemplateScopeState_ACU, buildChatTemplateScopeStateFromCurrent_ACU, setCurrentChatTemplateScopeState_ACU } from './chat-scope-template';
 import { migrateLegacyTemplateScopeForCurrentChat_ACU, getChatSheetGuideDataForIsolationKey_ACU, buildChatSheetGuideDataFromTemplateObj_ACU } from './chat-scope-guide';
 
-  export function getSortedSheetKeys_ACU(dataObj, { ignoreChatGuide = false, includeMissingFromGuide = false } = {}) {
+  export function getSortedSheetKeys_ACU(dataObj: any, { ignoreChatGuide = false, includeMissingFromGuide = false } = {}) {
       if (!dataObj || typeof dataObj !== 'object') return [];
       const existingKeys = Object.keys(dataObj).filter(k => k.startsWith('sheet_'));
       if (existingKeys.length === 0) return [];
@@ -63,7 +63,7 @@ import { migrateLegacyTemplateScopeForCurrentChat_ACU, getChatSheetGuideDataForI
       })();
       ensureSheetOrderNumbers_ACU(dataObj, { baseOrderKeys: baseKeys, forceRebuild: false });
 
-      const orderValueOf = (k) => {
+      const orderValueOf = (k: string) => {
           const v = dataObj?.[k]?.[TABLE_ORDER_FIELD_ACU];
           if (Number.isFinite(v)) return Math.trunc(v);
           const tv = templateObj?.[k]?.[TABLE_ORDER_FIELD_ACU];
@@ -85,14 +85,14 @@ import { migrateLegacyTemplateScopeForCurrentChat_ACU, getChatSheetGuideDataForI
   }
 
   // [新增] 基于"空白指导表"构建可合并的骨架数据（深拷贝，避免后续修改污染原对象）
-  export function buildGuidedBaseDataFromSheetGuide_ACU(guideData) {
+  export function buildGuidedBaseDataFromSheetGuide_ACU(guideData: any) {
       const normalized = normalizeGuideData_ACU(guideData);
       if (!normalized) return { mate: { type: 'chatSheets', version: 1 } };
       try { return JSON.parse(JSON.stringify(normalized)); } catch (e) { return normalized; }
   }
 
   // [修复] 按指定顺序重建对象键，避免 Object.keys()/合并/深拷贝导致的顺序漂移
-  export function reorderDataBySheetKeys_ACU(dataObj, orderedSheetKeys) {
+  export function reorderDataBySheetKeys_ACU(dataObj: any, orderedSheetKeys: string[]) {
       if (!dataObj || typeof dataObj !== 'object') return dataObj;
       const out: any = {};
       // 先保留非 sheet_ 键（mate 等）
@@ -124,7 +124,7 @@ import { migrateLegacyTemplateScopeForCurrentChat_ACU, getChatSheetGuideDataForI
       TABLE_ORDER_FIELD_ACU, // orderNo
   ]);
 
-  export function sanitizeSheetForStorage_ACU(sheet) {
+  export function sanitizeSheetForStorage_ACU(sheet: any) {
       if (!sheet || typeof sheet !== 'object') return sheet;
       const out: any = {};
       SHEET_KEEP_KEYS_ACU.forEach(k => {
@@ -138,7 +138,7 @@ import { migrateLegacyTemplateScopeForCurrentChat_ACU, getChatSheetGuideDataForI
       return out;
   }
 
-  export function sanitizeChatSheetsObject_ACU(dataObj, { ensureMate = false } = {}) {
+  export function sanitizeChatSheetsObject_ACU(dataObj: any, { ensureMate = false } = {}) {
       if (!dataObj || typeof dataObj !== 'object') return dataObj;
       const out: any = {};
       Object.keys(dataObj).forEach(k => {

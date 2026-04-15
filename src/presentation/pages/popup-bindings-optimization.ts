@@ -207,7 +207,7 @@ export async function bindOptimizationEvents_ACU(): Promise<void> {
           }
 
           const presets = settings_ACU.contentOptimizationSettings.promptPresets || [];
-          const selectedPreset = presets.find(p => p.name === selectedName);
+          const selectedPreset = presets.find((p: any) => p.name === selectedName);
 
           if (selectedPreset) {
             // 加载预设到UI
@@ -239,7 +239,7 @@ export async function bindOptimizationEvents_ACU(): Promise<void> {
           }
 
           const presets = settings_ACU.contentOptimizationSettings.promptPresets || [];
-          const selectedPreset = presets.find(p => p.name === selectedName);
+          const selectedPreset = presets.find((p: any) => p.name === selectedName);
 
           if (!selectedPreset) {
             showToastr_ACU('error', '找不到选中的预设。');
@@ -277,15 +277,7 @@ export async function bindOptimizationEvents_ACU(): Promise<void> {
           }
 
           const presets = settings_ACU.contentOptimizationSettings.promptPresets || [];
-          const existingIndex = presets.findIndex(p => p.name === selectedName);
-
-          if (existingIndex === -1) {
-            showToastr_ACU('error', '找不到要覆盖的预设。');
-            return;
-          }
-
-          const currentPromptGroup = getOptimizationPromptGroupFromUI_ACU();
-          presets[existingIndex] = { name: selectedName, promptGroup: currentPromptGroup };
+          const existingIndex = presets.findIndex((p: any) => p.name === selectedName);
           settings_ACU.contentOptimizationSettings.promptPresets = presets;
           saveSettingsAndNotify_ACU();
           showToastr_ACU('success', `预设 "${selectedName}" 已被成功覆盖。`);
@@ -313,7 +305,7 @@ export async function bindOptimizationEvents_ACU(): Promise<void> {
           }
 
           const presets = settings_ACU.contentOptimizationSettings.promptPresets || [];
-          const indexToDelete = presets.findIndex(p => p.name === selectedName);
+          const indexToDelete = presets.findIndex((p: any) => p.name === selectedName);
 
           if (indexToDelete > -1) {
             presets.splice(indexToDelete, 1);
@@ -368,7 +360,7 @@ export async function bindOptimizationEvents_ACU(): Promise<void> {
                     promptGroup: preset.promptGroup || buildDefaultContentOptimizationPromptGroup_ACU()
                   };
 
-                  const existingIndex = currentPresets.findIndex(p => p.name === preset.name);
+                  const existingIndex = currentPresets.findIndex((p: any) => p.name === preset.name);
 
                   if (existingIndex !== -1) {
                     currentPresets[existingIndex] = presetData;
@@ -475,7 +467,7 @@ export async function bindOptimizationEvents_ACU(): Promise<void> {
               let outputText = `优化完成！共 ${result.optimizations.length} 处改进\n\n`;
               outputText += `摘要：${result.summary || '无'}\n\n`;
               outputText += `=== 优化详情 ===\n\n`;
-              result.optimizations.forEach((opt, i) => {
+              result.optimizations.forEach((opt: any, i: number) => {
                 outputText += `[${i + 1}] 修改方案：${opt.plan || opt.reason || '未说明'}\n`;
                 outputText += `原文：${opt.original.substring(0, 100)}${opt.original.length > 100 ? '...' : ''}\n`;
                 outputText += `优化：${opt.optimized.substring(0, 100)}${opt.optimized.length > 100 ? '...' : ''}\n\n`;

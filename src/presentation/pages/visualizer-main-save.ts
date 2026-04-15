@@ -41,18 +41,18 @@ import { closeACUWindow } from '../window/window-system';
       // If mismatch, prompt inheritance.
       
       // [新增] 按照用户调整的顺序重新组织数据
-      const orderedData = {};
+      const orderedData: Record<string, any> = {};
       const orderedKeys = getOrderedSheetKeys_ACU();
       
       // 先添加非表格数据（如 mate）
-      Object.keys(_acuVisState.tempData).forEach(key => {
+      Object.keys(_acuVisState.tempData).forEach((key: string) => {
           if (!key.startsWith('sheet_')) {
               orderedData[key] = _acuVisState.tempData[key];
           }
       });
       
       // 按顺序添加表格数据
-      orderedKeys.forEach(key => {
+      orderedKeys.forEach((key: string) => {
           if (_acuVisState.tempData[key]) {
               orderedData[key] = _acuVisState.tempData[key];
           }
@@ -106,7 +106,7 @@ import { closeACUWindow } from '../window/window-system';
       // Update template only if saveToTemplate is true
       // “保存到全局”会把当前编辑结果同步进全局模板预设；“保存到当前聊天”只沉淀聊天级预设/数据
       if (saveToTemplate) {
-          let templateObj = null;
+          let templateObj: any = null;
           try {
               templateObj = JSON.parse(TABLE_TEMPLATE_ACU);
               if (!templateObj || typeof templateObj !== 'object') templateObj = {};
@@ -267,8 +267,8 @@ import { closeACUWindow } from '../window/window-system';
           })();
           
           // 2.3 查找每张表当前最新数据所在的原楼层
-          const bucketByIndex = {};
-          const resolveTargetIndexForSheet = (sheetKey) => {
+          const bucketByIndex: Record<number, string[]> = {};
+          const resolveTargetIndexForSheet = (sheetKey: string) => {
               const table = currentJsonTableData_ACU[sheetKey];
               const isSummaryTable = table ? isSummaryOrOutlineTable_ACU(table.name) : false;
               

@@ -79,7 +79,7 @@ export {
     return currentJsonTableData_ACU || {};
   }
 
-  export async function handleChatCompletionReady_ACU(data) {
+  export async function handleChatCompletionReady_ACU(data: any) {
     logDebug_ACU('[提示词模板] handleChatCompletionReady_ACU 被调用');
     logDebug_ACU('[提示词模板] settings_ACU?.promptTemplateSettings:', settings_ACU?.promptTemplateSettings);
     if (!settings_ACU?.promptTemplateSettings?.enabled) {
@@ -98,7 +98,7 @@ export {
       allTablesJson: getTableDataForPrompt_ACU(),
       plotContent: lastPlotContent
     };
-    const processPromptTemplateContent_ACU = (content) => {
+    const processPromptTemplateContent_ACU = (content: any) => {
       if (typeof content !== 'string' || !content) {
         return typeof content === 'string' ? content : '';
       }

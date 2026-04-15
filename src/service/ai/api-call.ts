@@ -6,7 +6,7 @@ import { settings_ACU } from '../runtime/state-manager';
 import { isGenerateRawAvailable_ACU, generateRaw_ACU, sendConnectionManagerRequest_ACU } from '../../data/gateways/ai-gateway';
 import { logDebug_ACU, logWarn_ACU } from '../../shared/utils';
 
-export   async function callApi_ACU(messages, apiSettings, abortSignal = null) {
+export   async function callApi_ACU(messages: any[], apiSettings: any, abortSignal: AbortSignal | null = null) {
     // [新增] 获取剧情推进使用的API配置（支持API预设）
     const apiPresetConfig = getApiConfigByPreset_ACU(settings_ACU.plotApiPreset);
     const effectiveApiMode = apiPresetConfig.apiMode;
@@ -42,7 +42,7 @@ export   async function callApi_ACU(messages, apiSettings, abortSignal = null) {
         top_p: effectiveApiConfig.topP || effectiveApiConfig.top_p || 0.95,
         stream: settings_ACU.streamingEnabled || false,
         chat_completion_source: 'custom',
-        group_names: [],
+        group_names: [] as string[],
         include_reasoning: false,
         reasoning_effort: 'medium',
         enable_web_search: false,
@@ -77,7 +77,7 @@ export   async function callApi_ACU(messages, apiSettings, abortSignal = null) {
   }
 
 
-export   function getApiConfigByPreset_ACU(presetName) {
+export   function getApiConfigByPreset_ACU(presetName: string) {
     if (!presetName) {
       // 使用当前配置
       return {
@@ -87,7 +87,7 @@ export   function getApiConfigByPreset_ACU(presetName) {
       };
     }
     
-    const preset = settings_ACU.apiPresets.find(p => p.name === presetName);
+    const preset = settings_ACU.apiPresets.find((p: any) => p.name === presetName);
     if (preset) {
       return {
         apiMode: preset.apiMode,
@@ -106,7 +106,7 @@ export   function getApiConfigByPreset_ACU(presetName) {
   }
 
 
-export   async function callCustomOpenAI_ACU_Direct(messages) {
+export   async function callCustomOpenAI_ACU_Direct(messages: any[]) {
       // Reuse the logic from callCustomOpenAI_ACU but bypass the prompt replacement part
       // ... For brevity, I will just call callCustomOpenAI_ACU with a hacked dynamicContent?
       // No, callCustomOpenAI_ACU relies on settings_ACU.charCardPrompt.

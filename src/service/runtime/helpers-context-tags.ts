@@ -5,7 +5,7 @@
 import { DEFAULT_PLOT_SETTINGS_ACU } from '../../shared/defaults-json.js';
 import { normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shared/utils';
 
-  function extractContextTags_ACU(text, tagNames, excludeUserMessages = false) {
+  function extractContextTags_ACU(text: string, tagNames: string[], excludeUserMessages = false) {
       if (!text || !tagNames || tagNames.length === 0) {
           return text;
       }
@@ -15,7 +15,7 @@ import { normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shar
       // 如果排除用户消息，则需要按行处理
       if (excludeUserMessages) {
           const lines = result.split('\n');
-          const processedLines = lines.map(line => {
+          const processedLines = lines.map((line: string) => {
               // 检查是否是用户消息行（通常以特定格式标识）
               if (line.includes('[User]') || line.includes('User:') || line.includes('用户:')) {
                   return line; // 用户消息不处理
@@ -32,15 +32,15 @@ import { normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shar
   }
 
   // 辅助函数：从单行文本中提取标签内容
-  function extractTagsFromLine(text, tagNames) {
+  function extractTagsFromLine(text: string, tagNames: string[]) {
       if (!text || !tagNames || tagNames.length === 0) {
           return text;
       }
       
       let result = text;
-      const extractedParts = [];
+      const extractedParts: string[] = [];
 
-      tagNames.forEach(tagName => {
+      tagNames.forEach((tagName: string) => {
           const content = extractLastTagContent(text, tagName);
           if (content !== null) {
               extractedParts.push(`<${tagName}>${content}</${tagName}>`);
@@ -55,7 +55,7 @@ import { normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shar
   }
 
   // 辅助函数：提取文本中最后一个指定标签的内容
-  function extractLastTagContent(text, tagName) {
+  function extractLastTagContent(text: string, tagName: string) {
       if (!text || !tagName) return null;
       const lower = text.toLowerCase();
       const open = `<${tagName.toLowerCase()}>`;
@@ -86,7 +86,7 @@ import { normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shar
       );
   }
 
-  function removeLastMatchedBoundary_ACU(text, startBoundary, endBoundary) {
+  function removeLastMatchedBoundary_ACU(text: string, startBoundary: string, endBoundary: string) {
       const source = String(text ?? '');
       const start = String(startBoundary || '');
       const end = String(endBoundary || '');
@@ -108,7 +108,7 @@ import { normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shar
       return source.slice(0, startIdx) + source.slice(removeTo);
   }
 
-  export function applyExcludeRulesToText_ACU(text, { excludeRules = [], excludeTags = '' } = {}) {
+  export function applyExcludeRulesToText_ACU(text: string, { excludeRules = [] as any[], excludeTags = '' } = {}) {
       let result = String(text ?? '');
       const rules = normalizeExcludeRules_ACU(excludeRules, excludeTags);
       if (!result || rules.length === 0) return result;
@@ -120,7 +120,7 @@ import { normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shar
       return result.replace(/\n{3,}/g, '\n\n').trim();
   }
 
-  function extractLastMatchedBoundary_ACU(text, startBoundary, endBoundary) {
+  function extractLastMatchedBoundary_ACU(text: string, startBoundary: string, endBoundary: string) {
       const source = String(text ?? '');
       const start = String(startBoundary || '');
       const end = String(endBoundary || '');
@@ -140,13 +140,13 @@ import { normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shar
       return source.slice(startIdx, rangeEnd);
   }
 
-  function applyExtractRulesToText_ACU(text, { extractRules = [], extractTags = '' } = {}) {
+  function applyExtractRulesToText_ACU(text: string, { extractRules = [] as any[], extractTags = '' } = {}) {
       const source = String(text ?? '');
       const rules = normalizeExtractRules_ACU(extractRules, extractTags);
       if (!source || rules.length === 0) return source;
 
-      const parts = [];
-      rules.forEach(rule => {
+      const parts: string[] = [];
+      rules.forEach((rule: any) => {
           const matched = extractLastMatchedBoundary_ACU(source, rule.start, rule.end);
           if (matched !== null) parts.push(matched);
       });
@@ -154,7 +154,7 @@ import { normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../shar
       return parts.join('\n\n');
   }
 
-  export function applyContextTagFilters_ACU(text, { extractTags = '', extractRules = [], excludeTags = '', excludeRules = [] } = {}) {
+  export function applyContextTagFilters_ACU(text: string, { extractTags = '', extractRules = [] as any[], excludeTags = '', excludeRules = [] as any[] } = {}) {
       let result = String(text ?? '');
       result = applyExtractRulesToText_ACU(result, { extractRules, extractTags });
       result = applyExcludeRulesToText_ACU(result, { excludeRules, excludeTags });

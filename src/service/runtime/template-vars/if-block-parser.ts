@@ -13,7 +13,7 @@ import { evaluateSeedExpression_ACU, evaluateCondExpression_ACU } from './seed-c
    * 解析条件模板（支持 else 和嵌套）
    * 递归解析 <if ...>...</if> 结构，支持 <else> 分支和嵌套条件
    */
-  export function parseIfBlockRecursive_ACU(content, context, depth = 0) {
+  export function parseIfBlockRecursive_ACU(content: string, context: any, depth = 0) {
     if (!content || typeof content !== 'string') {
       return content || '';
     }
@@ -32,7 +32,7 @@ import { evaluateSeedExpression_ACU, evaluateCondExpression_ACU } from './seed-c
   /**
    * 解析内容中的所有 if 块（支持嵌套）
    */
-  export function parseIfBlocksInContent_ACU(content, context, depth) {
+  export function parseIfBlocksInContent_ACU(content: string, context: any, depth: number) {
     let result = '';
     let currentIndex = 0;
     
@@ -71,7 +71,7 @@ import { evaluateSeedExpression_ACU, evaluateCondExpression_ACU } from './seed-c
   /**
    * 解析单个 if 块（包括 else 分支和嵌套）
    */
-  function parseSingleIfBlock_ACU(content, startIndex, type, expression, context, depth) {
+  function parseSingleIfBlock_ACU(content: string, startIndex: number, type: string, expression: string, context: any, depth: number) {
     const ifStartMatch = content.slice(startIndex).match(/<if\s+(?:seed|cell|cond)\s*=\s*"[^"]*"\s*>/i);
     if (!ifStartMatch) return null;
     

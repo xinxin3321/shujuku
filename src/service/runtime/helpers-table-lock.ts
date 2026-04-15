@@ -21,7 +21,7 @@ import { isSummaryOrOutlineTable_ACU } from '../../shared/utils';
       }
   }
 
-  export function getTableLocksForSheet_ACU(sheetKey) {
+  export function getTableLocksForSheet_ACU(sheetKey: string) {
       const scopeKey = getTableLockScopeKey_ACU();
       const bucket = settings_ACU?.tableUpdateLocks?.[scopeKey]?.[sheetKey] || {};
       return {
@@ -31,7 +31,7 @@ import { isSummaryOrOutlineTable_ACU } from '../../shared/utils';
       };
   }
 
-  export function saveTableLocksForSheet_ACU(sheetKey, lockState) {
+  export function saveTableLocksForSheet_ACU(sheetKey: string, lockState: any) {
       if (!sheetKey) return;
       ensureTableLockStore_ACU();
       const scopeKey = getTableLockScopeKey_ACU();
@@ -44,21 +44,21 @@ import { isSummaryOrOutlineTable_ACU } from '../../shared/utils';
       saveSettings_ACU();
   }
 
-  export function toggleRowLock_ACU(sheetKey, rowIndex) {
+  export function toggleRowLock_ACU(sheetKey: string, rowIndex: number) {
       const lockState = getTableLocksForSheet_ACU(sheetKey);
       if (lockState.rows.has(rowIndex)) lockState.rows.delete(rowIndex);
       else lockState.rows.add(rowIndex);
       saveTableLocksForSheet_ACU(sheetKey, lockState);
   }
 
-  export function toggleColLock_ACU(sheetKey, colIndex) {
+  export function toggleColLock_ACU(sheetKey: string, colIndex: number) {
       const lockState = getTableLocksForSheet_ACU(sheetKey);
       if (lockState.cols.has(colIndex)) lockState.cols.delete(colIndex);
       else lockState.cols.add(colIndex);
       saveTableLocksForSheet_ACU(sheetKey, lockState);
   }
 
-  export function toggleCellLock_ACU(sheetKey, rowIndex, colIndex) {
+  export function toggleCellLock_ACU(sheetKey: string, rowIndex: number, colIndex: number) {
       const lockState = getTableLocksForSheet_ACU(sheetKey);
       const key = `${rowIndex}:${colIndex}`;
       if (lockState.cells.has(key)) lockState.cells.delete(key);
@@ -66,14 +66,14 @@ import { isSummaryOrOutlineTable_ACU } from '../../shared/utils';
       saveTableLocksForSheet_ACU(sheetKey, lockState);
   }
 
-  export function isSpecialIndexLockEnabled_ACU(sheetKey) {
+  export function isSpecialIndexLockEnabled_ACU(sheetKey: string) {
       const scopeKey = getTableLockScopeKey_ACU();
       const bucket = settings_ACU?.specialIndexLocks?.[scopeKey] || {};
       if (typeof bucket[sheetKey] === 'boolean') return bucket[sheetKey];
       return true; // 默认锁定
   }
 
-  export function setSpecialIndexLockEnabled_ACU(sheetKey, enabled) {
+  export function setSpecialIndexLockEnabled_ACU(sheetKey: string, enabled: boolean) {
       if (!sheetKey) return;
       ensureTableLockStore_ACU();
       const scopeKey = getTableLockScopeKey_ACU();
@@ -82,7 +82,7 @@ import { isSummaryOrOutlineTable_ACU } from '../../shared/utils';
       saveSettings_ACU();
   }
 
-  export function getSummaryIndexColumnIndex_ACU(table) {
+  export function getSummaryIndexColumnIndex_ACU(table: any) {
       try {
           if (!table || !Array.isArray(table.content) || !Array.isArray(table.content[0])) return -1;
           const headers = table.content[0].slice(1);
@@ -98,12 +98,12 @@ import { isSummaryOrOutlineTable_ACU } from '../../shared/utils';
       }
   }
 
-  export function formatSummaryIndexCode_ACU(num) {
+  export function formatSummaryIndexCode_ACU(num: any) {
       const n = Math.max(1, parseInt(num, 10) || 1);
       return `AM${String(n).padStart(4, '0')}`;
   }
 
-  export function applySummaryIndexSequenceToTable_ACU(table, colIndex) {
+  export function applySummaryIndexSequenceToTable_ACU(table: any, colIndex: number) {
       if (!table || !Array.isArray(table.content) || colIndex < 0) return;
       for (let i = 1; i < table.content.length; i++) {
           const row = table.content[i];
@@ -112,7 +112,7 @@ import { isSummaryOrOutlineTable_ACU } from '../../shared/utils';
       }
   }
 
-  export function applySpecialIndexSequenceToSummaryTables_ACU(dataObj) {
+  export function applySpecialIndexSequenceToSummaryTables_ACU(dataObj: Record<string, any>) {
       if (!dataObj || typeof dataObj !== 'object') return;
       Object.keys(dataObj).forEach(sheetKey => {
           if (!sheetKey.startsWith('sheet_')) return;

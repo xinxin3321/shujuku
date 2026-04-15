@@ -26,9 +26,9 @@ try { legacyLocalStorage_ACU = topLevelWindow_ACU.localStorage; } catch (e) { le
  * 真实持久化后端请走 getConfigStorage_ACU()。
  */
 export let storage_ACU: Storage | { getItem: () => null; setItem: () => void; removeItem: () => void } = {
-    getItem: () => null,
-    setItem: () => {},
-    removeItem: () => {}
+    getItem: (): null => null,
+    setItem: (): void => {},
+    removeItem: (): void => {}
 };
 
 if (!FORBID_BROWSER_LOCAL_STORAGE_FOR_CONFIG_ACU) {
@@ -36,6 +36,6 @@ if (!FORBID_BROWSER_LOCAL_STORAGE_FOR_CONFIG_ACU) {
         storage_ACU = topLevelWindow_ACU.localStorage;
     } catch (e) {
         console.error('[AutoCardUpdater] localStorage is not available. Settings will not be saved.', e);
-        storage_ACU = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+        storage_ACU = { getItem: (): null => null, setItem: (): void => {}, removeItem: (): void => {} };
     }
 }

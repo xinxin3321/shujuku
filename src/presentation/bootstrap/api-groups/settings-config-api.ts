@@ -69,7 +69,7 @@ export function createSettingsConfigApi(_ctx: ApiGroupContext): Record<string, F
             }
         },
 
-        setUpdateConfigParams: function(params) {
+        setUpdateConfigParams: function(params: any) {
             try {
                 if (!params || typeof params !== 'object') {
                     logError_ACU('setUpdateConfigParams: Invalid params');
@@ -116,7 +116,7 @@ export function createSettingsConfigApi(_ctx: ApiGroupContext): Record<string, F
             }
         },
 
-        setManualSelectedTables: function(sheetKeys) {
+        setManualSelectedTables: function(sheetKeys: string[]) {
             try {
                 if (!Array.isArray(sheetKeys)) {
                     logError_ACU('setManualSelectedTables: sheetKeys must be an array');
@@ -174,7 +174,7 @@ export function createSettingsConfigApi(_ctx: ApiGroupContext): Record<string, F
             }
         },
 
-        setTableApiPreset: function(presetName) {
+        setTableApiPreset: function(presetName: string) {
             try {
                 if (presetName === '') {
                     settings_ACU.tableApiPreset = '';
@@ -184,7 +184,7 @@ export function createSettingsConfigApi(_ctx: ApiGroupContext): Record<string, F
                 }
 
                 const presets = settings_ACU.apiPresets || [];
-                const exists = presets.some(p => p.name === presetName);
+                const exists = presets.some((p: any) => p.name === presetName);
                 if (!exists) {
                     logError_ACU(`setTableApiPreset: Preset "${presetName}" not found`);
                     return false;
@@ -209,7 +209,7 @@ export function createSettingsConfigApi(_ctx: ApiGroupContext): Record<string, F
             }
         },
 
-        setPlotApiPreset: function(presetName) {
+        setPlotApiPreset: function(presetName: string) {
             try {
                 if (presetName === '') {
                     settings_ACU.plotApiPreset = '';
@@ -219,7 +219,7 @@ export function createSettingsConfigApi(_ctx: ApiGroupContext): Record<string, F
                 }
 
                 const presets = settings_ACU.apiPresets || [];
-                const exists = presets.some(p => p.name === presetName);
+                const exists = presets.some((p: any) => p.name === presetName);
                 if (!exists) {
                     logError_ACU(`setPlotApiPreset: Preset "${presetName}" not found`);
                     return false;
@@ -235,7 +235,7 @@ export function createSettingsConfigApi(_ctx: ApiGroupContext): Record<string, F
             }
         },
 
-        saveApiPreset: function(presetData) {
+        saveApiPreset: function(presetData: any) {
             try {
                 if (!presetData || typeof presetData !== 'object') {
                     logError_ACU('saveApiPreset: Invalid presetData');
@@ -262,7 +262,7 @@ export function createSettingsConfigApi(_ctx: ApiGroupContext): Record<string, F
             }
         },
 
-        loadApiPreset: function(presetName) {
+        loadApiPreset: function(presetName: string) {
             try {
                 if (!presetName || typeof presetName !== 'string') {
                     logError_ACU('loadApiPreset: preset name is required');
@@ -283,7 +283,7 @@ export function createSettingsConfigApi(_ctx: ApiGroupContext): Record<string, F
             }
         },
 
-        deleteApiPreset: function(presetName) {
+        deleteApiPreset: function(presetName: string) {
             try {
                 if (!presetName || typeof presetName !== 'string') {
                     logError_ACU('deleteApiPreset: preset name is required');

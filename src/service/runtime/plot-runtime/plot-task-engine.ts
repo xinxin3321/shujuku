@@ -36,15 +36,15 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
     }
   }
 
-  function sortPlotTasksForRuntime_ACU(tasks) {
+  function sortPlotTasksForRuntime_ACU(tasks: any[]) {
     return (Array.isArray(tasks) ? [...tasks] : [])
       .filter(Boolean)
       .sort((a, b) => (normalizePositiveInteger_ACU(a?.stage, 1) - normalizePositiveInteger_ACU(b?.stage, 1)) || ((a?.order ?? 0) - (b?.order ?? 0)));
   }
 
-  function groupPlotTasksByStage_ACU(tasks) {
-    const stageGroups = [];
-    sortPlotTasksForRuntime_ACU(tasks).forEach(task => {
+  function groupPlotTasksByStage_ACU(tasks: any[]) {
+    const stageGroups: { stage: number; tasks: any[] }[] = [];
+    sortPlotTasksForRuntime_ACU(tasks).forEach((task: any) => {
       const stageNo = normalizePositiveInteger_ACU(task?.stage, 1);
       let currentGroup = stageGroups[stageGroups.length - 1];
       if (!currentGroup || currentGroup.stage !== stageNo) {
@@ -56,21 +56,21 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
     return stageGroups;
   }
 
-  function getEnabledPlotTasks_ACU(plotSettings) {
+  function getEnabledPlotTasks_ACU(plotSettings: Record<string, any>) {
     return sortPlotTasksForRuntime_ACU(
       normalizePlotTasks_ACU(plotSettings)
-        .filter(task => task && task.enabled !== false),
+        .filter((task: any) => task && task.enabled !== false),
     );
   }
 
-  async function buildPlotSharedContext_ACU(plotSettings, userMessage, runtimeOptions: any = {}) {
+  async function buildPlotSharedContext_ACU(plotSettings: Record<string, any>, userMessage: string, runtimeOptions: any = {}) {
     const chat = getChatArray_ACU();
     const contextTurnCount = plotSettings.contextTurnCount ?? 1;
-    let slicedContext = [];
+    let slicedContext: { role: string; content: string }[] = [];
 
     if (contextTurnCount > 0) {
       let aiCount = 0;
-      const extracted = [];
+      const extracted: { role: string; content: string }[] = [];
 
       let i = (chat?.length || 0) - 1;
       if (i >= 0 && chat[i] && chat[i].is_user) {
@@ -144,7 +144,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
 
     const plotExcludeTags = (plotSettings.contextExcludeTags || '').trim();
     const plotExcludeRules = normalizeExcludeRules_ACU(plotSettings.contextExcludeRules, plotExcludeTags);
-    const filterPlotInjectedContent = (value, placeholderKey = '') => {
+    const filterPlotInjectedContent = (value: any, placeholderKey: string = '') => {
       const text = value !== undefined && value !== null ? String(value) : '';
       if (!['$1', '$5', '$6', '$7', '$8', '$U', '$C'].includes(placeholderKey)) return text;
       return applyExcludeRulesToText_ACU(text, { excludeRules: plotExcludeRules, excludeTags: plotExcludeTags });
@@ -190,7 +190,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
       charInfoContent_Plot = '';
     }
 
-    const replacements = {
+    const replacements: Record<string, any> = {
       sulv1: plotSettings.rateMain,
       sulv2: plotSettings.ratePersonal,
       sulv3: plotSettings.rateErotic,
@@ -204,7 +204,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
       $C: charInfoContent_Plot,
     };
 
-    const performReplacements = text => {
+    const performReplacements = (text: string) => {
       if (!text) return '';
       let processed = text;
 
@@ -259,7 +259,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
     };
   }
 
-  async function renderPlotTaskMessages_ACU(task, sharedContext, runtimeOptions: any = {}) {
+  async function renderPlotTaskMessages_ACU(task: Record<string, any>, sharedContext: Record<string, any>, runtimeOptions: any = {}) {
     const promptGroup = JSON.parse(JSON.stringify(task?.promptGroup || []));
     const messagesToUse = Array.isArray(promptGroup) ? promptGroup : [];
 
@@ -281,7 +281,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
       .map(seg => ({ role: getNormalizedPlotMessageRole_ACU(seg.role), content: seg.__renderedContent }));
   }
 
-  async function executeSinglePlotTask_ACU(task, sharedContext, runtimeOptions: any = {}) {
+  async function executeSinglePlotTask_ACU(task: Record<string, any>, sharedContext: Record<string, any>, runtimeOptions: any = {}) {
     const normalizedTask = normalizePlotTask_ACU(task, { index: task?.order ?? 0, fallbackTask: task || null });
     const taskLabel = normalizedTask.name || normalizedTask.id || '未命名任务';
     const taskStage = normalizePositiveInteger_ACU(normalizedTask.stage, 1);
@@ -376,7 +376,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
         rawResponse,
         extractedTags,
         injectedFragments,
-        error: null,
+        error: null as string | null,
         stage: taskStage,
         order: normalizedTask.order ?? 0,
       };
@@ -391,7 +391,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
         success: false,
         rawResponse: '',
         extractedTags: {},
-        injectedFragments: [],
+        injectedFragments: [] as any[],
         error: error?.message || '任务执行失败。',
         stage: taskStage,
         order: normalizedTask.order ?? 0,
@@ -399,7 +399,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
     }
   }
 
-  export async function runPlotTasksRuntime_ACU(plotSettings, userMessage, runtimeOptions: any = {}) {
+  export async function runPlotTasksRuntime_ACU(plotSettings: Record<string, any>, userMessage: string, runtimeOptions: any = {}) {
     const { inputForHash = userMessage, hasExistingUserMessage = false } = runtimeOptions;
 
     ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
@@ -425,15 +425,15 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
     checkPlotAbortRequested_ACU();
 
     const willUseMainApiGenerateRaw = willPlotUseMainApiGenerateRaw_ACU();
-    const successfulResults = [];
-    const failedResults = [];
+    const successfulResults: any[] = [];
+    const failedResults: any[] = [];
     let aggregatedTags = new Map();
 
     for (let stageIndex = 0; stageIndex < stageGroups.length; stageIndex++) {
       const stageGroup = stageGroups[stageIndex];
 
       const stageResults = await Promise.all(
-        stageGroup.tasks.map(task =>
+        stageGroup.tasks.map((task: any) =>
           executeSinglePlotTask_ACU(task, sharedContext, {
             willUseMainApiGenerateRaw,
             relayTagMap: aggregatedTags,
@@ -443,20 +443,20 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
       );
       checkPlotAbortRequested_ACU();
 
-      const stageSuccessfulResults = stageResults.filter(result => result?.success);
-      const stageFailedResults = stageResults.filter(result => result && !result.success);
+      const stageSuccessfulResults = stageResults.filter((result: any) => result?.success);
+      const stageFailedResults = stageResults.filter((result: any) => result && !result.success);
       successfulResults.push(...stageSuccessfulResults);
       failedResults.push(...stageFailedResults);
 
       if (stageFailedResults.length > 0) {
-        stageFailedResults.forEach(result => {
+        stageFailedResults.forEach((result: any) => {
           logWarn_ACU(
             `[剧情推进] [阶段:${result.stage ?? stageGroup.stage}] [任务:${result.taskName || result.taskId || '未命名任务'}] 未产出有效结果: ${result.error || '未知错误'}`,
           );
         });
-        const failedTaskNames = stageFailedResults.map(result => result.taskName || result.taskId || '未命名任务').join('、');
+        const failedTaskNames = stageFailedResults.map((result: any) => result.taskName || result.taskId || '未命名任务').join('、');
         return {
-          finalMessage: null,
+          finalMessage: null as string | null,
           successfulResults,
           failedResults,
           aggregatedTags,
@@ -473,7 +473,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
 
     if (!successfulResults.length) {
       return {
-        finalMessage: null,
+        finalMessage: null as string | null,
         successfulResults,
         failedResults,
         aggregatedTags: new Map(),
@@ -510,7 +510,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
   // ═══ 世界书内容获取 ═══
 
   /** 获取剧情推进功能的世界书内容（默认开启，无需检查 worldbookEnabled） */
-  export async function getWorldbookContentForPlot_ACU(apiSettings, userMessage, extraBaseText = '') {
+  export async function getWorldbookContentForPlot_ACU(apiSettings: Record<string, any>, userMessage: string, extraBaseText: string = '') {
     if (!apiSettings) {
       logWarn_ACU('[剧情推进] apiSettings 为空，无法获取世界书');
       return '';
@@ -519,7 +519,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
     logDebug_ACU('[剧情推进] Starting to get combined worldbook content with shared placeholder pipeline...');
 
     try {
-      let bookNames = [];
+      let bookNames: string[] = [];
 
       const plotCfg = (apiSettings && apiSettings.plotWorldbookConfig) ? apiSettings.plotWorldbookConfig : null;
       const worldbookSource = plotCfg?.source || apiSettings.worldbookSource || 'character';
@@ -553,7 +553,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
         : 3;
       const chatArray = getChatArray_ACU();
       const recentMessages = historyLimit > 0 ? chatArray.slice(-historyLimit) : chatArray;
-      const historyAndUserText = `${recentMessages.map(message => message.mes || '').join('\n')}\n${userMessage || ''}`;
+      const historyAndUserText = `${recentMessages.map((message: any) => message.mes || '').join('\n')}\n${userMessage || ''}`;
       const enabledMap = plotCfg?.enabledEntries;
       const hasAnySelection = enabledMap && typeof enabledMap === 'object' && Object.keys(enabledMap).length > 0;
 
@@ -562,7 +562,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
         bookNames,
         baseScanText: [historyAndUserText, extraBaseText || ''].filter(Boolean).join('\n'),
         includeConstantEntriesInBaseScan: true,
-        includeEntry: entry => {
+        includeEntry: (entry: any) => {
           const normalizedComment = entry.normalizedComment || '';
           const isOutlineEntry = normalizedComment.startsWith('TavernDB-ACU-OutlineTable');
           const isSummaryIndexEntry = normalizedComment.startsWith('TavernDB-ACU-CustomExport-纪要索引');
@@ -581,7 +581,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
           }
           return true;
         },
-        isSelected: entry => {
+        isSelected: (entry: any) => {
           const normalizedComment = entry.normalizedComment || '';
           const isDbGenerated =
             normalizedComment.startsWith('TavernDB-ACU-') ||
@@ -595,10 +595,10 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
           if (!Array.isArray(list)) return true;
           return list.includes(entry.uid);
         },
-        onEntriesFiltered: entries => {
+        onEntriesFiltered: (entries: any[]) => {
           logDebug_ACU('[剧情推进] 过滤后的条目总数:', entries.length);
         },
-        onSelectedEntries: entries => {
+        onSelectedEntries: (entries: any[]) => {
           logDebug_ACU('[剧情推进] SillyTavern中启用的条目数量:', entries.length);
         },
       });

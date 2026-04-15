@@ -24,11 +24,11 @@ import { normalizeChatScopedConfigSource_ACU, normalizeGuideData_ACU } from './c
 import { normalizeTemplateScopeMode_ACU, normalizeTemplateScopeIsolationKey_ACU, sanitizeTemplateSnapshotForChat_ACU, getCurrentChatTemplateScopeState_ACU, setCurrentChatTemplateScopeState_ACU, buildChatTemplateScopeStateFromCurrent_ACU, getGlobalTemplateSnapshotForCurrentProfile_ACU, upsertChatTemplatePresetEntry_ACU, normalizeChatTemplateScopeState_ACU } from './chat-scope-template';
 import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
 
-  export function materializeDataFromSheetGuide_ACU(guideData, { includeSeedRows = true } = {}) {
+  export function materializeDataFromSheetGuide_ACU(guideData: Record<string, any> | null, { includeSeedRows = true } = {}) {
       const normalized = normalizeGuideData_ACU(guideData);
       if (!normalized) return { mate: { type: 'chatSheets', version: 1 } };
-      const out = { mate: normalized.mate || { type: 'chatSheets', version: 1 } };
-      Object.keys(normalized).forEach(k => {
+      const out: Record<string, any> = { mate: normalized.mate || { type: 'chatSheets', version: 1 } };
+      Object.keys(normalized).forEach((k: string) => {
           if (!k.startsWith('sheet_')) return;
           const s = normalized[k];
           const headerRow = Array.isArray(s?.content?.[0]) ? JSON.parse(JSON.stringify(s.content[0])) : [null];
@@ -56,13 +56,13 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
           if (!legacyHeaders || legacyHeaders.length === 0) return null;
 
           const orderedUids = legacyHeaders
-              .map(h => h?.uid)
-              .filter(uid => typeof uid === 'string' && uid.startsWith('sheet_'));
+              .map((h: any) => h?.uid)
+              .filter((uid: any) => typeof uid === 'string' && uid.startsWith('sheet_'));
           if (orderedUids.length === 0) return null;
 
           const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
           const out: any = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
-          orderedUids.forEach((uid, idx) => {
+          orderedUids.forEach((uid: string, idx: number) => {
               const base = (templateObj && templateObj[uid])
                   ? JSON.parse(JSON.stringify(templateObj[uid]))
                   : { uid, name: uid, content: [[null]], sourceData: {}, updateConfig: {}, exportConfig: {} };
@@ -85,10 +85,10 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       if (!Array.isArray(chat) || chat.length === 0) return null;
 
-      const historicalData = { mate: { type: 'chatSheets', version: 1 } };
-      const encounteredKeys = [];
+      const historicalData: Record<string, any> = { mate: { type: 'chatSheets', version: 1 } };
+      const encounteredKeys: string[] = [];
       const encounteredSet = new Set();
-      const appendTables = (dataObj, { summaryOnly = null } = {}) => {
+      const appendTables = (dataObj: Record<string, any> | null, { summaryOnly = null as boolean | null } = {}) => {
           if (!dataObj || typeof dataObj !== 'object' || Array.isArray(dataObj)) return;
           Object.keys(dataObj).forEach(key => {
               if (!key.startsWith('sheet_') || encounteredSet.has(key)) return;
@@ -153,7 +153,7 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
       return '旧版聊天冻结模板';
   }
 
-  function buildChatTemplateScopeStateFromGuideData_ACU({ isolationKey = getCurrentIsolationKey_ACU(), presetName = '', source = 'legacy_frozen', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now(), guideData = null } = {}) {
+  function buildChatTemplateScopeStateFromGuideData_ACU({ isolationKey = getCurrentIsolationKey_ACU(), presetName = '', source = 'legacy_frozen', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now(), guideData = null as Record<string, any> | null } = {}) {
       const normalizedGuideData = normalizeGuideData_ACU(guideData);
       if (!normalizedGuideData || !Object.keys(normalizedGuideData).some(k => k.startsWith('sheet_'))) return null;
       const templateObj = materializeDataFromSheetGuide_ACU(normalizedGuideData, { includeSeedRows: true });
@@ -174,7 +174,7 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
       const existingScopeState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
       if (existingScopeState) return existingScopeState;
 
-      const persistMigratedState = (guideData, { source = 'legacy_frozen', updatedAt = Date.now() } = {}) => {
+      const persistMigratedState = (guideData: Record<string, any> | null, { source = 'legacy_frozen', updatedAt = Date.now() } = {}) => {
           const templateState = buildChatTemplateScopeStateFromGuideData_ACU({
               isolationKey: normalizedKey,
               presetName: getLegacyTemplateSnapshotLabel_ACU(source),
@@ -192,7 +192,7 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
       };
 
       const container = getChatSheetGuideContainer_ACU(chat);
-      const legacySlot = container?.tags?.[normalizedKey];
+      const legacySlot = (container?.tags as Record<string, any> | undefined)?.[normalizedKey];
       const hasExplicitLegacyScopeMode = typeof legacySlot?.templateScopeMode === 'string' && legacySlot.templateScopeMode.trim() !== '';
       const legacySlotMode = hasExplicitLegacyScopeMode
           ? normalizeTemplateScopeMode_ACU(legacySlot.templateScopeMode)
@@ -247,7 +247,7 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
       return true;
   }
 
-  export function getChatSheetGuideDataForIsolationKey_ACU(isolationKey) {
+  export function getChatSheetGuideDataForIsolationKey_ACU(isolationKey: string) {
       const chat = getChatArray_ACU();
       const normalizedKey = String(isolationKey ?? '');
       const scopedTemplateState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey })
@@ -257,7 +257,7 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
           return scopedGuideData;
       }
 
-      const buildGuideDataFromTemplateSource_ACU = (templateSource) => {
+      const buildGuideDataFromTemplateSource_ACU = (templateSource: any) => {
           const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateSource);
           const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateSnapshot?.templateObj, { stripSeedRows: false });
           return (guideData && Object.keys(guideData).some(k => k.startsWith('sheet_'))) ? guideData : null;
@@ -295,7 +295,7 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
       return null;
   }
 
-  export function setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, { reason = '', syncTemplateScope = false, templateSource = null, presetName = '', source = '', updatedAt = Date.now() } = {}) {
+  export function setChatSheetGuideDataForIsolationKey_ACU(isolationKey: string, guideData: Record<string, any> | null, { reason = '', syncTemplateScope = false, templateSource = null as any, presetName = '', source = '', updatedAt = Date.now() } = {}) {
       const chat = getChatArray_ACU();
       const first = getChatFirstLayerMessage_ACU(chat);
       if (!first) return false;
@@ -307,8 +307,8 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
       const existingTemplateScopeState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
       const normalizedScopeMode = normalizeTemplateScopeMode_ACU(existingTemplateScopeState?.mode);
       const shouldSyncTemplateScope = !!syncTemplateScope || normalizedScopeMode === 'chat_override' || normalizedScopeMode === 'preset_link';
-      const container = getChatSheetGuideContainer_ACU(chat) || { version: CHAT_SHEET_GUIDE_VERSION_ACU, tags: {} };
-      if (!container.tags || typeof container.tags !== 'object') container.tags = {};
+      const container: Record<string, any> = getChatSheetGuideContainer_ACU(chat) || { version: CHAT_SHEET_GUIDE_VERSION_ACU, tags: {} as Record<string, any> };
+      if (!container.tags || typeof container.tags !== 'object') container.tags = {} as Record<string, any>;
       container.version = CHAT_SHEET_GUIDE_VERSION_ACU;
       container.tags[normalizedKey] = {
           data: normalized,
@@ -362,8 +362,8 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
   // - 支持隔离标签切换或初始化早期 chat 尚未加载导致的"指导表未命中"情况
   // 注意：这里只把 seedRows 挂在表对象字段上，不会写入 content（不把模板基础数据当作真实聊天数据）
   // =========================
-  let _seedRowsTemplateCacheStr_ACU = null;
-  let _seedRowsTemplateCacheObj_ACU = null;
+  let _seedRowsTemplateCacheStr_ACU: string | null = null;
+  let _seedRowsTemplateCacheObj_ACU: Record<string, any> | null = null;
 
   function getTemplateObjForSeedRows_ACU() {
       try {
@@ -405,11 +405,11 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
       }
   }
 
-  function pickAnyGuideSeedRowsSlot_ACU(sheetKey) {
+  function pickAnyGuideSeedRowsSlot_ACU(sheetKey: string) {
       try {
           const chat = getChatArray_ACU();
-          let best = null; // { ts, seedRows }
-          const applyCandidate = (ts, data) => {
+          let best: { ts: number; seedRows: any[] } | null = null;
+          const applyCandidate = (ts: number, data: Record<string, any> | null) => {
               const sr = data?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
               if (!Array.isArray(sr) || sr.length === 0) return;
               if (!best || ts > best.ts) {
@@ -420,8 +420,8 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
           const scopedContainer = getChatScopedConfigContainer_ACU(chat);
           const scopedTemplateSlots = scopedContainer?.template;
           if (scopedTemplateSlots && typeof scopedTemplateSlots === 'object' && !Array.isArray(scopedTemplateSlots)) {
-              Object.keys(scopedTemplateSlots).forEach(tagKey => {
-                  const slotState = normalizeChatTemplateScopeState_ACU(scopedTemplateSlots[tagKey], { isolationKey: tagKey });
+              Object.keys(scopedTemplateSlots).forEach((tagKey: string) => {
+                  const slotState = normalizeChatTemplateScopeState_ACU((scopedTemplateSlots as Record<string, any>)[tagKey], { isolationKey: tagKey });
                   if (slotState.mode !== 'chat_override') return;
                   applyCandidate(Number(slotState.updatedAt) || 0, normalizeGuideData_ACU(slotState.guideData));
               });
@@ -433,8 +433,8 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
           const container = getChatSheetGuideContainer_ACU(chat);
           const tags = container?.tags;
           if (!tags || typeof tags !== 'object') return null;
-          Object.keys(tags).forEach(tagKey => {
-              const slot = tags[tagKey];
+          Object.keys(tags).forEach((tagKey: string) => {
+              const slot = (tags as Record<string, any>)[tagKey];
               const ts = Number(slot?.updatedAt) || 0;
               applyCandidate(ts, normalizeGuideData_ACU(slot?.data));
           });
@@ -444,7 +444,7 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
       }
   }
 
-  export function getEffectiveSeedRowsForSheet_ACU(sheetKey, { guideData = null, allowTemplateFallback = true } = {}) {
+  export function getEffectiveSeedRowsForSheet_ACU(sheetKey: string, { guideData = null as Record<string, any> | null, allowTemplateFallback = true } = {}) {
       try {
           if (!sheetKey || !String(sheetKey).startsWith('sheet_')) return [];
           const direct = currentJsonTableData_ACU?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
@@ -470,7 +470,7 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
       }
   }
 
-  export function attachSeedRowsToCurrentDataFromGuide_ACU(guideData) {
+  export function attachSeedRowsToCurrentDataFromGuide_ACU(guideData: Record<string, any> | null) {
       try {
           if (!currentJsonTableData_ACU || typeof currentJsonTableData_ACU !== 'object') return false;
           const g = normalizeGuideData_ACU(guideData);
@@ -495,7 +495,7 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
   }
 
   // [新增] 用"当前数据"构建空白指导表：只保留表头行 + 参数（顺序由 getSortedSheetKeys_ACU 的旧逻辑决定，避免递归）
-  export function buildChatSheetGuideDataFromData_ACU(dataObj, { preserveSeedRowsFromGuideData = null, seedRowsFromTemplateObj = null, orderedKeys = null } = {}) {
+  export function buildChatSheetGuideDataFromData_ACU(dataObj: Record<string, any> | null, { preserveSeedRowsFromGuideData = null as Record<string, any> | null, seedRowsFromTemplateObj = null as Record<string, any> | null, orderedKeys = null as string[] | null } = {}) {
       if (!dataObj || typeof dataObj !== 'object') return null;
       const keys = Array.isArray(orderedKeys) && orderedKeys.length
           ? orderedKeys.filter(k => typeof k === 'string' && k.startsWith('sheet_') && dataObj[k])
@@ -505,11 +505,11 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
           out.mate = JSON.parse(JSON.stringify(dataObj.mate));
       }
       out.mate.globalInjectionConfig = ensureGlobalInjectionConfigDefaults_ACU(out.mate.globalInjectionConfig);
-      keys.forEach(k => {
+      keys.forEach((k: string) => {
           const s = dataObj[k];
           if (!s) return;
           const headerRow = Array.isArray(s.content) && Array.isArray(s.content[0]) ? JSON.parse(JSON.stringify(s.content[0])) : [null];
-          const blank = {
+          const blank: Record<string, any> = {
               uid: s.uid || k,
               name: s.name || k,
               sourceData: s.sourceData ? JSON.parse(JSON.stringify(s.sourceData)) : { note: '', initNode: '', insertNode: '', updateNode: '', deleteNode: '' },
@@ -538,7 +538,7 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
   }
 
   // [新增] 用"模板对象"构建空白指导表：只保留表头行 + 参数（模板已有顺序编号）
-  export function buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows = true } = {}) {
+  export function buildChatSheetGuideDataFromTemplateObj_ACU(templateObj: Record<string, any> | null, { stripSeedRows = true } = {}) {
       if (!templateObj || typeof templateObj !== 'object') return null;
       const keys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
       if (keys.length === 0) return null;
@@ -555,7 +555,7 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
           out.mate = JSON.parse(JSON.stringify(templateObj.mate));
       }
       out.mate.globalInjectionConfig = ensureGlobalInjectionConfigDefaults_ACU(out.mate.globalInjectionConfig);
-      sorted.forEach((k, idx) => {
+      sorted.forEach((k: string, idx: number) => {
           const base = JSON.parse(JSON.stringify(templateObj[k] || {}));
           base.uid = base.uid || k;
           base.name = base.name || k;
@@ -572,7 +572,7 @@ import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
   }
 
   // [新增] 覆盖式更新：用模板写入当前聊天第一层"空白指导表"
-  export async function overwriteChatSheetGuideFromTemplate_ACU(templateObj, { reason = 'template_changed', stripSeedRows = true, presetName = '', source = 'ui', syncTemplateScope = false, registerPreset = false } = {}) {
+  export async function overwriteChatSheetGuideFromTemplate_ACU(templateObj: Record<string, any> | null, { reason = 'template_changed', stripSeedRows = true, presetName = '', source = 'ui', syncTemplateScope = false, registerPreset = false } = {}) {
       const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows });
       if (!guideData) return false;
       const isolationKey = getCurrentIsolationKey_ACU();

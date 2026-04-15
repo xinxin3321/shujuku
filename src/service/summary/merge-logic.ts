@@ -24,7 +24,7 @@ export function checkAutoMergeTrigger_ACU(): { shouldTrigger: boolean; mergeCoun
 
     const summaryCount = (currentJsonTableData_ACU[summaryKey].content || [])
         .slice(1)
-        .filter(row => !row || row[row.length - 1] !== 'auto_merged')
+        .filter((row: any) => !row || row[row.length - 1] !== 'auto_merged')
         .length;
 
     const threshold = settings_ACU.autoMergeThreshold || 20;
@@ -76,7 +76,7 @@ export function prepareAutoMergeBatches_ACU(options: {
 
     let allSummaryRows = (currentJsonTableData_ACU[summaryKey].content || [])
         .slice(1)
-        .filter(row => !row || row[row.length - 1] !== 'auto_merged');
+        .filter((row: any) => !row || row[row.length - 1] !== 'auto_merged');
 
     allSummaryRows = allSummaryRows.slice(startIndex, endIndex);
 
@@ -104,37 +104,37 @@ export async function executeAutoMergeBatch_ACU(
 
     const summaryTableObj = currentJsonTableData_ACU[summaryKey];
 
-    const formatRows = (rows, globalStartIndex) => rows.map((r, idx) => `[${globalStartIndex + idx}] ${r.slice(1).join(', ')}`).join('\n');
+    const formatRows = (rows: any[], globalStartIndex: number) => rows.map((r: any[], idx: number) => `[${globalStartIndex + idx}] ${r.slice(1).join(', ')}`).join('\n');
     const textA = batchRows.length > 0 ? formatRows(batchRows, globalStartOffset) : "(本批次无新增纪要数据)";
 
     let textBase = "";
 
-    const formatTableStructure = (tableName, currentRows, originalTableObj) => {
+    const formatTableStructure = (tableName: string, currentRows: any[], originalTableObj: Record<string, any>) => {
         let str = `[0:${tableName}]\n`;
-        const headers = originalTableObj.content[0] ? originalTableObj.content[0].slice(1).map((h, i) => `[${i}:${h}]`).join(', ') : 'No Headers';
+        const headers = originalTableObj.content[0] ? originalTableObj.content[0].slice(1).map((h: any, i: number) => `[${i}:${h}]`).join(', ') : 'No Headers';
         str += `  Columns: ${headers}\n`;
         if (originalTableObj.sourceData) {
             str += `  - Note: ${originalTableObj.sourceData.note || 'N/A'}\n`;
         }
         if (currentRows && currentRows.length > 0) {
-            currentRows.forEach((row, rIdx) => { str += `  [${rIdx}] ${row.join(', ')}\n`; });
+            currentRows.forEach((row: any[], rIdx: number) => { str += `  [${rIdx}] ${row.join(', ')}\n`; });
         } else {
             str += `  (Table Empty - No rows yet)\n`;
         }
         return str + "\n";
     };
 
-    const getExistingAutoMergedRows = (tableObj, count = 1) => {
+    const getExistingAutoMergedRows = (tableObj: Record<string, any>, count: number = 1) => {
         if (!tableObj || !tableObj.content) return [];
         const allRows = tableObj.content.slice(1);
-        const autoMergedRows = allRows.filter(row => row && row[row.length - 1] === 'auto_merged');
+        const autoMergedRows = allRows.filter((row: any) => row && row[row.length - 1] === 'auto_merged');
         if (!autoMergedRows.length) return [];
         const n = Number.isFinite(count) ? Math.max(0, count) : 0;
         if (n <= 0) return [];
 
-        const parseAmNumber = (row) => {
+        const parseAmNumber = (row: any[]) => {
             if (!Array.isArray(row)) return null;
-            const candidates = row.slice(1).filter(v => typeof v === 'string');
+            const candidates = row.slice(1).filter((v: any) => typeof v === 'string');
             for (let i = candidates.length - 1; i >= 0; i--) {
                 const m = candidates[i].trim().match(/^AM(\d+)\b/i);
                 if (m) return parseInt(m[1], 10);
@@ -145,22 +145,22 @@ export async function executeAutoMergeBatch_ACU(
         };
 
         const withAm = autoMergedRows
-            .map(r => ({ row: r, am: parseAmNumber(r) }))
-            .filter(x => Number.isFinite(x.am));
+            .map((r: any) => ({ row: r, am: parseAmNumber(r) }))
+            .filter((x: { row: any; am: number | null }) => Number.isFinite(x.am));
 
         if (withAm.length) {
-            withAm.sort((a, b) => a.am - b.am);
-            return withAm.slice(-n).map(x => x.row);
+            withAm.sort((a: { am: number | null }, b: { am: number | null }) => (a.am as number) - (b.am as number));
+            return withAm.slice(-n).map((x: { row: any; am: number | null }) => x.row);
         }
 
         const autoMergedOrder = settings_ACU.autoMergedOrder && settings_ACU.autoMergedOrder[summaryKey] ? settings_ACU.autoMergedOrder[summaryKey] : [];
-        const sortedAutoMergedRows = [];
-        autoMergedOrder.forEach(rowIndex => {
-            const row = autoMergedRows.find(r => r && r[0] === rowIndex);
+        const sortedAutoMergedRows: any[] = [];
+        autoMergedOrder.forEach((rowIndex: any) => {
+            const row = autoMergedRows.find((r: any) => r && r[0] === rowIndex);
             if (row) sortedAutoMergedRows.push(row);
         });
-        autoMergedRows.forEach(row => {
-            if (row && !sortedAutoMergedRows.some(r => r && r[0] === row[0])) {
+        autoMergedRows.forEach((row: any) => {
+            if (row && !sortedAutoMergedRows.some((r: any) => r && r[0] === row[0])) {
                 sortedAutoMergedRows.push(row);
             }
         });
@@ -182,14 +182,14 @@ export async function executeAutoMergeBatch_ACU(
         try {
             const messagesToUse = JSON.parse(JSON.stringify(settings_ACU.charCardPrompt || [DEFAULT_CHAR_CARD_PROMPT_ACU]));
             const mainPromptSegment =
-                messagesToUse.find(m => (String(m?.mainSlot || '').toUpperCase() === 'A') || m?.isMain) ||
-                messagesToUse.find(m => m && m.content && m.content.includes("你接下来需要扮演一个填表用的美杜莎"));
+                messagesToUse.find((m: any) => (String(m?.mainSlot || '').toUpperCase() === 'A') || m?.isMain) ||
+                messagesToUse.find((m: any) => m && m.content && m.content.includes("你接下来需要扮演一个填表用的美杜莎"));
             if (mainPromptSegment) {
                 mainPromptSegment.content = currentPrompt;
             } else {
                 messagesToUse.push({ role: 'USER', content: currentPrompt });
             }
-            const finalMessages = messagesToUse.map(m => ({ role: m.role.toLowerCase(), content: m.content }));
+            const finalMessages = messagesToUse.map((m: any) => ({ role: m.role.toLowerCase(), content: m.content }));
 
             if (settings_ACU.apiMode === 'tavern') {
                 const result = await sendConnectionManagerRequest_ACU(settings_ACU.tavernProfile, finalMessages, settings_ACU.apiConfig.max_tokens || 4096);
@@ -223,17 +223,17 @@ export async function executeAutoMergeBatch_ACU(
             }
 
             const editsString = extractResult.inner;
-            const newSummaryRows = [];
+            const newSummaryRows: any[] = [];
 
-            editsString.split('\n').forEach(line => {
+            editsString.split('\n').forEach((line: string) => {
                 const match = line.trim().match(/insertRow\s*\(\s*(\d+)\s*,\s*(\{.*?\}|\[.*?\])\s*\)/);
                 if (match) {
                     try {
                         const tableIdx = parseInt(match[1], 10);
                         let rowData = JSON.parse(match[2].replace(/'/g, '"'));
                         if (typeof rowData === 'object' && !Array.isArray(rowData)) {
-                            const sortedKeys = Object.keys(rowData).sort((a,b) => parseInt(a) - parseInt(b));
-                            const dataColumns = sortedKeys.map(k => rowData[k]);
+                            const sortedKeys = Object.keys(rowData).sort((a: string, b: string) => parseInt(a) - parseInt(b));
+                            const dataColumns = sortedKeys.map((k: string) => rowData[k]);
                             rowData = [null, ...dataColumns];
                         }
                         if (isAutoMode) {
@@ -285,21 +285,21 @@ export async function finalizeAutoMerge_ACU(
         }
     }
 
-    const existingAutoMergedRows = originalContent.filter(row => row && row[row.length - 1] === 'auto_merged');
+    const existingAutoMergedRows = originalContent.filter((row: any) => row && row[row.length - 1] === 'auto_merged');
     const remainingRows = originalContent.slice(actualEndIndex);
 
     const newSummaryContent = [
         ...existingAutoMergedRows,
         ...accumulatedSummary,
-        ...remainingRows.filter(row => !row || row[row.length - 1] !== 'auto_merged')
+        ...remainingRows.filter((row: any) => !row || row[row.length - 1] !== 'auto_merged')
     ];
     table.content = [table.content[0], ...newSummaryContent];
 
-    if (!settings_ACU.autoMergedOrder) settings_ACU.autoMergedOrder = {};
-    if (!settings_ACU.autoMergedOrder[summaryKey]) settings_ACU.autoMergedOrder[summaryKey] = [];
+    if (!settings_ACU.autoMergedOrder) settings_ACU.autoMergedOrder = {} as Record<string, any>;
+    if (!settings_ACU.autoMergedOrder[summaryKey]) settings_ACU.autoMergedOrder[summaryKey] = [] as any[];
 
-    const orderList = settings_ACU.autoMergedOrder[summaryKey];
-    accumulatedSummary.forEach(row => {
+    const orderList: any[] = settings_ACU.autoMergedOrder[summaryKey];
+    accumulatedSummary.forEach((row: any[]) => {
         if (row && row[row.length - 1] === 'auto_merged' && row[0] !== null && row[0] !== undefined && !orderList.includes(row[0])) {
             orderList.push(row[0]);
         }
