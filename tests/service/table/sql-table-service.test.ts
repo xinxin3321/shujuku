@@ -19,6 +19,7 @@ vi.mock('../../../src/shared/utils', () => ({
   logWarn_ACU: vi.fn(),
   logError_ACU: vi.fn(),
   isSummaryOrOutlineTable_ACU: vi.fn(() => false),
+  parseTableTemplateJson_ACU: vi.fn(() => null),
 }));
 
 // mock state-manager

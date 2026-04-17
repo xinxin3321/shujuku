@@ -123,6 +123,22 @@ export async function switchStorageMode(mode: StorageMode): Promise<void> {
 }
 
 /**
+ * 立即销毁当前 Provider 实例，释放内存数据库资源
+ * 用于换卡/换聊天时在状态重置之前立即清理旧数据库，
+ * 避免 1200ms 延迟窗口内的数据不一致问题。
+ *
+ * 销毁后 getStorageProvider() 会触发懒初始化创建新实例。
+ * 调用方应在适当时机调用 reloadStorageProvider() 重建并加载数据。
+ */
+export function disposeStorageProvider(): void {
+  if (currentProvider) {
+    logDebug_ACU(`[StorageStrategy] 销毁当前 Provider: ${currentProvider.mode}`);
+    currentProvider.dispose();
+    currentProvider = null;
+  }
+}
+
+/**
  * 重新加载数据（楼层删除、回滚等场景）
  * 不切换模式，只重新从聊天消息加载
  */

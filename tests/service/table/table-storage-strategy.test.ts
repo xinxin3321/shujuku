@@ -69,6 +69,7 @@ import {
   initStorageProvider,
   switchStorageMode,
   reloadStorageProvider,
+  disposeStorageProvider,
   getCurrentProviderMode,
 } from '../../../src/service/table/table-storage-strategy';
 
@@ -246,6 +247,49 @@ describe('table-storage-strategy', () => {
       await reloadStorageProvider();
       // fallback 到 native
       expect(getCurrentProviderMode()).toBe('native');
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // disposeStorageProvider
+  // ═══════════════════════════════════════════════════════════════
+  describe('disposeStorageProvider', () => {
+    it('销毁后 getCurrentProviderMode 返回 null', async () => {
+      mockStorageMode = 'sqlite';
+      await initStorageProvider();
+      expect(getCurrentProviderMode()).toBe('sqlite');
+
+      disposeStorageProvider();
+      expect(getCurrentProviderMode()).toBeNull();
+    });
+
+    it('销毁后 getStorageProvider 会懒初始化新实例', async () => {
+      mockStorageMode = 'sqlite';
+      await initStorageProvider();
+      const oldProvider = getStorageProvider();
+
+      disposeStorageProvider();
+      expect(oldProvider.dispose).toHaveBeenCalled();
+
+      // 懒初始化会创建新实例
+      const newProvider = getStorageProvider();
+      expect(newProvider).toBeDefined();
+      expect(newProvider).not.toBe(oldProvider);
+    });
+
+    it('未初始化时 dispose 不抛错', () => {
+      disposeStorageProvider(); // 先清空
+      expect(() => disposeStorageProvider()).not.toThrow();
+    });
+
+    it('native 模式下 dispose 也能正常工作', async () => {
+      mockStorageMode = 'native';
+      await initStorageProvider();
+      const provider = getStorageProvider();
+
+      disposeStorageProvider();
+      expect(provider.dispose).toHaveBeenCalled();
+      expect(getCurrentProviderMode()).toBeNull();
     });
   });
 

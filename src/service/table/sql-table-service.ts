@@ -294,33 +294,62 @@ export class SqlTableService implements ITableStorageProvider {
   }
 
   /**
-   * 延迟建表：第一次执行 SQL 操作时，如果 SQLite 中没有用户表，
-   * 则从当前模板 DDL 建表。
+   * 按需建表：每次执行 SQL 操作前，检查模板中的表是否都已存在于 SQLite。
    *
-   * 设计意图：新开卡时 loadFromChat 只初始化引擎不建表，
-   * 建表延迟到第一次 applyEdits/executeQuery/executeMutation，
+   * 三种场景：
+   * 1. 新卡第一次填表：SQLite 中无任何用户表 → 全量从模板建表
+   * 2. 老卡正常运行：所有表都已存在 → 直接返回（幂等）
+   * 3. 中途加表：模板中新增了一张表，但 SQLite 中没有 → 只建缺失的表
+   *
+   * 设计意图：建表延迟到第一次 applyEdits/executeQuery/executeMutation，
    * 确保使用的是「此刻」最新的模板 DDL，而非「进入聊天那一刻」的快照。
-   *
-   * 幂等：如果已有表则直接返回，不会重复建表。
    */
   private _ensureTablesFromTemplate(): void {
-    // 已有用户表，无需建表
-    const existingTables = this.engine.getTableNames();
-    if (existingTables.length > 0) return;
-
-    logDebug_ACU('[SqlTableService] SQLite 中无用户表，从模板 DDL 延迟建表...');
+    const existingTables = new Set(this.engine.getTableNames());
 
     const templateData = parseTableTemplateJson_ACU({ stripSeedRows: true }) as TableDataObject_ACU | null;
     if (!templateData) {
+      // 没有模板（可能模板未配置），如果已有表则正常运行，否则报错
+      if (existingTables.size > 0) return;
       throw new Error('[SqlTableService] 模板解析失败，无法建表。请检查模板格式。');
     }
 
-    // 从模板建表 + 灌数据
-    this.syncBridge.loadFromTableData(templateData);
-    _set_currentJsonTableData_ACU(templateData);
-    this._buildNameMapper(templateData);
+    // 收集模板中所有表的 sheetKey 和表名，找出 SQLite 中缺失的
+    const sheetKeys = Object.keys(templateData).filter(k => k.startsWith('sheet_'));
+    const missingSheets: Record<string, any> = {};
 
-    logDebug_ACU(`[SqlTableService] 延迟建表完成，共 ${this.engine.getTableNames().length} 张表`);
+    for (const key of sheetKeys) {
+      const sheet = templateData[key] as any;
+      if (!sheet || !sheet.sourceData?.ddl) continue;
+      const tableName = parseDDLTableName(sheet.sourceData.ddl);
+      if (tableName && !existingTables.has(tableName)) {
+        missingSheets[key] = sheet;
+      }
+    }
+
+    // 所有表都已存在，无需建表
+    if (Object.keys(missingSheets).length === 0) return;
+
+    logDebug_ACU(`[SqlTableService] 发现 ${Object.keys(missingSheets).length} 张缺失表，按需建表: ${Object.keys(missingSheets).join(', ')}`);
+
+    // 构造只包含缺失表的 templateData 子集，交给 syncBridge 建表
+    const partialData: TableDataObject_ACU = { mate: templateData.mate };
+    for (const [key, sheet] of Object.entries(missingSheets)) {
+      (partialData as any)[key] = sheet;
+    }
+    this.syncBridge.loadFromTableData(partialData);
+
+    // 合并新建的表到当前 JSON 视图
+    if (currentJsonTableData_ACU) {
+      for (const [key, sheet] of Object.entries(missingSheets)) {
+        (currentJsonTableData_ACU as any)[key] = sheet;
+      }
+    } else {
+      _set_currentJsonTableData_ACU(templateData);
+    }
+    this._buildNameMapper(currentJsonTableData_ACU || templateData);
+
+    logDebug_ACU(`[SqlTableService] 按需建表完成，当前共 ${this.engine.getTableNames().length} 张表`);
   }
 }
 

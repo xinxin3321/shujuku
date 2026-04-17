@@ -11,7 +11,7 @@ import { SillyTavern_API_ACU } from '../../shared/host-api';
 import { currentChatFileIdentifier_ACU, generationGate_ACU, markUserSendIntent_ACU, isProcessing_Plot_ACU, isQuietLikeGeneration_ACU, isRecentUserSendIntent_ACU, loopState_ACU, recordGenerationContext_ACU, recordLastUserSend_ACU, settings_ACU, shouldProcessAutoTableUpdateForGenerationEnded_ACU, shouldProcessPlotForGeneration_ACU, _set_isProcessing_Plot_ACU} from '../../service/runtime/state-manager';
 import { applyTemplateScopeForCurrentChat_ACU, loadSettings_ACU } from '../../service/settings/settings-service';
 import { resetScriptStateForNewChat_ACU } from '../../service/worldbook/injection-engine';
-import { reloadStorageProvider } from '../../service/table/table-storage-strategy';
+import { reloadStorageProvider, disposeStorageProvider } from '../../service/table/table-storage-strategy';
 import { isSqliteMode } from '../../service/table/storage-mode';
 import { loadAllChatMessages_ACU } from '../../service/worldbook/pipeline';
 import { refreshMergedDataAndNotifyWithUI_ACU } from '../components/pipeline-ui-helpers';
@@ -108,6 +108,17 @@ export   function mainInitialize_ACU() {
         
         SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.CHAT_CHANGED, async (chatFileName: string) => {
           logDebug_ACU(`ACU CHAT_CHANGED event: ${chatFileName}`);
+
+          // [修复] 换卡/换聊天时，立即销毁旧的 SQLite 数据库实例
+          // 必须在 resetScriptStateForNewChat 之前执行，避免 1200ms 延迟窗口内的数据不一致
+          // 仅在 chatFileName 有效时才销毁（无效时 resetScriptState 会直接 return 保留现有状态）
+          if (chatFileName && typeof chatFileName === 'string' && chatFileName.trim() !== '' && chatFileName.trim() !== 'null') {
+            if (isSqliteMode()) {
+              disposeStorageProvider();
+              logDebug_ACU('[SQLite] CHAT_CHANGED: 立即销毁旧数据库实例');
+            }
+          }
+
           await resetScriptStateForNewChat_ACU(chatFileName);
 
           // [触发门控] generationGate 重置已搬到 service 层的 resetScriptStateForNewChat_ACU 中
@@ -384,6 +395,20 @@ export   function mainInitialize_ACU() {
           
           // 再次强制刷新数据和UI，确保初始加载时表格显示正确
           await loadAllChatMessages_ACU();
+
+          // [修复] SQLite 模式下，启动时初始化内存数据库
+          // 老卡（有聊天历史数据）会从聊天记录合并数据建表
+          // 新卡（无数据）只初始化引擎，建表延迟到第一次填表时
+          if (isSqliteMode()) {
+              logDebug_ACU('[SQLite] initWithChatId: 初始化内存数据库...');
+              try {
+                  await reloadStorageProvider();
+                  logDebug_ACU('[SQLite] initWithChatId: 内存数据库初始化完成');
+              } catch (e: any) {
+                  logError_ACU(`[SQLite] initWithChatId: 数据库初始化失败: ${e?.message}`);
+              }
+          }
+
           await refreshMergedDataAndNotifyWithUI_ACU();
           
           if (typeof updateCardUpdateStatusDisplay_ACU === 'function') {
