@@ -18,7 +18,7 @@ import type { ApiGroupContext } from './callback-api';
 import { isSqliteMode } from '../../../service/table/storage-mode';
 import { getStorageProvider } from '../../../service/table/table-storage-strategy';
 import { getNameMapper } from '../../../service/runtime/template-vars/name-mapper';
-import { parseDDLTableName } from '../../../service/table/schema-helpers';
+import { parseDDLTableName } from '../../../shared/ddl-utils';
 
 /**
  * 从 sheet 解析英文物理表名

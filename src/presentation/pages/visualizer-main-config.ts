@@ -32,7 +32,7 @@ import { _acuVisState } from './visualizer';
 import { $popupInstance_ACU } from '../state/ui-refs';
 import { closeACUWindow } from '../window/window-system';
 import { isSqliteMode } from '../../service/table/storage-mode';
-import { updateDDLColumnComment, parseDDLColumnNames } from '../../service/table/schema-helpers';
+import { updateDDLColumnComment, parseDDLColumnNames } from '../../shared/ddl-utils';
 
 // 循环 import — 运行时安全
 import { renderVisualizerMain_ACU } from './visualizer-main-render';

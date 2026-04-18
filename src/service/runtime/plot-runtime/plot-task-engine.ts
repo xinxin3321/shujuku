@@ -18,6 +18,7 @@ import { mergeAllIndependentTables_ACU } from '../helpers-data-merge';
 import { formatTableDataForLLM_ACU, formatOutlineTableForPlot_ACU, formatSummaryIndexForPlot_ACU, getSummaryIndexContentForPlot_ACU } from './plot-data-format';
 import { getNormalizedPlotMessageRole_ACU, tryRenderPlotTemplateWithEjs_ACU, renderPlotTaskContentWithIsolatedVariables_ACU, extractPlotTagsFromResponse_ACU, getPlotPlaceholderTagNames_ACU, buildPlotTagMapFromText_ACU, replacePlotTagPlaceholders_ACU, sortPlotTaskResults_ACU, aggregatePlotTaskTags_ACU, buildPlotSaveContentFromTaskResults_ACU, buildFinalPlotInjectionMessage_ACU } from './plot-tag-utils';
 import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-history-preset';
+import { abortableDelay } from '../../../shared/abortable-delay';
 
   function checkPlotAbortRequested_ACU() {
     if (abortController_ACU && abortController_ACU.signal.aborted) {
@@ -351,14 +352,7 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
 
         if (attemptIndex < maxRetries - 1) {
           // 可被 abort 信号中断的等待，避免用户点中止后还要等 5 秒
-          await new Promise<void>(resolve => {
-            const signal = abortController_ACU?.signal;
-            if (signal?.aborted) { resolve(); return; }
-            const timer = setTimeout(() => { cleanup(); resolve(); }, 5000);
-            const onAbort = () => { clearTimeout(timer); cleanup(); resolve(); };
-            const cleanup = () => { try { if (signal) signal.onabort = null; } catch (_) {} };
-            if (signal) signal.onabort = onAbort;
-          });
+          await abortableDelay(5000, abortController_ACU?.signal);
         }
       }
 

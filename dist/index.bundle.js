@@ -6833,6 +6833,234 @@ $CONTENT
     }
 
     /**
+     * shared/ddl-utils.ts — DDL 纯解析/操作工具函数
+     *
+     * 这些函数只做字符串解析，不访问数据库、不读写存储、不依赖任何 data 层基础设施。
+     * 所有层（data / service / presentation）均可直接 import。
+     */
+    // ═══════════════════════════════════════════════════════════════
+    // DDL 解析
+    // ═══════════════════════════════════════════════════════════════
+    /**
+     * 从 DDL 中解析英文表名
+     * @param ddl CREATE TABLE 语句
+     * @returns 表名，解析失败返回 null
+     */
+    function parseDDLTableName(ddl) {
+        if (!ddl)
+            return null;
+        // 匹配 CREATE TABLE [IF NOT EXISTS] table_name
+        const match = ddl.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/i);
+        return match ? match[1] : null;
+    }
+    /**
+     * 从 DDL 第一行注释中解析中文表名
+     * 格式：CREATE TABLE table_name ( -- 中文表名
+     * @param ddl CREATE TABLE 语句
+     * @returns 中文表名，解析失败返回 null
+     */
+    function parseDDLChineseName(ddl) {
+        if (!ddl)
+            return null;
+        // 匹配第一行的 -- 注释
+        const firstLine = ddl.split('\n')[0];
+        const match = firstLine.match(/--\s*(.+?)\s*$/);
+        return match ? match[1].trim() : null;
+    }
+    /**
+     * 从 DDL 中解析所有列名（按顺序）
+     * @param ddl CREATE TABLE 语句
+     * @returns 列名数组
+     */
+    function parseDDLColumnNames(ddl) {
+        if (!ddl)
+            return [];
+        const columns = [];
+        // 提取括号内的列定义部分
+        const bodyMatch = ddl.match(/\(([^]*)\)/);
+        if (!bodyMatch)
+            return [];
+        const body = bodyMatch[1];
+        // 按逗号分割（但要注意括号内和注释内的逗号）
+        const lines = splitColumnDefinitions(body);
+        for (const line of lines) {
+            // 去掉行注释（-- 到行尾），然后取最后一个非注释行的内容
+            const withoutComments = line.replace(/--[^\n]*/g, '').trim();
+            if (!withoutComments)
+                continue;
+            // 跳过表级约束（PRIMARY KEY、FOREIGN KEY、UNIQUE、CHECK、CONSTRAINT）
+            if (/^(?:PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK|CONSTRAINT)\b/i.test(withoutComments))
+                continue;
+            // 提取列名（第一个标识符）
+            const colMatch = withoutComments.match(/^(\w+)/);
+            if (colMatch) {
+                columns.push(colMatch[1]);
+            }
+        }
+        return columns;
+    }
+    /**
+     * 从 DDL 中解析列名 → 注释的映射
+     * 格式：column_name TYPE ... -- 注释
+     * @param ddl CREATE TABLE 语句
+     * @returns Map<列名, 注释>
+     */
+    function parseDDLColumnComments(ddl) {
+        const comments = new Map();
+        if (!ddl)
+            return comments;
+        const bodyMatch = ddl.match(/\(([^]*)\)/);
+        if (!bodyMatch)
+            return comments;
+        const body = bodyMatch[1];
+        // 按行分割（注释是行级概念，标准 SQL 中 `-- 注释` 到行尾）
+        // 而非按 splitColumnDefinitions 分割（逗号在注释之前，会截断注释）
+        const lines = body.split('\n');
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed)
+                continue;
+            // 匹配 column_name ... -- 注释（行内可能有逗号、CHECK 约束等）
+            const match = trimmed.match(/^(\w+)\s+.*?--\s*(.+?)\s*,?\s*$/);
+            if (match) {
+                comments.set(match[1], match[2]);
+            }
+        }
+        return comments;
+    }
+    /**
+     * 构建 DDL 列名 → 中文名的双向映射
+     * @param ddl CREATE TABLE 语句
+     * @returns { sqlToChinese: Map<英文列名, 中文名>, chineseToSql: Map<中文名, 英文列名> }
+     */
+    function buildColumnNameMap(ddl) {
+        const comments = parseDDLColumnComments(ddl);
+        const sqlToChinese = new Map();
+        const chineseToSql = new Map();
+        for (const [colName, comment] of comments) {
+            sqlToChinese.set(colName, comment);
+            chineseToSql.set(comment, colName);
+        }
+        return { sqlToChinese, chineseToSql };
+    }
+    /**
+     * 根据列在 DDL 中的位置索引获取英文列名
+     * 索引从 0 开始，对应 content[0] 中的位置（包含 row_id）
+     *
+     * @param ddl CREATE TABLE 语句
+     * @param index 列索引（对应 content[0] 的位置，0 通常是 row_id）
+     * @returns 英文列名，找不到返回 null
+     */
+    function getDDLColumnNameByIndex(ddl, index) {
+        const columns = parseDDLColumnNames(ddl);
+        if (index < 0 || index >= columns.length)
+            return null;
+        return columns[index];
+    }
+    /**
+     * 更新 DDL 中指定列的注释（中文名）
+     * 按行扫描 DDL，找到指定列名的行，替换其 `-- 注释` 部分。
+     * 如果该行没有注释，则在行尾添加 `-- 新注释`。
+     *
+     * @param ddl 原始 CREATE TABLE 语句
+     * @param columnName 要更新注释的英文列名
+     * @param newComment 新的注释内容（中文名）
+     * @returns 更新后的 DDL 字符串；如果找不到列名则返回原 DDL
+     */
+    function updateDDLColumnComment(ddl, columnName, newComment) {
+        if (!ddl || !columnName || !newComment)
+            return ddl;
+        const lines = ddl.split('\n');
+        let found = false;
+        for (let i = 0; i < lines.length; i++) {
+            const trimmed = lines[i].trim();
+            if (!trimmed)
+                continue;
+            // 检查该行是否以目标列名开头（列定义行）
+            const colMatch = trimmed.match(/^(\w+)\s+/);
+            if (!colMatch || colMatch[1] !== columnName)
+                continue;
+            // 找到目标列，替换或添加注释
+            found = true;
+            const line = lines[i];
+            // 情况 1：行内已有 `-- 注释`，替换注释内容
+            const commentMatch = line.match(/^(.*?)(--\s*).+?(,?\s*)$/);
+            if (commentMatch) {
+                lines[i] = `${commentMatch[1]}-- ${newComment}${commentMatch[3]}`;
+                break;
+            }
+            // 情况 2：行内没有注释，需要添加
+            // 先检查行尾是否有逗号
+            const trailingCommaMatch = line.match(/^(.*?)(,\s*)$/);
+            if (trailingCommaMatch) {
+                // 有逗号：在逗号前插入注释 → `  col TEXT, -- 注释`
+                // 按照项目约定格式：逗号在注释前 → `  col TEXT, -- 注释`
+                lines[i] = `${trailingCommaMatch[1]}, -- ${newComment}`;
+            }
+            else {
+                // 无逗号（最后一列）：直接在行尾添加注释
+                lines[i] = `${line.trimEnd()} -- ${newComment}`;
+            }
+            break;
+        }
+        if (!found) {
+            logWarn_ACU(`[Schema] updateDDLColumnComment: 未找到列 "${columnName}"，DDL 未修改`);
+        }
+        return lines.join('\n');
+    }
+    // ═══════════════════════════════════════════════════════════════
+    // 内部工具函数
+    // ═══════════════════════════════════════════════════════════════
+    /**
+     * 分割 DDL 括号内的列定义（处理嵌套括号）
+     */
+    function splitColumnDefinitions(body) {
+        const results = [];
+        let current = '';
+        let depth = 0;
+        let inLineComment = false;
+        for (let i = 0; i < body.length; i++) {
+            const char = body[i];
+            // 检测 -- 行注释开始
+            if (!inLineComment && char === '-' && i + 1 < body.length && body[i + 1] === '-') {
+                inLineComment = true;
+                current += char;
+                continue;
+            }
+            // 换行符结束行注释
+            if (inLineComment && char === '\n') {
+                inLineComment = false;
+                current += char;
+                continue;
+            }
+            // 在行注释内，所有字符直接追加（包括逗号）
+            if (inLineComment) {
+                current += char;
+                continue;
+            }
+            if (char === '(') {
+                depth++;
+                current += char;
+            }
+            else if (char === ')') {
+                depth--;
+                current += char;
+            }
+            else if (char === ',' && depth === 0) {
+                results.push(current);
+                current = '';
+            }
+            else {
+                current += char;
+            }
+        }
+        if (current.trim()) {
+            results.push(current);
+        }
+        return results;
+    }
+
+    /**
      * data/sqlite/schema-mapper.ts — Sheet ↔ SQL 双向映射
      *
      * 职责：
@@ -7014,176 +7242,6 @@ $CONTENT
         return { valid: mismatches.length === 0, mismatches };
     }
     // ═══════════════════════════════════════════════════════════════
-    // DDL 解析工具函数
-    // ═══════════════════════════════════════════════════════════════
-    /**
-     * 从 DDL 中解析英文表名
-     * @param ddl CREATE TABLE 语句
-     * @returns 表名，解析失败返回 null
-     */
-    function parseDDLTableName(ddl) {
-        if (!ddl)
-            return null;
-        // 匹配 CREATE TABLE [IF NOT EXISTS] table_name
-        const match = ddl.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/i);
-        return match ? match[1] : null;
-    }
-    /**
-     * 从 DDL 第一行注释中解析中文表名
-     * 格式：CREATE TABLE table_name ( -- 中文表名
-     * @param ddl CREATE TABLE 语句
-     * @returns 中文表名，解析失败返回 null
-     */
-    function parseDDLChineseName(ddl) {
-        if (!ddl)
-            return null;
-        // 匹配第一行的 -- 注释
-        const firstLine = ddl.split('\n')[0];
-        const match = firstLine.match(/--\s*(.+?)\s*$/);
-        return match ? match[1].trim() : null;
-    }
-    /**
-     * 从 DDL 中解析所有列名（按顺序）
-     * @param ddl CREATE TABLE 语句
-     * @returns 列名数组
-     */
-    function parseDDLColumnNames(ddl) {
-        if (!ddl)
-            return [];
-        const columns = [];
-        // 提取括号内的列定义部分
-        const bodyMatch = ddl.match(/\(([^]*)\)/);
-        if (!bodyMatch)
-            return [];
-        const body = bodyMatch[1];
-        // 按逗号分割（但要注意括号内和注释内的逗号）
-        const lines = splitColumnDefinitions(body);
-        for (const line of lines) {
-            // 去掉行注释（-- 到行尾），然后取最后一个非注释行的内容
-            const withoutComments = line.replace(/--[^\n]*/g, '').trim();
-            if (!withoutComments)
-                continue;
-            // 跳过表级约束（PRIMARY KEY、FOREIGN KEY、UNIQUE、CHECK、CONSTRAINT）
-            if (/^(?:PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK|CONSTRAINT)\b/i.test(withoutComments))
-                continue;
-            // 提取列名（第一个标识符）
-            const colMatch = withoutComments.match(/^(\w+)/);
-            if (colMatch) {
-                columns.push(colMatch[1]);
-            }
-        }
-        return columns;
-    }
-    /**
-     * 从 DDL 中解析列名 → 注释的映射
-     * 格式：column_name TYPE ... -- 注释
-     * @param ddl CREATE TABLE 语句
-     * @returns Map<列名, 注释>
-     */
-    function parseDDLColumnComments(ddl) {
-        const comments = new Map();
-        if (!ddl)
-            return comments;
-        const bodyMatch = ddl.match(/\(([^]*)\)/);
-        if (!bodyMatch)
-            return comments;
-        const body = bodyMatch[1];
-        // 按行分割（注释是行级概念，标准 SQL 中 `-- 注释` 到行尾）
-        // 而非按 splitColumnDefinitions 分割（逗号在注释之前，会截断注释）
-        const lines = body.split('\n');
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed)
-                continue;
-            // 匹配 column_name ... -- 注释（行内可能有逗号、CHECK 约束等）
-            const match = trimmed.match(/^(\w+)\s+.*?--\s*(.+?)\s*,?\s*$/);
-            if (match) {
-                comments.set(match[1], match[2]);
-            }
-        }
-        return comments;
-    }
-    /**
-     * 构建 DDL 列名 → 中文名的双向映射
-     * @param ddl CREATE TABLE 语句
-     * @returns { sqlToChinese: Map<英文列名, 中文名>, chineseToSql: Map<中文名, 英文列名> }
-     */
-    function buildColumnNameMap(ddl) {
-        const comments = parseDDLColumnComments(ddl);
-        const sqlToChinese = new Map();
-        const chineseToSql = new Map();
-        for (const [colName, comment] of comments) {
-            sqlToChinese.set(colName, comment);
-            chineseToSql.set(comment, colName);
-        }
-        return { sqlToChinese, chineseToSql };
-    }
-    /**
-     * 根据列在 DDL 中的位置索引获取英文列名
-     * 索引从 0 开始，对应 content[0] 中的位置（包含 row_id）
-     *
-     * @param ddl CREATE TABLE 语句
-     * @param index 列索引（对应 content[0] 的位置，0 通常是 row_id）
-     * @returns 英文列名，找不到返回 null
-     */
-    function getDDLColumnNameByIndex(ddl, index) {
-        const columns = parseDDLColumnNames(ddl);
-        if (index < 0 || index >= columns.length)
-            return null;
-        return columns[index];
-    }
-    /**
-     * 更新 DDL 中指定列的注释（中文名）
-     * 按行扫描 DDL，找到指定列名的行，替换其 `-- 注释` 部分。
-     * 如果该行没有注释，则在行尾添加 `-- 新注释`。
-     *
-     * @param ddl 原始 CREATE TABLE 语句
-     * @param columnName 要更新注释的英文列名
-     * @param newComment 新的注释内容（中文名）
-     * @returns 更新后的 DDL 字符串；如果找不到列名则返回原 DDL
-     */
-    function updateDDLColumnComment(ddl, columnName, newComment) {
-        if (!ddl || !columnName || !newComment)
-            return ddl;
-        const lines = ddl.split('\n');
-        let found = false;
-        for (let i = 0; i < lines.length; i++) {
-            const trimmed = lines[i].trim();
-            if (!trimmed)
-                continue;
-            // 检查该行是否以目标列名开头（列定义行）
-            const colMatch = trimmed.match(/^(\w+)\s+/);
-            if (!colMatch || colMatch[1] !== columnName)
-                continue;
-            // 找到目标列，替换或添加注释
-            found = true;
-            const line = lines[i];
-            // 情况 1：行内已有 `-- 注释`，替换注释内容
-            const commentMatch = line.match(/^(.*?)(--\s*).+?(,?\s*)$/);
-            if (commentMatch) {
-                lines[i] = `${commentMatch[1]}-- ${newComment}${commentMatch[3]}`;
-                break;
-            }
-            // 情况 2：行内没有注释，需要添加
-            // 先检查行尾是否有逗号
-            const trailingCommaMatch = line.match(/^(.*?)(,\s*)$/);
-            if (trailingCommaMatch) {
-                // 有逗号：在逗号前插入注释 → `  col TEXT, -- 注释`
-                // 按照项目约定格式：逗号在注释前 → `  col TEXT, -- 注释`
-                lines[i] = `${trailingCommaMatch[1]}, -- ${newComment}`;
-            }
-            else {
-                // 无逗号（最后一列）：直接在行尾添加注释
-                lines[i] = `${line.trimEnd()} -- ${newComment}`;
-            }
-            break;
-        }
-        if (!found) {
-            logWarn_ACU(`[Schema] updateDDLColumnComment: 未找到列 "${columnName}"，DDL 未修改`);
-        }
-        return lines.join('\n');
-    }
-    // ═══════════════════════════════════════════════════════════════
     // 内部工具函数
     // ═══════════════════════════════════════════════════════════════
     /**
@@ -7238,54 +7296,6 @@ $CONTENT
             return ascii;
         // 实在不行就用 col_ 前缀
         return `col_${ascii || 'unknown'}`;
-    }
-    /**
-     * 分割 DDL 括号内的列定义（处理嵌套括号）
-     */
-    function splitColumnDefinitions(body) {
-        const results = [];
-        let current = '';
-        let depth = 0;
-        let inLineComment = false;
-        for (let i = 0; i < body.length; i++) {
-            const char = body[i];
-            // 检测 -- 行注释开始
-            if (!inLineComment && char === '-' && i + 1 < body.length && body[i + 1] === '-') {
-                inLineComment = true;
-                current += char;
-                continue;
-            }
-            // 换行符结束行注释
-            if (inLineComment && char === '\n') {
-                inLineComment = false;
-                current += char;
-                continue;
-            }
-            // 在行注释内，所有字符直接追加（包括逗号）
-            if (inLineComment) {
-                current += char;
-                continue;
-            }
-            if (char === '(') {
-                depth++;
-                current += char;
-            }
-            else if (char === ')') {
-                depth--;
-                current += char;
-            }
-            else if (char === ',' && depth === 0) {
-                results.push(current);
-                current = '';
-            }
-            else {
-                current += char;
-            }
-        }
-        if (current.trim()) {
-            results.push(current);
-        }
-        return results;
     }
 
     /**
@@ -12907,6 +12917,45 @@ $CONTENT
     }
 
     /**
+     * shared/abortable-delay.ts
+     * 可被 AbortSignal 中断的延时等待工具函数
+     *
+     * AbortSignal / setTimeout / Promise 均为 Web 标准 API，不涉及 DOM 节点操作，
+     * 放在 shared 层供所有层级使用。
+     */
+    /**
+     * 等待指定毫秒数，期间若 signal 被 abort 则立即 resolve（不 reject）。
+     * @param ms      延时毫秒数
+     * @param signal  可选的 AbortSignal，为空时退化为普通 setTimeout
+     */
+    function abortableDelay(ms, signal) {
+        return new Promise(resolve => {
+            if (signal?.aborted) {
+                resolve();
+                return;
+            }
+            let timer = null;
+            const done = () => {
+                if (timer !== null) {
+                    clearTimeout(timer);
+                    timer = null;
+                }
+                if (signal) {
+                    try {
+                        signal.removeEventListener('abort', done);
+                    }
+                    catch (_) { /* noop */ }
+                }
+                resolve();
+            };
+            timer = setTimeout(done, ms);
+            if (signal) {
+                signal.addEventListener('abort', done, { once: true });
+            }
+        });
+    }
+
+    /**
      * service/runtime/plot-runtime/plot-task-engine.ts
      * 剧情推进 — Task 执行引擎（排序/分组/上下文构建/单任务执行/运行时调度）+ 世界书内容获取
      * 从 helpers-plot-runtime.ts 拆出（L532-L1023 + L1513-L1618）
@@ -13215,22 +13264,7 @@ $CONTENT
                 }
                 if (attemptIndex < maxRetries - 1) {
                     // 可被 abort 信号中断的等待，避免用户点中止后还要等 5 秒
-                    await new Promise(resolve => {
-                        const signal = abortController_ACU?.signal;
-                        if (signal?.aborted) {
-                            resolve();
-                            return;
-                        }
-                        const timer = setTimeout(() => { cleanup(); resolve(); }, 5000);
-                        const onAbort = () => { clearTimeout(timer); cleanup(); resolve(); };
-                        const cleanup = () => { try {
-                            if (signal)
-                                signal.onabort = null;
-                        }
-                        catch (_) { } };
-                        if (signal)
-                            signal.onabort = onAbort;
-                    });
+                    await abortableDelay(5000, abortController_ACU?.signal);
                 }
             }
             if (!rawResponse) {
@@ -27147,12 +27181,6 @@ $CONTENT
         }
         catch (e) { }
     }
-
-    /**
-     * service/table/schema-helpers.ts — DDL/Schema 工具函数的 service 层 re-export
-     *
-     * presentation 层不应直接引用 data 层，通过此文件中转。
-     */
 
     /**
      * DDL 校验纯函数 — 从 jQuery 事件处理器中提取，方便单元测试

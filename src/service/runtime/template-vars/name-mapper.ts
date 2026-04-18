@@ -13,7 +13,7 @@ import {
   parseDDLTableName,
   parseDDLChineseName,
   parseDDLColumnComments,
-} from '../../../data/sqlite/schema-mapper';
+} from '../../../shared/ddl-utils';
 import { logDebug_ACU, logWarn_ACU } from '../../../shared/utils';
 
 /** 全局 NameMapper 单例 */
