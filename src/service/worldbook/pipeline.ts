@@ -647,10 +647,27 @@ export   async function getWorldbookNames_ACU() {
 
 
 export   async function getLorebookEntriesByNames_ACU(bookNames: string[] = []) {
-      const uniqueNames = [...new Set((Array.isArray(bookNames) ? bookNames : []).map((name: string) => String(name || '').trim()).filter(Boolean))];
+      let uniqueNames = [...new Set((Array.isArray(bookNames) ? bookNames : []).map((name: string) => String(name || '').trim()).filter(Boolean))];
       const entriesMap: Record<string, any[]> = {};
       const canUseTavernHelper = isWorldbookApiAvailable_ACU();
       let fallbackBooks = null;
+
+      // [防御] 预先验证世界书是否真实存在，过滤掉不存在的名称
+      // 防止 SillyTavern API 返回残留/缓存的不存在世界书名称导致报错
+      try {
+          const availableBooks = await listLorebooks_ACU();
+          if (Array.isArray(availableBooks) && availableBooks.length > 0) {
+              const filtered = uniqueNames.filter(name => {
+                  if (availableBooks.includes(name)) return true;
+                  logDebug_ACU(`[Worldbook] 世界书 "${name}" 不存在于可用列表中，静默跳过。`);
+                  entriesMap[name] = []; // 为不存在的书返回空数组，保持接口一致
+                  return false;
+              });
+              uniqueNames = filtered;
+          }
+      } catch (_e) {
+          // listLorebooks_ACU 失败时降级为不过滤，让下方原有的 try-catch 兜底
+      }
 
       if (!canUseTavernHelper) {
           fallbackBooks = await gwGetWorldBooks_ACU();
