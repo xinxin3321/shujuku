@@ -2254,6 +2254,11 @@ $CONTENT
     const TAVERN_BRIDGE_INJECTED_FLAG_ACU = '__ACU_USERSCRIPT_BRIDGE_INJECTED__';
     const sleep_ACU = (ms) => new Promise(r => setTimeout(r, ms));
     let tavernBridgeErrorReported_ACU = false;
+    // ── userscript 路径专用状态（插件路径不使用这些变量）──
+    /** userscript 模式下 bridge 初始化是否已完成（无论成功或失败） */
+    let _tavernBridgeInitCompleted_ACU = false;
+    /** userscript 模式下是否已报告过"根对象不可用"（防止重复刷屏） */
+    let _tavernRootUnavailableWarnReported_ACU = false;
     // ── 桥接函数 ──
     function tryReadBridgeFromTop_ACU() {
         try {
@@ -2389,14 +2394,35 @@ $CONTENT
             }
         }
         catch (e) { /* ignore */ }
+        // ── userscript 路径：标记 bridge 初始化已完成（无论是否成功获取 root）──
+        _tavernBridgeInitCompleted_ACU = true;
         return !!tavernExtensionSettingsRoot_ACU;
     }
     function getTavernSettingsNamespace_ACU() {
         tryReadBridgeFromTop_ACU();
         const root = tavernExtensionSettingsRoot_ACU;
         if (!root) {
-            logWarn_ACU('[TavernStorage] 酒馆设置根对象不可用, 返回 null');
+            // ── 插件模式：保持原有行为（bridge 在 waitForTavernHelper 中已确保就绪）──
+            if (isExtensionMode()) {
+                logWarn_ACU('[TavernStorage] 酒馆设置根对象不可用, 返回 null');
+                return null;
+            }
+            // ── userscript 模式：bridge 初始化未完成时安静降级，完成后只告警一次 ──
+            if (!_tavernBridgeInitCompleted_ACU) {
+                // bridge 还在初始化中，不打印任何告警，安静返回 null 让调用方走 IndexedDB/localStorage 回退
+                return null;
+            }
+            // bridge 初始化已完成但仍拿不到 root → 只告警一次
+            if (!_tavernRootUnavailableWarnReported_ACU) {
+                _tavernRootUnavailableWarnReported_ACU = true;
+                logWarn_ACU('[TavernStorage] 酒馆设置根对象不可用, 返回 null（后续将使用 IndexedDB/localStorage 降级存储）');
+            }
             return null;
+        }
+        // root 可用 → 如果之前标记过不可用，清除标记以便后续状态变化能重新报告
+        if (_tavernRootUnavailableWarnReported_ACU) {
+            _tavernRootUnavailableWarnReported_ACU = false;
+            logDebug_ACU('[TavernStorage] 酒馆设置根对象已恢复可用');
         }
         if (!root.__userscripts)
             root.__userscripts = {};
@@ -2617,6 +2643,8 @@ $CONTENT
         tavernExtensionSettingsRoot_ACU = null;
         tavernSaveSettingsFn_ACU = null;
         tavernBridgeErrorReported_ACU = false;
+        _tavernBridgeInitCompleted_ACU = false;
+        _tavernRootUnavailableWarnReported_ACU = false;
     }
 
     /**
