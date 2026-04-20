@@ -10,6 +10,7 @@ import { sanitizeChatSheetsObject_ACU } from '../../service/template/chat-scope'
 import { ensureSheetOrderNumbers_ACU, logDebug_ACU, logError_ACU } from '../../shared/utils';
 import { syncMergeSettingsToUI_ACU } from '../components/status-display';
 import { applyTemplateSnapshotToScope_ACU } from '../../service/template/template-preset-service';
+import { refreshPresetUIAfterSwitch_ACU } from '../components/pipeline-ui-helpers';
 
 export   function importCombinedSettings_ACU() {
     const input = document.createElement('input');
@@ -107,6 +108,9 @@ export   function importCombinedSettings_ACU() {
                 }
 
                 showToastr_ACU('success', '表格模板已成功导入！模板已更新，但不会影响当前聊天记录的本地数据。');
+
+                // 刷新模板预设下拉 UI，确保预设列表与状态文案同步
+                refreshPresetUIAfterSwitch_ACU();
 
                 // [优化] 不再触发表格数据初始化，仅修改当前插件模板
                 // 只有在新开卡或之前没有用过插件的聊天记录里才会使用新的通用模板作为基底

@@ -13,7 +13,7 @@ import { $popupInstance_ACU } from '../state/ui-refs';
 import { saveSettingsAndNotify_ACU } from '../components/settings-ui-helpers';
 import { loadSettingsAndRefreshUI_ACU } from '../components/settings-ui-helpers';
 import { sanitizeChatSheetsObject_ACU } from '../../service/template/chat-scope';
-import { refreshMergedDataAndNotifyWithUI_ACU } from '../components/pipeline-ui-helpers';
+import { refreshMergedDataAndNotifyWithUI_ACU, refreshPresetUIAfterSwitch_ACU } from '../components/pipeline-ui-helpers';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 
 import { ensureSheetOrderNumbers_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
@@ -116,6 +116,9 @@ import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-d
                 }
 
                 showToastr_ACU('success', '表格模板已成功导入！模板已更新，但不会影响当前聊天记录的本地数据。');
+
+                // 刷新模板预设下拉 UI，确保预设列表与状态文案同步
+                refreshPresetUIAfterSwitch_ACU();
 
                 // [优化] 不再触发表格数据初始化，仅修改当前插件模板
                 // 只有在新开卡或之前没有用过插件的聊天记录里才会使用新的通用模板作为基底
@@ -380,45 +383,56 @@ import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-d
                         : '',
                 });
 
-                let savePresetOk = false;
-                if (normalizedScope === 'global' && derivedPresetName) {
-                    try {
-                        savePresetOk = upsertTemplatePreset_ACU(derivedPresetName, prepared.templateStr);
-                    } catch (presetError) {
-                        savePresetOk = false;
-                        logWarn_ACU('[TemplateScope] 导入全局模板后保存预设失败:', presetError);
+                if (normalizedScope === 'global') {
+                    // ═══ 全局导入：仅保存到预设库，不自动切换当前生效模板 ═══
+                    // 用户可随后通过下拉手动切换到新导入的预设
+                    let savePresetOk = false;
+                    if (derivedPresetName) {
+                        try {
+                            savePresetOk = upsertTemplatePreset_ACU(derivedPresetName, prepared.templateStr);
+                        } catch (presetError) {
+                            savePresetOk = false;
+                            logWarn_ACU('[TemplateScope] 导入全局模板后保存预设失败:', presetError);
+                        }
                     }
-                }
 
-                const applied = await applyTemplateSnapshotToScope_ACU(prepared.templateStr, {
-                    scope: normalizedScope,
-                    source: normalizedScope === 'chat' ? 'ui_chat_import' : 'ui_global_import',
-                    presetName: derivedPresetName,
-                    save: true,
-                    persistChatScope: normalizedScope === 'chat',
-                });
-                if (!applied) {
-                    throw new Error('模板已解析，但应用模板快照失败。');
-                }
+                    // 刷新 UI 让新预设立即出现在下拉列表中，但保持当前选中值不变
+                    refreshPresetUIAfterSwitch_ACU({ keepTemplateGlobalValue: true });
 
-                if (normalizedScope === 'chat') {
+                    if (savePresetOk) {
+                        showToastr_ACU('success', `模板已保存为全局预设：${derivedPresetName}（同名自动覆盖）。你可以在"全局模板预设"下拉中手动切换到它。`, {
+                            acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT,
+                        });
+                    } else if (derivedPresetName) {
+                        showToastr_ACU('warning', `模板已解析，但保存到预设库失败：${derivedPresetName}`, {
+                            acuToastCategory: ACU_TOAST_CATEGORY_ACU.ERROR,
+                        });
+                    } else {
+                        showToastr_ACU('warning', '模板已解析，但无法确定预设名称，未保存到预设库。', {
+                            acuToastCategory: ACU_TOAST_CATEGORY_ACU.ERROR,
+                        });
+                    }
+                    logDebug_ACU(`[TemplateScope] Template imported to global preset library: ${derivedPresetName}. saveOk=${savePresetOk}`);
+                } else {
+                    // ═══ 聊天导入：应用到当前聊天作用域 ═══
+                    const applied = await applyTemplateSnapshotToScope_ACU(prepared.templateStr, {
+                        scope: 'chat',
+                        source: 'ui_chat_import',
+                        presetName: derivedPresetName,
+                        save: true,
+                        persistChatScope: true,
+                    });
+                    if (!applied) {
+                        throw new Error('模板已解析，但应用到当前聊天失败。');
+                    }
+
+                    try { await refreshMergedDataAndNotifyWithUI_ACU(); } catch (e) {}
+                    refreshPresetUIAfterSwitch_ACU({ keepTemplateGlobalValue: true });
                     showToastr_ACU('success', `当前聊天模板快照已导入${derivedPresetName ? `（预设名：${derivedPresetName}）` : ''}。`, {
                         acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT,
                     });
-                } else if (savePresetOk) {
-                    showToastr_ACU('success', `模板已导入，并保存为全局预设：${derivedPresetName}（同名自动覆盖）`, {
-                        acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT,
-                    });
-                } else if (derivedPresetName) {
-                    showToastr_ACU('success', `模板已成功导入到全局！当前全局模板已标记为：${derivedPresetName}；但保存到预设库失败。`, {
-                        acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT,
-                    });
-                } else {
-                    showToastr_ACU('success', '模板已成功导入到全局！', {
-                        acuToastCategory: ACU_TOAST_CATEGORY_ACU.IMPORT,
-                    });
+                    logDebug_ACU(`[TemplateScope] Template imported to chat scope: ${derivedPresetName}.`);
                 }
-                logDebug_ACU(`[TemplateScope] Template imported for scope: ${normalizedScope}.`);
             } catch (error) {
                 logError_ACU('导入模板失败：', error);
                 showToastr_ACU('error', `导入失败: ${error.message}`, {

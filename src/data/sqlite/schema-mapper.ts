@@ -10,6 +10,7 @@
 
 import type { Sheet_ACU } from '../../shared/models/table-data';
 import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
+import { normalizeSqlStructure, normalizeConstrainedValue } from './sql-normalizer';
 
 // DDL 纯解析函数已移至 shared/ddl-utils.ts，此处 re-export 保持 data 层内部调用不变
 export {
@@ -43,8 +44,10 @@ export function generateDDL(sheet: Sheet_ACU, fallbackTableName?: string): strin
   // 优先使用用户定义的 DDL
   const ddl = sheet.sourceData?.ddl?.trim();
   if (ddl) {
-    logDebug_ACU(`[Schema] generateDDL: 使用用户定义 DDL, 表名=${parseDDLTableName(ddl) || 'unknown'}`);
-    return ddl;
+    // 对 DDL 做结构字符规范化（全角兼容字符 → ASCII）
+    const normalizedDdl = normalizeSqlStructure(ddl);
+    logDebug_ACU(`[Schema] generateDDL: 使用用户定义 DDL, 表名=${parseDDLTableName(normalizedDdl) || 'unknown'}`);
+    return normalizedDdl;
   }
 
   // fallback：从 content[0] 表头自动生成全 TEXT 的 DDL
@@ -145,7 +148,9 @@ export function generateInserts(sheet: Sheet_ACU, tableName?: string): string[] 
     const values: string[] = [];
     for (let c = 0; c < columnNames.length; c++) {
       const val = c < row.length ? row[c] : null;
-      values.push(escapeValue(val));
+      // 对白名单约束字段做值规范化（如 code_index 的大小写/全角数字）
+      const normalizedVal = normalizeConstrainedValue(columnNames[c], val);
+      values.push(escapeValue(normalizedVal));
     }
 
     statements.push(

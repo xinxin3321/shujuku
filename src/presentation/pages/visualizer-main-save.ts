@@ -31,6 +31,8 @@ import { jQuery_API_ACU } from '../dom-utils';
 import { _acuVisState } from './visualizer';
 import { $popupInstance_ACU } from '../state/ui-refs';
 import { closeACUWindow } from '../window/window-system';
+import { isSqliteMode } from '../../service/table/storage-mode';
+import { reloadStorageProvider } from '../../service/table/table-storage-strategy';
 
 
   export async function saveVisualizerChanges_ACU(saveToTemplate = false) {
@@ -352,13 +354,22 @@ import { closeACUWindow } from '../window/window-system';
               if (typeof purgeSheetKeysFromChatHistoryHard_ACU === 'function' && deletedKeysToPurge_ACU.length > 0) {
                   try {
                       const r = await purgeSheetKeysFromChatHistoryHard_ACU(deletedKeysToPurge_ACU);
-                      if (r?.changed) {
-                          logDebug_ACU(`[VisualizerDelete] Hard-purged ${deletedKeysToPurge_ACU.length} keys from ${r.changedCount} AI messages.`);
-                          if ((topLevelWindow_ACU as any)?.AutoCardUpdaterAPI) {
-                              (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
-                          }
-                      }
-                      _acuVisState.deletedSheetKeys = [];
+                    if (r?.changed) {
+                            logDebug_ACU(`[VisualizerDelete] Hard-purged ${deletedKeysToPurge_ACU.length} keys from ${r.changedCount} AI messages.`);
+                            if ((topLevelWindow_ACU as any)?.AutoCardUpdaterAPI) {
+                                (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
+                            }
+                            // SQLite 模式下重建运行时数据库实例，确保模板切换时不会残留旧表结构或旧数据
+                            if (isSqliteMode()) {
+                                try {
+                                    await reloadStorageProvider();
+                                    logDebug_ACU('[VisualizerDelete] SQLite 运行时数据库已重建');
+                                } catch (reloadError) {
+                                    logWarn_ACU(`[VisualizerDelete] reloadStorageProvider 失败: ${reloadError?.message}，继续使用当前 provider`);
+                                }
+                            }
+                        }
+                        _acuVisState.deletedSheetKeys = [];
                   } catch (e) {
                       logWarn_ACU('[VisualizerDelete] Hard purge failed:', e);
                       // 不清空队列，让用户再次保存时有机会重试

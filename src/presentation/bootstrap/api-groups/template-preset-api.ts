@@ -84,42 +84,55 @@ export function createTemplatePresetApi(ctx: ApiGroupContext): Record<string, Fu
                 });
                 const prepared = parseImportedTemplateData_ACU(templateData);
 
-                if (normalizedScope === 'global' && normalizedPresetName) {
-                    const savePresetOk = upsertTemplatePreset_ACU(normalizedPresetName, prepared.templateStr);
-                    if (!savePresetOk) {
-                        return {
-                            success: false,
-                            scope: normalizedScope,
-                            message: `模板已解析，但保存全局模板预设失败：${normalizedPresetName}`,
-                        };
+                if (normalizedScope === 'global') {
+                    // ═══ 全局导入：仅保存到预设库，不自动切换当前生效模板 ═══
+                    if (normalizedPresetName) {
+                        const savePresetOk = upsertTemplatePreset_ACU(normalizedPresetName, prepared.templateStr);
+                        if (!savePresetOk) {
+                            return {
+                                success: false,
+                                scope: normalizedScope,
+                                message: `模板已解析，但保存全局模板预设失败：${normalizedPresetName}`,
+                            };
+                        }
                     }
+
+                    // 刷新 UI 让新预设立即出现在下拉列表中，但保持当前选中值不变
+                    refreshPresetUIAfterSwitch_ACU({ keepTemplateGlobalValue: true });
+
+                    logDebug_ACU(`[API] importTemplateFromData: 模板已保存到全局预设库：${normalizedPresetName}。`);
+                    return {
+                        success: true,
+                        scope: normalizedScope,
+                        message: normalizedPresetName
+                            ? `模板已保存为全局预设：${normalizedPresetName}。你可以在"全局模板预设"下拉中手动切换到它。`
+                            : '模板已解析，但未指定预设名称，未保存到预设库。',
+                        presetName: normalizedPresetName || undefined,
+                    };
                 }
 
+                // ═══ 聊天导入：应用到当前聊天作用域 ═══
                 const applied = await applyTemplateSnapshotToScope_ACU(prepared.templateStr, {
-                    scope: normalizedScope,
-                    source: normalizedScope === 'chat' ? 'api_import_template_chat' : 'api_import_template_global',
+                    scope: 'chat',
+                    source: 'api_import_template_chat',
                     presetName: normalizedPresetName,
                     save: true,
-                    persistChatScope: normalizedScope === 'chat',
+                    persistChatScope: true,
                 });
                 if (!applied) {
                     return {
                         success: false,
                         scope: normalizedScope,
-                        message: '模板导入失败：无法应用模板快照。',
+                        message: '模板导入失败：无法应用到当前聊天。',
                     };
                 }
 
-                logDebug_ACU(`[API] importTemplateFromData: 模板已成功导入到${normalizedScope === 'chat' ? '当前聊天' : '全局'}。`);
-                refreshPresetUIAfterSwitch_ACU();
+                logDebug_ACU(`[API] importTemplateFromData: 模板已成功导入到当前聊天。`);
+                refreshPresetUIAfterSwitch_ACU({ keepTemplateGlobalValue: true });
                 return {
                     success: true,
                     scope: normalizedScope,
-                    message: normalizedScope === 'chat'
-                        ? `模板已成功导入到当前聊天${normalizedPresetName ? `（预设名：${normalizedPresetName}）` : ''}！`
-                        : (normalizedPresetName
-                            ? `模板已成功导入到全局，并已保存为预设：${normalizedPresetName}`
-                            : '模板已成功导入到全局！'),
+                    message: `模板已成功导入到当前聊天${normalizedPresetName ? `（预设名：${normalizedPresetName}）` : ''}！`,
                     presetName: normalizedPresetName || undefined,
                 };
 

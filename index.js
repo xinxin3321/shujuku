@@ -30265,6 +30265,15 @@ $CONTENT
                             if (topLevelWindow_ACU?.AutoCardUpdaterAPI) {
                                 topLevelWindow_ACU.AutoCardUpdaterAPI._notifyTableUpdate();
                             }
+                            // SQLite 模式下重建运行时数据库实例，确保模板切换时不会残留旧表结构或旧数据
+                            if (isSqliteMode()) {
+                                try {
+                                    await reloadStorageProvider();
+                                    logDebug_ACU('[VisualizerDelete] SQLite 运行时数据库已重建');
+                                } catch (reloadError) {
+                                    logWarn_ACU(`[VisualizerDelete] reloadStorageProvider 失败: ${reloadError?.message}，继续使用当前 provider`);
+                                }
+                            }
                         }
                         _acuVisState.deletedSheetKeys = [];
                     }

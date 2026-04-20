@@ -28,6 +28,7 @@ import { mergeAllIndependentTables_ACU } from '../runtime/helpers-data-merge';
 import { logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU, stripSeedRowsFromTemplate_ACU } from '../../shared/utils';
 import { buildGlobalNameMapper, disposeGlobalNameMapper } from '../runtime/template-vars/name-mapper';
 import { parseDDLTableName, generateDDL, generateInserts } from '../../data/sqlite/schema-mapper';
+import { normalizeSqlStructure, normalizeStatementValues } from '../../data/sqlite/sql-normalizer';
 import { getEffectiveSeedRowsForSheet_ACU, getCurrentChatTemplateScopeState_ACU, sanitizeTemplateSnapshotForChat_ACU } from '../template/chat-scope';
 import { getTemplatePreset_ACU } from '../template/template-preset-service';
 import { safeJsonParse_ACU } from '../../shared/json-helpers';
@@ -185,10 +186,16 @@ export class SqlTableService implements ITableStorageProvider {
     }
 
     // 按分号拆分为多条语句（跳过字符串内的分号）
-    const statements = splitSqlStatements(cleaned);
-    if (statements.length === 0) {
+    const rawStatements = splitSqlStatements(cleaned);
+    if (rawStatements.length === 0) {
       return { success: true, modifiedKeys: [], appliedEdits: 0 };
     }
+
+    // 对每条语句做规范化：结构字符兼容化 + 受约束字段值规范化
+    const statements = rawStatements.map(stmt => {
+      const structNormalized = normalizeSqlStructure(stmt);
+      return normalizeStatementValues(structNormalized);
+    });
 
     try {
       // 事务执行
@@ -242,7 +249,9 @@ export class SqlTableService implements ITableStorageProvider {
     this._ensureInitialized();
     this._ensureTablesFromTemplate();
     try {
-      const result = this.engine.run(sql, params);
+      // 对 SQL 做规范化：结构字符兼容化 + 受约束字段值规范化
+      const normalizedSql = normalizeStatementValues(normalizeSqlStructure(sql));
+      const result = this.engine.run(normalizedSql, params);
       this._syncToJson();
       return { changes: result.changes, errors: [] };
     } catch (e: any) {
