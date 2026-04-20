@@ -68,7 +68,7 @@ let _dirtyWhileHidden = false;
  */
 export function generateLogViewerTabHTML(): string {
   return `
-    <div id="acu-tab-log-viewer" class="acu-tab-content">
+    <div id="acu-tab-log-viewer">
       <div class="acu-card">
         <h3><i class="fa-solid fa-scroll" style="margin-right: 6px;"></i>运行日志</h3>
         <p class="notes" style="margin-bottom: 12px;">实时显示所有功能模块的运行日志和报错日志。</p>
@@ -177,13 +177,22 @@ export async function bindLogViewerEvents_ACU(): Promise<void> {
   });
 
   // tab 切换时的可见性管理
-  // 监听 tab 按钮点击，判断当前是否切到了日志 tab
+  // 日志查看器现在嵌入在"高级工具"tab的子tab中
+  // 需要同时监听顶级tab切换和子tab切换
   if ($popupInstance_ACU) {
+    // 检查日志子tab是否当前可见
+    function isLogSubtabActive(): boolean {
+      const $advancedActive = $popupInstance_ACU!.find('.acu-tab-button.active');
+      const isAdvancedTab = $advancedActive.length && $advancedActive.data('tab') === 'advanced';
+      if (!isAdvancedTab) return false;
+      const $activeSubtab = $popupInstance_ACU!.find('#acu-tab-advanced .acu-subtab-button.active');
+      return $activeSubtab.length && $activeSubtab.data('subtab') === 'advanced-log';
+    }
+
+    // 监听顶级tab切换
     $popupInstance_ACU.find('.acu-tab-button').on('click.acuLogViewer', function() {
-      const tabId = jQuery_API_ACU(this).data('tab');
       const wasVisible = _tabVisible;
-      _tabVisible = (tabId === 'log-viewer');
-      // 切到日志 tab 且有脏数据时，全量重绘
+      _tabVisible = isLogSubtabActive();
       if (_tabVisible && !wasVisible && _dirtyWhileHidden) {
         _dirtyWhileHidden = false;
         renderAllLogs($logList);
@@ -191,9 +200,19 @@ export async function bindLogViewerEvents_ACU(): Promise<void> {
         refreshTagFilter($tagFilter);
       }
     });
-    // 检查当前是否已经在日志 tab
-    const $activeTab = $popupInstance_ACU.find('.acu-tab-button.active');
-    if ($activeTab.length && $activeTab.data('tab') === 'log-viewer') {
+    // 监听子tab切换
+    $popupInstance_ACU.find('.acu-subtab-button').on('click.acuLogViewer', function() {
+      const wasVisible = _tabVisible;
+      _tabVisible = isLogSubtabActive();
+      if (_tabVisible && !wasVisible && _dirtyWhileHidden) {
+        _dirtyWhileHidden = false;
+        renderAllLogs($logList);
+        updateLogCount($logCount);
+        refreshTagFilter($tagFilter);
+      }
+    });
+    // 初始检查
+    if (isLogSubtabActive()) {
       _tabVisible = true;
       _dirtyWhileHidden = false;
       renderAllLogs($logList);

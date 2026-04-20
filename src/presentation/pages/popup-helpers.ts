@@ -161,14 +161,26 @@ $select.append(renderOption_ACU(preset.name, preset.name));
 
       const config = settings_ACU.contentOptimizationSettings || {};
 
-      // [隐藏功能] 只有当剧情推进最大重试次数为49时才显示正文替换标签
+      // [隐藏功能] 只有当剧情推进最大重试次数为49时才显示正文替换子标签
       const plotMaxRetries = settings_ACU.plotSettings?.loopSettings?.maxRetries ?? 3;
-      const $optimizationTab = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-tab-optimization`);
-      if ($optimizationTab.length) {
+      const $optimizationSubtab = $popupInstance_ACU.find('.acu-subtab-button[data-subtab="advanced-optimization"]');
+      if ($optimizationSubtab.length) {
         if (plotMaxRetries === 49) {
-          $optimizationTab.show();
+          $optimizationSubtab.show();
+          // 同时显示对应的子内容区
+          $popupInstance_ACU.find('#acu-subtab-advanced-optimization').show();
         } else {
-          $optimizationTab.hide();
+          $optimizationSubtab.hide();
+          $popupInstance_ACU.find('#acu-subtab-advanced-optimization').hide();
+          // 如果当前激活的是optimization子标签，切到log子标签
+          if ($optimizationSubtab.hasClass('active')) {
+            $optimizationSubtab.removeClass('active');
+            const $logSubtab = $popupInstance_ACU.find('.acu-subtab-button[data-subtab="advanced-log"]');
+            if ($logSubtab.length) {
+              $logSubtab.addClass('active');
+              $popupInstance_ACU.find('#acu-subtab-advanced-log').addClass('active');
+            }
+          }
         }
       }
 

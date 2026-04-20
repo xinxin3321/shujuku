@@ -25,19 +25,13 @@ function ensureAcuToastStylesInjected_ACU() {
     const style = doc.createElement('style');
     style.id = styleId;
     style.textContent = `
-      /* ACU Toast Theme (古典中国风 - scoped to .acu-toast) */
+      /* ACU Toast Theme — 使用新主题系统的变量 */
       #toast-container .acu-toast.toast {
-        --toast-accent: #7d4940;
-        --toast-bg: #24221f;
-        --toast-text: #c1b9ad;
-        --toast-border: #36332e;
-        --toast-font: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
-      }
-      body.acu-theme-silk #toast-container .acu-toast.toast {
-        --toast-accent: #8a6b5e;
-        --toast-bg: #f4f1eb;
-        --toast-text: #3d3629;
-        --toast-border: #d4cfc4;
+        --toast-accent: var(--acu-accent, #2563eb);
+        --toast-bg: var(--acu-bg-1, #ffffff);
+        --toast-text: var(--acu-text-1, #1a2332);
+        --toast-border: var(--acu-border, #e0e4ea);
+        --toast-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
       }
       .acu-toast.toast {
         font-family: var(--toast-font) !important;
@@ -46,11 +40,10 @@ function ensureAcuToastStylesInjected_ACU() {
         letter-spacing: 0.2px;
         --acu-toast-accent: var(--toast-accent);
         background: var(--toast-bg) !important;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E") !important;
         color: var(--toast-text) !important;
         border: 1px solid var(--toast-border) !important;
-        border-radius: 2px !important;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.35) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
         padding: 12px 14px 12px 50px !important;
         width: min(420px, calc(100vw - 24px)) !important;
         opacity: 1 !important;
@@ -66,7 +59,6 @@ function ensureAcuToastStylesInjected_ACU() {
       #toast-container .acu-toast.toast.toast-warning,
       #toast-container .acu-toast.toast.toast-error {
         background: var(--toast-bg) !important;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E") !important;
         opacity: 1 !important;
       }
       #toast-container .acu-toast.toast .toast-title,
@@ -78,7 +70,7 @@ function ensureAcuToastStylesInjected_ACU() {
       .acu-toast.toast.toast-info,
       .acu-toast.toast.toast-warning,
       .acu-toast.toast.toast-error {
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E") !important;
+        background: var(--toast-bg) !important;
         background-repeat: repeat !important;
         background-position: 0 0 !important;
       }

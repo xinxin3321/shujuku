@@ -10,19 +10,19 @@
        ═══════════════════════════════════════════════════════════════ */
     
     /* 仅在可视化编辑器内定义主题变量，避免污染页面其它区域 */
-    /* 墨纸主题（默认暗色） */
+    /* 默认映射到统一主题变量；若主题提供 acu-viz 专用变量则优先使用 */
     #acu-visualizer-content {
-        --vis-bg-color: #24221f;
-        --vis-border-color: #36332e;
-        --vis-text-main: #c1b9ad;
-        --vis-text-dim: #9e978e;
-        --vis-text-mute: #645e55;
-        --vis-accent: #7d4940;
-        --vis-accent-dim: #8f5a4e;
-        --vis-accent-glow: rgba(125, 73, 64, 0.16);
-        --vis-bg-hover: #2a2824;
-        --vis-bg-stats: #211f1c;
-        --vis-bg-light: rgba(193, 185, 173, 0.04);
+        --vis-bg-color: var(--acu-viz-bg, var(--acu-bg-0));
+        --vis-border-color: var(--acu-viz-border, var(--acu-border));
+        --vis-text-main: var(--acu-viz-text, var(--acu-text-1));
+        --vis-text-dim: var(--acu-viz-text-dim, var(--acu-text-2));
+        --vis-text-mute: var(--acu-viz-text-mute, var(--acu-text-3));
+        --vis-accent: var(--acu-viz-accent, var(--acu-accent));
+        --vis-accent-dim: var(--acu-viz-accent-dim, var(--acu-accent-2));
+        --vis-accent-glow: var(--acu-viz-accent-glow, var(--acu-accent-glow));
+        --vis-bg-hover: var(--acu-viz-hover, var(--acu-bg-2));
+        --vis-bg-stats: var(--acu-viz-sidebar-bg, var(--acu-bg-1));
+        --vis-bg-light: var(--acu-viz-card-bg, var(--acu-bg-1));
         
         --vis-font-serif: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
         
@@ -35,21 +35,6 @@
         color: var(--vis-text-main);
     }
     
-    /* 素纱主题（浅色） */
-    body.acu-theme-silk #acu-visualizer-content {
-        --vis-bg-color: #f4f1eb;
-        --vis-border-color: #e0dacb;
-        --vis-text-main: #4a453f;
-        --vis-text-dim: #6e675e;
-        --vis-text-mute: #9e978e;
-        --vis-accent: #8a6b5e;
-        --vis-accent-dim: #9d7c6f;
-        --vis-accent-glow: rgba(138, 107, 94, 0.14);
-        --vis-bg-hover: #ebe7de;
-        --vis-bg-stats: #f9f8f5;
-        --vis-bg-light: rgba(255, 255, 255, 0.58);
-    }
-
     /* ✅ 可视化编辑器复选框：古典风格（仅限 #acu-visualizer-content 作用域） */
     #acu-visualizer-content input[type="checkbox"] {
         -webkit-appearance: none;
@@ -191,7 +176,7 @@
     }
     
     .acu-table-nav-item.active {
-        background: rgba(125, 73, 64, 0.10);
+        background: color-mix(in srgb, var(--vis-accent) 10%, transparent);
         color: var(--vis-accent);
     }
     
@@ -266,7 +251,7 @@
     }
     
     .acu-table-order-btn:hover {
-        background: rgba(125, 73, 64, 0.12);
+        background: color-mix(in srgb, var(--vis-accent) 12%, transparent);
         border-color: var(--vis-accent);
         color: var(--vis-accent);
     }
@@ -278,7 +263,7 @@
 
     /* ═══ 按钮 ═══ */
     .acu-btn-primary {
-        background: rgba(125, 73, 64, 0.12);
+        background: color-mix(in srgb, var(--vis-accent) 12%, transparent);
         color: var(--vis-accent);
         border: 1px solid var(--vis-accent);
         padding: 10px 20px;
@@ -290,7 +275,7 @@
         transition: all 0.2s ease;
     }
     .acu-btn-primary:hover {
-        background: rgba(125, 73, 64, 0.18);
+        background: color-mix(in srgb, var(--vis-accent) 18%, transparent);
         box-shadow: 0 0 0 2px var(--vis-accent-glow);
     }
 
@@ -516,7 +501,7 @@
         background: var(--vis-bg-hover);
     }
     .acu-mode-btn.active {
-        background: rgba(125, 73, 64, 0.12);
+        background: color-mix(in srgb, var(--vis-accent) 12%, transparent);
         color: var(--vis-accent);
     }
 
@@ -544,19 +529,19 @@
     }
     .acu-lock-btn.active {
         border-color: var(--vis-accent);
-        background: rgba(125, 73, 64, 0.12);
+        background: color-mix(in srgb, var(--vis-accent) 12%, transparent);
         color: var(--vis-accent);
     }
     .acu-lock-btn.special {
         border-color: var(--vis-accent);
-        background: rgba(125, 73, 64, 0.08);
+        background: color-mix(in srgb, var(--vis-accent) 8%, transparent);
         color: var(--vis-accent-dim);
     }
     .acu-field-value-wrap { display: flex; align-items: center; gap: 6px; }
     .acu-field-value { flex: 1; min-width: 0; }
     .acu-field-row.acu-locked-field .acu-field-value {
-        background: rgba(125, 73, 64, 0.06);
-        border-color: rgba(125, 73, 64, 0.20);
+        background: color-mix(in srgb, var(--vis-accent) 6%, transparent);
+        border-color: color-mix(in srgb, var(--vis-accent) 20%, var(--vis-border-color));
         opacity: 0.85;
     }
     
@@ -601,7 +586,7 @@
     }
     
     .acu-col-btn:hover {
-        background: rgba(125, 73, 64, 0.12);
+        background: color-mix(in srgb, var(--vis-accent) 12%, transparent);
         border-color: var(--vis-accent);
         color: var(--vis-accent);
     }
@@ -1285,7 +1270,7 @@
 
     /* "添加新行"卡片：古典风格 */
     #acu-visualizer-content #acu-vis-add-row {
-        background: rgba(125, 73, 64, 0.08) !important;
+        background: color-mix(in srgb, var(--vis-accent) 8%, transparent) !important;
         border-color: var(--vis-accent) !important;
         border-radius: 2px;
     }
@@ -1397,7 +1382,7 @@
         color: var(--vis-text-dim);
     }
     .acu-assistant-error-text {
-        color: #c55;
+        color: var(--acu-danger, #c55);
     }
     /* assistant round history */
     .acu-assistant-round-item {
@@ -1416,7 +1401,7 @@
     .acu-assistant-round-badge {
         font-size: 11px;
         color: var(--vis-accent);
-        background: rgba(125, 73, 64, 0.10);
+        background: color-mix(in srgb, var(--vis-accent) 10%, transparent);
         padding: 2px 6px;
         border-radius: 1px;
         letter-spacing: 1px;

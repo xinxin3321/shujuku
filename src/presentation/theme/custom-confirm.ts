@@ -66,13 +66,13 @@ export function showCustomConfirm_ACU(
         transform: translate(-50%, -50%);
         min-width: 320px;
         max-width: min(420px, calc(100vw - 40px));
-        background-color: var(--acu-panel-bg, #24221f);
-        border: 1px solid var(--acu-panel-border, #36332e);
-        border-radius: 2px;
-        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+        background-color: var(--acu-confirm-bg, var(--acu-bg-1, #ffffff));
+        border: 1px solid var(--acu-confirm-border, var(--acu-border, #e0e4ea));
+        border-radius: 10px;
+        box-shadow: var(--acu-shadow, 0 24px 60px rgba(0, 0, 0, 0.18));
         animation: acuWindowSlideIn 0.25s ease-out;
-        font-family: 'Noto Serif SC', 'Source Han Serif CN', 'Songti SC', 'STSong', 'SimSun', serif;
-        color: var(--acu-panel-text, #c1b9ad);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: var(--acu-confirm-title, var(--acu-text-1, #1a2332));
         padding: 0;
         overflow: hidden;
       ">
@@ -80,15 +80,15 @@ export function showCustomConfirm_ACU(
           padding: 16px 20px 12px 20px;
           font-size: 14px;
           font-weight: 600;
-          letter-spacing: 1px;
-          color: var(--acu-panel-text, #c1b9ad);
-          border-bottom: 1px solid var(--acu-panel-border, #36332e);
+          letter-spacing: 0.3px;
+          color: var(--acu-confirm-title, var(--acu-text-1, #1a2332));
+          border-bottom: 1px solid var(--acu-confirm-border, var(--acu-border, #e0e4ea));
         ">${escapeHtml_ACU(title)}</div>
         <div style="
           padding: 16px 20px;
           font-size: 13px;
           line-height: 1.7;
-          color: var(--acu-panel-text-dim, #9e978e);
+          color: var(--acu-confirm-text, var(--acu-text-2, #4a5568));
         ">${safeMessage}</div>
         <div style="
           padding: 12px 20px 16px 20px;
@@ -98,29 +98,29 @@ export function showCustomConfirm_ACU(
         ">
           <button id="${confirmId}-cancel" style="
             padding: 8px 18px;
-            border: 1px solid var(--acu-panel-border, #36332e);
-            border-radius: 1px;
-            background: transparent;
-            color: var(--acu-panel-text-dim, #9e978e);
+            border: 1px solid var(--acu-confirm-cancel-border, var(--acu-border-2, #c8cdd5));
+            border-radius: 6px;
+            background: var(--acu-confirm-cancel-bg, transparent);
+            color: var(--acu-confirm-cancel-text, var(--acu-text-2, #4a5568));
             cursor: pointer;
             font-family: inherit;
             font-size: 13px;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
           ">${escapeHtml_ACU(cancelLabel)}</button>
           <button id="${confirmId}-ok" style="
             padding: 8px 18px;
-            border: 1px solid var(--acu-panel-accent, #7d4940);
-            border-radius: 1px;
-            background: var(--acu-panel-accent, #7d4940);
-            color: #fff;
+            border: 1px solid var(--acu-confirm-ok-border, rgba(37, 99, 235, 0.30));
+            border-radius: 6px;
+            background: var(--acu-confirm-ok-bg, rgba(37, 99, 235, 0.08));
+            color: var(--acu-confirm-ok-text, var(--acu-accent, #2563eb));
             cursor: pointer;
             font-family: inherit;
             font-size: 13px;
             font-weight: 600;
-            letter-spacing: 0.5px;
-            transition: background 0.18s ease, border-color 0.18s ease;
+            letter-spacing: 0.3px;
+            transition: background 0.15s ease, border-color 0.15s ease;
           ">${escapeHtml_ACU(confirmLabel)}</button>
         </div>
       </div>
@@ -138,20 +138,24 @@ export function showCustomConfirm_ACU(
   // 给按钮加 hover 效果（用 JS 而非 CSS 类，避免污染全局样式）
   if ($ok) {
     $ok.addEventListener('mouseenter', () => {
-      $ok.style.opacity = '0.85';
+      ($ok as HTMLElement).style.background = 'var(--acu-confirm-ok-hover-bg, rgba(37, 99, 235, 0.14))';
+      ($ok as HTMLElement).style.borderColor = 'var(--acu-confirm-ok-hover-border, rgba(37, 99, 235, 0.45))';
     });
     $ok.addEventListener('mouseleave', () => {
-      $ok.style.opacity = '1';
+      ($ok as HTMLElement).style.background = 'var(--acu-confirm-ok-bg, rgba(37, 99, 235, 0.08))';
+      ($ok as HTMLElement).style.borderColor = 'var(--acu-confirm-ok-border, rgba(37, 99, 235, 0.30))';
     });
   }
   if ($cancel) {
     $cancel.addEventListener('mouseenter', () => {
-      $cancel.style.background = 'var(--acu-panel-hover, #2a2824)';
-      $cancel.style.color = 'var(--acu-panel-text, #c1b9ad)';
+      ($cancel as HTMLElement).style.background = 'var(--acu-confirm-cancel-hover-bg, var(--acu-bg-2, rgba(0, 0, 0, 0.03)))';
+      ($cancel as HTMLElement).style.borderColor = 'var(--acu-confirm-cancel-hover-border, var(--acu-border, #e0e4ea))';
+      ($cancel as HTMLElement).style.color = 'var(--acu-confirm-cancel-hover-text, var(--acu-text-1, #1a2332))';
     });
     $cancel.addEventListener('mouseleave', () => {
-      $cancel.style.background = 'transparent';
-      $cancel.style.color = 'var(--acu-panel-text-dim, #9e978e)';
+      ($cancel as HTMLElement).style.background = 'var(--acu-confirm-cancel-bg, transparent)';
+      ($cancel as HTMLElement).style.borderColor = 'var(--acu-confirm-cancel-border, var(--acu-border-2, #c8cdd5))';
+      ($cancel as HTMLElement).style.color = 'var(--acu-confirm-cancel-text, var(--acu-text-2, #4a5568))';
     });
   }
 

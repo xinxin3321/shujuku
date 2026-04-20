@@ -1,5 +1,6 @@
 // main-popup.ts
 // 从 05_main_popup.js 整体迁入
+// UI 重构：7个一级导航 — 仪表盘/更新/API/表格/核心功能/数据管理/高级工具
 
 import { showToastr_ACU } from '../theme/toast';
 import { coreApisAreReady_ACU, currentChatFileIdentifier_ACU } from '../../service/runtime/state-manager';
@@ -13,19 +14,47 @@ import { loadPlotSettingsToUI_ACU } from './popup-helpers';
 import { createACUWindow } from '../window/window-system';
 
 // 标签页 HTML 生成模块
-import { generateStatusTabHTML } from './main-popup-status';
-import { generatePromptTabHTML } from './main-popup-prompt';
+import { generateDashboardTabHTML } from './main-popup-status';
+import { generateUpdateTabHTML } from './main-popup-update';
 import { generateApiTabHTML } from './main-popup-api';
-import { generateWorldbookTabHTML } from './main-popup-worldbook';
-import { generateDataTabHTML } from './main-popup-data';
-import { generateImportTabHTML } from './main-popup-import';
-import { generatePlotTabHTML } from './main-popup-plot';
-import { generateOptimizationTabHTML } from './main-popup-optimization';
-import { generateSqlConsoleTabHTML } from './sql-console';
-import { generateLogViewerTabHTML, cleanupLogViewer_ACU } from './log-viewer';
+import { generateTableTabHTML } from './main-popup-table';
+import { generateCoreFuncTabHTML } from './main-popup-plot';
+import { generateDataMgmtTabHTML } from './main-popup-datamgmt';
+import { generateAdvancedTabHTML } from './main-popup-advanced';
 import { isSqliteMode } from '../../service/table/storage-mode';
 
 import { MAIN_POPUP_CSS_ACU } from './main-popup-styles';
+import { generateThemeSelectorHTML, bindThemeSelectorEvents } from '../theme/theme-selector';
+import { applyTheme, loadCustomThemes, getAllThemes, getActiveThemeId } from '../theme/theme-registry';
+import { BUILTIN_THEME_IDS } from '../theme/theme-registry';
+
+/**
+ * 生成窗口 chrome 头部用的主题选择器 HTML
+ * 复用新主题系统的选择器，替换旧的"素纱"切换按钮
+ */
+function generateThemeSelectorHTMLForChrome(): string {
+    const currentId = getActiveThemeId();
+    const themes = getAllThemes();
+    const options = themes.map(t => {
+        const selected = t.id === currentId ? 'selected' : '';
+        const builtin = BUILTIN_THEME_IDS.has(t.id) ? '' : ' *';
+        return `<option value="${t.id}" ${selected}>${t.name}${builtin}</option>`;
+    }).join('');
+    return `<div class="acu-chrome-theme-selector" style="display: flex; align-items: center; gap: 4px;">
+        <select id="${SCRIPT_ID_PREFIX_ACU}-chrome-theme-select" style="padding: 2px 6px; border-radius: 4px; border: 1px solid var(--acu-panel-border, #e0e4ea); background: var(--acu-panel-bg, #f5f7fa); color: var(--acu-panel-text, #1a2332); font-size: 11px; cursor: pointer; max-width: 120px; height: 26px;">
+            ${options}
+        </select>
+        <button id="${SCRIPT_ID_PREFIX_ACU}-chrome-theme-delete" style="width: 26px; height: 26px; padding: 0; border-radius: 4px; border: 1px solid transparent; background: transparent; color: var(--acu-panel-text-mute, #8896a8); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 11px;${BUILTIN_THEME_IDS.has(currentId) ? ' opacity: 0.3; pointer-events: none;' : ''}" title="${BUILTIN_THEME_IDS.has(currentId) ? '内置主题不可删除' : '删除当前自定义主题'}">
+            <i class="fa-solid fa-trash" style="font-size: 10px;"></i>
+        </button>
+        <button id="${SCRIPT_ID_PREFIX_ACU}-chrome-theme-import" style="width: 26px; height: 26px; padding: 0; border-radius: 4px; border: 1px solid transparent; background: transparent; color: var(--acu-panel-text-mute, #8896a8); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 11px;" title="导入自定义主题">
+            <i class="fa-solid fa-upload" style="font-size: 11px;"></i>
+        </button>
+        <button id="${SCRIPT_ID_PREFIX_ACU}-chrome-theme-export" style="width: 26px; height: 26px; padding: 0; border-radius: 4px; border: 1px solid transparent; background: transparent; color: var(--acu-panel-text-mute, #8896a8); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 11px;" title="导出当前主题模板（完整可编辑版）">
+            <i class="fa-solid fa-download" style="font-size: 11px;"></i>
+        </button>
+    </div>`;
+}
 
   export async function openAutoCardPopup_ACU() {
     if (!coreApisAreReady_ACU) {
@@ -42,46 +71,36 @@ import { MAIN_POPUP_CSS_ACU } from './main-popup-styles';
                 <style>${MAIN_POPUP_CSS_ACU}</style>
 
                 <div class="acu-header">
-                    <div>
-                        <h2 id="updater-main-title-acu">当前聊天：${escapeHtml_ACU(
+                    <h2 id="updater-main-title-acu">当前聊天：${escapeHtml_ACU(
                           currentChatFileIdentifier_ACU || '未知',
                         )}</h2>
-                    </div>
                 </div>
 
                 <div class="acu-layout">
                     <!-- 导航（分组分页） -->
                     <div class="acu-tabs-nav" aria-label="数据库工具导航">
-                        <div class="acu-nav-section-title">运行</div>
-                    <button class="acu-tab-button active" data-tab="status">状态 & 操作</button>
+                        <div class="acu-nav-section-title">概览</div>
+                    <button class="acu-tab-button active" data-tab="dashboard">仪表盘</button>
                         <div class="acu-nav-section-title">配置</div>
-                    <button class="acu-tab-button" data-tab="prompt">AI指令预设</button>
-                    <button class="acu-tab-button" data-tab="api">API & 连接</button>
-                    <button class="acu-tab-button" data-tab="worldbook">世界书</button>
-                        <div class="acu-nav-section-title">数据</div>
-                    <button class="acu-tab-button" data-tab="data">数据管理</button>
-                    <button class="acu-tab-button" data-tab="import">外部导入</button>
-                        <div class="acu-nav-section-title">增强</div>
-                    <button class="acu-tab-button" data-tab="plot">剧情推进（记忆召回）（必开！）</button>
-                    <button class="acu-tab-button" data-tab="optimization" id="${SCRIPT_ID_PREFIX_ACU}-tab-optimization" style="display: none;">正文替换</button>
-                        ${isSqliteMode() ? `<div class="acu-nav-section-title">SQL</div>
-                    <button class="acu-tab-button" data-tab="sql-console">SQL 控制台</button>` : ''}
-                        <div class="acu-nav-section-title">调试</div>
-                    <button class="acu-tab-button" data-tab="log-viewer">运行日志</button>
+                    <button class="acu-tab-button" data-tab="update">更新</button>
+                    <button class="acu-tab-button" data-tab="api">API</button>
+                    <button class="acu-tab-button" data-tab="table">表格</button>
+                        <div class="acu-nav-section-title">功能</div>
+                    <button class="acu-tab-button" data-tab="corefunc">核心功能</button>
+                    <button class="acu-tab-button" data-tab="datamgmt">数据管理</button>
+                        <div class="acu-nav-section-title">工具</div>
+                    <button class="acu-tab-button" data-tab="advanced">高级工具</button>
                 </div>
 
                     <div class="acu-main">
                 <!-- Tab内容（由独立模块生成） -->
-                ${generateStatusTabHTML()}
-                ${generatePromptTabHTML()}
+                ${generateDashboardTabHTML()}
+                ${generateUpdateTabHTML()}
                 ${generateApiTabHTML()}
-                ${generateWorldbookTabHTML()}
-                ${generateDataTabHTML()}
-                ${generateImportTabHTML()}
-                ${generatePlotTabHTML()}
-                ${generateOptimizationTabHTML()}
-                ${isSqliteMode() ? generateSqlConsoleTabHTML() : ''}
-                ${generateLogViewerTabHTML()}
+                ${generateTableTabHTML()}
+                ${generateCoreFuncTabHTML()}
+                ${generateDataMgmtTabHTML()}
+                ${generateAdvancedTabHTML()}
 
                 <p id="${SCRIPT_ID_PREFIX_ACU}-status-message" class="notes">准备就绪</p>
                     </div>
@@ -93,7 +112,7 @@ import { MAIN_POPUP_CSS_ACU } from './main-popup-styles';
     
     createACUWindow({
       id: windowId,
-      title: '星·数据库 III',
+      title: 'SP·数据库 I',
       content: popupHtml,
       width: 1400,  // 基础宽度
       height: 900,  // 基础高度
@@ -104,7 +123,8 @@ import { MAIN_POPUP_CSS_ACU } from './main-popup-styles';
       onClose: () => {
         logDebug_ACU('ACU Window closed');
         // 清理日志查看器订阅，防止幽灵 DOM 操作和内存泄漏
-        cleanupLogViewer_ACU();
+        // 注意：cleanupLogViewer_ACU 在 advanced tab 的 log-viewer 子模块中
+        // 由 popup-bindings 导入并调用
         _set_$popupInstance_ACU(null);
       },
       onReady: async ($window: any) => {
@@ -118,6 +138,18 @@ import { MAIN_POPUP_CSS_ACU } from './main-popup-styles';
           return;
         }
         _set_$popupInstance_ACU(curDlgCnt);
+
+        // 将窗口chrome中的旧主题切换按钮替换为主题选择器
+        const $oldThemeBtn = $window.find('.acu-window-btn.theme-toggle');
+        if ($oldThemeBtn.length) {
+          $oldThemeBtn.replaceWith(generateThemeSelectorHTMLForChrome());
+        }
+
+        // 加载自定义主题并应用当前主题
+        loadCustomThemes();
+        applyTheme();
+        bindThemeSelectorEvents();
+
         $popupInstance_ACU.off('acu_plot_settings_refresh').on('acu_plot_settings_refresh', function(_event, plotSettingsOverride = null) {
           try {
             loadPlotSettingsToUI_ACU(plotSettingsOverride);

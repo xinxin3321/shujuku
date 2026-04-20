@@ -1,16 +1,18 @@
 // main-popup-plot.ts
-// Plot标签页（剧情推进）HTML生成
+// 核心功能标签页 HTML生成
+// 包含：剧情推进、智能续写、外部导入
 
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { DEFAULT_PRESET_OPTION_VALUE_ACU } from '../components/optimization-ui';
+import { generateImportTabHTML } from './main-popup-import';
 
 /**
- * 生成 Plot 标签页的 HTML 片段
- * 包含：剧情推进设置、预设管理、提示词设置、匹配替换、自动循环
+ * 生成核心功能标签页的 HTML 片段
+ * 包含：剧情推进设置、预设管理、提示词设置、匹配替换、智能续写、世界书选择、外部导入
  */
-export function generatePlotTabHTML(): string {
+export function generateCoreFuncTabHTML(): string {
     return `
-                <div id="acu-tab-plot" class="acu-tab-content">
+                <div id="acu-tab-corefunc" class="acu-tab-content">
                     <div class="acu-card">
                         <!-- 顶部标题和开关区域 -->
                         <div class="acu-plot-header-row" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border_color);">
@@ -226,7 +228,7 @@ export function generatePlotTabHTML(): string {
                         <!-- 自动循环设置区域 -->
                         <div class="settings-section" style="padding: 20px; background: var(--background_light); border-radius: 8px; border: 1px solid var(--border_color_light);">
                             <h4 style="margin: 0 0 15px 0; color: var(--text_primary); display: flex; align-items: center; gap: 8px;">
-                                <i class="fa-solid fa-sync-alt"></i> 自动循环生成
+                                <i class="fa-solid fa-sync-alt"></i> 智能续写
                             </h4>
 
                             <div style="display: grid; gap: 15px; margin-bottom: 20px;">
@@ -347,6 +349,11 @@ export function generatePlotTabHTML(): string {
                                     </button>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- 外部导入区块（原独立tab，现作为核心功能区子模块） -->
+                        <div class="settings-section" style="padding: 20px; background: var(--background_light); border-radius: 8px; border: 1px solid var(--border_color_light);">
+                            ${generateImportTabHTML().replace(/id="acu-tab-import" class="acu-tab-content"/, 'id="acu-tab-import-embedded" class="acu-import-embedded"').replace(/<div class="acu-card">/, '<div class="acu-card" style="border: none; box-shadow: none; padding: 0; margin: 0;">').replace('<h3>从TXT文件导入</h3>', '<h3 style="margin: 0 0 15px 0; padding: 0 0 10px 0; border-bottom: 1px solid var(--border_color);">外部导入</h3>').replace('<p class="notes">从外部TXT文件导入内容', '<p class="notes" style="margin-bottom: 12px;">从外部TXT文件导入内容')}
                         </div>
                     </div>
                 </div>`;

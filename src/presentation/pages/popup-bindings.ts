@@ -160,14 +160,27 @@ import { isSqliteMode } from '../../service/table/storage-mode';
       // Attach event listeners
 
         // --- [新增] Tab切换逻辑 ---
-        const $tabButtons = $popupInstance_ACU.find('.acu-tab-button');
-        const $tabContents = $popupInstance_ACU.find('.acu-tab-content');
+        const $tabButtons = $popupInstance_ACU.find('.acu-tabs-nav > .acu-tab-button');
+        const $tabContents = $popupInstance_ACU.find('.acu-layout > .acu-main > .acu-tab-content');
         $tabButtons.on('click', function() {
             const tabId = jQuery_API_ACU(this).data('tab');
             $tabButtons.removeClass('active');
             jQuery_API_ACU(this).addClass('active');
             $tabContents.removeClass('active');
-            $popupInstance_ACU.find(`#acu-tab-${tabId}`).addClass('active');
+            $popupInstance_ACU.find(`.acu-layout > .acu-main > #acu-tab-${tabId}`).addClass('active');
+        });
+        
+        // --- [新增] 高级工具子Tab切换逻辑 ---
+        const $subtabButtons = $popupInstance_ACU.find('.acu-subtab-button');
+        const $subtabContents = $popupInstance_ACU.find('.acu-subtab-content');
+        $subtabButtons.on('click', function() {
+            const subtabId = jQuery_API_ACU(this).data('subtab');
+            // 只在高级工具tab内部切换
+            const $advancedTab = $popupInstance_ACU.find('#acu-tab-advanced');
+            $advancedTab.find('.acu-subtab-button').removeClass('active');
+            jQuery_API_ACU(this).addClass('active');
+            $advancedTab.find('.acu-subtab-content').removeClass('active');
+            $advancedTab.find(`#acu-subtab-${subtabId}`).addClass('active');
         });
         
         // API Mode switching logic

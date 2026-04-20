@@ -1,6 +1,9 @@
 /**
  * presentation/window/window-styles.ts — 窗口样式注入 + 主题切换
  * 从 window-system.ts 拆出
+ * 
+ * 注意：旧版 ink/silk 主题切换已迁移到 theme/theme-registry.ts
+ * 此文件保留窗口chrome样式和旧接口兼容
  */
 import { getConfigStorage_ACU } from '../../service/settings/settings-service';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
@@ -9,13 +12,22 @@ import { topLevelWindow_ACU } from '../../shared/env';
   const ACU_WINDOW_STYLES_INJECTED_FLAG = `${SCRIPT_ID_PREFIX_ACU}_window_styles_injected`;
   const ACU_UI_THEME_STORAGE_KEY = `${SCRIPT_ID_PREFIX_ACU}_ui_theme_v1`;
 
+  /**
+   * 获取当前主题（兼容旧接口）
+   * 现在读取新主题系统的设置
+   */
   export function getACUTheme_ACU() {
     try {
       const store = getConfigStorage_ACU();
-      const savedTheme = String(store?.getItem?.(ACU_UI_THEME_STORAGE_KEY) || '').trim().toLowerCase();
-      return savedTheme === 'silk' ? 'silk' : 'ink';
+      const savedTheme = String(store?.getItem?.(ACU_UI_THEME_STORAGE_KEY) || '').trim();
+      // 支持旧版 ink/silk 值，也支持新主题 ID
+      if (savedTheme === 'silk' || savedTheme === 'classical-silk') return 'silk';
+      if (savedTheme === 'ink' || savedTheme === 'classical-ink') return 'ink';
+      if (savedTheme === 'default-dark') return 'ink';
+      // 默认浅色
+      return 'silk';
     } catch (e) {
-      return 'ink';
+      return 'silk';
     }
   }
 
@@ -32,37 +44,22 @@ import { topLevelWindow_ACU } from '../../shared/env';
 
   export function applyACUThemeToDocument_ACU(targetDoc: Document | null, theme: string | null = null) {
     const doc = targetDoc || (topLevelWindow_ACU?.document || document);
-    const activeTheme = theme === 'silk' || theme === 'ink' ? theme : getACUTheme_ACU();
+    // 不再通过 body class 切换主题，主题变量已通过 theme-registry 注入到 #popup
     const body = doc?.body;
-    if (!body || !body.classList) return activeTheme;
-    body.classList.toggle('acu-theme-silk', activeTheme === 'silk');
-    body.setAttribute('data-acu-theme', activeTheme);
-    return activeTheme;
+    if (!body || !body.classList) return getACUTheme_ACU();
+    return getACUTheme_ACU();
   }
 
   export function syncACUThemeButtons_ACU(targetDoc: Document | null) {
-    const doc = targetDoc || (topLevelWindow_ACU?.document || document);
-    const activeTheme = applyACUThemeToDocument_ACU(doc);
-    const nextThemeLabel = activeTheme === 'silk' ? '墨纸' : '素纱';
-    const nextThemeTitle = activeTheme === 'silk' ? '切换为墨纸主题' : '切换为素纱主题';
-    try {
-      doc.querySelectorAll('.acu-window-btn.theme-toggle .acu-theme-toggle-text').forEach((el: Element) => {
-        el.textContent = nextThemeLabel;
-      });
-      doc.querySelectorAll('.acu-window-btn.theme-toggle').forEach((el: Element) => {
-        el.setAttribute('title', nextThemeTitle);
-      });
-    } catch (e) {
-      console.warn('[ACU] Failed to sync theme buttons:', e);
-    }
-    return activeTheme;
+    // 窗口chrome的主题切换按钮已被新的 theme-selector 替代
+    // 此函数保留空实现以兼容旧调用点
+    return getACUTheme_ACU();
   }
 
   export function toggleACUTheme_ACU(targetDoc: Document | null) {
+    // 旧版切换逻辑保留但不再影响弹窗内容
     const nextTheme = getACUTheme_ACU() === 'silk' ? 'ink' : 'silk';
     setACUTheme_ACU(nextTheme);
-    applyACUThemeToDocument_ACU(targetDoc, nextTheme);
-    syncACUThemeButtons_ACU(targetDoc);
     return nextTheme;
   }
 
@@ -83,14 +80,11 @@ import { topLevelWindow_ACU } from '../../shared/env';
       .acu-window-overlay {
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(17, 15, 13, 0.56);
-        backdrop-filter: blur(3px);
-        -webkit-backdrop-filter: blur(3px);
+        background: var(--acu-overlay-bg, rgba(0, 0, 0, 0.16));
+        backdrop-filter: blur(var(--acu-overlay-backdrop-blur, 3px));
+        -webkit-backdrop-filter: blur(var(--acu-overlay-backdrop-blur, 3px));
         z-index: 9999;
         animation: acuOverlayFadeIn 0.24s ease-out;
-      }
-      body.acu-theme-silk .acu-window-overlay {
-        background: rgba(94, 84, 69, 0.16);
       }
       @keyframes acuOverlayFadeIn {
         from { opacity: 0; }
@@ -98,44 +92,34 @@ import { topLevelWindow_ACU } from '../../shared/env';
       }
       
       .acu-window {
-        --acu-panel-bg: #24221f;
-        --acu-panel-border: #36332e;
-        --acu-panel-text: #c1b9ad;
-        --acu-panel-text-dim: #9e978e;
-        --acu-panel-text-mute: #645e55;
-        --acu-panel-accent: #7d4940;
-        --acu-panel-hover: #2a2824;
+        --acu-panel-bg: var(--acu-bg-0, #f5f7fa);
+        --acu-panel-border: var(--acu-border, #e0e4ea);
+        --acu-panel-text: var(--acu-text-1, #1a2332);
+        --acu-panel-text-dim: var(--acu-text-2, #4a5568);
+        --acu-panel-text-mute: var(--acu-text-3, #8896a8);
+        --acu-panel-accent: var(--acu-accent, #2563eb);
+        --acu-panel-hover: var(--acu-bg-2, rgba(0, 0, 0, 0.03));
+        --acu-panel-shadow: var(--acu-shadow, 0 4px 16px rgba(0, 0, 0, 0.10));
+        --acu-panel-close-hover-bg: var(--acu-danger-soft-bg, rgba(239, 68, 68, 0.08));
+        --acu-panel-close-hover-border: var(--acu-danger-soft-border, rgba(239, 68, 68, 0.25));
+        --acu-panel-close-hover-text: var(--acu-danger, #ef4444);
         position: fixed;
         display: flex;
         flex-direction: column;
         background-color: var(--acu-panel-bg);
-        background-image:
-          url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E"),
-          linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 30%);
         border: 1px solid var(--acu-panel-border);
-        border-radius: 2px;
-        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+        border-radius: 8px;
+        box-shadow: var(--acu-panel-shadow);
         overflow: hidden;
         min-width: 400px;
         min-height: 300px;
         animation: acuWindowSlideIn 0.25s ease-out;
-        color-scheme: dark;
-        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
+        color-scheme: light;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
         font-weight: 500;
         color: var(--acu-panel-text);
         text-rendering: optimizeLegibility;
         -webkit-font-smoothing: antialiased;
-      }
-      body.acu-theme-silk .acu-window {
-        --acu-panel-bg: #f4f1eb;
-        --acu-panel-border: #e0dacb;
-        --acu-panel-text: #4a453f;
-        --acu-panel-text-dim: #6e675e;
-        --acu-panel-text-mute: #9e978e;
-        --acu-panel-accent: #8a6b5e;
-        --acu-panel-hover: #ebe7de;
-        color-scheme: light;
-        box-shadow: 0 18px 42px rgba(72, 59, 43, 0.16);
       }
       @keyframes acuWindowSlideIn {
         from { opacity: 0; transform: scale(0.97) translateY(-14px); }
@@ -315,15 +299,15 @@ import { topLevelWindow_ACU } from '../../shared/env';
         width: 30px;
         height: 30px;
         border: 1px solid transparent;
-        border-radius: 1px;
+        border-radius: 6px;
         background: transparent;
         color: var(--acu-panel-text-mute);
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: all 0.18s ease;
-        font-family: "Noto Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
+        transition: all 0.15s ease;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
       }
       .acu-window-btn:hover {
         background: var(--acu-panel-hover);
@@ -334,9 +318,9 @@ import { topLevelWindow_ACU } from '../../shared/env';
         color: var(--acu-panel-accent);
       }
       .acu-window-btn.close:hover {
-        background: rgba(125, 73, 64, 0.10);
-        border-color: var(--acu-panel-accent);
-        color: var(--acu-panel-accent);
+        background: var(--acu-panel-close-hover-bg);
+        border-color: var(--acu-panel-close-hover-border);
+        color: var(--acu-panel-close-hover-text);
       }
       .acu-window-btn.theme-toggle {
         width: auto;
@@ -431,4 +415,3 @@ import { topLevelWindow_ACU } from '../../shared/env';
     style.textContent = css;
     (targetDoc.head || targetDoc.documentElement).appendChild(style);
   }
-

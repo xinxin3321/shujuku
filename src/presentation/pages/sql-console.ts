@@ -21,7 +21,7 @@ export const MAX_HISTORY = 50;
  */
 export function generateSqlConsoleTabHTML(): string {
     return `
-                <div id="acu-tab-sql-console" class="acu-tab-content">
+                <div id="acu-tab-sql-console">
                     <div class="acu-card">
                         <h3><i class="fa-solid fa-terminal" style="margin-right: 6px;"></i>SQL 控制台</h3>
                         <p class="notes" style="margin-bottom: 12px;">在 SQLite 内存数据库上直接执行 SQL 语句。支持 SELECT 查询和 INSERT/UPDATE/DELETE 变更。</p>

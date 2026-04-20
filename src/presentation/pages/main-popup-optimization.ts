@@ -10,7 +10,7 @@ import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 export function generateOptimizationTabHTML(): string {
     return `
                 <!-- 正文替换Tab -->
-                <div id="acu-tab-optimization" class="acu-tab-content">
+                <div id="acu-tab-optimization">
                     <div class="acu-card">
                         <!-- 顶部标题和开关区域 -->
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border_color);">
