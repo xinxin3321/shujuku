@@ -1,0 +1,12 @@
+{
+    "display_name": "SP·数据库",
+    "loading_order": 200,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "",
+    "author": "Cline (AI Assisted)",
+    "version": "1.0",
+    "homePage": "",
+    "auto_update": false
+}
