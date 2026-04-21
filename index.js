@@ -30969,24 +30969,37 @@ $CONTENT
     
     .acu-vis-actions { display: flex; gap: 10px; }
     .acu-vis-content { flex: 1; display: flex; overflow: hidden; min-width: 0; }
-    #acu-visualizer-content[data-assistant-layout="expanded"] .acu-vis-sidebar {
-        flex: 0 0 160px;
-        min-width: 140px;
-        max-width: 180px;
-    }
-    #acu-visualizer-content[data-assistant-layout="expanded"] .acu-vis-main {
-        flex: 0 1 18%;
+    .acu-vis-workspace {
+        flex: 1 1 auto;
         min-width: 0;
+        display: flex;
+        overflow: hidden;
     }
-    #acu-visualizer-content[data-assistant-layout="expanded"] #acu-vis-assistant-host {
-        flex: 1 1 82%;
-        min-width: 0;
-        pointer-events: auto;
+    .acu-vis-assistant-dock {
+        display: none;
+        flex: 0 0 420px;
+        min-width: 360px;
+        max-width: 460px;
+        border-left: 1px solid var(--vis-border-color);
+        background: var(--vis-bg-color);
+        min-height: 0;
+        overflow: hidden;
     }
-    #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] .acu-vis-sidebar,
-    #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] .acu-vis-main {
+    #acu-visualizer-content[data-assistant-layout="desktop-dock"] .acu-vis-assistant-dock {
+        display: block;
+    }
+    #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] .acu-vis-workspace {
         visibility: hidden;
         pointer-events: none;
+    }
+    #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] .acu-vis-assistant-dock {
+        display: block;
+        border-left: none;
+        background: transparent;
+        min-width: 0;
+        max-width: none;
+        flex: none;
+        overflow: visible;
     }
     #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] #acu-vis-assistant-host {
         position: fixed;
@@ -31039,7 +31052,8 @@ $CONTENT
     #acu-vis-assistant-host {
         position: relative;
         display: block;
-        flex: 0 0 auto;
+        width: 100%;
+        height: 100%;
         min-width: 0;
         min-height: 0;
         z-index: 1;
@@ -32525,8 +32539,11 @@ $CONTENT
                   </div>
               </div>
               <div class="acu-vis-content" style="flex: 1; display: flex; overflow: hidden;">
-                  <div class="acu-vis-sidebar" id="acu-vis-sidebar-list"></div>
-                  <div class="acu-vis-main" id="acu-vis-main-area"></div>
+                  <div class="acu-vis-workspace">
+                      <div class="acu-vis-sidebar" id="acu-vis-sidebar-list"></div>
+                      <div class="acu-vis-main" id="acu-vis-main-area"></div>
+                  </div>
+                  <div class="acu-vis-assistant-dock" id="acu-vis-assistant-dock"></div>
               </div>
           </div>
       `;
@@ -45395,9 +45412,16 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
     const MOBILE_VIEWPORT_MAX_ACU = 899;
     const COMPACT_VIEWPORT_MAX_ACU = 1279;
     function getAssistantViewportWidth_ACU() {
-        const width = Number(globalThis?.window?.innerWidth);
+        // 使用顶层窗口的宽度，而非 iframe 的宽度
+        // 在油猴模式下 globalThis.window 是 iframe，innerWidth 可能很窄
+        const topWin = topLevelWindow_ACU;
+        const width = Number(topWin?.innerWidth);
         if (Number.isFinite(width) && width > 0)
             return width;
+        // 兜底：尝试当前窗口
+        const fallback = Number(globalThis?.window?.innerWidth);
+        if (Number.isFinite(fallback) && fallback > 0)
+            return fallback;
         return 1440;
     }
     function getAssistantViewportMode_ACU() {
@@ -45420,6 +45444,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
      */
     const ASSISTANT_HOST_ID_ACU$1 = 'acu-vis-assistant-host';
     const VISUALIZER_ROOT_SELECTOR_ACU$1 = '#acu-visualizer-content';
+    const VISUALIZER_ASSISTANT_DOCK_SELECTOR_ACU = '#acu-vis-assistant-dock';
     /** --vis-* CSS 变量声明，与 visualizer-styles.ts 中 #acu-visualizer-content 的定义保持同步 */
     const VIS_PORTAL_VARIABLES_ACU = [
         '--vis-bg-color:var(--acu-viz-bg, var(--acu-bg-0))',
@@ -45441,7 +45466,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
     /**
      * 管理宿主元素的 portal 状态。
      * - fullscreen-overlay + open → 移到 body，注入 CSS 变量
-     * - 其他情况 → 移回 #acu-visualizer-content，清除变量
+     * - 其他情况 → 移回 #acu-vis-assistant-dock，清除变量
      */
     function ensureAssistantHostPortal_ACU(mode, isOpen) {
         const doc = getPortalDocument_ACU();
@@ -45452,26 +45477,21 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             return;
         const shouldPortal = mode === 'fullscreen-overlay' && isOpen;
         const isInBody = host.parentElement === doc.body;
+        const dock = doc.querySelector(VISUALIZER_ASSISTANT_DOCK_SELECTOR_ACU);
         if (shouldPortal && !isInBody) {
-            // 进入 portal：移到 body，注入 CSS 变量
             host.style.cssText += `;${VIS_PORTAL_VARIABLES_ACU}`;
             doc.body.appendChild(host);
+            return;
         }
-        else if (!shouldPortal && isInBody) {
-            // 退出 portal：移回 visualizer content，清除变量
-            const root = doc.querySelector(VISUALIZER_ROOT_SELECTOR_ACU$1);
-            if (root) {
-                root.appendChild(host);
+        if (!shouldPortal) {
+            if (dock && host.parentElement !== dock) {
+                dock.appendChild(host);
             }
-            else {
-                // visualizer 已关闭，直接从 body 移除
+            else if (!dock && isInBody) {
                 host.remove();
             }
-            // 清除注入的 CSS 变量（移除内联 style 中的 --vis-* 声明）
             clearPortalVariables_ACU(host);
         }
-        // shouldPortal && isInBody → 已在正确位置，无需操作
-        // !shouldPortal && !isInBody → 已在正确位置，无需操作
     }
     /** 从宿主元素的 inline style 中移除 portal 注入的 CSS 变量 */
     function clearPortalVariables_ACU(host) {
@@ -45732,9 +45752,10 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         return String(node.getAttribute(`data-${name}`) || '');
     }
     function getApplyButtonElement_ACU() {
-        if (typeof document === 'undefined')
+        const doc = topLevelWindow_ACU?.document ?? (typeof document !== 'undefined' ? document : null);
+        if (!doc)
             return null;
-        return document.querySelector('#acu-vis-assistant-apply');
+        return doc.querySelector('#acu-vis-assistant-apply');
     }
     function getSelectedSheetLabel_ACU() {
         const sheetKey = _acuVisState.currentSheetKey;
@@ -46209,14 +46230,17 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             hostElement.setAttribute('data-open', assistantUiState_ACU.isOpen ? 'true' : 'false');
             hostElement.setAttribute('data-minimized', showFloatingRestore ? 'true' : 'false');
         }
-        const layoutRoot = document.querySelector('#acu-visualizer-content');
+        const layoutDoc = topLevelWindow_ACU?.document ?? (typeof document !== 'undefined' ? document : null);
+        const layoutRoot = layoutDoc?.querySelector(VISUALIZER_ROOT_SELECTOR_ACU$1);
         if (layoutRoot) {
             if (mode === 'fullscreen-overlay' && assistantUiState_ACU.isOpen) {
                 layoutRoot.setAttribute('data-assistant-layout', 'fullscreen-overlay');
             }
+            else if (assistantUiState_ACU.isOpen) {
+                layoutRoot.setAttribute('data-assistant-layout', 'desktop-dock');
+            }
             else {
-                const expanded = assistantUiState_ACU.isOpen;
-                layoutRoot.setAttribute('data-assistant-layout', expanded ? 'expanded' : 'default');
+                layoutRoot.setAttribute('data-assistant-layout', 'default');
             }
         }
         $host.html(`
@@ -46285,6 +46309,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
     const VISUALIZER_ACTIONS_SELECTOR_ACU = '.acu-vis-actions';
     const ASSISTANT_BUTTON_ID_ACU = 'acu-vis-assistant-btn';
     const ASSISTANT_HOST_ID_ACU = 'acu-vis-assistant-host';
+    const ASSISTANT_DOCK_SELECTOR_ACU = '#acu-vis-assistant-dock';
     const LIFECYCLE_POLL_MS_ACU = 200;
     const DISABLE_AUTO_INIT_FLAG_ACU = '__ACU_DISABLE_TEMPLATE_ASSISTANT_ADDON_AUTO_INIT__';
     let addonInitialized_ACU = false;
@@ -46333,8 +46358,9 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             actions.insertBefore(button, actions.firstChild);
             domChanged = true;
         }
-        if (!root.querySelector(`#${ASSISTANT_HOST_ID_ACU}`) && !doc.querySelector(`#${ASSISTANT_HOST_ID_ACU}`)) {
-            root.appendChild(createAssistantHost_ACU(doc));
+        const dock = root.querySelector(ASSISTANT_DOCK_SELECTOR_ACU);
+        if (!root.querySelector(`#${ASSISTANT_HOST_ID_ACU}`) && !doc.querySelector(`#${ASSISTANT_HOST_ID_ACU}`) && dock) {
+            dock.appendChild(createAssistantHost_ACU(doc));
             domChanged = true;
         }
         if (domChanged) {

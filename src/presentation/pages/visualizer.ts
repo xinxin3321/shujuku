@@ -111,8 +111,11 @@ import { VISUALIZER_CSS_ACU } from './visualizer-styles';
                   </div>
               </div>
               <div class="acu-vis-content" style="flex: 1; display: flex; overflow: hidden;">
-                  <div class="acu-vis-sidebar" id="acu-vis-sidebar-list"></div>
-                  <div class="acu-vis-main" id="acu-vis-main-area"></div>
+                  <div class="acu-vis-workspace">
+                      <div class="acu-vis-sidebar" id="acu-vis-sidebar-list"></div>
+                      <div class="acu-vis-main" id="acu-vis-main-area"></div>
+                  </div>
+                  <div class="acu-vis-assistant-dock" id="acu-vis-assistant-dock"></div>
               </div>
           </div>
       `;

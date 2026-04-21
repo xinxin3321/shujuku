@@ -100,24 +100,37 @@
     
     .acu-vis-actions { display: flex; gap: 10px; }
     .acu-vis-content { flex: 1; display: flex; overflow: hidden; min-width: 0; }
-    #acu-visualizer-content[data-assistant-layout="expanded"] .acu-vis-sidebar {
-        flex: 0 0 160px;
-        min-width: 140px;
-        max-width: 180px;
-    }
-    #acu-visualizer-content[data-assistant-layout="expanded"] .acu-vis-main {
-        flex: 0 1 18%;
+    .acu-vis-workspace {
+        flex: 1 1 auto;
         min-width: 0;
+        display: flex;
+        overflow: hidden;
     }
-    #acu-visualizer-content[data-assistant-layout="expanded"] #acu-vis-assistant-host {
-        flex: 1 1 82%;
-        min-width: 0;
-        pointer-events: auto;
+    .acu-vis-assistant-dock {
+        display: none;
+        flex: 0 0 420px;
+        min-width: 360px;
+        max-width: 460px;
+        border-left: 1px solid var(--vis-border-color);
+        background: var(--vis-bg-color);
+        min-height: 0;
+        overflow: hidden;
     }
-    #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] .acu-vis-sidebar,
-    #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] .acu-vis-main {
+    #acu-visualizer-content[data-assistant-layout="desktop-dock"] .acu-vis-assistant-dock {
+        display: block;
+    }
+    #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] .acu-vis-workspace {
         visibility: hidden;
         pointer-events: none;
+    }
+    #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] .acu-vis-assistant-dock {
+        display: block;
+        border-left: none;
+        background: transparent;
+        min-width: 0;
+        max-width: none;
+        flex: none;
+        overflow: visible;
     }
     #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] #acu-vis-assistant-host {
         position: fixed;
@@ -170,7 +183,8 @@
     #acu-vis-assistant-host {
         position: relative;
         display: block;
-        flex: 0 0 auto;
+        width: 100%;
+        height: 100%;
         min-width: 0;
         min-height: 0;
         z-index: 1;

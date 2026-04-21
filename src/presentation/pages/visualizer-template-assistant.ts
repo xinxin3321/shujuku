@@ -95,8 +95,14 @@ const COMPACT_VIEWPORT_MAX_ACU = 1279;
 type AssistantViewportMode_ACU = 'desktop' | 'fullscreen-overlay';
 
 function getAssistantViewportWidth_ACU() {
-    const width = Number((globalThis as any)?.window?.innerWidth);
+    // 使用顶层窗口的宽度，而非 iframe 的宽度
+    // 在油猴模式下 globalThis.window 是 iframe，innerWidth 可能很窄
+    const topWin = topLevelWindow_ACU as any;
+    const width = Number(topWin?.innerWidth);
     if (Number.isFinite(width) && width > 0) return width;
+    // 兜底：尝试当前窗口
+    const fallback = Number((globalThis as any)?.window?.innerWidth);
+    if (Number.isFinite(fallback) && fallback > 0) return fallback;
     return 1440;
 }
 
@@ -120,6 +126,7 @@ function getAssistantPanelWidth_ACU(mode: AssistantViewportMode_ACU) {
  */
 const ASSISTANT_HOST_ID_ACU = 'acu-vis-assistant-host';
 const VISUALIZER_ROOT_SELECTOR_ACU = '#acu-visualizer-content';
+const VISUALIZER_ASSISTANT_DOCK_SELECTOR_ACU = '#acu-vis-assistant-dock';
 
 /** --vis-* CSS 变量声明，与 visualizer-styles.ts 中 #acu-visualizer-content 的定义保持同步 */
 const VIS_PORTAL_VARIABLES_ACU = [
@@ -144,7 +151,7 @@ function getPortalDocument_ACU(): Document | null {
 /**
  * 管理宿主元素的 portal 状态。
  * - fullscreen-overlay + open → 移到 body，注入 CSS 变量
- * - 其他情况 → 移回 #acu-visualizer-content，清除变量
+ * - 其他情况 → 移回 #acu-vis-assistant-dock，清除变量
  */
 function ensureAssistantHostPortal_ACU(mode: AssistantViewportMode_ACU, isOpen: boolean): void {
     const doc = getPortalDocument_ACU();
@@ -155,25 +162,22 @@ function ensureAssistantHostPortal_ACU(mode: AssistantViewportMode_ACU, isOpen: 
 
     const shouldPortal = mode === 'fullscreen-overlay' && isOpen;
     const isInBody = host.parentElement === doc.body;
+    const dock = doc.querySelector(VISUALIZER_ASSISTANT_DOCK_SELECTOR_ACU);
 
     if (shouldPortal && !isInBody) {
-        // 进入 portal：移到 body，注入 CSS 变量
         host.style.cssText += `;${VIS_PORTAL_VARIABLES_ACU}`;
         doc.body.appendChild(host);
-    } else if (!shouldPortal && isInBody) {
-        // 退出 portal：移回 visualizer content，清除变量
-        const root = doc.querySelector(VISUALIZER_ROOT_SELECTOR_ACU);
-        if (root) {
-            root.appendChild(host);
-        } else {
-            // visualizer 已关闭，直接从 body 移除
+        return;
+    }
+
+    if (!shouldPortal) {
+        if (dock && host.parentElement !== dock) {
+            dock.appendChild(host);
+        } else if (!dock && isInBody) {
             host.remove();
         }
-        // 清除注入的 CSS 变量（移除内联 style 中的 --vis-* 声明）
         clearPortalVariables_ACU(host);
     }
-    // shouldPortal && isInBody → 已在正确位置，无需操作
-    // !shouldPortal && !isInBody → 已在正确位置，无需操作
 }
 
 /** 从宿主元素的 inline style 中移除 portal 注入的 CSS 变量 */
@@ -462,8 +466,9 @@ function readDataAttrFromElement_ACU(node: unknown, name: string) {
 }
 
 function getApplyButtonElement_ACU() {
-    if (typeof document === 'undefined') return null;
-    return document.querySelector('#acu-vis-assistant-apply') as HTMLButtonElement | null;
+    const doc = topLevelWindow_ACU?.document ?? (typeof document !== 'undefined' ? document : null);
+    if (!doc) return null;
+    return doc.querySelector('#acu-vis-assistant-apply') as HTMLButtonElement | null;
 }
 
 function getSelectedSheetLabel_ACU() {
@@ -971,13 +976,15 @@ export function renderVisualizerTemplateAssistantPanel_ACU() {
         hostElement.setAttribute('data-open', assistantUiState_ACU.isOpen ? 'true' : 'false');
         hostElement.setAttribute('data-minimized', showFloatingRestore ? 'true' : 'false');
     }
-    const layoutRoot = document.querySelector('#acu-visualizer-content') as HTMLElement | null;
+    const layoutDoc = topLevelWindow_ACU?.document ?? (typeof document !== 'undefined' ? document : null);
+    const layoutRoot = layoutDoc?.querySelector(VISUALIZER_ROOT_SELECTOR_ACU) as HTMLElement | null;
     if (layoutRoot) {
         if (mode === 'fullscreen-overlay' && assistantUiState_ACU.isOpen) {
             layoutRoot.setAttribute('data-assistant-layout', 'fullscreen-overlay');
+        } else if (assistantUiState_ACU.isOpen) {
+            layoutRoot.setAttribute('data-assistant-layout', 'desktop-dock');
         } else {
-            const expanded = assistantUiState_ACU.isOpen;
-            layoutRoot.setAttribute('data-assistant-layout', expanded ? 'expanded' : 'default');
+            layoutRoot.setAttribute('data-assistant-layout', 'default');
         }
     }
 
