@@ -22,6 +22,13 @@ export interface TemplateAssistantCompileResult_ACU {
     focusSheetKey: string | null;
     diff: TemplateAssistantDiff_ACU;
     highRiskItems: Array<{ type: 'delete_sheet' | 'patch_global_injection_config'; label: string }>;
+    lockChanges: Array<{
+        sheetKey: string;
+        rows: Array<{ rowIndex: number; locked: boolean }>;
+        columns: Array<{ colIndex: number; locked: boolean }>;
+        cells: Array<{ rowIndex: number; colIndex: number; locked: boolean }>;
+        specialIndexLocked?: boolean;
+    }>;
 }
 
 export interface TemplateAssistantCumulativeCompileInput_ACU {
@@ -389,6 +396,7 @@ export function compileTemplateAssistantDraft_ACU(input: {
         focusSheetKey,
         diff,
         highRiskItems,
+        lockChanges: [],
     };
 }
 
@@ -482,5 +490,6 @@ export function buildTemplateAssistantCumulativeCompileResult_ACU(input: Templat
         focusSheetKey: normalizeFocusSheetKey_ACU(candidateData, orderedSheetKeys, input.focusSheetKey),
         diff,
         highRiskItems,
+        lockChanges: [],
     };
 }

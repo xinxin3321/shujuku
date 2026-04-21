@@ -1,5 +1,6 @@
 import { showToastr_ACU } from '../theme/toast';
 import { applySheetOrderNumbers_ACU } from '../../shared/utils';
+import { getTableLocksForSheet_ACU, saveTableLocksForSheet_ACU, setSpecialIndexLockEnabled_ACU } from '../../service/runtime/helpers-remaining';
 import {
     buildTemplateAssistantFingerprint_ACU,
     getTemplateAssistantApplyBaselineFingerprint_ACU,
@@ -32,6 +33,27 @@ export function applyTemplateAssistantDraftToVisualizer_ACU(result: TemplateAssi
     _acuVisState.sheetOrder = nextSheetOrder;
     applySheetOrderNumbers_ACU(_acuVisState.tempData, _acuVisState.sheetOrder);
     _acuVisState.deletedSheetKeys = Array.from(nextDeletedKeys);
+
+    (result.compileResult.lockChanges || []).forEach((change) => {
+        const currentLockState = getTableLocksForSheet_ACU(change.sheetKey);
+        (change.rows || []).forEach((item) => {
+            if (item.locked) currentLockState.rows.add(item.rowIndex);
+            else currentLockState.rows.delete(item.rowIndex);
+        });
+        (change.columns || []).forEach((item) => {
+            if (item.locked) currentLockState.cols.add(item.colIndex);
+            else currentLockState.cols.delete(item.colIndex);
+        });
+        (change.cells || []).forEach((item) => {
+            const key = `${item.rowIndex}:${item.colIndex}`;
+            if (item.locked) currentLockState.cells.add(key);
+            else currentLockState.cells.delete(key);
+        });
+        saveTableLocksForSheet_ACU(change.sheetKey, currentLockState);
+        if (typeof change.specialIndexLocked === 'boolean') {
+            setSpecialIndexLockEnabled_ACU(change.sheetKey, change.specialIndexLocked);
+        }
+    });
 
     const currentSheetKey = _acuVisState.currentSheetKey;
     if (currentSheetKey && _acuVisState.tempData?.[currentSheetKey]) {

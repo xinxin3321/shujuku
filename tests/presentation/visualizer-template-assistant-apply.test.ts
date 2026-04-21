@@ -6,6 +6,12 @@ const { mockShowToastr, mockRenderSidebar, mockRenderMain } = vi.hoisted(() => (
   mockRenderMain: vi.fn(),
 }));
 
+const { mockGetTableLocks, mockSaveTableLocks, mockSetSpecialIndexLockEnabled } = vi.hoisted(() => ({
+  mockGetTableLocks: vi.fn(() => ({ rows: new Set<number>(), cols: new Set<number>(), cells: new Set<string>() })),
+  mockSaveTableLocks: vi.fn(),
+  mockSetSpecialIndexLockEnabled: vi.fn(),
+}));
+
 const { state } = vi.hoisted(() => ({
   state: {
     tempData: {
@@ -32,6 +38,12 @@ vi.mock('../../src/presentation/pages/visualizer-sidebar', () => ({
 
 vi.mock('../../src/presentation/pages/visualizer', () => ({
   _acuVisState: state,
+}));
+
+vi.mock('../../src/service/runtime/helpers-remaining', () => ({
+  getTableLocksForSheet_ACU: mockGetTableLocks,
+  saveTableLocksForSheet_ACU: mockSaveTableLocks,
+  setSpecialIndexLockEnabled_ACU: mockSetSpecialIndexLockEnabled,
 }));
 
 vi.mock('../../src/shared/utils', () => ({
@@ -68,6 +80,7 @@ function buildApplyResult_ACU(overrides: any = {}) {
       orderedSheetKeys: ['sheet_a'],
       deletedSheetKeys: [],
       focusSheetKey: 'sheet_a',
+      lockChanges: [],
       ...overrides.compileResult,
     },
   } as any;
@@ -78,6 +91,10 @@ describe('applyTemplateAssistantDraftToVisualizer_ACU', () => {
     mockShowToastr.mockReset();
     mockRenderSidebar.mockReset();
     mockRenderMain.mockReset();
+    mockGetTableLocks.mockReset();
+    mockSaveTableLocks.mockReset();
+    mockSetSpecialIndexLockEnabled.mockReset();
+    mockGetTableLocks.mockReturnValue({ rows: new Set<number>(), cols: new Set<number>(), cells: new Set<string>() });
     state.tempData = {
       mate: { type: 'chatSheets', version: 1, globalInjectionConfig: { readableEntryPlacement: { position: 'before_character_definition', depth: 2, order: 99981 }, wrapperPlacement: { position: 'before_character_definition', depth: 2, order: 99980 } } },
       sheet_a: { uid: 'sheet_a', name: 'A表', orderNo: 0, content: [['row_id', '姓名']], sourceData: { note: 'a', initNode: '', insertNode: '', updateNode: '', deleteNode: '' }, updateConfig: { uiSentinel: -1, contextDepth: -1, updateFrequency: -1, batchSize: -1, skipFloors: -1, sendLatestRows: -1, groupId: -1 }, exportConfig: { enabled: false, splitByRow: false, entryName: 'A表', entryType: 'constant', keywords: '', preventRecursion: true, injectionTemplate: '', extraIndexEnabled: false, extraIndexEntryName: 'A表-索引', extraIndexColumns: [], extraIndexColumnModes: {}, extraIndexInjectionTemplate: '', entryPlacement: { position: 'at_depth_as_system', depth: 2, order: 10000 }, extraIndexPlacement: { position: 'at_depth_as_system', depth: 2, order: 10010 }, fixedEntryPlacement: { position: 'at_depth_as_system', depth: 2, order: 99990 }, fixedIndexPlacement: { position: 'at_depth_as_system', depth: 2, order: 99991 } } },
@@ -123,7 +140,7 @@ describe('applyTemplateAssistantDraftToVisualizer_ACU', () => {
     const fp = buildTemplateAssistantFingerprint_ACU(state.tempData);
     const ok = applyTemplateAssistantDraftToVisualizer_ACU({
       draft: { baseFingerprint: fp } as any,
-      compileResult: { candidateData: state.tempData, orderedSheetKeys: ['sheet_a'], deletedSheetKeys: [], focusSheetKey: 'sheet_a' },
+      compileResult: { candidateData: state.tempData, orderedSheetKeys: ['sheet_a'], deletedSheetKeys: [], focusSheetKey: 'sheet_a', lockChanges: [] },
     } as any);
 
     expect(ok).toBe(true);
@@ -142,6 +159,7 @@ describe('applyTemplateAssistantDraftToVisualizer_ACU', () => {
         orderedSheetKeys: ['sheet_a', 'sheet_b'],
         deletedSheetKeys: [],
         focusSheetKey: 'sheet_b',
+        lockChanges: [],
       },
     } as any);
 
@@ -173,10 +191,35 @@ describe('applyTemplateAssistantDraftToVisualizer_ACU', () => {
         orderedSheetKeys: [],
         deletedSheetKeys: ['sheet_a'],
         focusSheetKey: null,
+        lockChanges: [],
       },
     }));
 
     expect(ok).toBe(true);
     expect(state.currentSheetKey).toBeNull();
+  });
+
+  it('应用 lockChanges 到运行时锁状态', () => {
+    const ok = applyTemplateAssistantDraftToVisualizer_ACU(buildApplyResult_ACU({
+      compileResult: {
+        candidateData: state.tempData,
+        orderedSheetKeys: ['sheet_a'],
+        deletedSheetKeys: [],
+        focusSheetKey: 'sheet_a',
+        lockChanges: [
+          {
+            sheetKey: 'sheet_a',
+            rows: [{ rowIndex: 0, locked: true }],
+            columns: [{ colIndex: 0, locked: true }],
+            cells: [{ rowIndex: 0, colIndex: 0, locked: false }],
+            specialIndexLocked: true,
+          },
+        ],
+      },
+    }));
+
+    expect(ok).toBe(true);
+    expect(mockSaveTableLocks).toHaveBeenCalledTimes(1);
+    expect(mockSetSpecialIndexLockEnabled).toHaveBeenCalledWith('sheet_a', true);
   });
 });
