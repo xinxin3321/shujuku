@@ -164,20 +164,22 @@ function ensureAssistantHostPortal_ACU(mode: AssistantViewportMode_ACU, isOpen: 
     const isInBody = host.parentElement === doc.body;
     const dock = doc.querySelector(VISUALIZER_ASSISTANT_DOCK_SELECTOR_ACU);
 
-    if (shouldPortal && !isInBody) {
-        host.style.cssText += `;${VIS_PORTAL_VARIABLES_ACU}`;
-        doc.body.appendChild(host);
+    if (shouldPortal) {
+        host.style.pointerEvents = 'auto';
+        if (!isInBody) {
+            host.style.cssText += `;${VIS_PORTAL_VARIABLES_ACU}`;
+            doc.body.appendChild(host);
+        }
         return;
     }
 
-    if (!shouldPortal) {
-        if (dock && host.parentElement !== dock) {
-            dock.appendChild(host);
-        } else if (!dock && isInBody) {
-            host.remove();
-        }
-        clearPortalVariables_ACU(host);
+    if (dock && host.parentElement !== dock) {
+        dock.appendChild(host);
+    } else if (!dock && isInBody) {
+        host.remove();
     }
+    clearPortalVariables_ACU(host);
+    host.style.pointerEvents = isOpen ? 'auto' : 'none';
 }
 
 /** 从宿主元素的 inline style 中移除 portal 注入的 CSS 变量 */
@@ -191,32 +193,34 @@ function clearPortalVariables_ACU(host: HTMLElement): void {
 }
 
 function buildAssistantPanelStyle_ACU(mode: AssistantViewportMode_ACU, display: string) {
-    const common = `display:${display}; flex-direction:column; min-height:0; overflow:hidden; background:var(--vis-assistant-window-bg, var(--vis-bg-color)); color:var(--vis-text-main); box-shadow:0 20px 48px color-mix(in srgb, var(--vis-text-main) 18%, transparent);`;
+    const common = `display:${display}; flex-direction:column; min-height:0; overflow:hidden; background:var(--vis-assistant-window-bg, var(--vis-bg-color, #111827)); color:var(--vis-text-main, #f3f4f6); box-shadow:0 20px 48px color-mix(in srgb, var(--vis-text-main, #f3f4f6) 18%, transparent); pointer-events:auto; overscroll-behavior:contain; opacity:1;`;
     if (mode === 'fullscreen-overlay') {
-        return `${common} position:fixed; inset:0; width:100vw; min-height:100vh; height:100dvh; border-left:none; z-index:100002; background:var(--vis-assistant-window-bg, var(--vis-bg-color)); padding:env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);`;
+        return `${common} position:fixed; inset:0; width:100vw; min-height:100vh; height:100dvh; border-left:none; z-index:100002; background:var(--vis-assistant-window-bg, var(--vis-bg-color, #111827)); padding:env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);`;
     }
-    return `${common} width:${getAssistantPanelWidth_ACU(mode)}; height:100%; border-left:1px solid var(--vis-border-color); flex-shrink:0;`;
+    return `${common} width:${getAssistantPanelWidth_ACU(mode)}; height:100%; max-height:100%; align-self:stretch; border-left:1px solid var(--vis-border-color); flex:1 1 auto;`;
 }
 
 function buildAssistantHeaderStyle_ACU(mode: AssistantViewportMode_ACU) {
-    const compactPadding = mode === 'fullscreen-overlay' ? '12px 12px 10px' : '14px 16px';
+    const compactPadding = mode === 'fullscreen-overlay' ? '12px 12px 10px' : '12px 14px';
     const sticky = mode === 'fullscreen-overlay' ? 'position:sticky; top:0; z-index:2; background:var(--vis-assistant-window-bg, var(--vis-bg-color));' : '';
-    return `padding:${compactPadding}; border-bottom:1px solid var(--vis-border-color); display:flex; justify-content:space-between; align-items:center; gap:12px; ${sticky}`;
+    return `padding:${compactPadding}; border-bottom:1px solid var(--vis-border-color); display:flex; justify-content:space-between; align-items:center; gap:10px; ${sticky}`;
 }
 
 function buildAssistantScrollFrameStyle_ACU(mode: AssistantViewportMode_ACU) {
-    const margin = mode === 'fullscreen-overlay' ? '8px 12px 8px' : '16px 16px 12px';
-    return `flex:1; min-height:0; margin:${margin}; border:1px solid var(--vis-border-color); border-radius:12px; background:var(--vis-assistant-surface-bg, var(--vis-bg-light)); overflow:hidden; display:flex; flex-direction:column;`;
+    const margin = mode === 'fullscreen-overlay' ? '8px 12px 8px' : '12px 14px 8px';
+    const minHeight = mode === 'fullscreen-overlay' ? '180px' : '420px';
+    const flexValue = mode === 'fullscreen-overlay' ? '1 1 auto' : '1 1 420px';
+    return `flex:${flexValue}; min-height:${minHeight}; margin:${margin}; border:1px solid var(--vis-border-color); border-radius:12px; background:var(--vis-assistant-surface-bg, var(--vis-bg-light, rgba(255,255,255,0.08))); overflow:hidden; display:flex; flex-direction:column; pointer-events:auto; overscroll-behavior:contain;`;
 }
 
 function buildAssistantChatContainerStyle_ACU(mode: AssistantViewportMode_ACU) {
-    const padding = mode === 'fullscreen-overlay' ? '12px' : '14px';
-    return `flex:1; min-height:0; overflow-y:auto; padding:${padding}; display:flex; flex-direction:column; gap:12px;`;
+    const padding = mode === 'fullscreen-overlay' ? '12px' : '16px';
+    return `flex:1 1 auto; min-height:0; height:100%; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; touch-action:pan-y; pointer-events:auto; padding:${padding}; display:flex; flex-direction:column; gap:12px; align-items:stretch; background:transparent; justify-content:flex-start;`;
 }
 
 function buildAssistantFooterStyle_ACU(mode: AssistantViewportMode_ACU) {
-    const padding = mode === 'fullscreen-overlay' ? '12px 12px calc(12px + env(safe-area-inset-bottom, 0px))' : '16px';
-    return `padding:${padding}; border-top:1px solid var(--vis-border-color); flex-shrink:0;`;
+    const padding = mode === 'fullscreen-overlay' ? '12px 12px calc(12px + env(safe-area-inset-bottom, 0px))' : '12px 14px 14px';
+    return `padding:${padding}; border-top:1px solid var(--vis-border-color); flex:0 0 auto;`;
 }
 
 function shouldShowFloatingRestore_ACU(mode: AssistantViewportMode_ACU) {
@@ -694,8 +698,21 @@ function renderUserTurn_ACU(turn: ChatTurnUser, mode: AssistantViewportMode_ACU)
 
 function renderTranscript_ACU() {
     const transcript = assistantUiState_ACU.transcript;
-    if (transcript.length === 0) return '';
     const mode = getAssistantViewportMode_ACU();
+    if (transcript.length === 0) {
+        const emptyStateMinHeight = mode === 'fullscreen-overlay' ? '160px' : '340px';
+        const emptyStatePadding = mode === 'fullscreen-overlay' ? '16px' : '28px';
+        return `
+            <div class="acu-chat-transcript acu-chat-transcript-empty" style="flex:1 1 auto; min-height:0; height:100%; display:flex; flex-direction:column;">
+                <div class="acu-chat-empty-state" style="flex:1 1 auto; min-height:max(${emptyStateMinHeight}, 100%); height:100%; align-self:stretch; box-sizing:border-box; display:flex; align-items:center; justify-content:center; text-align:center; padding:${emptyStatePadding}; color:var(--vis-text-mute, #9ca3af); line-height:1.7; border:1px dashed color-mix(in srgb, var(--vis-border-color) 72%, transparent); border-radius:10px; background:color-mix(in srgb, var(--vis-bg-color, #111827) 72%, transparent);">
+                    <div>
+                        <div style="font-size:15px; font-weight:600; color:var(--vis-text-dim, #d1d5db); margin-bottom:10px;">AI 改表助手已就绪</div>
+                        <div style="font-size:12px;">输入修改需求后发送，聊天记录会显示在这里。</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
 
     const html = transcript.map((turn, index) => {
         const isLatest = index === transcript.length - 1;
@@ -962,8 +979,8 @@ export function renderVisualizerTemplateAssistantPanel_ACU() {
     if (!$host.length) return;
 
     const mode = getAssistantViewportMode_ACU();
-    // ═══ Portal：fullscreen-overlay 模式下将宿主移到 body，绕过窗口 containing block ═══
-    ensureAssistantHostPortal_ACU(mode, assistantUiState_ACU.isOpen);
+    // ═══ Portal：fullscreen-overlay 模式下仅在面板实际可见时将宿主移到 body，绕过窗口 containing block ═══
+    ensureAssistantHostPortal_ACU(mode, isPanelVisible_ACU(mode) || shouldShowFloatingRestore_ACU(mode));
 
     const display = isPanelVisible_ACU(mode) ? 'flex' : 'none';
     const showFloatingRestore = shouldShowFloatingRestore_ACU(mode);
@@ -975,11 +992,13 @@ export function renderVisualizerTemplateAssistantPanel_ACU() {
         hostElement.setAttribute('data-assistant-mode', mode);
         hostElement.setAttribute('data-open', assistantUiState_ACU.isOpen ? 'true' : 'false');
         hostElement.setAttribute('data-minimized', showFloatingRestore ? 'true' : 'false');
+        hostElement.style.pointerEvents = isPanelVisible_ACU(mode) || showFloatingRestore ? 'auto' : 'none';
+        hostElement.style.opacity = isPanelVisible_ACU(mode) || showFloatingRestore ? '1' : '0';
     }
     const layoutDoc = topLevelWindow_ACU?.document ?? (typeof document !== 'undefined' ? document : null);
     const layoutRoot = layoutDoc?.querySelector(VISUALIZER_ROOT_SELECTOR_ACU) as HTMLElement | null;
     if (layoutRoot) {
-        if (mode === 'fullscreen-overlay' && assistantUiState_ACU.isOpen) {
+        if (mode === 'fullscreen-overlay' && isPanelVisible_ACU(mode)) {
             layoutRoot.setAttribute('data-assistant-layout', 'fullscreen-overlay');
         } else if (assistantUiState_ACU.isOpen) {
             layoutRoot.setAttribute('data-assistant-layout', 'desktop-dock');
@@ -1035,6 +1054,8 @@ export function renderVisualizerTemplateAssistantPanel_ACU() {
         hostElement.setAttribute('data-assistant-mode', mode);
         hostElement.setAttribute('data-open', assistantUiState_ACU.isOpen ? 'true' : 'false');
         hostElement.setAttribute('data-minimized', showFloatingRestore ? 'true' : 'false');
+        hostElement.style.pointerEvents = isPanelVisible_ACU(mode) || showFloatingRestore ? 'auto' : 'none';
+        hostElement.style.opacity = isPanelVisible_ACU(mode) || showFloatingRestore ? '1' : '0';
     }
 
     restoreScrollState_ACU(getChatContainerElement_ACU());

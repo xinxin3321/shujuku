@@ -117,20 +117,12 @@
         overflow: hidden;
     }
     #acu-visualizer-content[data-assistant-layout="desktop-dock"] .acu-vis-assistant-dock {
-        display: block;
-    }
-    #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] .acu-vis-workspace {
-        visibility: hidden;
-        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
     }
     #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] .acu-vis-assistant-dock {
-        display: block;
-        border-left: none;
-        background: transparent;
-        min-width: 0;
-        max-width: none;
-        flex: none;
-        overflow: visible;
+        display: none;
     }
     #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] #acu-vis-assistant-host {
         position: fixed;
@@ -188,6 +180,7 @@
         min-width: 0;
         min-height: 0;
         z-index: 1;
+        pointer-events: none;
     }
     
     /* ═══ 表格导航项 ═══ */
@@ -783,6 +776,8 @@
         /* 内容区域 - 垂直布局 */
         .acu-vis-content {
             flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
         }
         
         /* 侧边栏变为顶部横向滚动 */
@@ -868,14 +863,32 @@
             margin-top: 0;
         }
         
+        .acu-vis-workspace {
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
         /* 主内容区 */
         .acu-vis-main {
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
             padding: 16px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
         
         /* 数据卡片 */
         .acu-card-grid {
+            display: flex;
+            flex-direction: column;
+            flex-wrap: nowrap;
             gap: 12px;
+            align-content: stretch;
         }
         
         .acu-data-card {

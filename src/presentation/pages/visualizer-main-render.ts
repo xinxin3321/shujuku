@@ -49,8 +49,18 @@ import { renderVisualizerConfigMode_ACU } from './visualizer-main-config';
           return;
       }
       
-      const sheet = _acuVisState.tempData[_acuVisState.currentSheetKey];
-      if (!sheet) return;
+      let sheet = _acuVisState.tempData[_acuVisState.currentSheetKey];
+      if (!sheet) {
+          const nextValidSheetKey = getOrderedSheetKeys_ACU().find((key: string) => !!_acuVisState.tempData[key]);
+          if (nextValidSheetKey) {
+              _acuVisState.currentSheetKey = nextValidSheetKey;
+              sheet = _acuVisState.tempData[nextValidSheetKey];
+          }
+      }
+      if (!sheet) {
+          $main.html('<div style="text-align:center; padding:50px; color:#888;">当前表格不可用，请重新选择或刷新数据。</div>');
+          return;
+      }
 
       if (_acuVisState.mode === 'data') {
           renderVisualizerDataMode_ACU($main, sheet);

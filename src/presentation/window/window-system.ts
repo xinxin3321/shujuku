@@ -209,7 +209,7 @@ import { jQuery_API_ACU } from '../dom-utils';
           </div>
         </div>
         <div class="acu-window-body">${content}</div>
-        ${resizable ? `
+        ${resizable && !(isPhoneScreen && forcePhoneFullscreen) ? `
           <div class="acu-window-resize-handle se"></div>
           <div class="acu-window-resize-handle e"></div>
           <div class="acu-window-resize-handle s"></div>
@@ -327,10 +327,11 @@ import { jQuery_API_ACU } from '../dom-utils';
       }
     });
     
-    // ═══ 启动时全屏逻辑（优先级：窄屏强制全屏 > 保存的状态 > startMaximized参数）═══
-    // 平板窄屏默认全屏；手机模式保留边距式浮层，避免遮挡过多内容
-    if (isPhoneScreen && forcePhoneFullscreen && maximizable) {
-      doMaximize();
+    // ═══ 启动时全屏逻辑（优先级：手机强制真全屏 > 平板窄屏最大化 > 保存的状态 > startMaximized参数）═══
+    // 手机 forcePhoneFullscreen 直接依赖专用 fullscreen CSS，不再叠加 maximized 语义；
+    // 否则会重新引入边距、圆角、resize 手柄与高度错位。
+    if (isPhoneScreen && forcePhoneFullscreen) {
+      isMaximized = false;
     } else if (isNarrowScreen && !isPhoneScreen && maximizable) {
       doMaximize();
     } else if (useSavedState && savedState.isMaximized && maximizable) {

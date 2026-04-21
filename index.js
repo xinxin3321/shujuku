@@ -28698,6 +28698,170 @@ $CONTENT
     }
 
     /**
+     * presentation/pages/visualizer-sidebar.ts — 可视化编辑器侧栏
+     * 从 visualizer.ts 拆出
+     */
+    function getOrderedSheetKeys_ACU() {
+        // 新机制：顺序由每张表的 orderNo 决定；编辑器内部仍保留一个数组用于“上移/下移”
+        //
+        // 重要：getSortedSheetKeys_ACU() 在“聊天已存在空白指导表(guide)”时，默认会按 guide 排序并且
+        // 过滤掉不在 guide 里的表。可视化编辑器允许用户新增表格，因此这里必须把“当前数据里存在但 guide
+        // 里不存在”的新表追加进顺序列表，否则新增表会立刻被过滤掉，进而导致“UI不显示/保存后丢失”。
+        // allKeys：忽略聊天 guide，拿到 tempData 里真实存在的全部表（含刚新增的表）
+        const allKeys = getSortedSheetKeys_ACU(_acuVisState.tempData, { ignoreChatGuide: true });
+        // guidedKeys：若 guide 存在，则为 guide 内已存在且在 tempData 中也存在的表（用于保持既有聊天顺序）
+        const guidedKeys = getSortedSheetKeys_ACU(_acuVisState.tempData, { ignoreChatGuide: false });
+        const baseOrder = (() => {
+            // guidedKeys 可能为空（无 guide 或 guide 读取失败），此时用 allKeys 作为基准
+            const base = (Array.isArray(guidedKeys) && guidedKeys.length) ? guidedKeys : allKeys;
+            // 追加不在 guide 里的新表，确保新增表可见且可保存
+            const missing = allKeys.filter((k) => !base.includes(k));
+            return [...base, ...missing];
+        })();
+        if (!_acuVisState.sheetOrder || !Array.isArray(_acuVisState.sheetOrder)) {
+            _acuVisState.sheetOrder = baseOrder;
+        }
+        // 确保顺序列表包含所有当前存在的表格，并移除已删除的表格
+        // existingKeys 使用 orderNo 排序（已对缺失编号做兜底补齐）
+        const existingKeys = allKeys;
+        // 过滤掉已删除的
+        _acuVisState.sheetOrder = _acuVisState.sheetOrder.filter((k) => existingKeys.includes(k));
+        // 添加新增的（未在顺序列表中的）
+        existingKeys.forEach((k) => {
+            if (!_acuVisState.sheetOrder.includes(k)) {
+                _acuVisState.sheetOrder.push(k);
+            }
+        });
+        // [新增] 强制去重，防止逻辑错误导致 key 重复
+        _acuVisState.sheetOrder = [...new Set(_acuVisState.sheetOrder)];
+        // 同步更新 tempData 内每张表的 orderNo（保证“移动顺序即更新编号”）
+        applySheetOrderNumbers_ACU(_acuVisState.tempData, _acuVisState.sheetOrder);
+        return _acuVisState.sheetOrder;
+    }
+    // [新增] 移动表格顺序
+    function moveSheetOrder_ACU(key, direction) {
+        const order = getOrderedSheetKeys_ACU();
+        const currentIndex = order.indexOf(key);
+        if (currentIndex === -1)
+            return;
+        const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+        if (newIndex < 0 || newIndex >= order.length)
+            return;
+        // 交换位置
+        [order[currentIndex], order[newIndex]] = [order[newIndex], order[currentIndex]];
+        _acuVisState.sheetOrder = order;
+        // [新机制] 移动后立即重编号（编号随调整顺序变化）
+        applySheetOrderNumbers_ACU(_acuVisState.tempData, _acuVisState.sheetOrder);
+        renderVisualizerSidebar_ACU();
+    }
+    function renderVisualizerSidebar_ACU() {
+        const $list = jQuery_API_ACU('#acu-vis-sidebar-list');
+        $list.empty();
+        const sheetKeys = getOrderedSheetKeys_ACU();
+        const totalSheets = sheetKeys.length;
+        sheetKeys.forEach((key, index) => {
+            const sheet = _acuVisState.tempData[key];
+            if (!sheet)
+                return;
+            const isActive = key === _acuVisState.currentSheetKey;
+            const isFirst = index === 0;
+            const isLast = index === totalSheets - 1;
+            const $item = jQuery_API_ACU(`
+              <div class="acu-table-nav-item ${isActive ? 'active' : ''}" data-key="${key}">
+                  <div class="acu-table-nav-content">
+                      <span class="acu-table-index">[${index}]</span>
+                      <i class="fa-solid fa-table"></i>
+                      <span class="acu-table-name" title="${escapeHtml_ACU$1(sheet.name)}">${escapeHtml_ACU$1(sheet.name)}</span>
+                  </div>
+                  <div class="acu-table-nav-actions">
+                      <button class="acu-table-order-btn acu-move-up-btn" data-key="${key}" title="上移" ${isFirst ? 'disabled' : ''}>
+                          <i class="fa-solid fa-chevron-up"></i>
+                      </button>
+                      <button class="acu-table-order-btn acu-move-down-btn" data-key="${key}" title="下移" ${isLast ? 'disabled' : ''}>
+                          <i class="fa-solid fa-chevron-down"></i>
+                      </button>
+                      <button class="acu-vis-del-table-btn" data-key="${key}" title="删除表格">
+                      <i class="fa-solid fa-trash"></i>
+                  </button>
+                  </div>
+              </div>
+          `);
+            // 点击选中表格
+            $item.on('click', function (e) {
+                if (jQuery_API_ACU(e.target).closest('.acu-table-order-btn, .acu-vis-del-table-btn').length)
+                    return;
+                _acuVisState.currentSheetKey = key;
+                renderVisualizerSidebar_ACU();
+                renderVisualizerMain_ACU();
+            });
+            // 上移按钮
+            $item.find('.acu-move-up-btn').on('click', function (e) {
+                e.stopPropagation();
+                moveSheetOrder_ACU(key, 'up');
+            });
+            // 下移按钮
+            $item.find('.acu-move-down-btn').on('click', function (e) {
+                e.stopPropagation();
+                moveSheetOrder_ACU(key, 'down');
+            });
+            // 删除按钮
+            $item.find('.acu-vis-del-table-btn').on('click', function (e) {
+                e.stopPropagation();
+                const keyToDelete = jQuery_API_ACU(this).data('key');
+                const tableName = _acuVisState.tempData[keyToDelete] ? _acuVisState.tempData[keyToDelete].name : '未知';
+                if (confirm(`确定要删除表格 "${tableName}" 吗？此操作不可撤销。\n\n注意：删除后保存，该表格的数据和模板配置都将被移除。`)) {
+                    // 记录删除队列：保存时会追溯整个聊天记录清除所有本地表格数据
+                    if (!_acuVisState.deletedSheetKeys || !Array.isArray(_acuVisState.deletedSheetKeys)) {
+                        _acuVisState.deletedSheetKeys = [];
+                    }
+                    if (keyToDelete && !_acuVisState.deletedSheetKeys.includes(keyToDelete)) {
+                        _acuVisState.deletedSheetKeys.push(keyToDelete);
+                    }
+                    delete _acuVisState.tempData[keyToDelete];
+                    // 从顺序列表中移除
+                    _acuVisState.sheetOrder = _acuVisState.sheetOrder.filter((k) => k !== keyToDelete);
+                    if (_acuVisState.currentSheetKey === keyToDelete) {
+                        const remainingKeys = getOrderedSheetKeys_ACU();
+                        _acuVisState.currentSheetKey = remainingKeys.length > 0 ? remainingKeys[0] : null;
+                    }
+                    renderVisualizerSidebar_ACU();
+                    renderVisualizerMain_ACU();
+                }
+            });
+            $list.append($item);
+        });
+        // 新增表格按钮
+        const $addBtn = jQuery_API_ACU(`
+          <button class="acu-add-table-btn">
+              <i class="fa-solid fa-plus"></i> 新增表格
+          </button>
+      `);
+        $addBtn.on('click', function () {
+            const newName = prompt("请输入新表格的名称:", "新建表格");
+            if (newName) {
+                const newKey = 'sheet_' + Math.random().toString(36).substr(2, 9);
+                _acuVisState.tempData[newKey] = {
+                    uid: newKey,
+                    name: newName,
+                    domain: "chat", type: "dynamic", enable: true, required: false,
+                    content: [[null, "列1", "列2"]],
+                    sourceData: { note: "新表格说明", initNode: "", insertNode: "", updateNode: "", deleteNode: "" },
+                    // -1 = 沿用UI全局（新版默认）；updateFrequency=0 可用于"禁用该表自动更新"；groupId=-1 视为默认同组
+                    updateConfig: { uiSentinel: -1, contextDepth: -1, updateFrequency: -1, batchSize: -1, skipFloors: -1, sendLatestRows: -1, groupId: -1 },
+                    exportConfig: buildDefaultExportConfig_ACU(newName),
+                    [TABLE_ORDER_FIELD_ACU]: 999999 // 临时占位，稍后会被 getOrderedSheetKeys_ACU / applySheetOrderNumbers_ACU 重编号
+                };
+                // 添加到顺序列表末尾 (getOrderedSheetKeys_ACU 会自动同步新增的 key，无需手动 push)
+                getOrderedSheetKeys_ACU();
+                _acuVisState.currentSheetKey = newKey;
+                renderVisualizerSidebar_ACU();
+                renderVisualizerMain_ACU();
+            }
+        });
+        $list.append($addBtn);
+    }
+
+    /**
      * DDL 校验纯函数 — 从 jQuery 事件处理器中提取，方便单元测试
      * @returns { valid: boolean; message: string } 校验结果
      */
@@ -29307,9 +29471,18 @@ $CONTENT
             $main.html('<div style="text-align:center; padding:50px; color:#888;">请选择一个表格</div>');
             return;
         }
-        const sheet = _acuVisState.tempData[_acuVisState.currentSheetKey];
-        if (!sheet)
+        let sheet = _acuVisState.tempData[_acuVisState.currentSheetKey];
+        if (!sheet) {
+            const nextValidSheetKey = getOrderedSheetKeys_ACU().find((key) => !!_acuVisState.tempData[key]);
+            if (nextValidSheetKey) {
+                _acuVisState.currentSheetKey = nextValidSheetKey;
+                sheet = _acuVisState.tempData[nextValidSheetKey];
+            }
+        }
+        if (!sheet) {
+            $main.html('<div style="text-align:center; padding:50px; color:#888;">当前表格不可用，请重新选择或刷新数据。</div>');
             return;
+        }
         if (_acuVisState.mode === 'data') {
             renderVisualizerDataMode_ACU($main, sheet);
         }
@@ -29530,170 +29703,6 @@ $CONTENT
     }
 
     /**
-     * presentation/pages/visualizer-sidebar.ts — 可视化编辑器侧栏
-     * 从 visualizer.ts 拆出
-     */
-    function getOrderedSheetKeys_ACU() {
-        // 新机制：顺序由每张表的 orderNo 决定；编辑器内部仍保留一个数组用于“上移/下移”
-        //
-        // 重要：getSortedSheetKeys_ACU() 在“聊天已存在空白指导表(guide)”时，默认会按 guide 排序并且
-        // 过滤掉不在 guide 里的表。可视化编辑器允许用户新增表格，因此这里必须把“当前数据里存在但 guide
-        // 里不存在”的新表追加进顺序列表，否则新增表会立刻被过滤掉，进而导致“UI不显示/保存后丢失”。
-        // allKeys：忽略聊天 guide，拿到 tempData 里真实存在的全部表（含刚新增的表）
-        const allKeys = getSortedSheetKeys_ACU(_acuVisState.tempData, { ignoreChatGuide: true });
-        // guidedKeys：若 guide 存在，则为 guide 内已存在且在 tempData 中也存在的表（用于保持既有聊天顺序）
-        const guidedKeys = getSortedSheetKeys_ACU(_acuVisState.tempData, { ignoreChatGuide: false });
-        const baseOrder = (() => {
-            // guidedKeys 可能为空（无 guide 或 guide 读取失败），此时用 allKeys 作为基准
-            const base = (Array.isArray(guidedKeys) && guidedKeys.length) ? guidedKeys : allKeys;
-            // 追加不在 guide 里的新表，确保新增表可见且可保存
-            const missing = allKeys.filter((k) => !base.includes(k));
-            return [...base, ...missing];
-        })();
-        if (!_acuVisState.sheetOrder || !Array.isArray(_acuVisState.sheetOrder)) {
-            _acuVisState.sheetOrder = baseOrder;
-        }
-        // 确保顺序列表包含所有当前存在的表格，并移除已删除的表格
-        // existingKeys 使用 orderNo 排序（已对缺失编号做兜底补齐）
-        const existingKeys = allKeys;
-        // 过滤掉已删除的
-        _acuVisState.sheetOrder = _acuVisState.sheetOrder.filter((k) => existingKeys.includes(k));
-        // 添加新增的（未在顺序列表中的）
-        existingKeys.forEach((k) => {
-            if (!_acuVisState.sheetOrder.includes(k)) {
-                _acuVisState.sheetOrder.push(k);
-            }
-        });
-        // [新增] 强制去重，防止逻辑错误导致 key 重复
-        _acuVisState.sheetOrder = [...new Set(_acuVisState.sheetOrder)];
-        // 同步更新 tempData 内每张表的 orderNo（保证“移动顺序即更新编号”）
-        applySheetOrderNumbers_ACU(_acuVisState.tempData, _acuVisState.sheetOrder);
-        return _acuVisState.sheetOrder;
-    }
-    // [新增] 移动表格顺序
-    function moveSheetOrder_ACU(key, direction) {
-        const order = getOrderedSheetKeys_ACU();
-        const currentIndex = order.indexOf(key);
-        if (currentIndex === -1)
-            return;
-        const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-        if (newIndex < 0 || newIndex >= order.length)
-            return;
-        // 交换位置
-        [order[currentIndex], order[newIndex]] = [order[newIndex], order[currentIndex]];
-        _acuVisState.sheetOrder = order;
-        // [新机制] 移动后立即重编号（编号随调整顺序变化）
-        applySheetOrderNumbers_ACU(_acuVisState.tempData, _acuVisState.sheetOrder);
-        renderVisualizerSidebar_ACU();
-    }
-    function renderVisualizerSidebar_ACU() {
-        const $list = jQuery_API_ACU('#acu-vis-sidebar-list');
-        $list.empty();
-        const sheetKeys = getOrderedSheetKeys_ACU();
-        const totalSheets = sheetKeys.length;
-        sheetKeys.forEach((key, index) => {
-            const sheet = _acuVisState.tempData[key];
-            if (!sheet)
-                return;
-            const isActive = key === _acuVisState.currentSheetKey;
-            const isFirst = index === 0;
-            const isLast = index === totalSheets - 1;
-            const $item = jQuery_API_ACU(`
-              <div class="acu-table-nav-item ${isActive ? 'active' : ''}" data-key="${key}">
-                  <div class="acu-table-nav-content">
-                      <span class="acu-table-index">[${index}]</span>
-                      <i class="fa-solid fa-table"></i>
-                      <span class="acu-table-name" title="${escapeHtml_ACU$1(sheet.name)}">${escapeHtml_ACU$1(sheet.name)}</span>
-                  </div>
-                  <div class="acu-table-nav-actions">
-                      <button class="acu-table-order-btn acu-move-up-btn" data-key="${key}" title="上移" ${isFirst ? 'disabled' : ''}>
-                          <i class="fa-solid fa-chevron-up"></i>
-                      </button>
-                      <button class="acu-table-order-btn acu-move-down-btn" data-key="${key}" title="下移" ${isLast ? 'disabled' : ''}>
-                          <i class="fa-solid fa-chevron-down"></i>
-                      </button>
-                      <button class="acu-vis-del-table-btn" data-key="${key}" title="删除表格">
-                      <i class="fa-solid fa-trash"></i>
-                  </button>
-                  </div>
-              </div>
-          `);
-            // 点击选中表格
-            $item.on('click', function (e) {
-                if (jQuery_API_ACU(e.target).closest('.acu-table-order-btn, .acu-vis-del-table-btn').length)
-                    return;
-                _acuVisState.currentSheetKey = key;
-                renderVisualizerSidebar_ACU();
-                renderVisualizerMain_ACU();
-            });
-            // 上移按钮
-            $item.find('.acu-move-up-btn').on('click', function (e) {
-                e.stopPropagation();
-                moveSheetOrder_ACU(key, 'up');
-            });
-            // 下移按钮
-            $item.find('.acu-move-down-btn').on('click', function (e) {
-                e.stopPropagation();
-                moveSheetOrder_ACU(key, 'down');
-            });
-            // 删除按钮
-            $item.find('.acu-vis-del-table-btn').on('click', function (e) {
-                e.stopPropagation();
-                const keyToDelete = jQuery_API_ACU(this).data('key');
-                const tableName = _acuVisState.tempData[keyToDelete] ? _acuVisState.tempData[keyToDelete].name : '未知';
-                if (confirm(`确定要删除表格 "${tableName}" 吗？此操作不可撤销。\n\n注意：删除后保存，该表格的数据和模板配置都将被移除。`)) {
-                    // 记录删除队列：保存时会追溯整个聊天记录清除所有本地表格数据
-                    if (!_acuVisState.deletedSheetKeys || !Array.isArray(_acuVisState.deletedSheetKeys)) {
-                        _acuVisState.deletedSheetKeys = [];
-                    }
-                    if (keyToDelete && !_acuVisState.deletedSheetKeys.includes(keyToDelete)) {
-                        _acuVisState.deletedSheetKeys.push(keyToDelete);
-                    }
-                    delete _acuVisState.tempData[keyToDelete];
-                    // 从顺序列表中移除
-                    _acuVisState.sheetOrder = _acuVisState.sheetOrder.filter((k) => k !== keyToDelete);
-                    if (_acuVisState.currentSheetKey === keyToDelete) {
-                        const remainingKeys = getOrderedSheetKeys_ACU();
-                        _acuVisState.currentSheetKey = remainingKeys.length > 0 ? remainingKeys[0] : null;
-                    }
-                    renderVisualizerSidebar_ACU();
-                    renderVisualizerMain_ACU();
-                }
-            });
-            $list.append($item);
-        });
-        // 新增表格按钮
-        const $addBtn = jQuery_API_ACU(`
-          <button class="acu-add-table-btn">
-              <i class="fa-solid fa-plus"></i> 新增表格
-          </button>
-      `);
-        $addBtn.on('click', function () {
-            const newName = prompt("请输入新表格的名称:", "新建表格");
-            if (newName) {
-                const newKey = 'sheet_' + Math.random().toString(36).substr(2, 9);
-                _acuVisState.tempData[newKey] = {
-                    uid: newKey,
-                    name: newName,
-                    domain: "chat", type: "dynamic", enable: true, required: false,
-                    content: [[null, "列1", "列2"]],
-                    sourceData: { note: "新表格说明", initNode: "", insertNode: "", updateNode: "", deleteNode: "" },
-                    // -1 = 沿用UI全局（新版默认）；updateFrequency=0 可用于"禁用该表自动更新"；groupId=-1 视为默认同组
-                    updateConfig: { uiSentinel: -1, contextDepth: -1, updateFrequency: -1, batchSize: -1, skipFloors: -1, sendLatestRows: -1, groupId: -1 },
-                    exportConfig: buildDefaultExportConfig_ACU(newName),
-                    [TABLE_ORDER_FIELD_ACU]: 999999 // 临时占位，稍后会被 getOrderedSheetKeys_ACU / applySheetOrderNumbers_ACU 重编号
-                };
-                // 添加到顺序列表末尾 (getOrderedSheetKeys_ACU 会自动同步新增的 key，无需手动 push)
-                getOrderedSheetKeys_ACU();
-                _acuVisState.currentSheetKey = newKey;
-                renderVisualizerSidebar_ACU();
-                renderVisualizerMain_ACU();
-            }
-        });
-        $list.append($addBtn);
-    }
-
-    /**
      * presentation/window/window-styles.ts — 窗口样式注入 + 主题切换
      * 从 window-system.ts 拆出
      *
@@ -29855,14 +29864,23 @@ $CONTENT
         .acu-window.acu-window-phone-fullscreen.maximized {
           top: 0 !important;
           left: 0 !important;
+          right: 0 !important;
+          bottom: 0 !important;
           width: 100vw !important;
+          width: 100dvw !important;
+          height: 100vh !important;
           height: 100dvh !important;
           min-width: 100vw !important;
+          min-width: 100dvw !important;
+          min-height: 100vh !important;
           min-height: 100dvh !important;
           max-width: 100vw !important;
+          max-width: 100dvw !important;
+          max-height: 100vh !important;
           max-height: 100dvh !important;
           border-radius: 0 !important;
           border: none !important;
+          box-shadow: none !important;
         }
         .acu-window {
           min-width: min(320px, calc(100vw - 12px)) !important; /* 手机端保留边距，避免遮挡底层界面 */
@@ -29908,8 +29926,12 @@ $CONTENT
           min-height: 0; /* 关键：允许flex子元素收缩 */
         }
         .acu-window.acu-window-phone-fullscreen .acu-window-body {
-          height: calc(100dvh - 44px);
-          max-height: calc(100dvh - 44px);
+          flex: 1 1 auto;
+          min-height: 0;
+          height: auto;
+          max-height: none;
+          overflow-x: hidden;
+          overflow-y: auto;
         }
       }
       
@@ -30303,7 +30325,7 @@ $CONTENT
           </div>
         </div>
         <div class="acu-window-body">${content}</div>
-        ${resizable ? `
+        ${resizable && !(isPhoneScreen && forcePhoneFullscreen) ? `
           <div class="acu-window-resize-handle se"></div>
           <div class="acu-window-resize-handle e"></div>
           <div class="acu-window-resize-handle s"></div>
@@ -30410,10 +30432,11 @@ $CONTENT
                 doMaximize();
             }
         });
-        // ═══ 启动时全屏逻辑（优先级：窄屏强制全屏 > 保存的状态 > startMaximized参数）═══
-        // 平板窄屏默认全屏；手机模式保留边距式浮层，避免遮挡过多内容
-        if (isPhoneScreen && forcePhoneFullscreen && maximizable) {
-            doMaximize();
+        // ═══ 启动时全屏逻辑（优先级：手机强制真全屏 > 平板窄屏最大化 > 保存的状态 > startMaximized参数）═══
+        // 手机 forcePhoneFullscreen 直接依赖专用 fullscreen CSS，不再叠加 maximized 语义；
+        // 否则会重新引入边距、圆角、resize 手柄与高度错位。
+        if (isPhoneScreen && forcePhoneFullscreen) {
+            isMaximized = false;
         }
         else if (isNarrowScreen && !isPhoneScreen && maximizable) {
             doMaximize();
@@ -30986,20 +31009,12 @@ $CONTENT
         overflow: hidden;
     }
     #acu-visualizer-content[data-assistant-layout="desktop-dock"] .acu-vis-assistant-dock {
-        display: block;
-    }
-    #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] .acu-vis-workspace {
-        visibility: hidden;
-        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
     }
     #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] .acu-vis-assistant-dock {
-        display: block;
-        border-left: none;
-        background: transparent;
-        min-width: 0;
-        max-width: none;
-        flex: none;
-        overflow: visible;
+        display: none;
     }
     #acu-visualizer-content[data-assistant-layout="fullscreen-overlay"] #acu-vis-assistant-host {
         position: fixed;
@@ -31057,6 +31072,7 @@ $CONTENT
         min-width: 0;
         min-height: 0;
         z-index: 1;
+        pointer-events: none;
     }
     
     /* ═══ 表格导航项 ═══ */
@@ -31652,6 +31668,8 @@ $CONTENT
         /* 内容区域 - 垂直布局 */
         .acu-vis-content {
             flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
         }
         
         /* 侧边栏变为顶部横向滚动 */
@@ -31737,14 +31755,32 @@ $CONTENT
             margin-top: 0;
         }
         
+        .acu-vis-workspace {
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
         /* 主内容区 */
         .acu-vis-main {
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 0;
             padding: 16px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
         
         /* 数据卡片 */
         .acu-card-grid {
+            display: flex;
+            flex-direction: column;
+            flex-wrap: nowrap;
             gap: 12px;
+            align-content: stretch;
         }
         
         .acu-data-card {
@@ -45478,20 +45514,22 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         const shouldPortal = mode === 'fullscreen-overlay' && isOpen;
         const isInBody = host.parentElement === doc.body;
         const dock = doc.querySelector(VISUALIZER_ASSISTANT_DOCK_SELECTOR_ACU);
-        if (shouldPortal && !isInBody) {
-            host.style.cssText += `;${VIS_PORTAL_VARIABLES_ACU}`;
-            doc.body.appendChild(host);
+        if (shouldPortal) {
+            host.style.pointerEvents = 'auto';
+            if (!isInBody) {
+                host.style.cssText += `;${VIS_PORTAL_VARIABLES_ACU}`;
+                doc.body.appendChild(host);
+            }
             return;
         }
-        if (!shouldPortal) {
-            if (dock && host.parentElement !== dock) {
-                dock.appendChild(host);
-            }
-            else if (!dock && isInBody) {
-                host.remove();
-            }
-            clearPortalVariables_ACU(host);
+        if (dock && host.parentElement !== dock) {
+            dock.appendChild(host);
         }
+        else if (!dock && isInBody) {
+            host.remove();
+        }
+        clearPortalVariables_ACU(host);
+        host.style.pointerEvents = isOpen ? 'auto' : 'none';
     }
     /** 从宿主元素的 inline style 中移除 portal 注入的 CSS 变量 */
     function clearPortalVariables_ACU(host) {
@@ -45503,28 +45541,30 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         host.setAttribute('style', cleaned);
     }
     function buildAssistantPanelStyle_ACU(mode, display) {
-        const common = `display:${display}; flex-direction:column; min-height:0; overflow:hidden; background:var(--vis-assistant-window-bg, var(--vis-bg-color)); color:var(--vis-text-main); box-shadow:0 20px 48px color-mix(in srgb, var(--vis-text-main) 18%, transparent);`;
+        const common = `display:${display}; flex-direction:column; min-height:0; overflow:hidden; background:var(--vis-assistant-window-bg, var(--vis-bg-color, #111827)); color:var(--vis-text-main, #f3f4f6); box-shadow:0 20px 48px color-mix(in srgb, var(--vis-text-main, #f3f4f6) 18%, transparent); pointer-events:auto; overscroll-behavior:contain; opacity:1;`;
         if (mode === 'fullscreen-overlay') {
-            return `${common} position:fixed; inset:0; width:100vw; min-height:100vh; height:100dvh; border-left:none; z-index:100002; background:var(--vis-assistant-window-bg, var(--vis-bg-color)); padding:env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);`;
+            return `${common} position:fixed; inset:0; width:100vw; min-height:100vh; height:100dvh; border-left:none; z-index:100002; background:var(--vis-assistant-window-bg, var(--vis-bg-color, #111827)); padding:env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);`;
         }
-        return `${common} width:${getAssistantPanelWidth_ACU(mode)}; height:100%; border-left:1px solid var(--vis-border-color); flex-shrink:0;`;
+        return `${common} width:${getAssistantPanelWidth_ACU(mode)}; height:100%; max-height:100%; align-self:stretch; border-left:1px solid var(--vis-border-color); flex:1 1 auto;`;
     }
     function buildAssistantHeaderStyle_ACU(mode) {
-        const compactPadding = mode === 'fullscreen-overlay' ? '12px 12px 10px' : '14px 16px';
+        const compactPadding = mode === 'fullscreen-overlay' ? '12px 12px 10px' : '12px 14px';
         const sticky = mode === 'fullscreen-overlay' ? 'position:sticky; top:0; z-index:2; background:var(--vis-assistant-window-bg, var(--vis-bg-color));' : '';
-        return `padding:${compactPadding}; border-bottom:1px solid var(--vis-border-color); display:flex; justify-content:space-between; align-items:center; gap:12px; ${sticky}`;
+        return `padding:${compactPadding}; border-bottom:1px solid var(--vis-border-color); display:flex; justify-content:space-between; align-items:center; gap:10px; ${sticky}`;
     }
     function buildAssistantScrollFrameStyle_ACU(mode) {
-        const margin = mode === 'fullscreen-overlay' ? '8px 12px 8px' : '16px 16px 12px';
-        return `flex:1; min-height:0; margin:${margin}; border:1px solid var(--vis-border-color); border-radius:12px; background:var(--vis-assistant-surface-bg, var(--vis-bg-light)); overflow:hidden; display:flex; flex-direction:column;`;
+        const margin = mode === 'fullscreen-overlay' ? '8px 12px 8px' : '12px 14px 8px';
+        const minHeight = mode === 'fullscreen-overlay' ? '180px' : '420px';
+        const flexValue = mode === 'fullscreen-overlay' ? '1 1 auto' : '1 1 420px';
+        return `flex:${flexValue}; min-height:${minHeight}; margin:${margin}; border:1px solid var(--vis-border-color); border-radius:12px; background:var(--vis-assistant-surface-bg, var(--vis-bg-light, rgba(255,255,255,0.08))); overflow:hidden; display:flex; flex-direction:column; pointer-events:auto; overscroll-behavior:contain;`;
     }
     function buildAssistantChatContainerStyle_ACU(mode) {
-        const padding = mode === 'fullscreen-overlay' ? '12px' : '14px';
-        return `flex:1; min-height:0; overflow-y:auto; padding:${padding}; display:flex; flex-direction:column; gap:12px;`;
+        const padding = mode === 'fullscreen-overlay' ? '12px' : '16px';
+        return `flex:1 1 auto; min-height:0; height:100%; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; touch-action:pan-y; pointer-events:auto; padding:${padding}; display:flex; flex-direction:column; gap:12px; align-items:stretch; background:transparent; justify-content:flex-start;`;
     }
     function buildAssistantFooterStyle_ACU(mode) {
-        const padding = mode === 'fullscreen-overlay' ? '12px 12px calc(12px + env(safe-area-inset-bottom, 0px))' : '16px';
-        return `padding:${padding}; border-top:1px solid var(--vis-border-color); flex-shrink:0;`;
+        const padding = mode === 'fullscreen-overlay' ? '12px 12px calc(12px + env(safe-area-inset-bottom, 0px))' : '12px 14px 14px';
+        return `padding:${padding}; border-top:1px solid var(--vis-border-color); flex:0 0 auto;`;
     }
     function shouldShowFloatingRestore_ACU(mode) {
         return mode === 'fullscreen-overlay' && assistantUiState_ACU.isOpen && assistantUiState_ACU.isMinimized;
@@ -45969,9 +46009,21 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
     }
     function renderTranscript_ACU() {
         const transcript = assistantUiState_ACU.transcript;
-        if (transcript.length === 0)
-            return '';
         const mode = getAssistantViewportMode_ACU();
+        if (transcript.length === 0) {
+            const emptyStateMinHeight = mode === 'fullscreen-overlay' ? '160px' : '340px';
+            const emptyStatePadding = mode === 'fullscreen-overlay' ? '16px' : '28px';
+            return `
+            <div class="acu-chat-transcript acu-chat-transcript-empty" style="flex:1 1 auto; min-height:0; height:100%; display:flex; flex-direction:column;">
+                <div class="acu-chat-empty-state" style="flex:1 1 auto; min-height:max(${emptyStateMinHeight}, 100%); height:100%; align-self:stretch; box-sizing:border-box; display:flex; align-items:center; justify-content:center; text-align:center; padding:${emptyStatePadding}; color:var(--vis-text-mute, #9ca3af); line-height:1.7; border:1px dashed color-mix(in srgb, var(--vis-border-color) 72%, transparent); border-radius:10px; background:color-mix(in srgb, var(--vis-bg-color, #111827) 72%, transparent);">
+                    <div>
+                        <div style="font-size:15px; font-weight:600; color:var(--vis-text-dim, #d1d5db); margin-bottom:10px;">AI 改表助手已就绪</div>
+                        <div style="font-size:12px;">输入修改需求后发送，聊天记录会显示在这里。</div>
+                    </div>
+                </div>
+            </div>
+        `;
+        }
         const html = transcript.map((turn, index) => {
             const isLatest = index === transcript.length - 1;
             switch (turn.type) {
@@ -46218,8 +46270,8 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         if (!$host.length)
             return;
         const mode = getAssistantViewportMode_ACU();
-        // ═══ Portal：fullscreen-overlay 模式下将宿主移到 body，绕过窗口 containing block ═══
-        ensureAssistantHostPortal_ACU(mode, assistantUiState_ACU.isOpen);
+        // ═══ Portal：fullscreen-overlay 模式下仅在面板实际可见时将宿主移到 body，绕过窗口 containing block ═══
+        ensureAssistantHostPortal_ACU(mode, isPanelVisible_ACU(mode) || shouldShowFloatingRestore_ACU(mode));
         const display = isPanelVisible_ACU(mode) ? 'flex' : 'none';
         const showFloatingRestore = shouldShowFloatingRestore_ACU(mode);
         const generateDisabled = assistantUiState_ACU.isGenerating || !String(assistantUiState_ACU.userRequest || '').trim();
@@ -46229,11 +46281,13 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             hostElement.setAttribute('data-assistant-mode', mode);
             hostElement.setAttribute('data-open', assistantUiState_ACU.isOpen ? 'true' : 'false');
             hostElement.setAttribute('data-minimized', showFloatingRestore ? 'true' : 'false');
+            hostElement.style.pointerEvents = isPanelVisible_ACU(mode) || showFloatingRestore ? 'auto' : 'none';
+            hostElement.style.opacity = isPanelVisible_ACU(mode) || showFloatingRestore ? '1' : '0';
         }
         const layoutDoc = topLevelWindow_ACU?.document ?? (typeof document !== 'undefined' ? document : null);
         const layoutRoot = layoutDoc?.querySelector(VISUALIZER_ROOT_SELECTOR_ACU$1);
         if (layoutRoot) {
-            if (mode === 'fullscreen-overlay' && assistantUiState_ACU.isOpen) {
+            if (mode === 'fullscreen-overlay' && isPanelVisible_ACU(mode)) {
                 layoutRoot.setAttribute('data-assistant-layout', 'fullscreen-overlay');
             }
             else if (assistantUiState_ACU.isOpen) {
@@ -46289,6 +46343,8 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
             hostElement.setAttribute('data-assistant-mode', mode);
             hostElement.setAttribute('data-open', assistantUiState_ACU.isOpen ? 'true' : 'false');
             hostElement.setAttribute('data-minimized', showFloatingRestore ? 'true' : 'false');
+            hostElement.style.pointerEvents = isPanelVisible_ACU(mode) || showFloatingRestore ? 'auto' : 'none';
+            hostElement.style.opacity = isPanelVisible_ACU(mode) || showFloatingRestore ? '1' : '0';
         }
         restoreScrollState_ACU(getChatContainerElement_ACU());
         $host.find('#acu-vis-assistant-close').on('click', () => {
