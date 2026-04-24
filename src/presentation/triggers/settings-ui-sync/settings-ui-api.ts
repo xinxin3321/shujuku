@@ -241,6 +241,9 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../../service/runtime/help
     if (settings_ACU.plotApiPreset === presetName) {
       settings_ACU.plotApiPreset = '';
     }
+    if (settings_ACU.vectorMemoryConfig && typeof settings_ACU.vectorMemoryConfig === 'object' && settings_ACU.vectorMemoryConfig.keywordApiPreset === presetName) {
+      settings_ACU.vectorMemoryConfig.keywordApiPreset = '';
+    }
     // [新增] 清除按表名保存的表级 API 预设覆盖中引用了该预设的条目
     if (settings_ACU.tableApiPresetOverridesByName && typeof settings_ACU.tableApiPresetOverridesByName === 'object') {
       const overrides = settings_ACU.tableApiPresetOverridesByName;
@@ -312,6 +315,16 @@ $optimizationApiPresetSelect.append(renderOption_ACU(p.name, p.name));
       $optimizationApiPresetSelect.val(settings_ACU.contentOptimizationSettings?.apiPreset || '');
     }
 
+    // 刷新向量关键词生成的 API 预设选择器
+    const $vectorKeywordApiPresetSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-keyword-api-preset`);
+    if ($vectorKeywordApiPresetSelect.length) {
+      $vectorKeywordApiPresetSelect.empty().append('<option value="">使用当前API配置</option>');
+      presets.forEach((p: any) => {
+        $vectorKeywordApiPresetSelect.append(renderOption_ACU(p.name, p.name));
+      });
+      $vectorKeywordApiPresetSelect.val(settings_ACU.vectorMemoryConfig?.keywordApiPreset || '');
+    }
+ 
     // [新增] 刷新可视化编辑器配置面板中的表级 API 预设覆盖选择器
     // 该 select 可能不在 popup 中，而是在可视化编辑器容器里
     const $cfgTableApiPreset = jQuery_API_ACU('#cfg-table-api-preset');

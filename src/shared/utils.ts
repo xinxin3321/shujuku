@@ -32,7 +32,7 @@ export function deepMerge_ACU(target: any, source: any): any {
   if (isObject(target) && isObject(source)) {
     Object.keys(source).forEach(key => {
       if (isObject(source[key])) {
-        if (!(key in target))
+        if (!(key in target) || !isObject(target[key]))
           Object.assign(output, { [key]: source[key] });
         else
           output[key] = deepMerge_ACU(target[key], source[key]);

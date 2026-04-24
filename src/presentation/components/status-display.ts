@@ -1,7 +1,9 @@
 import { DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_SQL_ACU } from '../../shared/defaults-json.js';
 import { isSqliteMode } from '../../service/table/storage-mode';
 import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-readers';
+import { getCurrentVectorMemoryConfig_ACU } from '../../service/vector/vector-memory-config';
 import { renderPromptSegments_ACU } from './plot-editors';
+import { renderKeywordPromptGroupToUI_ACU, renderSummaryPromptGroupToUI_ACU } from '../pages/popup-bindings-worldbook';
 import { renderImportTableSelector_ACU, renderManualTableSelector_ACU } from './table-selector';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { escapeHtml_ACU } from '../../shared/html-helpers';
@@ -26,8 +28,8 @@ import { $popupInstance_ACU, $statusMessageSpan_ACU, $manualUpdateCardButton_ACU
   }
 
   // [T173] 填表停止按钮绑定
-  export function bindTableFillStopButton_ACU(localAbortController: any, onStop: any) {
-    const $stopButton = jQuery_API_ACU('#acu-stop-update-btn');
+  export function bindTableFillStopButton_ACU(buttonId: string, onStop: any) {
+    const $stopButton = jQuery_API_ACU(`#${buttonId}`);
     if ($stopButton.length) {
         $stopButton.off('click.acu_stop').on('click.acu_stop', function(e) {
             e.stopPropagation();
@@ -132,9 +134,32 @@ setVal('merge-prompt-template', s.mergeSummaryPrompt || (isSqliteMode() ? DEFAUL
       if ($tableMaxRetriesInput_ACU) $tableMaxRetriesInput_ACU.val(s.tableMaxRetries || 3);
       syncMergeSettingsToUI_ACU(s);
       const worldbookConfig = getCurrentWorldbookConfig_ACU();
+      const vectorMemoryConfig = getCurrentVectorMemoryConfig_ACU();
       $popupInstance_ACU.find(`input[name="${SCRIPT_ID_PREFIX_ACU}-worldbook-source"]`).filter(`[value="${worldbookConfig.source}"]`).prop('checked', true);
       if (typeof updateWorldbookSourceView_ACU === 'function') updateWorldbookSourceView_ACU();
       if (typeof populateInjectionTargetSelector_ACU === 'function') populateInjectionTargetSelector_ACU();
+      setChecked('worldbook-vector-memory-enabled', vectorMemoryConfig.enabled);
+      setVal('worldbook-vector-memory-threshold', vectorMemoryConfig.threshold);
+      setVal('worldbook-vector-memory-archive-trigger-count', (vectorMemoryConfig as any).archiveTriggerCount || vectorMemoryConfig.archiveBatchSize);
+      setVal('worldbook-vector-memory-archive-batch-size', vectorMemoryConfig.archiveBatchSize);
+      setVal('worldbook-vector-memory-archive-max-concurrency', (vectorMemoryConfig as any).archiveMaxConcurrency || 3);
+      setVal('worldbook-vector-memory-topk', vectorMemoryConfig.topK);
+      setVal('worldbook-vector-memory-min-score', vectorMemoryConfig.minScore);
+      setVal('worldbook-vector-memory-namespace', vectorMemoryConfig.vectorNamespace);
+      setVal('worldbook-vector-memory-embedding-endpoint', vectorMemoryConfig.embeddingEndpoint);
+      setVal('worldbook-vector-memory-embedding-model', vectorMemoryConfig.embeddingModel);
+      setVal('worldbook-vector-memory-embedding-api-key', vectorMemoryConfig.embeddingApiKey);
+      setVal('worldbook-vector-memory-overview-sentence-limit', vectorMemoryConfig.summaryChunkSentenceCount);
+      setChecked('worldbook-vector-memory-archive-without-summary', (vectorMemoryConfig as any).archiveWithoutSummary === true);
+      setVal('worldbook-vector-memory-recall-candidate-limit', vectorMemoryConfig.recallCandidateLimit);
+      setVal('worldbook-vector-memory-entry-comment', vectorMemoryConfig.entryComment);
+      setVal('worldbook-vector-memory-entry-key', vectorMemoryConfig.entryKey);
+      setVal('worldbook-vector-memory-keyword-api-preset', vectorMemoryConfig.keywordApiPreset);
+      setVal('worldbook-vector-memory-keyword-context-pair-count', (vectorMemoryConfig as any).keywordContextPairCount || 1);
+      renderKeywordPromptGroupToUI_ACU((vectorMemoryConfig as any).keywordPromptGroup || []);
+      renderSummaryPromptGroupToUI_ACU((vectorMemoryConfig as any).summaryPromptGroup || []);
+      const $vectorMemoryBlock = find('worldbook-vector-memory-config-block');
+      if ($vectorMemoryBlock.length) $vectorMemoryBlock.toggle(vectorMemoryConfig.enabled === true);
       const $outlineToggle = find('worldbook-outline-entry-enabled');
       if ($outlineToggle.length) {
           let mode = worldbookConfig.zeroTkOccupyMode;

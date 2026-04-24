@@ -9,11 +9,43 @@ import type { Sheet_ACU } from '../../shared/models/table-data';
 
 // ── 新版按标签分组存储 ──
 
+export interface ChatVectorRemoteMemoryChunk_ACU {
+    chunkId: string;
+    text: string;
+    vector: number[];
+    sequence: number;
+}
+
+export interface ChatVectorRemoteMemoryBatch_ACU {
+    batchId: string;
+    snapshotMessageId: string;
+    sourceMessageId: string;
+    sourceRowKeys: string[];
+    sourceRowCount: number;
+    summaryText: string;
+    summaryHash: string;
+    chunks: ChatVectorRemoteMemoryChunk_ACU[];
+    promptGroupVersion: string;
+    createdAt: string;
+    archivedRange?: {
+        firstRowKey: string;
+        lastRowKey: string;
+    };
+}
+
+export interface ChatVectorState_ACU {
+    snapshotMessageId: string;
+    remoteMemoryBatches: ChatVectorRemoteMemoryBatch_ACU[];
+    lastIndexedAt?: string;
+    lastArchiveAt?: string;
+}
+
 /** 单个隔离标签下的数据槽 */
 export interface IsolationTagData_ACU {
     independentData: Record<string, Sheet_ACU>;
     modifiedKeys: string[];
     updateGroupKeys: string[];
+    vectorMemoryState?: ChatVectorState_ACU;
     /** 基底状态标记（首楼初始化时写入） */
     _acu_base_state?: string;
 }
@@ -45,6 +77,8 @@ export interface MessageTableFields_ACU {
     TavernDB_ACU_SummaryData?: LegacyTableContainer_ACU;
     /** 隔离标识代码 */
     TavernDB_ACU_Identity?: string;
+    /** 本地消息锚点（用于宿主 message_id 缺失时的稳定回退） */
+    TavernDB_ACU_LocalMessageAnchor?: string;
     /** 本次修改的表格键列表 */
     TavernDB_ACU_ModifiedKeys?: string[];
     /** 本次更新组的表格键列表 */

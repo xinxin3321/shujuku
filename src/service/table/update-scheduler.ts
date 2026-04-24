@@ -195,6 +195,81 @@ export interface AutoUpdateResult {
     autoMergeSuccess?: boolean;
 }
 
+export interface GroupExecutionResult_ACU<TKey extends string = string, TValue = unknown> {
+    key: TKey;
+    success: boolean;
+    value?: TValue;
+    error?: unknown;
+}
+
+export async function executeGroupedUpdateChunks_ACU<TKey extends string, TGroup, TValue = unknown>(
+    groupMap: Record<TKey, TGroup>,
+    settings: any,
+    executeGroup: (key: TKey, group: TGroup) => Promise<{ success: boolean; value?: TValue }>,
+    options: {
+        onChunkStart?: (chunkKeys: TKey[]) => void | Promise<void>;
+        shouldStop?: () => boolean;
+    } = {}
+): Promise<{ totalGroups: number; failedGroupKeys: TKey[]; stopped: boolean; results: GroupExecutionResult_ACU<TKey, TValue>[] }> {
+    const groupKeys = Object.keys(groupMap) as TKey[];
+    if (groupKeys.length === 0) {
+        return { totalGroups: 0, failedGroupKeys: [], stopped: false, results: [] };
+    }
+
+    const totalGroups = groupKeys.length;
+    const maxConcurrentGroups = Math.max(1, settings.maxConcurrentGroups || 1);
+    const failedGroupKeys: TKey[] = [];
+    const results: GroupExecutionResult_ACU<TKey, TValue>[] = [];
+    let stopped = false;
+
+    for (let start = 0; start < groupKeys.length; start += maxConcurrentGroups) {
+        if (options.shouldStop?.()) {
+            stopped = true;
+            break;
+        }
+
+        const chunkKeys = groupKeys.slice(start, start + maxConcurrentGroups);
+        await options.onChunkStart?.(chunkKeys);
+
+        const chunkResults = await Promise.allSettled(
+            chunkKeys.map(async (key) => {
+                const group = groupMap[key];
+                const execution = await executeGroup(key, group);
+                return {
+                    key,
+                    success: execution.success,
+                    value: execution.value,
+                } satisfies GroupExecutionResult_ACU<TKey, TValue>;
+            })
+        );
+
+        chunkResults.forEach((result, idx) => {
+            if (result.status === 'fulfilled') {
+                results.push(result.value);
+                if (!result.value.success) {
+                    failedGroupKeys.push(result.value.key);
+                }
+                return;
+            }
+
+            const failedKey = chunkKeys[idx];
+            failedGroupKeys.push(failedKey);
+            results.push({
+                key: failedKey,
+                success: false,
+                error: result.reason,
+            });
+        });
+
+        if (options.shouldStop?.()) {
+            stopped = true;
+            break;
+        }
+    }
+
+    return { totalGroups, failedGroupKeys, stopped, results };
+}
+
 /**
  * 自动更新计划的业务操作委托接口
  * 只包含纯业务操作（数据处理），不包含 UI 操作（toast/状态显示）
@@ -204,6 +279,7 @@ export interface AutoUpdateOperations {
     refreshData: () => Promise<any>;
     loadAllChatMessages: () => Promise<void>;
     purgeOldLayerData: () => Promise<void>;
+    shouldStop?: () => boolean;
 }
 
 /**
@@ -218,41 +294,27 @@ export async function executeAutoUpdatePlan_ACU(
     setAutoUpdating: (v: boolean) => void,
     ops: AutoUpdateOperations
 ): Promise<AutoUpdateResult> {
-    const { tablesToUpdate, updateGroups } = plan;
-    const groupKeys = Object.keys(updateGroups);
-    if (groupKeys.length === 0) return { success: true, failedGroups: 0, totalGroups: 0 };
-
-    const totalGroups = groupKeys.length;
-    const maxConcurrentGroups = Math.max(1, settings.maxConcurrentGroups || 1);
+    const { updateGroups } = plan;
+    if (Object.keys(updateGroups).length === 0) return { success: true, failedGroups: 0, totalGroups: 0 };
 
     setAutoUpdating(true);
 
-    const failedGroupKeys: string[] = [];
-    for (let start = 0; start < groupKeys.length; start += maxConcurrentGroups) {
-        const chunkKeys = groupKeys.slice(start, start + maxConcurrentGroups);
-        const groupPromises = chunkKeys.map(key => (async () => {
-            const group = updateGroups[key];
-            logDebug_ACU(`[Parallel] Processing group update for groupId=${group.groupId}, sheets: ${group.sheetNames.join(', ')}`);
+    const execution = await executeGroupedUpdateChunks_ACU(updateGroups, settings, async (_key, group) => {
+        logDebug_ACU(`[Parallel] Processing group update for groupId=${group.groupId}, sheets: ${group.sheetNames.join(', ')}`);
 
-            const success = await ops.processUpdates(group.indices, 'auto_independent', {
-                targetSheetKeys: group.sheetKeys,
-                batchSize: group.batchSize,
-                requestOptions: { skipProfileSwitch: true, forceDirectApi: true }
-            });
-
-            return { key, success, sheetNames: group.sheetNames };
-        })());
-
-        const results = await Promise.allSettled(groupPromises);
-        results.forEach((result, idx) => {
-            if (result.status === 'rejected' || !result.value?.success) {
-                failedGroupKeys.push(chunkKeys[idx]);
-            }
+        const result = await ops.processUpdates(group.indices, 'auto_independent', {
+            targetSheetKeys: group.sheetKeys,
+            batchSize: group.batchSize,
+            requestOptions: { skipProfileSwitch: true, forceDirectApi: true }
         });
-    }
 
-    if (failedGroupKeys.length > 0) {
-        logWarn_ACU(`并发分组更新失败 ${failedGroupKeys.length}/${totalGroups} 组。`);
+        return { success: !!result?.success, value: result };
+    }, {
+        shouldStop: ops.shouldStop,
+    });
+
+    if (execution.failedGroupKeys.length > 0) {
+        logWarn_ACU(`并发分组更新失败 ${execution.failedGroupKeys.length}/${execution.totalGroups} 组。`);
     }
 
     // 并发更新完成后统一刷新数据链条
@@ -296,9 +358,9 @@ export async function executeAutoUpdatePlan_ACU(
     }
 
     return {
-        success: failedGroupKeys.length === 0,
-        failedGroups: failedGroupKeys.length,
-        totalGroups,
+        success: execution.failedGroupKeys.length === 0,
+        failedGroups: execution.failedGroupKeys.length,
+        totalGroups: execution.totalGroups,
         autoMergeTriggered,
         autoMergeSuccess,
     };

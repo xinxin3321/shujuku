@@ -3,14 +3,15 @@
 import { DEFAULT_CHAR_CARD_PROMPT_ACU, DEFAULT_CHAR_CARD_PROMPT_SQL_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_ACU } from '../../shared/defaults-json.js';
 import { isSqliteMode } from '../table/storage-mode';
 import { handleApiResponse_ACU } from '../ai/prompt-builder';
-import { currentJsonTableData_ACU, settings_ACU } from '../runtime/state-manager';
+import { currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../runtime/state-manager';
 import { sendConnectionManagerRequest_ACU, isGenerateRawAvailable_ACU, generateRaw_ACU } from '../../data/gateways/ai-gateway';
-import { getLastMessageIndex_ACU } from '../../data/gateways/chat-gateway';
+import { getChatArray_ACU, getLastMessageIndex_ACU } from '../../data/gateways/chat-gateway';
 import { getHostRequestHeaders_ACU } from '../../data/gateways/ai-gateway';
 import { updateReadableLorebookEntry_ACU } from '../worldbook/pipeline';
 import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
 import { saveIndependentTableToChatHistory_ACU } from '../table/table-service';
 import { extractTableEditInner_ACU } from '../ai/prompt-builder';
+import { getCurrentVectorMemoryConfig_ACU, isVectorMemoryEnabled_ACU } from '../vector/vector-memory-config';
 
 // ═══ 自动合并纪要：触发检查 ═══
 
@@ -295,7 +296,17 @@ export async function finalizeAutoMerge_ACU(
         ...accumulatedSummary,
         ...remainingRows.filter((row: any) => !row || row[row.length - 1] !== 'auto_merged')
     ];
-    table.content = [table.content[0], ...newSummaryContent];
+
+    let finalSummaryContent = [...newSummaryContent];
+    const targetMessageIndex = getLastMessageIndex_ACU();
+    const vectorConfig = getCurrentVectorMemoryConfig_ACU();
+    const effectiveSummaryRowCountBeforeFinalize = originalContent.filter((row: any) => !row || row[row.length - 1] !== 'auto_merged').length;
+
+    if (isVectorMemoryEnabled_ACU(vectorConfig) && effectiveSummaryRowCountBeforeFinalize >= vectorConfig.threshold) {
+        logDebug_ACU('[向量记忆] 旧自动合并后的纪要条目向量入库支线已停用，等待新的远记忆归档服务接管。当前保留纪要表内容，不再写入过期的 items/chunks 状态。');
+    }
+
+    table.content = [table.content[0], ...finalSummaryContent];
 
     if (!settings_ACU.autoMergedOrder) settings_ACU.autoMergedOrder = {} as Record<string, any>;
     if (!settings_ACU.autoMergedOrder[summaryKey]) settings_ACU.autoMergedOrder[summaryKey] = [] as any[];
@@ -308,7 +319,7 @@ export async function finalizeAutoMerge_ACU(
     });
 
     const keysToSave = [summaryKey];
-    await saveIndependentTableToChatHistory_ACU(getLastMessageIndex_ACU(), keysToSave, keysToSave);
+    await saveIndependentTableToChatHistory_ACU(targetMessageIndex, keysToSave, keysToSave);
     await updateReadableLorebookEntry_ACU(true);
 
     return { mergedRows: accumulatedSummary.length };

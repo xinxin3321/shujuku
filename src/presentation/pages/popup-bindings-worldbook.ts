@@ -16,11 +16,120 @@ import { refreshMergedDataAndNotifyWithUI_ACU } from '../components/pipeline-ui-
 import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-readers';
 import { setZeroTkOccupyMode_ACU } from '../../service/settings/settings-service';
 import { formatJsonToReadable_ACU } from '../../service/runtime/helpers-remaining';
+import { getCurrentVectorMemoryConfig_ACU, getDefaultVectorMemoryConfig_ACU } from '../../service/vector/vector-memory-config';
+import { defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
+
+const KEYWORD_PROMPT_SEGMENT_CLASS = 'acu-keyword-prompt-segment';
+
+function renderPromptGroupToContainer_ACU(containerId: string, segments: any[]): void {
+    const $container = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-${containerId}`);
+    if (!$container.length) return;
+    $container.empty();
+    if (!Array.isArray(segments) || segments.length === 0) return;
+
+    for (const segment of segments) {
+        const $block = jQuery_API_ACU('<div>')
+            .addClass(KEYWORD_PROMPT_SEGMENT_CLASS)
+            .css({ border: '1px solid var(--acu-border-2)', borderRadius: '6px', padding: '8px', background: 'var(--acu-bg-1)' });
+
+        const $header = jQuery_API_ACU('<div>').css({ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '6px' });
+
+        const $roleSelect = jQuery_API_ACU('<select>').css({ width: '120px' });
+        $roleSelect.append(
+            jQuery_API_ACU('<option>').val('system').text('System'),
+            jQuery_API_ACU('<option>').val('assistant').text('Assistant'),
+            jQuery_API_ACU('<option>').val('user').text('User'),
+        );
+        $roleSelect.val(segment.role || 'system');
+
+        const $deleteBtn = jQuery_API_ACU('<button>')
+            .addClass('acu-btn-small')
+            .text('✕')
+            .attr('title', '删除此段落')
+            .css({ fontSize: '11px', marginLeft: 'auto' });
+        if (segment.deletable === false) {
+            $deleteBtn.prop('disabled', true).css({ opacity: 0.4, cursor: 'not-allowed' });
+        }
+
+        $header.append($roleSelect, $deleteBtn);
+
+        const $textarea = jQuery_API_ACU('<textarea>')
+            .addClass('text_pole')
+            .val(segment.content || '')
+            .css({ width: '100%', minHeight: '60px', resize: 'vertical' });
+
+        $block.append($header, $textarea);
+        $container.append($block);
+    }
+}
+
+function readPromptGroupFromContainer_ACU(containerId: string): any[] {
+    const $container = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-${containerId}`);
+    if (!$container.length) return [];
+    const segments: any[] = [];
+    $container.find(`.${KEYWORD_PROMPT_SEGMENT_CLASS}`).each(function () {
+        const $block = jQuery_API_ACU(this);
+        const role = String($block.find('select').val() || 'system').toLowerCase().trim();
+        const content = String($block.find('textarea').val() || '').trim();
+        const $deleteBtn = $block.find('button');
+        const deletable = !$deleteBtn.prop('disabled');
+        if (content) {
+            segments.push({ role, content, deletable });
+        }
+    });
+    return segments;
+}
+
+export function renderKeywordPromptGroupToUI_ACU(segments: any[]): void {
+    renderPromptGroupToContainer_ACU('worldbook-vector-memory-keyword-prompt-group', segments);
+}
+
+export function renderSummaryPromptGroupToUI_ACU(segments: any[]): void {
+    renderPromptGroupToContainer_ACU('worldbook-vector-memory-summary-prompt-group', segments);
+}
+
+export function readKeywordPromptGroupFromUI_ACU(): any[] {
+    return readPromptGroupFromContainer_ACU('worldbook-vector-memory-keyword-prompt-group');
+}
+
+export function readSummaryPromptGroupFromUI_ACU(): any[] {
+    return readPromptGroupFromContainer_ACU('worldbook-vector-memory-summary-prompt-group');
+}
+
 
 /**
  * 绑定世界书标签页的所有事件
  */
 export async function bindWorldbookEvents_ACU(): Promise<void> {
+      // [向量记忆] 配置已迁移到全局 settings_ACU.vectorMemoryConfig，
+      // 不再跟随世界书配置（角色级），而是跟随数据库全局设置。
+      const ensureVectorMemoryConfig_ACU = () => {
+          return getCurrentVectorMemoryConfig_ACU();
+      };
+      const toggleVectorMemoryConfigBlock_ACU = () => {
+          const vectorMemoryConfig = ensureVectorMemoryConfig_ACU();
+          $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-config-block`).toggle(vectorMemoryConfig.enabled === true);
+      };
+      const updateVectorMemoryField_ACU = (field: string, value: any) => {
+          const vectorMemoryConfig = ensureVectorMemoryConfig_ACU();
+          (vectorMemoryConfig as any)[field] = value;
+          saveSettingsAndNotify_ACU();
+      };
+      const parseIntegerField_ACU = (rawValue: any, fallbackValue: number) => {
+          const parsed = Number.parseInt(String(rawValue ?? '').trim(), 10);
+          return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackValue;
+      };
+      const parseFloatField_ACU = (rawValue: any, fallbackValue: number) => {
+          const parsed = Number.parseFloat(String(rawValue ?? '').trim());
+          return Number.isFinite(parsed) ? parsed : fallbackValue;
+      };
+      const bindVectorMemoryInput_ACU = (selector: string, eventName: string, updater: ($input: any) => any) => {
+          const $input = $popupInstance_ACU.find(selector);
+          if (!$input.length) return;
+          $input.off(`${eventName}.acu_vector_memory`).on(`${eventName}.acu_vector_memory`, function() {
+              updater(jQuery_API_ACU(this));
+          });
+      };
       const $worldbookSourceRadios = $popupInstance_ACU.find(`input[name="${SCRIPT_ID_PREFIX_ACU}-worldbook-source"]`);
       const $refreshWorldbooksButton = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-refresh-worldbooks`);
       const $worldbookSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-select`);
@@ -60,6 +169,134 @@ export async function bindWorldbookEvents_ACU(): Promise<void> {
       if ($refreshWorldbooksButton.length) {
           $refreshWorldbooksButton.on('click', populateWorldbookList_ACU);
       }
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-enabled`, 'change', ($input) => {
+          updateVectorMemoryField_ACU('enabled', $input.is(':checked'));
+          toggleVectorMemoryConfigBlock_ACU();
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-threshold`, 'change', ($input) => {
+          const defaults = getDefaultVectorMemoryConfig_ACU();
+          updateVectorMemoryField_ACU('threshold', parseIntegerField_ACU($input.val(), defaults.threshold));
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-archive-trigger-count`, 'change', ($input) => {
+          const defaults = getDefaultVectorMemoryConfig_ACU();
+          updateVectorMemoryField_ACU('archiveTriggerCount', parseIntegerField_ACU($input.val(), (defaults as any).archiveTriggerCount || defaults.archiveBatchSize));
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-archive-batch-size`, 'change', ($input) => {
+          const defaults = getDefaultVectorMemoryConfig_ACU();
+          updateVectorMemoryField_ACU('archiveBatchSize', parseIntegerField_ACU($input.val(), defaults.archiveBatchSize));
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-archive-max-concurrency`, 'change', ($input) => {
+          const defaults = getDefaultVectorMemoryConfig_ACU();
+          updateVectorMemoryField_ACU('archiveMaxConcurrency', parseIntegerField_ACU($input.val(), (defaults as any).archiveMaxConcurrency || 3));
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-topk`, 'change', ($input) => {
+          const defaults = getDefaultVectorMemoryConfig_ACU();
+          updateVectorMemoryField_ACU('topK', parseIntegerField_ACU($input.val(), defaults.topK));
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-min-score`, 'change', ($input) => {
+          const defaults = getDefaultVectorMemoryConfig_ACU();
+          updateVectorMemoryField_ACU('minScore', parseFloatField_ACU($input.val(), defaults.minScore));
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-namespace`, 'change', ($input) => {
+          updateVectorMemoryField_ACU('vectorNamespace', String($input.val() ?? '').trim());
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-embedding-endpoint`, 'change', ($input) => {
+          updateVectorMemoryField_ACU('embeddingEndpoint', String($input.val() ?? '').trim());
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-embedding-model`, 'change', ($input) => {
+          updateVectorMemoryField_ACU('embeddingModel', String($input.val() ?? '').trim());
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-embedding-api-key`, 'change', ($input) => {
+          updateVectorMemoryField_ACU('embeddingApiKey', String($input.val() ?? '').trim());
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-overview-sentence-limit`, 'change', ($input) => {
+          const defaults = getDefaultVectorMemoryConfig_ACU();
+          updateVectorMemoryField_ACU('summaryChunkSentenceCount', parseIntegerField_ACU($input.val(), defaults.summaryChunkSentenceCount));
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-archive-without-summary`, 'change', ($input) => {
+          updateVectorMemoryField_ACU('archiveWithoutSummary', $input.is(':checked'));
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-recall-candidate-limit`, 'change', ($input) => {
+          const defaults = getDefaultVectorMemoryConfig_ACU();
+          updateVectorMemoryField_ACU('recallCandidateLimit', parseIntegerField_ACU($input.val(), defaults.recallCandidateLimit));
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-entry-comment`, 'change', ($input) => {
+          updateVectorMemoryField_ACU('entryComment', String($input.val() ?? '').trim());
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-entry-key`, 'change', ($input) => {
+          updateVectorMemoryField_ACU('entryKey', String($input.val() ?? '').trim());
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-keyword-api-preset`, 'change', ($input) => {
+          updateVectorMemoryField_ACU('keywordApiPreset', String($input.val() ?? '').trim());
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-keyword-context-pair-count`, 'change', ($input) => {
+          const defaults = getDefaultVectorMemoryConfig_ACU();
+          updateVectorMemoryField_ACU('keywordContextPairCount', parseIntegerField_ACU($input.val(), defaults.keywordContextPairCount));
+      });
+
+      const bindPromptGroupEditor_ACU = (
+          containerId: string,
+          addButtonId: string,
+          resetButtonId: string,
+          fieldName: string,
+          renderFn: (segments: any[]) => void,
+          readFn: () => any[],
+          getDefaultSegments: () => any[],
+      ) => {
+          const $container = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-${containerId}`);
+          if ($container.length) {
+              $container.on('click', 'button:not(:disabled)', function () {
+                  jQuery_API_ACU(this).closest(`.${KEYWORD_PROMPT_SEGMENT_CLASS}`).remove();
+                  const segments = readFn();
+                  updateVectorMemoryField_ACU(fieldName, segments);
+              });
+              $container.on('change', 'select, textarea', function () {
+                  const segments = readFn();
+                  updateVectorMemoryField_ACU(fieldName, segments);
+              });
+          }
+
+          const $addBtn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-${addButtonId}`);
+          if ($addBtn.length) {
+              $addBtn.on('click', function () {
+                  const currentSegments = readFn();
+                  currentSegments.push({ role: 'user', content: '', deletable: true });
+                  renderFn(currentSegments);
+                  updateVectorMemoryField_ACU(fieldName, currentSegments);
+              });
+          }
+
+          const $resetBtn = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-${resetButtonId}`);
+          if ($resetBtn.length) {
+              $resetBtn.on('click', function () {
+                  const defaultSegments = getDefaultSegments();
+                  renderFn(defaultSegments);
+                  updateVectorMemoryField_ACU(fieldName, defaultSegments);
+              });
+          }
+      };
+
+      bindPromptGroupEditor_ACU(
+          'worldbook-vector-memory-keyword-prompt-group',
+          'worldbook-vector-memory-keyword-prompt-add',
+          'worldbook-vector-memory-keyword-prompt-reset',
+          'keywordPromptGroup',
+          renderKeywordPromptGroupToUI_ACU,
+          readKeywordPromptGroupFromUI_ACU,
+          () => JSON.parse(JSON.stringify(getDefaultVectorMemoryConfig_ACU().keywordPromptGroup || [])),
+      );
+
+      bindPromptGroupEditor_ACU(
+          'worldbook-vector-memory-summary-prompt-group',
+          'worldbook-vector-memory-summary-prompt-add',
+          'worldbook-vector-memory-summary-prompt-reset',
+          'summaryPromptGroup',
+          renderSummaryPromptGroupToUI_ACU,
+          readSummaryPromptGroupFromUI_ACU,
+          () => JSON.parse(JSON.stringify((getDefaultVectorMemoryConfig_ACU() as any).summaryPromptGroup || [])),
+      );
+
+      toggleVectorMemoryConfigBlock_ACU();
       // [新增] 外部导入世界书选择器的事件绑定
       const $refreshImportWorldbooksButton = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-refresh-import-worldbooks`);
       if ($refreshImportWorldbooksButton.length) {

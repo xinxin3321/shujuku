@@ -4,6 +4,7 @@
 import { DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_SQL_ACU, TABLE_TEMPLATE_ACU } from '../../shared/defaults-json.js';
 import { deriveTemplatePresetNameForImport_ACU, getCurrentTemplatePresetName_ACU, isDefaultTemplatePresetSelection_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
 import { showToastr_ACU } from '../theme/toast';
+import { showCustomConfirm_ACU } from '../theme/custom-confirm';
 import { ACU_TOAST_CATEGORY_ACU, SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { topLevelWindow_ACU } from '../../shared/env';
 import { escapeHtml_ACU } from '../../shared/html-helpers';
@@ -19,7 +20,7 @@ import { importCombinedSettings_ACU } from '../triggers/admin-ui';
 import { applyTemplateScopeForCurrentChat_ACU, getDataIsolationHistory_ACU, removeDataIsolationHistory_ACU, switchIsolationProfile_ACU, persistCurrentTemplatePresetName_ACU } from '../../service/settings/settings-service';
 import { deleteAllGeneratedEntries_ACU } from '../../service/worldbook/pipeline';
 import { refreshMergedDataAndNotifyWithUI_ACU, refreshPresetUIAfterSwitch_ACU } from '../components/pipeline-ui-helpers';
-import { loadOrCreateJsonTableFromChatHistory_ACU } from '../../service/table/table-service';
+import { loadOrCreateJsonTableFromChatHistory_ACU, persistTablesToChatMessage_ACU } from '../../service/table/table-service';
 import { getTemplatePreset_ACU, applyTemplatePresetToCurrent_ACU, applyTemplateSnapshotToScope_ACU, deleteTemplatePreset_ACU, ensureUniqueTemplatePresetName_ACU, normalizeTemplateForPresetSave_ACU, parseImportedTemplateData_ACU, persistTemplateScopeSelectionState_ACU, resolveActiveTemplatePresetName_ACU, upsertTemplatePreset_ACU } from '../../service/template/template-preset-service';
 import { getChatSheetGuideDataForIsolationKey_ACU, getCurrentChatTemplateScopeState_ACU, sanitizeTemplateSnapshotForChat_ACU } from '../../service/template/chat-scope';
 import { loadTemplatePresetSelect_ACU } from '../components/template-preset-ui';
@@ -32,6 +33,9 @@ import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-d
 import { populateImportWorldbookTargetSelector_ACU } from '../components/worldbook-selector';
 import { saveApiConfig_ACU, clearApiConfig_ACU, fetchModelsAndConnect_ACU, loadApiPreset_ACU, saveApiPreset_ACU, deleteApiPreset_ACU, saveCustomCharCardPrompt_ACU, saveImportSplitSize_ACU, resetDefaultCharCardPrompt_ACU, updateCustomApiInputsState_ACU, refreshApiPresetSelectors_ACU } from '../triggers/settings-ui-sync';
 import { handleImportSelectAll_ACU, handleImportSelectNone_ACU } from '../components/table-selector';
+import { buildSummaryVectorIndexIfNeeded_ACU } from '../../service/vector/vector-index-orchestrator';
+import { deleteRemoteMemoryBatch_ACU, getLatestRemoteMemorySnapshotView_ACU, saveEditedRemoteMemoryBatch_ACU } from '../../service/vector/remote-memory-management-service';
+import { showRemoteMemoryArchiveProgressOverlay_ACU, updateRemoteMemoryArchiveProgressOverlay_ACU, markRemoteMemoryArchiveCancelling_ACU, hideRemoteMemoryArchiveProgressOverlay_ACU } from '../components/remote-memory-archive-progress';
 
 /**
  * 绑定数据管理标签页的所有事件（数据隔离 + 外部导入 + 模板预设 + 数据管理按钮）
@@ -68,6 +72,19 @@ export async function bindDataEvents_ACU(): Promise<void> {
       const $importCombinedSettingsButton = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-import-combined-settings`);
       const $exportCombinedSettingsButton = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-export-combined-settings`);
       const $openNewVisualizerButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-open-new-visualizer`);
+      const $buildVectorIndexNowButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-build-vector-index-now`);
+      const $remoteMemoryRefreshButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-remote-memory-refresh`);
+      const $remoteMemoryEmpty_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-remote-memory-empty`);
+      const $remoteMemoryBatchList_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-remote-memory-batch-list`);
+      const $remoteMemoryDetailMeta_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-remote-memory-detail-meta`);
+      const $remoteMemorySummaryText_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-remote-memory-summary-text`);
+      const $remoteMemoryDeleteButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-remote-memory-delete`);
+      const $remoteMemoryResetButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-remote-memory-reset`);
+      const $remoteMemorySaveButton_ACU = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-remote-memory-save`);
+      let remoteMemorySelectedBatchId_ACU = '';
+      let remoteMemoryOriginalSummaryText_ACU = '';
+      let remoteMemoryArchiveRunning_ACU = false;
+      let remoteMemoryArchiveAbortController_ACU: AbortController | null = null;
 
       const handleOpenVisualizerClick_ACU = async () => {
           try {
@@ -88,6 +105,310 @@ export async function bindDataEvents_ACU(): Promise<void> {
               .off('click.acu_visualizer')
               .on('click.acu_visualizer', handleOpenVisualizerClick_ACU);
       }
+
+      const ensureRemoteMemoryInteractive_ACU = (): boolean => {
+          if (!remoteMemoryArchiveRunning_ACU) {
+              return true;
+          }
+          showToastr_ACU('info', '远记忆归档进行中，请稍候后再操作远记忆总结。');
+          return false;
+      };
+
+      const syncRemoteMemoryEditorState_ACU = (summaryText: string, disabled: boolean) => {
+          const finalDisabled = disabled || remoteMemoryArchiveRunning_ACU;
+          $remoteMemorySummaryText_ACU.val(summaryText);
+          $remoteMemorySummaryText_ACU.prop('disabled', finalDisabled);
+          $remoteMemoryDeleteButton_ACU.prop('disabled', finalDisabled);
+          $remoteMemoryResetButton_ACU.prop('disabled', finalDisabled);
+          $remoteMemorySaveButton_ACU.prop('disabled', finalDisabled);
+      };
+
+      const renderRemoteMemoryDetail_ACU = (batch: any | null) => {
+          if (!batch) {
+              remoteMemorySelectedBatchId_ACU = '';
+              remoteMemoryOriginalSummaryText_ACU = '';
+              $remoteMemoryDetailMeta_ACU.text('请选择左侧总结批次。');
+              syncRemoteMemoryEditorState_ACU('', true);
+              return;
+          }
+
+          remoteMemorySelectedBatchId_ACU = String(batch.batchId || '').trim();
+          remoteMemoryOriginalSummaryText_ACU = String(batch.summaryText || '');
+          const archivedRange = batch?.archivedRange
+              ? `${batch.archivedRange.firstRowKey || ''} ~ ${batch.archivedRange.lastRowKey || ''}`.trim()
+              : '';
+          const metaParts = [
+              `batchId: ${remoteMemorySelectedBatchId_ACU || '未命名批次'}`,
+              `归档条数: ${Number(batch?.sourceRowCount || 0)}`,
+          ];
+          if (archivedRange && archivedRange !== '~') {
+              metaParts.push(`归档范围: ${archivedRange}`);
+          }
+          $remoteMemoryDetailMeta_ACU.text(metaParts.join(' ｜ '));
+          syncRemoteMemoryEditorState_ACU(remoteMemoryOriginalSummaryText_ACU, false);
+      };
+
+      const renderRemoteMemoryList_ACU = () => {
+          const snapshotView = getLatestRemoteMemorySnapshotView_ACU();
+          const batches = Array.isArray(snapshotView?.batches) ? snapshotView.batches : [];
+          $remoteMemoryBatchList_ACU.empty();
+          $remoteMemoryEmpty_ACU.toggle(batches.length === 0);
+
+          if (batches.length === 0) {
+              renderRemoteMemoryDetail_ACU(null);
+              return;
+          }
+
+          const selectedBatchId = batches.some((batch: any) => String(batch?.batchId || '').trim() === remoteMemorySelectedBatchId_ACU)
+              ? remoteMemorySelectedBatchId_ACU
+              : String(batches[0]?.batchId || '').trim();
+
+          batches.forEach((batch: any, index: number) => {
+              const batchId = String(batch?.batchId || '').trim();
+              const isActive = batchId === selectedBatchId;
+              const label = `总结${index + 1}`;
+              const rowCount = Number(batch?.sourceRowCount || 0);
+              const buttonHtml = `<button type="button" class="acu-mini-btn acu-remote-memory-batch${isActive ? ' active' : ''}" data-batch-id="${escapeHtml_ACU(batchId)}" style="text-align:left; justify-content:flex-start; ${isActive ? 'border-color: var(--accent-primary); color: var(--accent-primary);' : ''}">${label}${rowCount > 0 ? `（${rowCount}条）` : ''}</button>`;
+              $remoteMemoryBatchList_ACU.append(buttonHtml);
+          });
+
+          const selectedBatch = batches.find((batch: any) => String(batch?.batchId || '').trim() === selectedBatchId) || null;
+          renderRemoteMemoryDetail_ACU(selectedBatch);
+      };
+
+      const handleBuildVectorIndexNowClick_ACU = async () => {
+          if (remoteMemoryArchiveRunning_ACU) {
+              showToastr_ACU('info', '远记忆归档正在执行中，请勿重复点击。');
+              return;
+          }
+
+          const originalButtonHtml = $buildVectorIndexNowButton_ACU.html();
+          const archiveAbortController = new AbortController();
+          remoteMemoryArchiveRunning_ACU = true;
+          remoteMemoryArchiveAbortController_ACU = archiveAbortController;
+          $buildVectorIndexNowButton_ACU.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> 远记忆归档进行中...');
+          $remoteMemoryRefreshButton_ACU.prop('disabled', true);
+          syncRemoteMemoryEditorState_ACU(String($remoteMemorySummaryText_ACU.val() || ''), !remoteMemorySelectedBatchId_ACU);
+          showRemoteMemoryArchiveProgressOverlay_ACU({
+              title: '远记忆归档进行中',
+              message: '正在保存当前表格并准备执行远记忆归档，请稍候。',
+              onCancel: () => {
+                  if (!remoteMemoryArchiveAbortController_ACU || remoteMemoryArchiveAbortController_ACU.signal.aborted) {
+                      return;
+                  }
+                  remoteMemoryArchiveAbortController_ACU.abort();
+                  markRemoteMemoryArchiveCancelling_ACU('正在终止远记忆归档，当前批次结束后将停止后续归档...');
+              },
+          });
+
+          try {
+              updateRemoteMemoryArchiveProgressOverlay_ACU('正在保存当前表格到最新 AI 楼层...');
+              const persistResult = await persistTablesToChatMessage_ACU({
+                  skipVectorAutoIndex: true,
+              });
+              if (!persistResult.saved || typeof persistResult.messageIndex !== 'number') {
+                  showToastr_ACU('warning', `保存失败，无法执行远记忆归档：${persistResult.error || '未找到可用的 AI 消息'}`);
+                  return;
+              }
+              if (archiveAbortController.signal.aborted) {
+                  showToastr_ACU('info', '已终止远记忆归档，未提交新的归档结果。');
+                  return;
+              }
+
+              updateRemoteMemoryArchiveProgressOverlay_ACU('保存完成，正在执行远记忆归档检测与构建...');
+              const indexResult = await buildSummaryVectorIndexIfNeeded_ACU({
+                  targetMessageIndex: persistResult.messageIndex,
+                  force: true,
+                  signal: archiveAbortController.signal,
+                  onProgress: (event) => {
+                      if (!event?.message) {
+                          return;
+                      }
+                      if (event.stage === 'cancel_requested' || event.stage === 'aborted') {
+                          markRemoteMemoryArchiveCancelling_ACU(event.message);
+                          return;
+                      }
+                      updateRemoteMemoryArchiveProgressOverlay_ACU(event.message);
+                  },
+              });
+              logWarn_ACU('[向量记忆] 手动远记忆归档返回结果:', indexResult);
+
+              if (indexResult.canceled) {
+                  showToastr_ACU('info', '已终止远记忆归档，未提交新的归档结果。');
+                  return;
+              }
+
+              if (indexResult.success && indexResult.indexedCount > 0) {
+                  const successMessage = `远记忆归档完成：新增 ${indexResult.indexedCount} 条大总结，chunks=${indexResult.chunkCount}`;
+                  renderRemoteMemoryList_ACU();
+                  if (indexResult.errors.length > 0) {
+                      showToastr_ACU('warning', `${successMessage}；但世界书刷新存在告警：${indexResult.errors.join(' | ')}`);
+                      return;
+                  }
+                  showToastr_ACU('success', successMessage);
+                  return;
+              }
+
+              if (indexResult.success && indexResult.skipped) {
+                  const skipReasonText = indexResult.reason === 'no_effective_rows'
+                      ? '纪要表暂无可归档的有效条目。'
+                      : indexResult.reason === 'threshold_not_reached'
+                          ? '当前纪要条目尚未达到远记忆归档的超额触发条件。'
+                          : indexResult.reason === 'vector_memory_disabled'
+                              ? '当前未启用向量记忆功能。'
+                              : indexResult.reason === 'summary_table_not_found'
+                                  ? '未找到纪要表，无法执行远记忆归档。'
+                                  : '当前没有可归档的远记忆批次。';
+                  showToastr_ACU('info', skipReasonText);
+                  return;
+              }
+
+              const reasonText = String(indexResult.reason || '').trim();
+              const detailsText = indexResult.errors.length > 0
+                  ? indexResult.errors.join(' | ')
+                  : reasonText
+                      ? `reason=${reasonText}`
+                      : `返回结果=${JSON.stringify(indexResult)}`;
+              showToastr_ACU('error', `执行远记忆归档失败：${detailsText}`);
+          } catch (e: any) {
+              logError_ACU('立即执行远记忆归档失败:', e);
+              showToastr_ACU('error', `立即执行远记忆归档失败: ${e?.message || '未知错误'}`);
+          } finally {
+              hideRemoteMemoryArchiveProgressOverlay_ACU();
+              remoteMemoryArchiveAbortController_ACU = null;
+              remoteMemoryArchiveRunning_ACU = false;
+              $buildVectorIndexNowButton_ACU.prop('disabled', false).html(originalButtonHtml);
+              $remoteMemoryRefreshButton_ACU.prop('disabled', false);
+              syncRemoteMemoryEditorState_ACU(String($remoteMemorySummaryText_ACU.val() || ''), !remoteMemorySelectedBatchId_ACU);
+          }
+      };
+
+      if ($buildVectorIndexNowButton_ACU.length) {
+          $buildVectorIndexNowButton_ACU
+              .off('click.acu_vector_index')
+              .on('click.acu_vector_index', handleBuildVectorIndexNowClick_ACU);
+      }
+
+      if ($remoteMemoryBatchList_ACU.length) {
+          $remoteMemoryBatchList_ACU.off('click.acu_remote_memory').on('click.acu_remote_memory', '.acu-remote-memory-batch', function() {
+              if (!ensureRemoteMemoryInteractive_ACU()) {
+                  return;
+              }
+              remoteMemorySelectedBatchId_ACU = String(jQuery_API_ACU(this).data('batch-id') || '').trim();
+              renderRemoteMemoryList_ACU();
+          });
+      }
+
+      if ($remoteMemoryRefreshButton_ACU.length) {
+          $remoteMemoryRefreshButton_ACU.off('click.acu_remote_memory').on('click.acu_remote_memory', function() {
+              if (!ensureRemoteMemoryInteractive_ACU()) {
+                  return;
+              }
+              renderRemoteMemoryList_ACU();
+              showToastr_ACU('info', '远记忆总结列表已刷新。');
+          });
+      }
+
+      if ($remoteMemoryResetButton_ACU.length) {
+          $remoteMemoryResetButton_ACU.off('click.acu_remote_memory').on('click.acu_remote_memory', function() {
+              if (!ensureRemoteMemoryInteractive_ACU()) {
+                  return;
+              }
+              if (!remoteMemorySelectedBatchId_ACU) return;
+              syncRemoteMemoryEditorState_ACU(remoteMemoryOriginalSummaryText_ACU, false);
+          });
+      }
+
+      if ($remoteMemoryDeleteButton_ACU.length) {
+          $remoteMemoryDeleteButton_ACU.off('click.acu_remote_memory').on('click.acu_remote_memory', async function() {
+              if (!ensureRemoteMemoryInteractive_ACU()) {
+                  return;
+              }
+              if (!remoteMemorySelectedBatchId_ACU) {
+                  showToastr_ACU('warning', '请先选择一个远记忆总结批次。');
+                  return;
+              }
+              const confirmed = await showCustomConfirm_ACU(
+                  '删除远记忆总结',
+                  '确定删除当前远记忆总结批次吗？\n删除后会同步写入最新 AI 楼层与世界书。',
+                  {
+                      confirmLabel: '删除',
+                      cancelLabel: '取消',
+                  },
+              );
+              if (!confirmed) {
+                  return;
+              }
+
+              const originalButtonText = $remoteMemoryDeleteButton_ACU.text();
+              $remoteMemoryDeleteButton_ACU.prop('disabled', true).text('删除中...');
+              try {
+                  const result = await deleteRemoteMemoryBatch_ACU({
+                      batchId: remoteMemorySelectedBatchId_ACU,
+                  });
+                  if (!result.deleted) {
+                      showToastr_ACU('error', `删除远记忆总结失败：${result.errors.join(' | ') || '未知错误'}`);
+                      return;
+                  }
+                  remoteMemorySelectedBatchId_ACU = '';
+                  remoteMemoryOriginalSummaryText_ACU = '';
+                  renderRemoteMemoryList_ACU();
+                  if (result.errors.length > 0) {
+                      showToastr_ACU('warning', `远记忆总结已删除，但世界书刷新存在告警：${result.errors.join(' | ')}`);
+                  } else {
+                      showToastr_ACU('success', '远记忆总结已删除。');
+                  }
+              } catch (e: any) {
+                  logError_ACU('删除远记忆总结失败:', e);
+                  showToastr_ACU('error', `删除远记忆总结失败: ${e?.message || '未知错误'}`);
+              } finally {
+                  $remoteMemoryDeleteButton_ACU.text(originalButtonText).prop('disabled', remoteMemoryArchiveRunning_ACU || !remoteMemorySelectedBatchId_ACU);
+              }
+          });
+      }
+
+      if ($remoteMemorySaveButton_ACU.length) {
+          $remoteMemorySaveButton_ACU.off('click.acu_remote_memory').on('click.acu_remote_memory', async function() {
+              if (!ensureRemoteMemoryInteractive_ACU()) {
+                  return;
+              }
+              if (!remoteMemorySelectedBatchId_ACU) {
+                  showToastr_ACU('warning', '请先选择一个远记忆总结批次。');
+                  return;
+              }
+              const nextSummaryText = String($remoteMemorySummaryText_ACU.val() || '').trim();
+              if (!nextSummaryText) {
+                  showToastr_ACU('warning', '远记忆总结内容不能为空。');
+                  return;
+              }
+              const originalButtonText = $remoteMemorySaveButton_ACU.text();
+              $remoteMemorySaveButton_ACU.prop('disabled', true).text('保存中...');
+              try {
+                  const result = await saveEditedRemoteMemoryBatch_ACU({
+                      batchId: remoteMemorySelectedBatchId_ACU,
+                      summaryText: nextSummaryText,
+                  });
+                  if (!result.saved) {
+                      showToastr_ACU('error', `远记忆总结保存失败：${result.errors.join(' | ') || '未知错误'}`);
+                      return;
+                  }
+                  remoteMemoryOriginalSummaryText_ACU = nextSummaryText;
+                  renderRemoteMemoryList_ACU();
+                  if (result.errors.length > 0) {
+                      showToastr_ACU('warning', `远记忆总结已保存，但世界书刷新存在告警：${result.errors.join(' | ')}`);
+                  } else {
+                      showToastr_ACU('success', '远记忆总结已保存到最新楼层。');
+                  }
+              } catch (e: any) {
+                  logError_ACU('保存远记忆总结失败:', e);
+                  showToastr_ACU('error', `保存远记忆总结失败: ${e?.message || '未知错误'}`);
+              } finally {
+                  $remoteMemorySaveButton_ACU.prop('disabled', remoteMemoryArchiveRunning_ACU || !remoteMemorySelectedBatchId_ACU).text(originalButtonText);
+              }
+          });
+      }
+
+      renderRemoteMemoryList_ACU();
 
         const closeDataIsolationHistoryDropdown_ACU = () => {
             if ($dataIsolationCombo.length && $dataIsolationHistoryList.length) {

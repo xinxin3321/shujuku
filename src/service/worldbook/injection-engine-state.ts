@@ -67,6 +67,12 @@ import { purgeSheetKeysFromMessage_ACU } from '../../data/repositories/chat-mess
     generationGate_ACU.lastUserMessageText = '';
     generationGate_ACU.lastUserMessageAt = 0;
     generationGate_ACU.lastUserSendIntentAt = 0;
+    generationGate_ACU.lastVectorRecallSignature = '';
+    generationGate_ACU.lastVectorRecallAt = 0;
+    generationGate_ACU.lastVectorRecallIntentAt = 0;
+    generationGate_ACU.lastVectorRecallResult = null;
+    generationGate_ACU.lastVectorRecallBlockFingerprint = '';
+    generationGate_ACU.lastVectorRecallBlockAt = 0;
     generationGate_ACU.lastGeneration = null;
 
     logDebug_ACU(

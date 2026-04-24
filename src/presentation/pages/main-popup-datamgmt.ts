@@ -77,7 +77,34 @@ export function generateDataMgmtTabHTML(): string {
                         </div>
                     </div>
 
-                    <!-- D. 纪要合并 (Medusa) -->
+                    <!-- D. 远记忆总结管理 -->
+                    <div class="acu-card">
+                        <h3>远记忆总结管理</h3>
+                        <p class="notes">查看当前聊天已经归档的远记忆大总结，支持按批次浏览、编辑并保存到最新 AI 楼层。若需要手动触发归档，请使用“表格工具”里的“立即执行远记忆归档”按钮。</p>
+                        <div style="display: grid; grid-template-columns: minmax(180px, 220px) 1fr; gap: 14px; align-items: start;">
+                            <div style="display: flex; flex-direction: column; gap: 10px; min-height: 0;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                                    <strong style="font-size: 0.95em; color: var(--acu-text-1);">远记忆批次</strong>
+                                    <button id="${SCRIPT_ID_PREFIX_ACU}-remote-memory-refresh" class="acu-mini-btn" type="button">刷新</button>
+                                </div>
+                                <div style="max-height: 320px; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 8px;">
+                                    <div id="${SCRIPT_ID_PREFIX_ACU}-remote-memory-empty" class="notes" style="padding: 10px; border: 1px dashed var(--acu-border-2); border-radius: 6px; background: var(--acu-bg-2);">当前聊天暂无远记忆总结。</div>
+                                    <div id="${SCRIPT_ID_PREFIX_ACU}-remote-memory-batch-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                                </div>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 10px; min-width: 0;">
+                                <div id="${SCRIPT_ID_PREFIX_ACU}-remote-memory-detail-meta" class="notes" style="min-height: 20px;">请选择左侧总结批次。</div>
+                                <textarea id="${SCRIPT_ID_PREFIX_ACU}-remote-memory-summary-text" style="height: 220px; font-size: 0.9em; width: 100%; resize: vertical;" placeholder="请选择左侧总结批次后查看或编辑内容。" disabled></textarea>
+                                <div style="display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap;">
+                                    <button id="${SCRIPT_ID_PREFIX_ACU}-remote-memory-delete" type="button" disabled>删除总结</button>
+                                    <button id="${SCRIPT_ID_PREFIX_ACU}-remote-memory-reset" type="button">恢复原文</button>
+                                    <button id="${SCRIPT_ID_PREFIX_ACU}-remote-memory-save" class="primary" type="button">保存到最新楼层</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- E. 纪要合并 (Medusa) -->
                     <div class="acu-card">
                         <h3 style="text-align: center; margin-bottom: 15px;">纪要合并 (Medusa)</h3>
                         <p class="notes" style="text-align: center; margin-bottom: 20px;">将当前的纪要表进行批量合并与精简。</p>

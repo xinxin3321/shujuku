@@ -221,6 +221,7 @@ export async function purgeOldLayerData_ACU() {
         'TavernDB_ACU_UpdateGroupKeys',
         'TavernDB_ACU_IsolatedData',
         'TavernDB_ACU_Identity',
+        'TavernDB_ACU_LocalMessageAnchor',
         'qrf_plot',
         'qrf_plot_preset',
         'qrf_plot_tasks'
@@ -326,6 +327,10 @@ export async function deleteLocalDataInChatCore_ACU(
             }
             if (msg.TavernDB_ACU_Identity !== undefined) {
                 delete msg.TavernDB_ACU_Identity;
+                modified = true;
+            }
+            if (msg.TavernDB_ACU_LocalMessageAnchor !== undefined) {
+                delete msg.TavernDB_ACU_LocalMessageAnchor;
                 modified = true;
             }
             if (msg.TavernDB_ACU_IsolatedData) {

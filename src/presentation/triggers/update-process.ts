@@ -25,6 +25,7 @@ import {
     type CardUpdateResult,
     type BatchUpdateResult,
     type CardUpdateProgressEvent,
+    type BatchUpdateProgressContext,
 } from '../../service/table/update-orchestrator';
 
 // ============================================================
@@ -47,37 +48,60 @@ function updateStatusDisplay() {
     if (typeof updateCardUpdateStatusDisplay_ACU === 'function') updateCardUpdateStatusDisplay_ACU();
 }
 
+function buildBatchProgressLabel(event: Partial<CardUpdateProgressEvent>): string {
+    if (Number.isFinite(event.currentBatch) && Number.isFinite(event.totalBatches)) {
+        return `第 ${event.currentBatch}/${event.totalBatches} 批`;
+    }
+    return '当前批次';
+}
+
+function buildProgressMessage(event: CardUpdateProgressEvent): string {
+    const batchLabel = buildBatchProgressLabel(event);
+    switch (event.phase) {
+        case 'preparing':
+            return `${batchLabel}：准备AI输入...`;
+        case 'calling_ai':
+            return `${batchLabel}：第 ${event.attempt || 1}/${event.maxRetries || 1} 次调用AI进行增量更新...`;
+        case 'parsing':
+            return `${batchLabel}：解析并应用AI返回的更新...`;
+        case 'saving':
+            return `${batchLabel}：正在将更新后的数据库保存到聊天记录...`;
+        case 'chunk_done':
+            return `${batchLabel}：分块处理成功...`;
+        case 'complete':
+            return `${batchLabel}：数据库增量更新成功！`;
+        case 'retry':
+            return `${batchLabel}：第 ${event.attempt || 1}/${event.maxRetries || 1} 次尝试失败，5秒后重试...${event.message ? ` (${event.message})` : ''}`;
+        case 'error':
+            return `${batchLabel}：错误：更新失败。`;
+        default:
+            return `${batchLabel}：正在处理...`;
+    }
+}
+
+function updateLoadingToastMessage(loadingToast: any, message: string) {
+    if (!loadingToast || !toastr_API_ACU) return;
+    loadingToast.find('.acu-toast-progress-message').text(message);
+}
+
 /**
  * 根据 service 层返回的进度事件更新 UI
  * presentation 层自己决定"怎么展示"
  */
-function handleProgressEvent(event: CardUpdateProgressEvent, isSilentMode: boolean) {
+function handleProgressEvent(event: CardUpdateProgressEvent, isSilentMode: boolean, loadingToast?: any) {
     if (isSilentMode) return;
+    const message = buildProgressMessage(event);
+    updateStatusText(message, false);
+    updateLoadingToastMessage(loadingToast, message);
+
     switch (event.phase) {
-        case 'preparing':
-            updateStatusText('准备AI输入...', false);
-            break;
-        case 'calling_ai':
-            updateStatusText(`第 ${event.attempt}/${event.maxRetries} 次调用AI进行增量更新...`, false);
-            break;
-        case 'parsing':
-            updateStatusText('解析并应用AI返回的更新...', false);
-            break;
-        case 'saving':
-            updateStatusText('正在将更新后的数据库保存到聊天记录...', false);
-            break;
-        case 'chunk_done':
-            updateStatusText('分块处理成功...', false);
-            break;
         case 'complete':
-            updateStatusText('数据库增量更新成功！', false);
             updateStatusDisplay();
             break;
         case 'retry':
-            showToastr_ACU('warning', `第 ${event.attempt} 次尝试失败，5秒后重试... (${event.message || ''})`, { timeOut: 5000 });
+            showToastr_ACU('warning', message, { timeOut: 5000 });
             break;
-        case 'error':
-            updateStatusText('错误：更新失败。', false);
+        default:
             break;
     }
 }
@@ -98,19 +122,24 @@ export async function proceedWithCardUpdate_ACU(
     updateMode = 'standard',
     isSilentMode = false,
     targetSheetKeys: string[] | null = null,
-    requestOptions: Record<string, any> | null = null
+    requestOptions: Record<string, any> | null = null,
+    progressContext: BatchUpdateProgressContext | null = null,
 ): Promise<CardUpdateResult> {
     logDebug_ACU(`[更新流程] proceedWithCardUpdate: 消息数=${messagesToUse.length}, 模式=${updateMode}, 静默=${isSilentMode}, 目标表=${targetSheetKeys?.join(',') || '全部'}`);
     const localAbortController = new AbortController();
     let loadingToast: any = null;
+    const stopButtonId = `acu-stop-update-btn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // UI：通知填表开始
     if (!isSilentMode) {
         notifyTableFillStart();
 
         // UI：显示加载 toast（带停止按钮）
-        const stopButtonHtml = renderStopButton_ACU('acu-stop-update-btn', '终止');
-        const toastMessage = `<div>${batchToastMessage || '正在填表，请稍候...'}${stopButtonHtml}</div>`;
+        const stopButtonHtml = renderStopButton_ACU(stopButtonId, '终止');
+        const initialMessage = progressContext
+            ? `${buildBatchProgressLabel(progressContext)}：${batchToastMessage || '正在填表，请稍候...'}`
+            : (batchToastMessage || '正在填表，请稍候...');
+        const toastMessage = `<div><span class="acu-toast-progress-message">${initialMessage}</span>${stopButtonHtml}</div>`;
         loadingToast = showToastr_ACU('info', toastMessage, {
             timeOut: 0,
             extendedTimeOut: 0,
@@ -118,13 +147,13 @@ export async function proceedWithCardUpdate_ACU(
             acuToastCategory: ACU_TOAST_CATEGORY_ACU.MANUAL_TABLE,
             onShown: function () {
                 if (typeof bindTableFillStopButton_ACU === 'function') {
-                    bindTableFillStopButton_ACU(localAbortController, () => {
+                    bindTableFillStopButton_ACU(stopButtonId, () => {
                         _set_wasStoppedByUser_ACU(true);
                         abortAllActiveRequests_ACU();
                         _set_isAutoUpdatingCard_ACU(false);
-                        updateStatusText('操作已终止。', false);
-                        showToastr_ACU('warning', '填表操作已由用户终止。');
-                        setTimeout(() => { _set_wasStoppedByUser_ACU(false); }, 3000);
+                        updateStatusText('填表任务已终止，正在停止当前任务与后续批次...', false);
+                        updateLoadingToastMessage(loadingToast, '填表任务已终止，正在停止当前任务与后续批次...');
+                        showToastr_ACU('warning', '填表任务已由用户终止，当前任务与后续批次将立即停止。');
                     });
                 }
             }
@@ -142,7 +171,8 @@ export async function proceedWithCardUpdate_ACU(
             targetSheetKeys,
             requestOptions,
             localAbortController,
-            (event) => handleProgressEvent(event, isSilentMode)
+            progressContext,
+            (event) => handleProgressEvent(event, isSilentMode, loadingToast)
         );
 
         // UI：根据返回值决定后续 UI 操作
@@ -173,8 +203,8 @@ export async function processUpdates_ACU(indicesToUpdate: number[], mode = 'auto
         mode,
         options,
         // executeUpdate 回调：创建 AbortController 并调用 presentation 层的 proceedWithCardUpdate
-        async (messagesToUse, saveTargetIndex, updateMode, isSilentMode, targetSheetKeys, requestOptions) => {
-            return proceedWithCardUpdate_ACU(messagesToUse, '', saveTargetIndex, false, updateMode, isSilentMode, targetSheetKeys, requestOptions);
+        async (messagesToUse, saveTargetIndex, updateMode, isSilentMode, targetSheetKeys, requestOptions, progressContext) => {
+            return proceedWithCardUpdate_ACU(messagesToUse, '', saveTargetIndex, false, updateMode, isSilentMode, targetSheetKeys, requestOptions, progressContext);
         }
     );
 
@@ -224,6 +254,7 @@ export async function handleManualUpdate_ACU() {
         }
 
         // 调用 service 层，传入 clearBeforeUpdate: true（用户已确认清空）
+        _set_wasStoppedByUser_ACU(false);
         const result = await orchestrateManualUpdate_ACU(
             targetKeys,
             // processBatch 回调

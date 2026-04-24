@@ -137,6 +137,17 @@ export function readMessageIdentity_ACU(msg: any): string | undefined {
 }
 
 /**
+ * 从消息读取本地消息锚点字段。
+ *
+ * @param msg 聊天消息对象
+ * @returns 本地锚点字符串，或 undefined（未设置时）
+ */
+export function readLocalMessageAnchor_ACU(msg: any): string | undefined {
+    const anchor = String(msg?.TavernDB_ACU_LocalMessageAnchor || '').trim();
+    return anchor || undefined;
+}
+
+/**
  * 从消息读取 ModifiedKeys。
  *
  * @param msg 聊天消息对象
@@ -273,6 +284,22 @@ export function writeMessageIdentity_ACU(msg: any, isolationConfig: IsolationCon
         msg.TavernDB_ACU_Identity = isolationConfig.code;
     } else {
         delete msg.TavernDB_ACU_Identity;
+    }
+}
+
+/**
+ * 写入或删除本地消息锚点字段。
+ *
+ * @param msg 聊天消息对象
+ * @param anchor 本地锚点；空字符串表示删除
+ */
+export function writeLocalMessageAnchor_ACU(msg: any, anchor: string): void {
+    if (!msg) return;
+    const normalizedAnchor = String(anchor || '').trim();
+    if (normalizedAnchor) {
+        msg.TavernDB_ACU_LocalMessageAnchor = normalizedAnchor;
+    } else {
+        delete msg.TavernDB_ACU_LocalMessageAnchor;
     }
 }
 
@@ -442,6 +469,7 @@ export function clearAllTableFields_ACU(msg: any): void {
     delete msg.TavernDB_ACU_Data;
     delete msg.TavernDB_ACU_SummaryData;
     delete msg.TavernDB_ACU_Identity;
+    delete msg.TavernDB_ACU_LocalMessageAnchor;
     delete msg.TavernDB_ACU_ModifiedKeys;
     delete msg.TavernDB_ACU_UpdateGroupKeys;
     delete msg._acu_local_template_base_state_seeded;

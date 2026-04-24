@@ -41,6 +41,9 @@ export function getCurrentCharSettings_ACU() {
         );
         mergedCfg.zeroTkOccupyMode = globalZeroTkDefault;
         mergedCfg.outlineEntryEnabled = !globalZeroTkDefault;
+        // [向量记忆] vectorMemory 不再跟随世界书配置规范化，
+        // 已迁移到 settings_ACU.vectorMemoryConfig（全局数据库级）。
+        // 保留 mergedCfg.vectorMemory 的旧数据引用以兼容迁移读取。
         settings_ACU.characterSettings[charId].worldbookConfig = mergedCfg;
     } catch (e) {
         // ignore

@@ -8,7 +8,7 @@
 
 import { STORAGE_KEY_ALL_SETTINGS_ACU, STORAGE_KEY_CUSTOM_TEMPLATE_ACU, normalizeIsolationCode_ACU } from '../../shared/data-constants';
 import { DEFAULT_CHAR_CARD_PROMPT_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_PLOT_SETTINGS_ACU, DEFAULT_TABLE_TEMPLATE_ACU, TABLE_TEMPLATE_ACU, _set_TABLE_TEMPLATE_ACU} from '../../shared/defaults-json.js';
-import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, buildDefaultPlotWorldbookConfig_ACU, buildDefaultContentOptimizationPromptGroup_ACU } from '../../shared/defaults';
+import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, buildDefaultPlotWorldbookConfig_ACU, buildDefaultContentOptimizationPromptGroup_ACU, defaultWorldbookConfig_ACU, defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
 import { addDataIsolationHistory_ACU, ensureProfileExists_ACU, normalizeDataIsolationHistory_ACU } from '../../data/repositories/isolation-repo';
 import { globalMeta_ACU, loadGlobalMeta_ACU, readProfileSettingsFromStorage_ACU, readProfileTemplateFromStorage_ACU, sanitizeSettingsForProfileSave_ACU, saveGlobalMeta_ACU, writeProfileSettingsToStorage_ACU, writeProfileTemplateToStorage_ACU } from '../../data/repositories/profile-repo';
 import { getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
@@ -195,6 +195,23 @@ export   function loadSettings_ACU() {
 
               // 确保当前角色有配置
               getCurrentCharSettings_ACU();
+              if (!settings_ACU.characterSettings || typeof settings_ACU.characterSettings !== 'object') {
+                  settings_ACU.characterSettings = {};
+              }
+              const defaultWorldbookConfig = JSON.parse(JSON.stringify(defaultWorldbookConfig_ACU));
+              Object.keys(settings_ACU.characterSettings).forEach((charId) => {
+                  const charSettings = settings_ACU.characterSettings[charId];
+                  if (!charSettings || typeof charSettings !== 'object') return;
+                  const worldbookConfig = charSettings.worldbookConfig;
+                  if (!worldbookConfig || typeof worldbookConfig !== 'object' || Array.isArray(worldbookConfig)) {
+                      charSettings.worldbookConfig = JSON.parse(JSON.stringify(defaultWorldbookConfig));
+                      return;
+                  }
+                  charSettings.worldbookConfig = deepMerge_ACU(
+                      JSON.parse(JSON.stringify(defaultWorldbookConfig)),
+                      worldbookConfig,
+                  );
+              });
               
           } else {
               // No saved settings, use the defaults
@@ -222,6 +239,35 @@ export   function loadSettings_ACU() {
 
       // [兼容] 旧标签排除字段自动迁移为新规则组结构
       ensureTagRulesCompat_ACU(settings_ACU);
+
+      // [向量记忆] 一次性迁移：从角色级 worldbookConfig.vectorMemory 提升到全局 vectorMemoryConfig
+      // 扫描所有角色设置，找到第一个 enabled=true 或有非默认字段的 vectorMemory 配置
+      if (!settings_ACU.vectorMemoryConfig || typeof settings_ACU.vectorMemoryConfig !== 'object' || Array.isArray(settings_ACU.vectorMemoryConfig)) {
+          let bestSource: any = null;
+          const charSettings = settings_ACU.characterSettings;
+          if (charSettings && typeof charSettings === 'object') {
+              for (const charId of Object.keys(charSettings)) {
+                  const vm = charSettings[charId]?.worldbookConfig?.vectorMemory;
+                  if (vm && typeof vm === 'object' && !Array.isArray(vm)) {
+                      // 优先选择 enabled=true 的配置
+                      if (vm.enabled === true) {
+                          bestSource = vm;
+                          break;
+                      }
+                      // 其次选择第一个非空配置
+                      if (!bestSource) {
+                          bestSource = vm;
+                      }
+                  }
+              }
+          }
+          settings_ACU.vectorMemoryConfig = bestSource
+              ? JSON.parse(JSON.stringify(bestSource))
+              : JSON.parse(JSON.stringify(defaultVectorMemoryConfig_ACU));
+          if (bestSource) {
+              logDebug_ACU('[向量记忆] 已从角色级配置迁移到全局 vectorMemoryConfig');
+          }
+      }
 
       if (!Number.isFinite(settings_ACU.maxConcurrentGroups) || settings_ACU.maxConcurrentGroups < 1) {
           settings_ACU.maxConcurrentGroups = 1;
@@ -414,6 +460,8 @@ export   function buildDefaultSettings_ACU() {
             promptGroup: buildDefaultContentOptimizationPromptGroup_ACU(), // 提示词组（段落编辑器）
             promptPresets: [] as any[],                 // 提示词组预设列表
           },
+          // [向量记忆] 全局配置，跟随数据库设置而非角色/对话
+          vectorMemoryConfig: null as any,
       };
   }
 

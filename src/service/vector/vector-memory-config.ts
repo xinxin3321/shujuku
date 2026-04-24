@@ -1,0 +1,240 @@
+import { defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
+import { cleanChatName_ACU, normalizePositiveInteger_ACU } from '../../shared/utils';
+import { currentChatFileIdentifier_ACU, settings_ACU } from '../runtime/state-manager';
+import { getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
+
+export interface VectorMemoryKeywordPromptSegment_ACU {
+    role: string;
+    content: string;
+    deletable: boolean;
+}
+
+export interface VectorMemoryConfig_ACU {
+    enabled: boolean;
+    threshold: number;
+    archiveTriggerCount: number;
+    archiveBatchSize: number;
+    archiveMaxConcurrency: number;
+    topK: number;
+    minScore: number;
+    embeddingEndpoint: string;
+    embeddingApiKey: string;
+    embeddingModel: string;
+    vectorNamespace: string;
+    entryComment: string;
+    entryKey: string;
+    summaryChunkSentenceCount: number;
+    summaryPromptGroupId: string;
+    archiveWithoutSummary: boolean;
+    summaryPromptGroup: VectorMemoryKeywordPromptSegment_ACU[];
+    keywordApiPreset: string;
+    keywordContextPairCount: number;
+    keywordPromptGroup: VectorMemoryKeywordPromptSegment_ACU[];
+    recallCandidateLimit: number;
+}
+
+function normalizeArchiveTriggerCount_ACU(value: any, fallbackValue: number): number {
+    const normalized = normalizePositiveInteger_ACU(value, fallbackValue);
+    return Math.max(1, normalized);
+}
+
+export interface VectorMemoryConfigValidation_ACU {
+    valid: boolean;
+    errors: string[];
+}
+
+function cloneDefaultVectorMemoryConfig_ACU(): VectorMemoryConfig_ACU {
+    return JSON.parse(JSON.stringify(defaultVectorMemoryConfig_ACU));
+}
+
+function normalizeMinScore_ACU(value: any, fallbackValue: number): number {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return fallbackValue;
+    if (num < 0) return 0;
+    if (num > 1) return 1;
+    return num;
+}
+
+function normalizeTextField_ACU(value: any, fallbackValue = ''): string {
+    if (typeof value !== 'string') return fallbackValue;
+    return value.trim();
+}
+
+function normalizeKeywordPromptGroup_ACU(
+    value: any,
+    fallbackValue: VectorMemoryKeywordPromptSegment_ACU[],
+): VectorMemoryKeywordPromptSegment_ACU[] {
+    if (!Array.isArray(value) || value.length === 0) {
+        return JSON.parse(JSON.stringify(fallbackValue));
+    }
+    const validRoles = new Set(['system', 'assistant', 'user']);
+    const segments: VectorMemoryKeywordPromptSegment_ACU[] = [];
+    for (const item of value) {
+        if (!item || typeof item !== 'object') continue;
+        const role = typeof item.role === 'string'
+            ? item.role.toLowerCase().trim()
+            : 'system';
+        const content = typeof item.content === 'string'
+            ? item.content.trim()
+            : '';
+        if (!content) continue;
+        segments.push({
+            role: validRoles.has(role) ? role : 'system',
+            content,
+            deletable: item.deletable !== false,
+        });
+    }
+    return segments.length > 0
+        ? segments
+        : JSON.parse(JSON.stringify(fallbackValue));
+}
+
+export function getDefaultVectorMemoryConfig_ACU(): VectorMemoryConfig_ACU {
+    return cloneDefaultVectorMemoryConfig_ACU();
+}
+
+export function normalizeVectorMemoryConfig_ACU(rawConfig: any): VectorMemoryConfig_ACU {
+    const defaults = cloneDefaultVectorMemoryConfig_ACU();
+    const source = rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig)
+        ? rawConfig
+        : {};
+
+    const archiveBatchSize = normalizePositiveInteger_ACU(source.archiveBatchSize, defaults.archiveBatchSize);
+    const archiveTriggerCount = normalizeArchiveTriggerCount_ACU(
+        source.archiveTriggerCount,
+        (defaults as any).archiveTriggerCount ?? archiveBatchSize,
+    );
+    const archiveMaxConcurrency = normalizePositiveInteger_ACU(
+        source.archiveMaxConcurrency,
+        (defaults as any).archiveMaxConcurrency ?? 3,
+    );
+
+    return {
+        enabled: source.enabled === true,
+        threshold: normalizePositiveInteger_ACU(source.threshold, defaults.threshold),
+        archiveTriggerCount,
+        archiveBatchSize,
+        archiveMaxConcurrency,
+        topK: normalizePositiveInteger_ACU(source.topK, defaults.topK),
+        minScore: normalizeMinScore_ACU(source.minScore, defaults.minScore),
+        embeddingEndpoint: normalizeTextField_ACU(source.embeddingEndpoint, defaults.embeddingEndpoint),
+        embeddingApiKey: normalizeTextField_ACU(source.embeddingApiKey, defaults.embeddingApiKey),
+        embeddingModel: normalizeTextField_ACU(source.embeddingModel, defaults.embeddingModel),
+        vectorNamespace: normalizeTextField_ACU(source.vectorNamespace, defaults.vectorNamespace) || defaults.vectorNamespace,
+        entryComment: normalizeTextField_ACU(source.entryComment, defaults.entryComment) || defaults.entryComment,
+        entryKey: normalizeTextField_ACU(source.entryKey, defaults.entryKey) || defaults.entryKey,
+        summaryChunkSentenceCount: normalizePositiveInteger_ACU(source.summaryChunkSentenceCount, defaults.summaryChunkSentenceCount),
+        summaryPromptGroupId: normalizeTextField_ACU(source.summaryPromptGroupId, defaults.summaryPromptGroupId) || defaults.summaryPromptGroupId,
+        archiveWithoutSummary: source.archiveWithoutSummary === true,
+        summaryPromptGroup: normalizeKeywordPromptGroup_ACU(source.summaryPromptGroup, (defaults as any).summaryPromptGroup || []),
+        keywordApiPreset: normalizeTextField_ACU(source.keywordApiPreset, defaults.keywordApiPreset),
+        keywordContextPairCount: normalizePositiveInteger_ACU(source.keywordContextPairCount, defaults.keywordContextPairCount),
+        keywordPromptGroup: normalizeKeywordPromptGroup_ACU(source.keywordPromptGroup, defaults.keywordPromptGroup),
+        recallCandidateLimit: normalizePositiveInteger_ACU(source.recallCandidateLimit, defaults.recallCandidateLimit),
+    };
+}
+
+/**
+ * 获取当前向量记忆配置。
+ *
+ * 配置存储在 settings_ACU.vectorMemoryConfig（全局数据库级）。
+ * loadSettings_ACU() 已负责从旧位置（worldbookConfig.vectorMemory）迁移。
+ *
+ * 返回的始终是经过 normalize 的完整配置对象。
+ * 对返回值的直接修改会反映到 settings_ACU.vectorMemoryConfig（引用），
+ * 但不会自动持久化——需要调用 saveSettingsAndNotify_ACU()。
+ */
+export function getCurrentVectorMemoryConfig_ACU(): VectorMemoryConfig_ACU {
+    const globalConfig = settings_ACU.vectorMemoryConfig;
+    if (globalConfig && typeof globalConfig === 'object' && !Array.isArray(globalConfig)) {
+        // 已有全局配置，normalize 后直接返回引用（UI 写入需要引用）
+        const normalized = normalizeVectorMemoryConfig_ACU(globalConfig);
+        Object.assign(globalConfig, normalized);
+        return globalConfig as VectorMemoryConfig_ACU;
+    }
+
+    // 兜底：全局配置不存在时（loadSettings 未覆盖到的边界情况），
+    // 从当前角色的世界书配置迁移
+    const worldbookConfig = getCurrentWorldbookConfig_ACU();
+    const legacyConfig = worldbookConfig?.vectorMemory;
+    const source = (legacyConfig && typeof legacyConfig === 'object' && !Array.isArray(legacyConfig))
+        ? legacyConfig
+        : {};
+
+    const migrated = normalizeVectorMemoryConfig_ACU(source);
+    settings_ACU.vectorMemoryConfig = migrated;
+    return migrated;
+}
+
+export function getVectorMemoryNamespace_ACU(chatFileIdentifier?: string | null): string {
+    const config = getCurrentVectorMemoryConfig_ACU();
+    const chatKey = cleanChatName_ACU(chatFileIdentifier || currentChatFileIdentifier_ACU || 'default');
+    return `${config.vectorNamespace}:${chatKey}`;
+}
+
+function collectVectorMemoryCommonErrors_ACU(config: VectorMemoryConfig_ACU): string[] {
+    const errors: string[] = [];
+
+    if (!config.embeddingEndpoint) {
+        errors.push('缺少 embeddingEndpoint');
+    }
+    if (!config.embeddingModel) {
+        errors.push('缺少 embeddingModel');
+    }
+    if (config.threshold < 1) {
+        errors.push('threshold 必须大于 0');
+    }
+    if (config.archiveTriggerCount < 1) {
+        errors.push('archiveTriggerCount 必须大于 0');
+    }
+    if (config.archiveBatchSize < 1) {
+        errors.push('archiveBatchSize 必须大于 0');
+    }
+    if (config.archiveMaxConcurrency < 1) {
+        errors.push('archiveMaxConcurrency 必须大于 0');
+    }
+    if (config.summaryChunkSentenceCount < 1) {
+        errors.push('summaryChunkSentenceCount 必须大于 0');
+    }
+    if (!config.summaryPromptGroupId) {
+        errors.push('缺少 summaryPromptGroupId');
+    }
+    if (config.recallCandidateLimit < config.topK) {
+        errors.push('recallCandidateLimit 不能小于 topK');
+    }
+
+    return errors;
+}
+
+export function validateVectorIndexBuildConfig_ACU(configInput?: any): VectorMemoryConfigValidation_ACU {
+    const config = normalizeVectorMemoryConfig_ACU(configInput ?? getCurrentVectorMemoryConfig_ACU());
+    const errors = collectVectorMemoryCommonErrors_ACU(config);
+
+    return {
+        valid: errors.length === 0,
+        errors,
+    };
+}
+
+export function validateVectorMemoryConfig_ACU(configInput?: any): VectorMemoryConfigValidation_ACU {
+    const config = normalizeVectorMemoryConfig_ACU(configInput ?? getCurrentVectorMemoryConfig_ACU());
+    const errors = collectVectorMemoryCommonErrors_ACU(config);
+
+    if (!config.entryComment) {
+        errors.push('缺少 entryComment');
+    }
+    if (!config.entryKey) {
+        errors.push('缺少 entryKey');
+    }
+
+    return {
+        valid: errors.length === 0,
+        errors,
+    };
+}
+
+export function isVectorMemoryEnabled_ACU(configInput?: any): boolean {
+    const config = normalizeVectorMemoryConfig_ACU(configInput ?? getCurrentVectorMemoryConfig_ACU());
+    if (!config.enabled) return false;
+    return validateVectorMemoryConfig_ACU(config).valid;
+}

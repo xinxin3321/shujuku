@@ -7,6 +7,7 @@ import { getChatArray_ACU, saveChatToHost_ACU } from '../../data/gateways/chat-g
 import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
 import { currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU } from '../runtime/state-manager';
 import { applyTemplateScopeForCurrentChat_ACU } from '../settings/settings-service';
+import { buildSummaryVectorIndexIfNeeded_ACU } from '../vector/vector-index-orchestrator';
 import {
   attachSeedRowsToCurrentDataFromGuide_ACU,
   buildChatSheetGuideDataFromData_ACU,
@@ -25,6 +26,7 @@ export interface TableChatPersistOptions_ACU {
   targetSheetKeys?: string[] | null;
   updateGroupKeys?: string[] | null;
   trackAsUpdate?: boolean;
+  skipVectorAutoIndex?: boolean;
 }
 
 export async function persistTablesToChatMessage_ACU(
@@ -35,6 +37,7 @@ export async function persistTablesToChatMessage_ACU(
     targetSheetKeys = null,
     updateGroupKeys = null,
     trackAsUpdate = true,
+    skipVectorAutoIndex = false,
   } = options;
 
 /**
@@ -166,6 +169,22 @@ export async function persistTablesToChatMessage_ACU(
   writeLegacyStandardAndSummary_ACU(targetMessage, legacyStandardData, legacySummaryData);
 
   await saveChatToHost_ACU();
+
+  if (!skipVectorAutoIndex) {
+    try {
+      const vectorIndexResult = await buildSummaryVectorIndexIfNeeded_ACU({
+        targetMessageIndex: finalIndex,
+      });
+      if (vectorIndexResult.success && vectorIndexResult.indexedCount > 0) {
+        await saveChatToHost_ACU();
+        logDebug_ACU(`[向量记忆] 保存后自动索引完成: messageIndex=${finalIndex}, indexed=${vectorIndexResult.indexedCount}, chunks=${vectorIndexResult.chunkCount}`);
+      } else if (!vectorIndexResult.success && !vectorIndexResult.skipped && vectorIndexResult.errors.length > 0) {
+        logWarn_ACU(`[向量记忆] 保存后自动索引失败: ${vectorIndexResult.errors.join(' | ')}`);
+      }
+    } catch (error) {
+      logWarn_ACU('[向量记忆] 保存后自动索引异常:', error);
+    }
+  }
 
   await new Promise(resolve => setTimeout(resolve, 500));
 

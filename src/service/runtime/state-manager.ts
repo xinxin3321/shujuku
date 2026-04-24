@@ -54,6 +54,12 @@ export const generationGate_ACU = {
   lastUserMessageText: '',
   lastUserMessageAt: 0,
   lastUserSendIntentAt: 0,
+  lastVectorRecallSignature: '',
+  lastVectorRecallAt: 0,
+  lastVectorRecallIntentAt: 0,
+  lastVectorRecallResult: null as any,
+  lastVectorRecallBlockFingerprint: '',
+  lastVectorRecallBlockAt: 0,
   lastGeneration: null as any,
 };
 
@@ -64,6 +70,16 @@ export function markUserSendIntent_ACU() {
 export function isRecentUserSendIntent_ACU() {
   if (!generationGate_ACU.lastUserSendIntentAt) return false;
   return (Date.now() - generationGate_ACU.lastUserSendIntentAt) <= USER_SEND_TRIGGER_TTL_MS_ACU;
+}
+
+export function getFreshUserSendGate_ACU() {
+  const hasFreshIntent = isRecentUserSendIntent_ACU();
+  const hasFreshUserMessage = isRecentUserSend_ACU();
+  return {
+    hasFreshIntent,
+    hasFreshUserMessage,
+    isFreshUserSend: hasFreshIntent || hasFreshUserMessage,
+  };
 }
 
 export function recordLastUserSend_ACU(messageId: any) {
@@ -99,13 +115,9 @@ export function shouldProcessPlotForGeneration_ACU(type: any, params: any, dryRu
   if (!settings_ACU?.plotSettings?.enabled) return false;
   if (isQuietLikeGeneration_ACU(type, params)) return false;
   if (params?.automatic_trigger) return false;
-  const chat = getChatArray_ACU();
-  const id = generationGate_ACU.lastUserMessageId;
-  const msg = (chat && typeof id === 'number') ? chat[id] : null;
-  const hasFreshUserMessage = !!(msg && msg.is_user && id === (chat.length - 1) && isRecentUserSend_ACU());
-  const hasFreshIntent = isRecentUserSendIntent_ACU();
-  const result = hasFreshUserMessage || hasFreshIntent;
-  logDebug_ACU(`[状态管理] shouldProcessPlot: type=${type}, dryRun=${dryRun}, freshMsg=${hasFreshUserMessage}, freshIntent=${hasFreshIntent}, result=${result}`);
+  const gate = getFreshUserSendGate_ACU();
+  const result = gate.isFreshUserSend;
+  logDebug_ACU(`[状态管理] shouldProcessPlot: type=${type}, dryRun=${dryRun}, freshMsg=${gate.hasFreshUserMessage}, freshIntent=${gate.hasFreshIntent}, result=${result}`);
   return result;
 }
 
@@ -186,6 +198,8 @@ export let settings_ACU: any = {
       retryCount: 3,
       promptGroup: [],
     },
+    // [向量记忆] 全局配置，跟随数据库设置而非角色/对话
+    vectorMemoryConfig: null as any,
     characterSettings: {},
 };
 

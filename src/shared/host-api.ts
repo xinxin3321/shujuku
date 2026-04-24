@@ -45,6 +45,8 @@ export interface ChatMessageACUExtensions {
     TavernDB_ACU_IsolatedData?: Record<string, any>;
     /** ACU 身份标识 */
     TavernDB_ACU_Identity?: string | Record<string, unknown>;
+    /** ACU 本地消息锚点（用于宿主 message_id 缺失时的稳定回退） */
+    TavernDB_ACU_LocalMessageAnchor?: string;
     /** ACU 独立数据 */
     TavernDB_ACU_IndependentData?: Record<string, any>;
     /** ACU 摘要数据 */
