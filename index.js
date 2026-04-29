@@ -2742,14 +2742,15 @@ $CONTENT
     const DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU = 500;
     const AUTO_UPDATE_FLOOR_INCREASE_DELAY_ACU = 2000;
     // --- 向量记忆全局默认配置（独立于世界书配置，跟随数据库全局设置） ---
+    const VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU = 'spv2.1.2-vector-defaults';
     const defaultVectorMemoryConfig_ACU = {
         enabled: false,
         threshold: 50,
-        archiveTriggerCount: 12,
-        archiveBatchSize: 4,
+        archiveTriggerCount: 9,
+        archiveBatchSize: 3,
         archiveMaxConcurrency: 3,
-        topK: 20,
-        minScore: 0.75,
+        topK: 10,
+        minScore: 0.6,
         embeddingEndpoint: '',
         embeddingApiKey: '',
         embeddingModel: '',
@@ -2766,13 +2767,15 @@ $CONTENT
             {
                 role: 'system',
                 content: '你负责将一批较早的纪要条目整理为可供长期召回的远记忆大总结。\n'
-                    + '请提炼持续有效、可检索的剧情信息，优先保留人物关系、关键事件、目标变化、冲突、重要道具、地点与时间线。\n'
-                    + '输出应是结构清晰、信息密度高的总结正文，不要写解释、前言、编号说明，也不要复述你的任务。',
+                    + '目标：生成一条可被向量召回使用的高密度长期记忆。\n'
+                    + '硬性长度约束：最终输出最高 1000TK；如果信息过多，优先压缩表达，不要扩写。\n'
+                    + '内容优先级：人物关系、关键事件、目标变化、冲突、重要道具、地点、时间线、未解决伏笔。\n'
+                    + '输出要求：只输出最终远记忆大总结正文；不要写解释、前言、编号说明、标题、Markdown 列表，也不要复述你的任务。',
                 deletable: false,
             },
             {
                 role: 'user',
-                content: '以下是需要归档成远记忆大总结的一批较早纪要条目：\n<纪要批次>\n$SUMMARY_SOURCE_ROWS\n</纪要批次>\n\n请严格遵守前述规则，只输出最终远记忆大总结正文。',
+                content: '以下是需要归档成远记忆大总结的一批较早纪要条目：\n<纪要批次>\n$SUMMARY_SOURCE_ROWS\n</纪要批次>\n\n请在 1000TK 以内输出一条信息密度高、可检索、可长期保存的远记忆大总结正文。只输出正文。',
                 deletable: true,
             },
         ],
@@ -22159,6 +22162,21 @@ $CONTENT
                 : JSON.parse(JSON.stringify(defaultVectorMemoryConfig_ACU));
             if (bestSource) {
                 logDebug_ACU('[向量记忆] 已从角色级配置迁移到全局 vectorMemoryConfig');
+            }
+        }
+        // [向量记忆] spv2.1.2 一次性刷新默认归档/召回参数。
+        // 只刷新本次版本要求的默认项，不覆盖 endpoint/key/model/enabled/namespace/世界书条目标识等用户连接与身份配置。
+        if (settings_ACU.vectorMemoryConfig && typeof settings_ACU.vectorMemoryConfig === 'object' && !Array.isArray(settings_ACU.vectorMemoryConfig)) {
+            const vectorConfig = settings_ACU.vectorMemoryConfig;
+            if (vectorConfig.defaultsRefreshVersion !== VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU) {
+                vectorConfig.archiveTriggerCount = defaultVectorMemoryConfig_ACU.archiveTriggerCount;
+                vectorConfig.archiveBatchSize = defaultVectorMemoryConfig_ACU.archiveBatchSize;
+                vectorConfig.archiveMaxConcurrency = defaultVectorMemoryConfig_ACU.archiveMaxConcurrency;
+                vectorConfig.topK = defaultVectorMemoryConfig_ACU.topK;
+                vectorConfig.minScore = defaultVectorMemoryConfig_ACU.minScore;
+                vectorConfig.summaryPromptGroup = JSON.parse(JSON.stringify(defaultVectorMemoryConfig_ACU.summaryPromptGroup || []));
+                vectorConfig.defaultsRefreshVersion = VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU;
+                logDebug_ACU(`[向量记忆] 已刷新默认归档/召回参数: ${VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU}`);
             }
         }
         if (!Number.isFinite(settings_ACU.maxConcurrentGroups) || settings_ACU.maxConcurrentGroups < 1) {
