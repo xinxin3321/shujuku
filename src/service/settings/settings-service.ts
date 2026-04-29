@@ -8,7 +8,7 @@
 
 import { STORAGE_KEY_ALL_SETTINGS_ACU, STORAGE_KEY_CUSTOM_TEMPLATE_ACU, normalizeIsolationCode_ACU } from '../../shared/data-constants';
 import { DEFAULT_CHAR_CARD_PROMPT_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_PLOT_SETTINGS_ACU, DEFAULT_TABLE_TEMPLATE_ACU, TABLE_TEMPLATE_ACU, _set_TABLE_TEMPLATE_ACU} from '../../shared/defaults-json.js';
-import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU, buildDefaultPlotWorldbookConfig_ACU, buildDefaultContentOptimizationPromptGroup_ACU, defaultWorldbookConfig_ACU, defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
+import { DEFAULT_AUTO_UPDATE_FREQUENCY_ACU, DEFAULT_AUTO_UPDATE_THRESHOLD_ACU, DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU, TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU, VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU, buildDefaultPlotWorldbookConfig_ACU, buildDefaultContentOptimizationPromptGroup_ACU, defaultWorldbookConfig_ACU, defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
 import { addDataIsolationHistory_ACU, ensureProfileExists_ACU, normalizeDataIsolationHistory_ACU } from '../../data/repositories/isolation-repo';
 import { globalMeta_ACU, loadGlobalMeta_ACU, readProfileSettingsFromStorage_ACU, readProfileTemplateFromStorage_ACU, sanitizeSettingsForProfileSave_ACU, saveGlobalMeta_ACU, writeProfileSettingsToStorage_ACU, writeProfileTemplateToStorage_ACU } from '../../data/repositories/profile-repo';
 import { getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
@@ -285,6 +285,8 @@ export   function loadSettings_ACU() {
           }
       }
 
+      refreshDefaultTableTemplateOnce_ACU(activeCode);
+
       if (!Number.isFinite(settings_ACU.maxConcurrentGroups) || settings_ACU.maxConcurrentGroups < 1) {
           settings_ACU.maxConcurrentGroups = 1;
       }
@@ -389,6 +391,36 @@ export   function loadTemplateFromStorage_ACU(codeOverride: any = null) {
   }
 
 
+function refreshDefaultTableTemplateOnce_ACU(activeCode: string) {
+      try {
+          if (!settings_ACU || typeof settings_ACU !== 'object') return;
+          if (settings_ACU.tableTemplateDefaultsRefreshVersion === TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU) return;
+
+          const currentPresetName = normalizeTemplatePresetSelectionValue_ACU(settings_ACU.currentTemplatePresetName || '');
+          if (currentPresetName) {
+              settings_ACU.tableTemplateDefaultsRefreshVersion = TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU;
+              saveSettings_ACU();
+              logDebug_ACU(`[模板默认值] 当前全局模板使用命名预设，跳过默认模板刷新并记录版本: ${TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU}`);
+              return;
+          }
+
+          const defaultSnapshot = getDefaultTemplateSnapshot_ACU();
+          if (!defaultSnapshot?.templateStr) {
+              logWarn_ACU('[模板默认值] 默认表格模板快照无效，跳过一次性刷新。');
+              return;
+          }
+
+          const code = normalizeIsolationCode_ACU(activeCode || settings_ACU.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || '');
+          _set_TABLE_TEMPLATE_ACU(defaultSnapshot.templateStr);
+          writeProfileTemplateToStorage_ACU(code, TABLE_TEMPLATE_ACU);
+          settings_ACU.tableTemplateDefaultsRefreshVersion = TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU;
+          saveSettings_ACU();
+          logDebug_ACU(`[模板默认值] 已刷新当前 profile 默认表格模板: ${TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU}`);
+      } catch (error) {
+          logWarn_ACU('[模板默认值] 默认表格模板一次性刷新失败:', error);
+      }
+  }
+
 export   function buildDefaultSettings_ACU() {
       return {
           apiConfig: { url: '', apiKey: '', model: '', useMainApi: true, max_tokens: 60000, temperature: 1.0 },
@@ -414,6 +446,7 @@ export   function buildDefaultSettings_ACU() {
           plotSettings: JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU)),
           plotPresetBindings: {}, // [剧情推进] 按聊天记录绑定剧情推进预设
           currentTemplatePresetName: '', // [模板预设] 当前模板预设名，空表示默认预设
+          tableTemplateDefaultsRefreshVersion: '', // [模板预设] 默认表格模板一次性刷新版本
           // [填表功能] 正文标签提取，从上下文中提取指定标签的内容发送给AI，User回复不受影响
           tableContextExtractTags: '',
           tableContextExtractRules: [] as any[],

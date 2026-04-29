@@ -2741,8 +2741,10 @@ $CONTENT
     const DEFAULT_AUTO_UPDATE_FREQUENCY_ACU = 1;
     const DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU = 500;
     const AUTO_UPDATE_FLOOR_INCREASE_DELAY_ACU = 2000;
-    // --- 向量记忆全局默认配置（独立于世界书配置，跟随数据库全局设置） ---
+    // --- 一次性默认值刷新版本标记 ---
     const VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU = 'spv2.1.2-vector-defaults';
+    const TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU = 'spv2.1.2-table-template-defaults';
+    // --- 向量记忆全局默认配置（独立于世界书配置，跟随数据库全局设置） ---
     const defaultVectorMemoryConfig_ACU = {
         enabled: false,
         threshold: 50,
@@ -22179,6 +22181,7 @@ $CONTENT
                 logDebug_ACU(`[向量记忆] 已刷新默认归档/召回参数: ${VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU}`);
             }
         }
+        refreshDefaultTableTemplateOnce_ACU(activeCode);
         if (!Number.isFinite(settings_ACU.maxConcurrentGroups) || settings_ACU.maxConcurrentGroups < 1) {
             settings_ACU.maxConcurrentGroups = 1;
         }
@@ -22289,6 +22292,35 @@ $CONTENT
         catch (e) { }
         logDebug_ACU(`[Profile] No valid template found, default persisted for code: ${code || '(default)'}`);
     }
+    function refreshDefaultTableTemplateOnce_ACU(activeCode) {
+        try {
+            if (!settings_ACU || typeof settings_ACU !== 'object')
+                return;
+            if (settings_ACU.tableTemplateDefaultsRefreshVersion === TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU)
+                return;
+            const currentPresetName = normalizeTemplatePresetSelectionValue_ACU(settings_ACU.currentTemplatePresetName || '');
+            if (currentPresetName) {
+                settings_ACU.tableTemplateDefaultsRefreshVersion = TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU;
+                saveSettings_ACU();
+                logDebug_ACU(`[模板默认值] 当前全局模板使用命名预设，跳过默认模板刷新并记录版本: ${TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU}`);
+                return;
+            }
+            const defaultSnapshot = getDefaultTemplateSnapshot_ACU();
+            if (!defaultSnapshot?.templateStr) {
+                logWarn_ACU('[模板默认值] 默认表格模板快照无效，跳过一次性刷新。');
+                return;
+            }
+            const code = normalizeIsolationCode_ACU(activeCode || settings_ACU.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || '');
+            _set_TABLE_TEMPLATE_ACU(defaultSnapshot.templateStr);
+            writeProfileTemplateToStorage_ACU(code, TABLE_TEMPLATE_ACU);
+            settings_ACU.tableTemplateDefaultsRefreshVersion = TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU;
+            saveSettings_ACU();
+            logDebug_ACU(`[模板默认值] 已刷新当前 profile 默认表格模板: ${TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU}`);
+        }
+        catch (error) {
+            logWarn_ACU('[模板默认值] 默认表格模板一次性刷新失败:', error);
+        }
+    }
     function buildDefaultSettings_ACU() {
         return {
             apiConfig: { url: '', apiKey: '', model: '', useMainApi: true, max_tokens: 60000, temperature: 1.0 },
@@ -22314,6 +22346,7 @@ $CONTENT
             plotSettings: JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU)),
             plotPresetBindings: {}, // [剧情推进] 按聊天记录绑定剧情推进预设
             currentTemplatePresetName: '', // [模板预设] 当前模板预设名，空表示默认预设
+            tableTemplateDefaultsRefreshVersion: '', // [模板预设] 默认表格模板一次性刷新版本
             // [填表功能] 正文标签提取，从上下文中提取指定标签的内容发送给AI，User回复不受影响
             tableContextExtractTags: '',
             tableContextExtractRules: [],
