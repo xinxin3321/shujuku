@@ -8,7 +8,9 @@ import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, p
 import { currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU } from '../runtime/state-manager';
 import { applySpecialIndexSequenceToSummaryTables_ACU } from '../runtime/helpers-table-lock';
 import { applyTemplateScopeForCurrentChat_ACU } from '../settings/settings-service';
+import { getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
 import { buildSummaryVectorIndexIfNeeded_ACU } from '../vector/vector-index-orchestrator';
+import { archiveSummaryVectorIndexNow_ACU } from '../vector/summary-vector-index-archive-service';
 import {
   attachSeedRowsToCurrentDataFromGuide_ACU,
   buildChatSheetGuideDataFromData_ACU,
@@ -26,8 +28,22 @@ export interface TableChatPersistOptions_ACU {
   targetMessageIndex?: number;
   targetSheetKeys?: string[] | null;
   updateGroupKeys?: string[] | null;
+  /**
+   * 实际应计入“本轮已更新”的表。
+   * targetSheetKeys 只表示需要保存哪些表；trackingSheetKeys 才表示哪些表确实参与了填表更新。
+   */
+  trackingSheetKeys?: string[] | null;
   trackAsUpdate?: boolean;
   skipVectorAutoIndex?: boolean;
+}
+
+function isSummaryVectorIndexModeEnabledForAutoArchiveGate_ACU(): boolean {
+  try {
+    return getCurrentWorldbookConfig_ACU()?.summaryVectorIndexModeEnabled === true;
+  } catch (error) {
+    logWarn_ACU('[向量记忆] 检查纪要向量索引模式失败，保存后自动归档按普通模式继续评估:', error);
+    return false;
+  }
 }
 
 export async function persistTablesToChatMessage_ACU(
@@ -37,6 +53,7 @@ export async function persistTablesToChatMessage_ACU(
     targetMessageIndex = -1,
     targetSheetKeys = null,
     updateGroupKeys = null,
+    trackingSheetKeys = undefined,
     trackAsUpdate = true,
     skipVectorAutoIndex = false,
   } = options;
@@ -113,18 +130,30 @@ export async function persistTablesToChatMessage_ACU(
 
   applySpecialIndexSequenceToSummaryTables_ACU(currentJsonTableData_ACU);
 
-  const sequenceAdjustedKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU).filter((sheetKey: string) => {
+  const normalizedTrackingSheetKeys = Array.isArray(trackingSheetKeys)
+    ? [...new Set(trackingSheetKeys)]
+    : trackingSheetKeys === null
+      ? []
+      : targetSheetKeys
+        ? [...new Set(targetSheetKeys)]
+        : [];
+
+  const sequenceAdjustedTrackingKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU).filter((sheetKey: string) => {
+    if (!normalizedTrackingSheetKeys.includes(sheetKey)) return false;
+    const table = currentJsonTableData_ACU?.[sheetKey];
+    return table && isSummaryOrOutlineTable_ACU(table.name);
+  });
+
+  const sequenceAdjustedSaveKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU).filter((sheetKey: string) => {
     if (targetSheetKeys && !targetSheetKeys.includes(sheetKey)) return false;
     const table = currentJsonTableData_ACU?.[sheetKey];
     return table && isSummaryOrOutlineTable_ACU(table.name);
   });
 
-  const actuallyModifiedKeys = targetSheetKeys
-    ? [...new Set([...targetSheetKeys, ...sequenceAdjustedKeys])]
-    : [];
+  const actuallyModifiedKeys = [...new Set([...normalizedTrackingSheetKeys, ...sequenceAdjustedTrackingKeys])];
 
   let keysToSave: string[] = targetSheetKeys
-    ? [...new Set([...targetSheetKeys, ...sequenceAdjustedKeys])]
+    ? [...new Set([...targetSheetKeys, ...sequenceAdjustedSaveKeys])]
     : targetSheetKeys as string[];
 
   if (!keysToSave) {
@@ -183,7 +212,25 @@ export async function persistTablesToChatMessage_ACU(
 
   await saveChatToHost_ACU();
 
-  if (!skipVectorAutoIndex) {
+  const summaryVectorIndexModeEnabled = isSummaryVectorIndexModeEnabledForAutoArchiveGate_ACU();
+  if (summaryVectorIndexModeEnabled && !skipVectorAutoIndex) {
+    try {
+      const archiveResult = await archiveSummaryVectorIndexNow_ACU({
+        targetMessageIndex: finalIndex,
+      });
+      if (archiveResult.success && !archiveResult.skipped) {
+        logDebug_ACU(`[纪要向量索引] 保存表格后自动同步完成: messageIndex=${archiveResult.messageIndex}, rows=${archiveResult.indexedRowCount}, chunks=${archiveResult.chunkCount}`);
+      } else if (archiveResult.skipped) {
+        logDebug_ACU(`[纪要向量索引] 保存表格后自动同步跳过: reason=${archiveResult.reason || 'unknown'}`);
+      } else if (archiveResult.errors.length > 0) {
+        logWarn_ACU(`[纪要向量索引] 保存表格后自动同步失败: ${archiveResult.errors.join(' | ')}`);
+      }
+    } catch (error) {
+      logWarn_ACU('[纪要向量索引] 保存表格后自动同步异常:', error);
+    }
+  }
+
+  if (!skipVectorAutoIndex && !summaryVectorIndexModeEnabled) {
     try {
       const vectorIndexResult = await buildSummaryVectorIndexIfNeeded_ACU({
         targetMessageIndex: finalIndex,
@@ -214,11 +261,13 @@ export async function saveIndependentTableToChatHistory_ACU(
   targetSheetKeys: string[] | null = null,
   updateGroupKeys: string[] | null = null,
   _skipPostRefresh = false,
+  trackingSheetKeys: string[] | null | undefined = undefined,
 ): Promise<{ saved: boolean; messageIndex?: number; error?: string }> {
   return persistTablesToChatMessage_ACU({
     targetMessageIndex,
     targetSheetKeys,
     updateGroupKeys,
+    trackingSheetKeys,
     trackAsUpdate: true,
   });
 }

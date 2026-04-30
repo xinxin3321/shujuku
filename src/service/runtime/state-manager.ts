@@ -179,6 +179,7 @@ export let settings_ACU: any = {
     importWorldbookTarget: '',
     importPromptExcludeImportedWorldbookEntries: true,
     zeroTkOccupyModeDefault: false,
+    summaryVectorIndexModeDefault: false,
     dataIsolationEnabled: false,
     dataIsolationCode: '',
     dataIsolationHistory: [],

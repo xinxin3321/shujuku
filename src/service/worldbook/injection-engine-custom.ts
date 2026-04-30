@@ -220,10 +220,10 @@ import { formatSummaryVectorIndexRecallOverride_ACU } from '../runtime/plot-runt
               const plans = [];
               const entries = [];
               const summaryVectorIndexOverride = worldbookConfig?.summaryVectorIndexModeEnabled === true && extraIndexSpec.entryName === '纪要索引'
-                  ? formatSummaryVectorIndexRecallOverride_ACU()
+                  ? formatSummaryVectorIndexRecallOverride_ACU({ wrapWorldbookTag: true })
                   : null;
               const fullTable = summaryVectorIndexOverride?.content || buildMarkdownTableFromRows_ACU(extraIndexSpec.indexCols, extraIndexSpec.indexRows);
-              const fallbackTemplate = `# ${extraIndexSpec.entryName}\n\n$1`;
+              const fallbackTemplate = getSummaryVectorIndexCustomExportFallbackTemplate_ACU(extraIndexSpec.entryName);
               // 自定义表格导出的附加索引条目：在注释名中加入统一标记，便于在世界书 UI 中识别为"数据库生成条目"并默认隐藏
               // [修复] 外部导入时只使用"外部导入-"前缀
               const mainComment = getImportEntryName(extraIndexSpec.entryName);
@@ -630,3 +630,60 @@ import { formatSummaryVectorIndexRecallOverride_ACU } from '../runtime/plot-runt
           logError_ACU('Failed to update custom table export entries:', error);
       }
   }
+
+function getSummaryVectorIndexCustomExportFallbackTemplate_ACU(entryName = '纪要索引'): string {
+    return `# ${entryName}\n\n$1`;
+}
+
+function buildSummaryVectorIndexCustomExportContent_ACU(overrideContent: string): string {
+    return getSummaryVectorIndexCustomExportFallbackTemplate_ACU('纪要索引').replace('$1', overrideContent);
+}
+
+export async function refreshSummaryVectorIndexCustomExportEntry_ACU(targetLorebookOverride: string | null = null): Promise<boolean> {
+    if (!isWorldbookApiAvailable_ACU()) {
+        logWarn_ACU('[纪要向量索引] 世界书 API 不可用，无法覆盖 CustomExport 纪要索引条目。');
+        return false;
+    }
+
+    const override = formatSummaryVectorIndexRecallOverride_ACU({ wrapWorldbookTag: true });
+    if (!override?.content) {
+        logDebug_ACU('[纪要向量索引] 当前没有可写入的召回覆盖结果，跳过 CustomExport 纪要索引覆盖。');
+        return false;
+    }
+
+    const primaryLorebookName = targetLorebookOverride || await getInjectionTargetLorebook_ACU();
+    if (!primaryLorebookName) {
+        logWarn_ACU('[纪要向量索引] 未找到目标世界书，无法覆盖 CustomExport 纪要索引条目。');
+        return false;
+    }
+
+    try {
+        const isoPrefix = getIsolationPrefix_ACU();
+        const targetComment = `${isoPrefix}TavernDB-ACU-CustomExport-纪要索引`;
+        const entries = await getLorebookEntries_ACU(primaryLorebookName);
+        const existingEntry = Array.isArray(entries)
+            ? entries.find((entry: any) => entry?.comment === targetComment)
+            : null;
+
+        if (!existingEntry?.uid) {
+            logWarn_ACU(`[纪要向量索引] 未找到 ${targetComment} 条目，无法覆盖内容；请先完成一次世界书/表格同步以创建该条目。`);
+            return false;
+        }
+
+        const nextContent = buildSummaryVectorIndexCustomExportContent_ACU(override.content);
+        if (String(existingEntry.content || '') === nextContent) {
+            logDebug_ACU('[纪要向量索引] CustomExport 纪要索引条目内容已是最新召回结果。');
+            return true;
+        }
+
+        await setLorebookEntries_ACU(primaryLorebookName, [{
+            uid: existingEntry.uid,
+            content: nextContent,
+        }]);
+        logDebug_ACU(`[纪要向量索引] 已覆盖 CustomExport 纪要索引条目：${targetComment}`);
+        return true;
+    } catch (error) {
+        logWarn_ACU('[纪要向量索引] 覆盖 CustomExport 纪要索引条目失败:', error);
+        return false;
+    }
+}

@@ -17,7 +17,7 @@ import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-r
 import { setSummaryVectorIndexMode_ACU, setZeroTkOccupyMode_ACU } from '../../service/settings/settings-service';
 import { formatJsonToReadable_ACU } from '../../service/runtime/helpers-remaining';
 import { getCurrentVectorMemoryConfig_ACU, getDefaultVectorMemoryConfig_ACU } from '../../service/vector/vector-memory-config';
-import { getActiveSummaryVectorIndexSnapshot_ACU } from '../../service/vector/summary-vector-index-state-service';
+import { getAggregatedSummaryVectorIndexSnapshot_ACU } from '../../service/vector/summary-vector-index-state-service';
 import { defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
 import { syncManualUpdateButtonAvailability_ACU } from '../components/status-display';
 
@@ -486,14 +486,18 @@ export async function bindWorldbookEvents_ACU(): Promise<void> {
               if (modeEnabled) {
                   $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-outline-entry-enabled`).prop('checked', false);
               }
-              const activeSnapshot = getActiveSummaryVectorIndexSnapshot_ACU();
-              const hasArchive = !!activeSnapshot?.summaryVectorIndexState;
+              const activeSnapshot = getAggregatedSummaryVectorIndexSnapshot_ACU();
+              const activeState = activeSnapshot?.summaryVectorIndexState || null;
+              const archivedRowCount = activeState?.rowCount || (Array.isArray(activeState?.rows) ? activeState.rows.length : 0);
+              const hasArchive = !!activeState;
               showToastr_ACU(
-                  hasArchive || !modeEnabled ? 'info' : 'warning',
+                  !modeEnabled || archivedRowCount >= 100 ? 'info' : 'warning',
                   modeEnabled
                       ? hasArchive
-                          ? '向量混合交火增强方案已启用。请确认已配置好向量模型以及 rerank 模型；发送前将跳过普通远记忆召回，并使用已归档纪要索引筛选概要索引。'
-                          : '向量混合交火增强方案已启用。请确认已配置好向量模型以及 rerank 模型；当前聊天尚无纪要向量索引归档，旧对话请先点击“立即执行远记忆归档”。'
+                          ? archivedRowCount >= 100
+                              ? `向量混合交火增强方案已启用。当前纪要向量索引 ${archivedRowCount} 条，已达到 100 条门槛；发送前将跳过普通远记忆召回，并使用已归档纪要索引筛选概要索引。`
+                              : `向量混合交火增强方案已启用。当前纪要向量索引 ${archivedRowCount}/100 条；未满 100 条前，用户发送不会触发关键词召回或世界书覆盖注入，自动归档仍会在填表保存后继续累积。`
+                          : '向量混合交火增强方案已启用。当前聊天尚无纪要向量索引归档；未满 100 条前，用户发送不会触发关键词召回或世界书覆盖注入，自动归档仍会在填表保存后继续累积。'
                       : '向量混合交火增强方案已禁用，概要索引将回到原本的全量纪要表流程。',
               );
           });

@@ -11,7 +11,7 @@ import {
     validateVectorMemoryConfig_ACU,
 } from '../vector/vector-memory-config';
 import { recallVectorMemory_ACU, VectorRecallResult_ACU } from '../vector/vector-recall-service';
-import { getActiveRemoteMemorySnapshot_ACU } from '../vector/remote-memory-active-snapshot-service';
+import { getAggregatedRemoteMemorySnapshot_ACU } from '../vector/remote-memory-active-snapshot-service';
 
 export interface VectorRecallOrchestrationResult_ACU {
     intercepted: boolean;
@@ -218,7 +218,7 @@ export async function orchestrateVectorRecallBeforeSend_ACU(
     }
 
     try {
-        const activeSnapshot = getActiveRemoteMemorySnapshot_ACU();
+        const activeSnapshot = getAggregatedRemoteMemorySnapshot_ACU();
         const remoteMemoryBatches = Array.isArray(activeSnapshot?.vectorState?.remoteMemoryBatches)
             ? activeSnapshot.vectorState.remoteMemoryBatches
             : [];

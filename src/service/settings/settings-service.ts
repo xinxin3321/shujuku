@@ -185,11 +185,22 @@ export   function loadSettings_ACU() {
               settings_ACU.dataIsolationCode = activeCode;
               settings_ACU.dataIsolationEnabled = (activeCode !== '');
 
-              // 0TK 全局偏好：优先 globalMeta；若缺失则从旧 profile 字段迁移
+              // 0TK / 纪要向量索引全局偏好：优先 globalMeta；若缺失则从旧 profile 字段迁移
               if (typeof globalMeta_ACU.zeroTkOccupyModeGlobal === 'boolean') {
                   settings_ACU.zeroTkOccupyModeDefault = (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
               } else {
                   globalMeta_ACU.zeroTkOccupyModeGlobal = (settings_ACU.zeroTkOccupyModeDefault === true);
+                  saveGlobalMeta_ACU();
+              }
+              if (typeof globalMeta_ACU.summaryVectorIndexModeGlobal === 'boolean') {
+                  settings_ACU.summaryVectorIndexModeDefault = (globalMeta_ACU.summaryVectorIndexModeGlobal === true);
+              } else {
+                  globalMeta_ACU.summaryVectorIndexModeGlobal = (settings_ACU.summaryVectorIndexModeDefault === true);
+                  saveGlobalMeta_ACU();
+              }
+              if (settings_ACU.summaryVectorIndexModeDefault === true) {
+                  settings_ACU.zeroTkOccupyModeDefault = false;
+                  globalMeta_ACU.zeroTkOccupyModeGlobal = false;
                   saveGlobalMeta_ACU();
               }
 
@@ -227,6 +238,17 @@ export   function loadSettings_ACU() {
                   settings_ACU.zeroTkOccupyModeDefault = (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
               } else {
                   globalMeta_ACU.zeroTkOccupyModeGlobal = (settings_ACU.zeroTkOccupyModeDefault === true);
+                  saveGlobalMeta_ACU();
+              }
+              if (typeof globalMeta_ACU.summaryVectorIndexModeGlobal === 'boolean') {
+                  settings_ACU.summaryVectorIndexModeDefault = (globalMeta_ACU.summaryVectorIndexModeGlobal === true);
+              } else {
+                  globalMeta_ACU.summaryVectorIndexModeGlobal = (settings_ACU.summaryVectorIndexModeDefault === true);
+                  saveGlobalMeta_ACU();
+              }
+              if (settings_ACU.summaryVectorIndexModeDefault === true) {
+                  settings_ACU.zeroTkOccupyModeDefault = false;
+                  globalMeta_ACU.zeroTkOccupyModeGlobal = false;
                   saveGlobalMeta_ACU();
               }
           }
@@ -468,6 +490,8 @@ export   function buildDefaultSettings_ACU() {
           specialIndexLocks: {},
           // [新增] 0TK占用模式全局默认值：新对话会继承这个值
           zeroTkOccupyModeDefault: false,
+          // [新增] 向量混合交火增强方案全局默认值：新对话会继承这个值
+          summaryVectorIndexModeDefault: false,
           // [Profile] dataIsolationEnabled/code 由当前 profile 决定；history 走 globalMeta
           dataIsolationCode: '',
           dataIsolationHistory: [] as any[], // legacy 字段保留但不再持久化
@@ -599,27 +623,38 @@ export function persistCurrentTemplatePresetName_ACU(settingsObj: any, presetNam
 // getCurrentCharSettings_ACU 和 getCurrentWorldbookConfig_ACU 已移至 settings-readers.ts
 // [从 popup-bindings.ts / api-registry.ts 提取] 切换 0TK 占用模式的完整业务流程
 export function setZeroTkOccupyMode_ACU(modeEnabled: boolean) {
-    const cfg = getCurrentWorldbookConfig_ACU();
-    cfg.zeroTkOccupyMode = !!modeEnabled;
-    if (cfg.zeroTkOccupyMode) {
-        cfg.summaryVectorIndexModeEnabled = false;
+    const enabled = !!modeEnabled;
+    settings_ACU.zeroTkOccupyModeDefault = enabled;
+    globalMeta_ACU.zeroTkOccupyModeGlobal = enabled;
+    if (enabled) {
+        settings_ACU.summaryVectorIndexModeDefault = false;
+        globalMeta_ACU.summaryVectorIndexModeGlobal = false;
     }
-    cfg.outlineEntryEnabled = !cfg.zeroTkOccupyMode;
-    settings_ACU.zeroTkOccupyModeDefault = !!modeEnabled;
-    globalMeta_ACU.zeroTkOccupyModeGlobal = !!modeEnabled;
+
+    // 0TK 与向量混合交火增强方案是全局互斥开关；worldbookConfig 里的同名字段只是兼容投影。
+    const cfg = getCurrentWorldbookConfig_ACU();
+    cfg.zeroTkOccupyMode = enabled;
+    cfg.summaryVectorIndexModeEnabled = enabled ? false : (globalMeta_ACU.summaryVectorIndexModeGlobal === true);
+    cfg.outlineEntryEnabled = cfg.summaryVectorIndexModeEnabled === true ? true : !cfg.zeroTkOccupyMode;
     saveGlobalMeta_ACU();
     saveSettings_ACU();
 }
 
 export function setSummaryVectorIndexMode_ACU(modeEnabled: boolean) {
-    const cfg = getCurrentWorldbookConfig_ACU();
-    cfg.summaryVectorIndexModeEnabled = !!modeEnabled;
-    if (cfg.summaryVectorIndexModeEnabled) {
-        cfg.zeroTkOccupyMode = false;
-        cfg.outlineEntryEnabled = true;
-    } else {
-        cfg.outlineEntryEnabled = !cfg.zeroTkOccupyMode;
+    const enabled = !!modeEnabled;
+    settings_ACU.summaryVectorIndexModeDefault = enabled;
+    globalMeta_ACU.summaryVectorIndexModeGlobal = enabled;
+    if (enabled) {
+        settings_ACU.zeroTkOccupyModeDefault = false;
+        globalMeta_ACU.zeroTkOccupyModeGlobal = false;
     }
+
+    // 0TK 与向量混合交火增强方案是全局互斥开关；worldbookConfig 里的同名字段只是兼容投影。
+    const cfg = getCurrentWorldbookConfig_ACU();
+    cfg.summaryVectorIndexModeEnabled = enabled;
+    cfg.zeroTkOccupyMode = enabled ? false : (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
+    cfg.outlineEntryEnabled = cfg.summaryVectorIndexModeEnabled === true ? true : !cfg.zeroTkOccupyMode;
+    saveGlobalMeta_ACU();
     saveSettings_ACU();
 }
 

@@ -401,6 +401,7 @@ export async function executeCardUpdateCore_ACU(
                 const isFirstTimeInit = await checkIfFirstTimeInit_ACU();
 
                 if (keysToPersist.length > 0 || isFirstTimeInit) {
+                    const keysToTrackAsUpdated = keysToPersist;
                     let keysToActuallySave = keysToPersist;
                     if (isFirstTimeInit) {
                         const allSheetKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
@@ -424,10 +425,16 @@ export async function executeCardUpdateCore_ACU(
                         ? updateGroupKeysRaw.filter(sheetKey => {
                             const table = currentJsonTableData_ACU?.[sheetKey];
                             if (!table || !isSummaryOrOutlineTable_ACU(table.name)) return true;
-                            return keysToActuallySave.includes(sheetKey);
+                            return keysToTrackAsUpdated.includes(sheetKey);
                         })
                         : updateGroupKeysRaw;
-                    const saveSuccess = await saveIndependentTableToChatHistory_ACU(saveTargetIndex, keysToActuallySave, updateGroupKeysToUse);
+                    const saveSuccess = await saveIndependentTableToChatHistory_ACU(
+                        saveTargetIndex,
+                        keysToActuallySave,
+                        updateGroupKeysToUse,
+                        false,
+                        keysToTrackAsUpdated,
+                    );
                     if (!saveSuccess) {
                         return { success: false, modifiedKeys, error: '无法将更新后的数据库保存到聊天记录。' };
                     }

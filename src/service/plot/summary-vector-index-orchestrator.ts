@@ -10,12 +10,15 @@ import {
     getEffectiveSummaryVectorIndexConfig_ACU,
     validateSummaryVectorIndexConfig_ACU,
 } from '../vector/vector-memory-config';
-import { getActiveSummaryVectorIndexSnapshot_ACU } from '../vector/summary-vector-index-state-service';
+import { getAggregatedSummaryVectorIndexSnapshot_ACU } from '../vector/summary-vector-index-state-service';
 import {
     recallSummaryVectorIndex_ACU,
     SummaryVectorIndexRecallResult_ACU,
 } from '../vector/summary-vector-index-recall-service';
 import { buildRecentContextMessages_ACU, buildVectorRecallSignature_ACU } from './vector-recall-orchestrator';
+import { refreshSummaryVectorIndexCustomExportEntry_ACU } from '../worldbook/injection-engine-custom';
+
+const SUMMARY_VECTOR_INDEX_RECALL_MIN_ROWS_ACU = 100;
 
 export interface SummaryVectorIndexOrchestrationResult_ACU {
     intercepted: boolean;
@@ -83,7 +86,6 @@ export async function orchestrateSummaryVectorIndexBeforeSend_ACU(
 ): Promise<SummaryVectorIndexOrchestrationResult_ACU> {
     const signature = buildVectorRecallSignature_ACU(userInput);
     const config = getEffectiveSummaryVectorIndexConfig_ACU(options.configInput);
-    const validation = validateSummaryVectorIndexConfig_ACU(config);
     clearSummaryVectorIndexRecallOverride_ACU();
 
     if (!signature) {
@@ -91,18 +93,6 @@ export async function orchestrateSummaryVectorIndexBeforeSend_ACU(
             skipped: true,
             shouldProceed: true,
             signature,
-        });
-    }
-
-    if (!validation.valid) {
-        return buildSummaryVectorIndexOrchestrationResult_ACU({
-            intercepted: true,
-            signature,
-            blocking: true,
-            blockStage: 'summary_vector_index_config_validation',
-            blockReason: validation.errors[0] || '纪要向量索引配置无效，发送前预处理未执行。',
-            errors: [...validation.errors],
-            shouldProceed: false,
         });
     }
 
@@ -115,16 +105,36 @@ export async function orchestrateSummaryVectorIndexBeforeSend_ACU(
     }
 
     try {
-        const activeSnapshot = getActiveSummaryVectorIndexSnapshot_ACU();
+        const activeSnapshot = getAggregatedSummaryVectorIndexSnapshot_ACU();
         const state = activeSnapshot?.summaryVectorIndexState || null;
-        if (!activeSnapshot || !state || !Array.isArray(state.rows) || state.rows.length === 0 || !Array.isArray(state.chunks) || state.chunks.length === 0) {
+        const archivedRowCount = Array.isArray(state?.rows)
+            ? state.rows.length
+            : Number(state?.rowCount || 0);
+        const archivedChunkCount = Array.isArray(state?.chunks)
+            ? state.chunks.length
+            : Number(state?.chunkCount || 0);
+        if (!state || archivedRowCount < SUMMARY_VECTOR_INDEX_RECALL_MIN_ROWS_ACU || archivedChunkCount <= 0) {
+            return buildSummaryVectorIndexOrchestrationResult_ACU({
+                intercepted: true,
+                skipped: true,
+                success: true,
+                signature,
+                shouldProceed: true,
+                warnings: [
+                    `纪要向量索引归档不足 ${SUMMARY_VECTOR_INDEX_RECALL_MIN_ROWS_ACU} 条（当前 ${Math.max(0, archivedRowCount)} 条），已跳过发送前关键词生成、向量召回和世界书覆盖注入；自动归档仍会在填表保存后正常累积。`,
+                ],
+            });
+        }
+
+        const validation = validateSummaryVectorIndexConfig_ACU(config);
+        if (!validation.valid) {
             return buildSummaryVectorIndexOrchestrationResult_ACU({
                 intercepted: true,
                 signature,
                 blocking: true,
-                blockStage: 'summary_vector_index_archive_missing',
-                blockReason: '当前聊天没有可用的纪要向量索引归档。旧对话请先点击“立即归档”。',
-                errors: ['当前聊天没有可用的纪要向量索引归档。旧对话请先点击“立即归档”。'],
+                blockStage: 'summary_vector_index_config_validation',
+                blockReason: validation.errors[0] || '纪要向量索引配置无效，发送前预处理未执行。',
+                errors: [...validation.errors],
                 shouldProceed: false,
             });
         }
@@ -210,6 +220,11 @@ export async function orchestrateSummaryVectorIndexBeforeSend_ACU(
             isEmpty: recallResult.matches.length === 0,
             at: Date.now(),
         });
+
+        const customExportUpdated = await refreshSummaryVectorIndexCustomExportEntry_ACU();
+        if (!customExportUpdated) {
+            warnings.push('纪要向量索引召回已完成，但 CustomExport 纪要索引世界书条目未被覆盖；请确认该条目已由世界书/表格同步创建。');
+        }
 
         return buildSummaryVectorIndexOrchestrationResult_ACU({
             intercepted: true,

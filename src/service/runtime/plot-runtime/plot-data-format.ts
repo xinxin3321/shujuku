@@ -128,28 +128,52 @@ import { currentSummaryVectorIndexRecall_ACU } from '../state-manager';
     }
   }
 
-  export function formatSummaryVectorIndexRecallOverride_ACU() {
+  function normalizeSummaryIndexCell_ACU(value: any, fallback = ''): string {
+    const normalized = String(value ?? '').replace(/\r?\n+/g, ' ').trim();
+    return normalized || fallback;
+  }
+
+  function escapeMarkdownTableCell_ACU(value: any, fallback = ''): string {
+    return normalizeSummaryIndexCell_ACU(value, fallback)
+      .replace(/\\/g, '\\\\')
+      .replace(/\|/g, '\\|');
+  }
+
+  function buildSummaryIndexMarkdownTable_ACU(rows: any[]): string {
+    let out = `| 时间跨度 | 地点 | 纪要 | 编码索引 |\n`;
+    out += `|---|---|---|---|\n`;
+    const safeRows = Array.isArray(rows) ? rows : [];
+    if (safeRows.length === 0) {
+      out += `| 未召回相关纪要 | 未召回相关纪要 | 未召回相关纪要 | 未召回相关纪要 |\n`;
+      return out;
+    }
+
+    safeRows.forEach((row: any) => {
+      const timeSpan = escapeMarkdownTableCell_ACU(row?.timeSpan, '未填写');
+      const location = escapeMarkdownTableCell_ACU(row?.location, '未填写');
+      const summary = escapeMarkdownTableCell_ACU(row?.summary, '未填写');
+      const indexCode = escapeMarkdownTableCell_ACU(row?.indexCode, '未填写');
+      out += `| ${timeSpan} | ${location} | ${summary} | ${indexCode} |\n`;
+    });
+    return out;
+  }
+
+  function wrapSummaryIndexWorldbookTag_ACU(content: string): string {
+    return `<已发生的事件概览>\n\n${content.trim()}\n\n</已发生的事件概览>\n`;
+  }
+
+  export function formatSummaryVectorIndexRecallOverride_ACU(options: { wrapWorldbookTag?: boolean } = {}) {
     const override = currentSummaryVectorIndexRecall_ACU;
     if (!override || typeof override !== 'object' || override.mode !== 'summary_vector_index') {
       return null;
     }
 
-    let out = `## 表格: 纪要索引\n`;
-    out += `Columns: 概要, 编码索引\n`;
-    const rows = Array.isArray(override.rows) ? override.rows : [];
-    if (rows.length === 0 || override.isEmpty === true) {
-      out += '(未召回相关纪要)\n';
-      return { success: true, content: out };
-    }
-
-    rows.forEach((row: any, idx: number) => {
-      const summary = String(row?.summary || '').trim();
-      const indexCode = String(row?.indexCode || '').trim();
-      if (summary || indexCode) {
-        out += `- [${idx}] 概要: ${summary} | 编码索引: ${indexCode}\n`;
-      }
-    });
-    return { success: true, content: out };
+    const rows = Array.isArray(override.rows) && override.isEmpty !== true ? override.rows : [];
+    const tableContent = buildSummaryIndexMarkdownTable_ACU(rows);
+    const content = options.wrapWorldbookTag === true
+      ? wrapSummaryIndexWorldbookTag_ACU(tableContent)
+      : tableContent;
+    return { success: true, content };
   }
 
   /** [剧情推进专用] $5 从纪要表本地数据读取概要和编码索引两列 */
@@ -184,35 +208,34 @@ import { currentSummaryVectorIndexRecall_ACU } from '../state-manager';
       const headerRow = Array.isArray(summaryTable.content[0]) ? summaryTable.content[0] : [];
       logDebug_ACU('[剧情推进] formatSummaryIndexForPlot_ACU: 纪要表表头:', JSON.stringify(headerRow));
       
-      const summaryColIdx = headerRow.findIndex((h: any) => {
-        const name = String(h ?? '').trim();
-        return name === '概览' || name === '概要';
-      });
-      const indexColIdx = headerRow.findIndex((h: any) => String(h ?? '').trim() === '编码索引');
+      const resolveHeaderIndex_ACU = (aliases: string[], fallbackIndex = -1): number => {
+        const normalizedAliases = aliases.map((item) => String(item || '').trim().replace(/\s+/g, ''));
+        const foundIndex = headerRow.findIndex((h: any) => normalizedAliases.includes(String(h ?? '').trim().replace(/\s+/g, '')));
+        return foundIndex >= 0 ? foundIndex : fallbackIndex;
+      };
+      const timeSpanColIdx = resolveHeaderIndex_ACU(['时间跨度', '时间', '阶段', '时段'], 0);
+      const locationColIdx = resolveHeaderIndex_ACU(['地点', '位置', '场景', '场所'], 1);
+      const summaryColIdx = resolveHeaderIndex_ACU(['概览', '概要', '概述', '摘要']);
+      const indexColIdx = resolveHeaderIndex_ACU(['编码索引']);
       
       if (summaryColIdx === -1 || indexColIdx === -1) {
         logWarn_ACU('[剧情推进] formatSummaryIndexForPlot_ACU: 未找到概要列或编码索引列，概要列索引=', summaryColIdx, ', 编码索引列索引=', indexColIdx);
         return { success: false, content: '纪要索引：未找到概要列或编码索引列。' };
       }
 
-      let out = `## 表格: 纪要索引\n`;
-      out += `Columns: 概要, 编码索引\n`;
-
       const rows = summaryTable.content.slice(1).filter((r: any) => Array.isArray(r));
       if (rows.length === 0) {
-        out += '(无数据行)\n';
-        return { success: true, content: out };
+        return { success: true, content: buildSummaryIndexMarkdownTable_ACU([]) };
       }
 
-      rows.forEach((row: any, idx: number) => {
-        const summary = row[summaryColIdx] ? String(row[summaryColIdx]).trim() : '';
-        const indexCode = row[indexColIdx] ? String(row[indexColIdx]).trim() : '';
-        if (summary || indexCode) {
-          out += `- [${idx}] 概要: ${summary} | 编码索引: ${indexCode}\n`;
-        }
-      });
-      logDebug_ACU('[剧情推进] formatSummaryIndexForPlot_ACU: 成功生成纪要索引，行数=', rows.length);
-      return { success: true, content: out };
+      const tableRows = rows.map((row: any) => ({
+        timeSpan: timeSpanColIdx >= 0 ? row[timeSpanColIdx] : '',
+        location: locationColIdx >= 0 ? row[locationColIdx] : '',
+        summary: row[summaryColIdx],
+        indexCode: row[indexColIdx],
+      })).filter((row: any) => normalizeSummaryIndexCell_ACU(row.summary) || normalizeSummaryIndexCell_ACU(row.indexCode));
+      logDebug_ACU('[剧情推进] formatSummaryIndexForPlot_ACU: 成功生成纪要索引，行数=', tableRows.length);
+      return { success: true, content: buildSummaryIndexMarkdownTable_ACU(tableRows) };
     } catch (e) {
       logError_ACU('[剧情推进] 格式化纪要索引时出错:', e);
       return { success: false, content: '纪要索引：格式化时发生错误。' };

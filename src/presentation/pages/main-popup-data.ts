@@ -163,6 +163,7 @@ export function generateDataTabHTML(): string {
                                 <div id="${SCRIPT_ID_PREFIX_ACU}-remote-memory-detail-meta" class="notes" style="min-height: 20px;">请选择左侧总结批次。</div>
                                 <textarea id="${SCRIPT_ID_PREFIX_ACU}-remote-memory-summary-text" style="height: 220px; font-size: 0.9em; width: 100%; resize: vertical;" placeholder="请选择左侧总结批次后查看或编辑内容。" disabled></textarea>
                                 <div style="display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap;">
+                                    <button id="${SCRIPT_ID_PREFIX_ACU}-remote-memory-delete-all" type="button">全部删除</button>
                                     <button id="${SCRIPT_ID_PREFIX_ACU}-remote-memory-reset" type="button">恢复原文</button>
                                     <button id="${SCRIPT_ID_PREFIX_ACU}-remote-memory-save" class="primary" type="button">保存到最新楼层</button>
                                 </div>

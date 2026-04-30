@@ -52,6 +52,8 @@ export interface ChatSummaryVectorIndexRow_ACU {
     rowKey: string;
     rowId: string;
     rowOrder: number;
+    timeSpan: string;
+    location: string;
     summary: string;
     indexCode: string;
     vectorSourceText: string;

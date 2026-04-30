@@ -17,7 +17,7 @@ import { getLatestAiMessageIndexFromChat_ACU } from '../table/table-history';
 import { saveChatToHost_ACU } from '../../data/gateways/chat-gateway';
 import { syncVectorMemoryLorebookEntryFromState_ACU } from '../worldbook/vector-memory-entry-service';
 import { assignVectorStateToTagData_ACU, mergeVectorRemoteMemoryBatches_ACU, replaceVectorRemoteMemoryBatches_ACU } from './vector-index-state-service';
-import { getActiveRemoteMemorySnapshot_ACU } from './remote-memory-active-snapshot-service';
+import { getAggregatedRemoteMemorySnapshot_ACU } from './remote-memory-active-snapshot-service';
 import { getCurrentVectorMemoryConfig_ACU, getVectorMemoryNamespace_ACU, validateVectorIndexBuildConfig_ACU } from './vector-memory-config';
 import { buildRemoteMemoryBatchFromRows_ACU, type RemoteMemoryArchiveSourceRow_ACU } from './remote-memory-build-service';
 import { sanitizeSheetForStorage_ACU } from '../template/chat-scope';
@@ -437,8 +437,7 @@ export async function buildSummaryVectorIndexIfNeeded_ACU(
         modifiedKeys: [],
         updateGroupKeys: [],
     };
-    const activeSnapshot = getActiveRemoteMemorySnapshot_ACU();
-    const existingVectorState = activeSnapshot?.vectorState || null;
+    const existingVectorState = existingTagData?.vectorMemoryState || null;
     const namespace = getVectorMemoryNamespace_ACU(currentChatFileIdentifier_ACU || undefined);
 
     try {
@@ -532,7 +531,11 @@ export async function buildSummaryVectorIndexIfNeeded_ACU(
             completedBatches: rowBatches.length,
             totalBatches: rowBatches.length,
         });
-        const syncResult = await syncVectorMemoryLorebookEntryFromState_ACU(nextVectorState.remoteMemoryBatches, vectorConfig);
+        const aggregatedAfterArchive = getAggregatedRemoteMemorySnapshot_ACU();
+        const allRemoteMemoryBatches = Array.isArray(aggregatedAfterArchive?.vectorState?.remoteMemoryBatches)
+            ? aggregatedAfterArchive.vectorState.remoteMemoryBatches
+            : nextVectorState.remoteMemoryBatches;
+        const syncResult = await syncVectorMemoryLorebookEntryFromState_ACU(allRemoteMemoryBatches, vectorConfig);
         const errors = Array.isArray(syncResult?.errors) ? [...syncResult.errors] : [];
         const totalChunkCount = nextBatches.reduce((sum, batch) => sum + (Array.isArray(batch?.chunks) ? batch.chunks.length : 0), 0);
 

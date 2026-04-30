@@ -23,8 +23,11 @@ import {
     getEffectiveSummaryVectorIndexConfig_ACU,
     validateSummaryVectorIndexConfig_ACU,
 } from './vector-memory-config';
-import { assignSummaryVectorIndexStateToTagData_ACU } from './summary-vector-index-state-service';
-import { hashUserInput_ACU, isSummaryOrOutlineTable_ACU, logWarn_ACU } from '../../shared/utils';
+import {
+    assignSummaryVectorIndexStateToTagData_ACU,
+    getAggregatedSummaryVectorIndexSnapshot_ACU,
+} from './summary-vector-index-state-service';
+import { hashUserInput_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logWarn_ACU } from '../../shared/utils';
 
 export interface SummaryVectorIndexArchiveResult_ACU {
     success: boolean;
@@ -47,9 +50,12 @@ interface SummaryVectorArchivePreparedRow_ACU {
     rowKey: string;
     rowId: string;
     rowOrder: number;
+    timeSpan: string;
+    location: string;
     summary: string;
     indexCode: string;
     vectorSourceText: string;
+    sourceFingerprint: string;
 }
 
 function buildResult_ACU(partial: Partial<SummaryVectorIndexArchiveResult_ACU> = {}): SummaryVectorIndexArchiveResult_ACU {
@@ -72,6 +78,23 @@ function resolveColumnIndexByAliases_ACU(headerRow: any[], aliases: string[], fa
     const normalizedAliases = aliases.map((item) => normalizeText_ACU(item).replace(/\s+/g, ''));
     const index = (Array.isArray(headerRow) ? headerRow : []).findIndex((header) => normalizedAliases.includes(normalizeText_ACU(header).replace(/\s+/g, '')));
     return index >= 0 ? index : fallbackIndex;
+}
+
+function buildStableSummaryRowKey_ACU(summaryKey: string, rowId: string, indexCode: string): string {
+    const source = `${summaryKey}:${rowId}:${indexCode}`;
+    return `summary-row:${hashUserInput_ACU(source)}`;
+}
+
+function buildPreparedRowFingerprint_ACU(row: SummaryVectorArchivePreparedRow_ACU): string {
+    return hashUserInput_ACU([
+        row.rowId,
+        row.rowOrder,
+        row.timeSpan,
+        row.location,
+        row.summary,
+        row.indexCode,
+        row.vectorSourceText,
+    ].join('\n'));
 }
 
 function findSummaryTable_ACU(): SummaryTableSelection_ACU | null {
@@ -115,13 +138,15 @@ function chunkTextBySentenceCount_ACU(text: string, sentenceCount: number): stri
     return chunks;
 }
 
-function buildPreparedRows_ACU(table: any, summaryKey: string, snapshotMessageId: string): {
+function buildPreparedRows_ACU(table: any, summaryKey: string): {
     rows: SummaryVectorArchivePreparedRow_ACU[];
     skippedRowCount: number;
     error: string;
 } {
     const content = Array.isArray(table?.content) ? table.content : [];
     const headerRow = Array.isArray(content[0]) ? content[0] : [];
+    const timeSpanColIdx = resolveColumnIndexByAliases_ACU(headerRow, ['时间跨度', '时间', '阶段', '时段'], 0);
+    const locationColIdx = resolveColumnIndexByAliases_ACU(headerRow, ['地点', '位置', '场景', '场所'], 1);
     const summaryColIdx = resolveColumnIndexByAliases_ACU(headerRow, ['概要', '概览', '概述', '摘要']);
     const indexColIdx = resolveColumnIndexByAliases_ACU(headerRow, ['编码索引']);
     if (summaryColIdx < 0) {
@@ -136,6 +161,8 @@ function buildPreparedRows_ACU(table: any, summaryKey: string, snapshotMessageId
     let skippedRowCount = 0;
     dataRows.forEach((row: any[], rowIndex: number) => {
         const rowId = normalizeText_ACU(row?.[0]) || String(rowIndex + 1);
+        const timeSpan = timeSpanColIdx >= 0 ? normalizeText_ACU(row?.[timeSpanColIdx]) : '';
+        const location = locationColIdx >= 0 ? normalizeText_ACU(row?.[locationColIdx]) : '';
         const summary = normalizeText_ACU(row?.[summaryColIdx]);
         const indexCode = normalizeText_ACU(row?.[indexColIdx]);
         const sourceParts: string[] = [];
@@ -151,30 +178,147 @@ function buildPreparedRows_ACU(table: any, summaryKey: string, snapshotMessageId
             skippedRowCount += 1;
             return;
         }
-        preparedRows.push({
-            rowKey: `${snapshotMessageId}:${summaryKey}:${rowId}`,
+        const preparedRow: SummaryVectorArchivePreparedRow_ACU = {
+            rowKey: buildStableSummaryRowKey_ACU(summaryKey, rowId, indexCode),
             rowId,
             rowOrder: rowIndex,
+            timeSpan,
+            location,
             summary,
             indexCode,
             vectorSourceText,
-        });
+            sourceFingerprint: '',
+        };
+        preparedRow.sourceFingerprint = buildPreparedRowFingerprint_ACU(preparedRow);
+        preparedRows.push(preparedRow);
     });
 
     return { rows: preparedRows, skippedRowCount, error: '' };
 }
 
-function resolveTargetMessageIndex_ACU(preferredIndex?: number): number {
+function resolveTargetMessageIndex_ACU(_preferredIndex?: number): number {
     const chat = getChatArray_ACU();
     if (!Array.isArray(chat) || chat.length === 0) {
         return -1;
     }
 
-    if (typeof preferredIndex === 'number' && preferredIndex >= 0 && chat[preferredIndex] && !chat[preferredIndex].is_user) {
-        return preferredIndex;
-    }
-
     return getLatestAiMessageIndexFromChat_ACU(chat);
+}
+
+function cloneSummaryVectorIndexState_ACU(state: ChatSummaryVectorIndexState_ACU | null | undefined): ChatSummaryVectorIndexState_ACU | null {
+    if (!state) return null;
+    try {
+        return JSON.parse(JSON.stringify(state));
+    } catch (_error) {
+        return null;
+    }
+}
+
+function getSummaryRowFingerprintFromStateRow_ACU(row: ChatSummaryVectorIndexRow_ACU): string {
+    return hashUserInput_ACU([
+        row.rowId,
+        row.rowOrder,
+        row.timeSpan,
+        row.location,
+        row.summary,
+        row.indexCode,
+        row.vectorSourceText,
+    ].join('\n'));
+}
+
+function buildLayerStateWithRows_ACU(
+    baseState: ChatSummaryVectorIndexState_ACU | null | undefined,
+    rows: ChatSummaryVectorIndexRow_ACU[],
+    chunks: ChatSummaryVectorIndexChunk_ACU[],
+    options: {
+        snapshotMessageId: string;
+        sourceTableKey: string;
+        sourceTableName: string;
+        indexedAt: string;
+        skippedRowCount?: number;
+    },
+): ChatSummaryVectorIndexState_ACU | null {
+    const normalizedRows = (Array.isArray(rows) ? rows : [])
+        .map((row) => ({
+            ...row,
+            chunkIds: Array.isArray(row.chunkIds) ? row.chunkIds.filter(Boolean) : [],
+        }))
+        .filter((row) => row.rowKey && row.rowId && row.summary && row.indexCode && row.chunkIds.length > 0)
+        .sort((left, right) => left.rowOrder - right.rowOrder || left.rowKey.localeCompare(right.rowKey));
+    const validRowKeys = new Set(normalizedRows.map((row) => row.rowKey));
+    const validChunkIds = new Set(normalizedRows.flatMap((row) => row.chunkIds));
+    const normalizedChunks = (Array.isArray(chunks) ? chunks : [])
+        .filter((chunk) => chunk?.chunkId && chunk?.rowKey && validRowKeys.has(chunk.rowKey) && validChunkIds.has(chunk.chunkId))
+        .map((chunk, index) => ({ ...chunk, sequence: index }));
+    if (normalizedRows.length === 0 || normalizedChunks.length === 0) {
+        return null;
+    }
+    return {
+        schemaVersion: 1,
+        snapshotMessageId: options.snapshotMessageId || baseState?.snapshotMessageId || '',
+        sourceTableKey: options.sourceTableKey || baseState?.sourceTableKey || '',
+        sourceTableName: options.sourceTableName || baseState?.sourceTableName || '纪要表',
+        indexedAt: options.indexedAt || baseState?.indexedAt || new Date().toISOString(),
+        rowCount: normalizedRows.length,
+        chunkCount: normalizedChunks.length,
+        skippedRowCount: Math.max(0, Math.floor(Number(options.skippedRowCount ?? baseState?.skippedRowCount ?? 0) || 0)),
+        rows: normalizedRows,
+        chunks: normalizedChunks,
+    };
+}
+
+function buildExistingReusableRows_ACU(
+    preparedRows: SummaryVectorArchivePreparedRow_ACU[],
+    existingState: ChatSummaryVectorIndexState_ACU | null,
+): { reusableRows: ChatSummaryVectorIndexRow_ACU[]; reusableChunks: ChatSummaryVectorIndexChunk_ACU[]; rowsNeedingEmbedding: SummaryVectorArchivePreparedRow_ACU[] } {
+    const preparedByKey = new Map(preparedRows.map((row) => [row.rowKey, row]));
+    const existingRows = Array.isArray(existingState?.rows) ? existingState!.rows : [];
+    const existingChunks = Array.isArray(existingState?.chunks) ? existingState!.chunks : [];
+    const existingChunksByRowKey = new Map<string, ChatSummaryVectorIndexChunk_ACU[]>();
+    existingChunks.forEach((chunk) => {
+        if (!chunk?.rowKey || !chunk?.chunkId || !Array.isArray(chunk.vector) || chunk.vector.length === 0) return;
+        const list = existingChunksByRowKey.get(chunk.rowKey) || [];
+        list.push({ ...chunk });
+        existingChunksByRowKey.set(chunk.rowKey, list);
+    });
+
+    const reusableRows: ChatSummaryVectorIndexRow_ACU[] = [];
+    const reusableChunks: ChatSummaryVectorIndexChunk_ACU[] = [];
+    const reusableKeySet = new Set<string>();
+    existingRows.forEach((existingRow) => {
+        const prepared = preparedByKey.get(existingRow.rowKey);
+        const chunks = existingChunksByRowKey.get(existingRow.rowKey) || [];
+        const existingFingerprint = hashUserInput_ACU([
+            existingRow.rowId,
+            existingRow.rowOrder,
+            existingRow.timeSpan,
+            existingRow.location,
+            existingRow.summary,
+            existingRow.indexCode,
+            existingRow.vectorSourceText,
+        ].join('\n'));
+        if (!prepared || chunks.length === 0 || existingFingerprint !== prepared.sourceFingerprint) {
+            return;
+        }
+        const chunkIds = chunks.map((chunk) => chunk.chunkId).filter(Boolean);
+        if (chunkIds.length === 0) return;
+        reusableRows.push({
+            rowKey: prepared.rowKey,
+            rowId: prepared.rowId,
+            rowOrder: prepared.rowOrder,
+            timeSpan: prepared.timeSpan,
+            location: prepared.location,
+            summary: prepared.summary,
+            indexCode: prepared.indexCode,
+            vectorSourceText: prepared.vectorSourceText,
+            chunkIds,
+        });
+        chunks.forEach((chunk) => reusableChunks.push({ ...chunk }));
+        reusableKeySet.add(prepared.rowKey);
+    });
+
+    const rowsNeedingEmbedding = preparedRows.filter((row) => !reusableKeySet.has(row.rowKey));
+    return { reusableRows, reusableChunks, rowsNeedingEmbedding };
 }
 
 async function buildChunksWithEmbeddings_ACU(
@@ -185,8 +329,10 @@ async function buildChunksWithEmbeddings_ACU(
         embeddingEndpoint: string;
         embeddingApiKey: string;
         embeddingModel: string;
+        existingSequenceBase?: number;
     },
 ): Promise<{ rows: ChatSummaryVectorIndexRow_ACU[]; chunks: ChatSummaryVectorIndexChunk_ACU[] }> {
+    const sequenceBase = Math.max(0, Math.floor(Number(options.existingSequenceBase) || 0));
     const chunkSources: Array<{ chunkId: string; rowKey: string; rowIndex: number; text: string; sequence: number }> = [];
     rows.forEach((row, rowIndex) => {
         const rowChunkTexts = chunkTextBySentenceCount_ACU(row.vectorSourceText, options.sentenceCount);
@@ -196,7 +342,7 @@ async function buildChunksWithEmbeddings_ACU(
                 rowKey: row.rowKey,
                 rowIndex,
                 text,
-                sequence: chunkSources.length,
+                sequence: sequenceBase + chunkSources.length,
             });
         });
     });
@@ -241,6 +387,8 @@ async function buildChunksWithEmbeddings_ACU(
             rowKey: row.rowKey,
             rowId: row.rowId,
             rowOrder: row.rowOrder,
+            timeSpan: row.timeSpan,
+            location: row.location,
             summary: row.summary,
             indexCode: row.indexCode,
             vectorSourceText: row.vectorSourceText,
@@ -300,7 +448,7 @@ export async function archiveSummaryVectorIndexNow_ACU(options: { targetMessageI
     }
     const snapshotMessageId = snapshotAnchor.anchor;
 
-    const prepared = buildPreparedRows_ACU(selectedSummary.table, selectedSummary.summaryKey, snapshotMessageId);
+    const prepared = buildPreparedRows_ACU(selectedSummary.table, selectedSummary.summaryKey);
     if (prepared.error) {
         return buildResult_ACU({
             success: false,
@@ -322,14 +470,26 @@ export async function archiveSummaryVectorIndexNow_ACU(options: { targetMessageI
     }
 
     try {
-        const embedded = await buildChunksWithEmbeddings_ACU(prepared.rows, {
-            snapshotMessageId,
-            sentenceCount: config.summaryIndexChunkSentenceCount,
-            embeddingEndpoint: config.embeddingEndpoint,
-            embeddingApiKey: config.embeddingApiKey,
-            embeddingModel: config.embeddingModel,
-        });
-        if (embedded.rows.length === 0 || embedded.chunks.length === 0) {
+        const aggregatedSnapshot = getAggregatedSummaryVectorIndexSnapshot_ACU();
+        const existingState = cloneSummaryVectorIndexState_ACU(aggregatedSnapshot?.summaryVectorIndexState);
+        const preparedByKey = new Map(prepared.rows.map((row) => [row.rowKey, row]));
+        const reusable = buildExistingReusableRows_ACU(prepared.rows, existingState);
+        const reusableRowKeySet = new Set(reusable.reusableRows.map((row) => row.rowKey));
+        const rowsNeedingEmbedding = prepared.rows.filter((row) => !reusableRowKeySet.has(row.rowKey));
+        const embedded = rowsNeedingEmbedding.length > 0
+            ? await buildChunksWithEmbeddings_ACU(rowsNeedingEmbedding, {
+                snapshotMessageId,
+                sentenceCount: config.summaryIndexChunkSentenceCount,
+                embeddingEndpoint: config.embeddingEndpoint,
+                embeddingApiKey: config.embeddingApiKey,
+                embeddingModel: config.embeddingModel,
+            })
+            : { rows: [], chunks: [] };
+        const finalRows = [...reusable.reusableRows, ...embedded.rows].sort((a, b) => a.rowOrder - b.rowOrder || a.rowKey.localeCompare(b.rowKey));
+        const finalChunks = [...reusable.reusableChunks, ...embedded.chunks]
+            .filter((chunk) => finalRows.some((row) => row.rowKey === chunk.rowKey && row.chunkIds.includes(chunk.chunkId)))
+            .map((chunk, index) => ({ ...chunk, sequence: index }));
+        if (finalRows.length === 0 || finalChunks.length === 0) {
             return buildResult_ACU({
                 success: false,
                 summaryKey: selectedSummary.summaryKey,
@@ -338,59 +498,116 @@ export async function archiveSummaryVectorIndexNow_ACU(options: { targetMessageI
                 errors: ['纪要向量索引 embedding 结果为空。'],
             });
         }
+        if (rowsNeedingEmbedding.length === 0) {
+            logDebug_ACU('[纪要向量索引] 当前纪要表未发现新增或变更条目，复用已有归档向量。');
+        }
 
         const indexedAt = new Date().toISOString();
-        const state: ChatSummaryVectorIndexState_ACU = {
-            schemaVersion: 1,
-            snapshotMessageId,
-            sourceTableKey: selectedSummary.summaryKey,
-            sourceTableName: normalizeText_ACU(selectedSummary.table?.name) || '纪要表',
-            indexedAt,
-            rowCount: embedded.rows.length,
-            chunkCount: embedded.chunks.length,
-            skippedRowCount: prepared.skippedRowCount + (prepared.rows.length - embedded.rows.length),
-            rows: embedded.rows,
-            chunks: embedded.chunks,
-        };
-
-        const isolationKey = getCurrentIsolationKey_ACU();
-        const existingTagData = readIsolatedTagData_ACU(targetMessage, isolationKey) || {
-            independentData: {},
-            modifiedKeys: [],
-            updateGroupKeys: [],
-        };
-        const nextIsolatedData = cloneIsolatedData_ACU(targetMessage);
-        const nextTagData = {
-            independentData: existingTagData.independentData || {},
-            modifiedKeys: Array.isArray(existingTagData.modifiedKeys) ? [...existingTagData.modifiedKeys] : [],
-            updateGroupKeys: Array.isArray(existingTagData.updateGroupKeys) ? [...existingTagData.updateGroupKeys] : [],
-            ...(existingTagData.vectorMemoryState ? { vectorMemoryState: existingTagData.vectorMemoryState } : {}),
-            ...(existingTagData._acu_base_state ? { _acu_base_state: existingTagData._acu_base_state } : {}),
-        } as any;
-        assignSummaryVectorIndexStateToTagData_ACU(nextTagData, state);
-        nextIsolatedData[isolationKey] = nextTagData;
-        targetMessage.TavernDB_ACU_IsolatedData = nextIsolatedData;
-        writeIsolatedTagData_ACU(targetMessage, isolationKey, nextTagData);
-        persistRemoteMemorySnapshotAnchorIfNeeded_ACU(targetMessage, snapshotAnchor);
-        writeMessageIdentity_ACU(targetMessage, {
-            enabled: settings_ACU.dataIsolationEnabled,
-            code: settings_ACU.dataIsolationCode,
+        const sourceTableName = normalizeText_ACU(selectedSummary.table?.name) || '纪要表';
+        const rowsByKey = new Map(finalRows.map((row) => [row.rowKey, row]));
+        const chunksByRowKey = new Map<string, ChatSummaryVectorIndexChunk_ACU[]>();
+        finalChunks.forEach((chunk) => {
+            const list = chunksByRowKey.get(chunk.rowKey) || [];
+            list.push({ ...chunk });
+            chunksByRowKey.set(chunk.rowKey, list);
         });
-        writeLegacyCompatData_ACU(
-            targetMessage,
-            nextTagData.independentData || {},
-            nextTagData.modifiedKeys || [],
-            nextTagData.updateGroupKeys || [],
-        );
+        const targetRowKeysByMessageIndex = new Map<number, Set<string>>();
+        const touchedMessageIndexes = new Set<number>();
+
+        finalRows.forEach((row) => {
+            const owner = aggregatedSnapshot?.rowOwners.get(row.rowKey);
+            const ownerStateRow = owner?.row;
+            const preparedRow = preparedByKey.get(row.rowKey);
+            const ownerFingerprint = ownerStateRow ? getSummaryRowFingerprintFromStateRow_ACU(ownerStateRow) : '';
+            const isReusableAtOwner = !!preparedRow && !!owner && ownerFingerprint === preparedRow.sourceFingerprint;
+            const writeMessageIndex = owner && isReusableAtOwner ? owner.messageIndex : (owner?.messageIndex ?? targetMessageIndex);
+            const rowSet = targetRowKeysByMessageIndex.get(writeMessageIndex) || new Set<string>();
+            rowSet.add(row.rowKey);
+            targetRowKeysByMessageIndex.set(writeMessageIndex, rowSet);
+            touchedMessageIndexes.add(writeMessageIndex);
+        });
+
+        (aggregatedSnapshot?.rowOwners || new Map()).forEach((owner, rowKey) => {
+            if (!preparedByKey.has(rowKey)) {
+                touchedMessageIndexes.add(owner.messageIndex);
+            }
+        });
+        touchedMessageIndexes.add(targetMessageIndex);
+
+        for (const messageIndex of Array.from(touchedMessageIndexes).sort((left, right) => left - right)) {
+            const message = chat[messageIndex];
+            if (!message || message.is_user) continue;
+            const layer = aggregatedSnapshot?.layers.find((item) => item.messageIndex === messageIndex) || null;
+            const layerState = cloneSummaryVectorIndexState_ACU(layer?.summaryVectorIndexState);
+            const layerRows = Array.isArray(layerState?.rows) ? [...layerState.rows] : [];
+            const layerChunks = Array.isArray(layerState?.chunks) ? [...layerState.chunks] : [];
+            const keepRowKeys = new Set(layerRows.map((row) => row.rowKey).filter((rowKey) => preparedByKey.has(rowKey) && !rowsByKey.has(rowKey)));
+            const assignedRowKeys = targetRowKeysByMessageIndex.get(messageIndex) || new Set<string>();
+            assignedRowKeys.forEach((rowKey) => keepRowKeys.add(rowKey));
+
+            const nextRows = Array.from(keepRowKeys)
+                .map((rowKey) => rowsByKey.get(rowKey) || layerRows.find((row) => row.rowKey === rowKey) || null)
+                .filter((row): row is ChatSummaryVectorIndexRow_ACU => !!row);
+            const nextChunks: ChatSummaryVectorIndexChunk_ACU[] = [];
+            nextRows.forEach((row) => {
+                const sourceChunks = rowsByKey.has(row.rowKey)
+                    ? (chunksByRowKey.get(row.rowKey) || [])
+                    : layerChunks.filter((chunk) => row.chunkIds.includes(chunk.chunkId));
+                sourceChunks.forEach((chunk) => nextChunks.push({ ...chunk }));
+            });
+
+            const snapshotForMessage = messageIndex === targetMessageIndex
+                ? snapshotMessageId
+                : (layerState?.snapshotMessageId || resolveRemoteMemorySnapshotAnchor_ACU(chat, messageIndex)?.anchor || snapshotMessageId);
+            const nextState = buildLayerStateWithRows_ACU(layerState, nextRows, nextChunks, {
+                snapshotMessageId: snapshotForMessage,
+                sourceTableKey: selectedSummary.summaryKey,
+                sourceTableName,
+                indexedAt,
+                skippedRowCount: messageIndex === targetMessageIndex ? prepared.skippedRowCount : layerState?.skippedRowCount,
+            });
+            const isolationKey = getCurrentIsolationKey_ACU();
+            const existingTagData = readIsolatedTagData_ACU(message, isolationKey) || {
+                independentData: {},
+                modifiedKeys: [],
+                updateGroupKeys: [],
+            };
+            const nextIsolatedData = cloneIsolatedData_ACU(message);
+            const nextTagData = {
+                independentData: existingTagData.independentData || {},
+                modifiedKeys: Array.isArray(existingTagData.modifiedKeys) ? [...existingTagData.modifiedKeys] : [],
+                updateGroupKeys: Array.isArray(existingTagData.updateGroupKeys) ? [...existingTagData.updateGroupKeys] : [],
+                ...(existingTagData.vectorMemoryState ? { vectorMemoryState: existingTagData.vectorMemoryState } : {}),
+                ...(existingTagData._acu_base_state ? { _acu_base_state: existingTagData._acu_base_state } : {}),
+            } as any;
+            assignSummaryVectorIndexStateToTagData_ACU(nextTagData, nextState);
+            nextIsolatedData[isolationKey] = nextTagData;
+            message.TavernDB_ACU_IsolatedData = nextIsolatedData;
+            writeIsolatedTagData_ACU(message, isolationKey, nextTagData);
+            const anchorForMessage = resolveRemoteMemorySnapshotAnchor_ACU(chat, messageIndex);
+            if (anchorForMessage?.anchor) {
+                persistRemoteMemorySnapshotAnchorIfNeeded_ACU(message, anchorForMessage);
+            }
+            writeMessageIdentity_ACU(message, {
+                enabled: settings_ACU.dataIsolationEnabled,
+                code: settings_ACU.dataIsolationCode,
+            });
+            writeLegacyCompatData_ACU(
+                message,
+                nextTagData.independentData || {},
+                nextTagData.modifiedKeys || [],
+                nextTagData.updateGroupKeys || [],
+            );
+        }
 
         await saveChatToHost_ACU();
 
         return buildResult_ACU({
             success: true,
             skipped: false,
-            indexedRowCount: state.rowCount,
-            skippedRowCount: state.skippedRowCount,
-            chunkCount: state.chunkCount,
+            indexedRowCount: finalRows.length,
+            skippedRowCount: prepared.skippedRowCount + (prepared.rows.length - finalRows.length),
+            chunkCount: finalChunks.length,
             messageIndex: targetMessageIndex,
             summaryKey: selectedSummary.summaryKey,
             reason: 'archived_summary_vector_index',

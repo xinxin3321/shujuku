@@ -2,7 +2,7 @@ import { DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_SQL_ACU 
 import { isSqliteMode } from '../../service/table/storage-mode';
 import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-readers';
 import { getCurrentVectorMemoryConfig_ACU } from '../../service/vector/vector-memory-config';
-import { getActiveSummaryVectorIndexSnapshot_ACU } from '../../service/vector/summary-vector-index-state-service';
+import { getAggregatedSummaryVectorIndexSnapshot_ACU } from '../../service/vector/summary-vector-index-state-service';
 import { renderPromptSegments_ACU } from './plot-editors';
 import { renderKeywordPromptGroupToUI_ACU, renderSummaryPromptGroupToUI_ACU } from '../pages/popup-bindings-worldbook';
 import { renderImportTableSelector_ACU, renderManualTableSelector_ACU } from './table-selector';
@@ -196,13 +196,18 @@ setVal('merge-prompt-template', s.mergeSummaryPrompt || (isSqliteMode() ? DEFAUL
       const $summaryVectorIndexHint = find('summary-vector-index-archive-hint');
       if ($summaryVectorIndexHint.length) {
           const summaryVectorIndexEnabled = worldbookConfig.summaryVectorIndexModeEnabled === true;
-          const activeSummaryVectorIndexSnapshot = getActiveSummaryVectorIndexSnapshot_ACU();
-          const hasSummaryVectorIndexArchive = !!activeSummaryVectorIndexSnapshot?.summaryVectorIndexState;
+          const activeSummaryVectorIndexSnapshot = getAggregatedSummaryVectorIndexSnapshot_ACU();
+          const activeSummaryVectorIndexState = activeSummaryVectorIndexSnapshot?.summaryVectorIndexState || null;
+          const summaryVectorIndexRowCount = activeSummaryVectorIndexState?.rowCount || (Array.isArray(activeSummaryVectorIndexState?.rows) ? activeSummaryVectorIndexState.rows.length : 0);
+          const summaryVectorIndexChunkCount = activeSummaryVectorIndexState?.chunkCount || (Array.isArray(activeSummaryVectorIndexState?.chunks) ? activeSummaryVectorIndexState.chunks.length : 0);
+          const hasSummaryVectorIndexArchive = !!activeSummaryVectorIndexState;
           $summaryVectorIndexHint.text(summaryVectorIndexEnabled
               ? hasSummaryVectorIndexArchive
-                  ? `向量混合交火增强方案已启用；当前可用归档：${activeSummaryVectorIndexSnapshot?.summaryVectorIndexState?.rowCount || 0} 条纪要，${activeSummaryVectorIndexSnapshot?.summaryVectorIndexState?.chunkCount || 0} 个 chunks。请确认已配置好向量模型以及 rerank 模型。`
-                  : '向量混合交火增强方案已启用，但当前聊天尚无纪要向量索引归档；请确认已配置好向量模型以及 rerank 模型，旧对话请先点击“立即执行远记忆归档”。'
-              : '使用前请先配置好向量模型以及 rerank 模型；开启后会自动使用向量能力筛选概要索引，并跳过普通远记忆召回流程；旧对话需要点击“立即执行远记忆归档”按钮完成纪要向量索引归档。');
+                  ? summaryVectorIndexRowCount >= 100
+                      ? `向量混合交火增强方案已启用；当前可用归档：${summaryVectorIndexRowCount} 条纪要，${summaryVectorIndexChunkCount} 个 chunks，已达到 100 条门槛，发送前会执行关键词召回和概要索引覆盖。请确认已配置好向量模型以及 rerank 模型。`
+                      : `向量混合交火增强方案已启用；当前可用归档：${summaryVectorIndexRowCount}/100 条纪要，${summaryVectorIndexChunkCount} 个 chunks。未满 100 条前，发送时不会触发关键词召回和概要索引覆盖注入，自动归档仍会在填表保存后继续累积。请确认已配置好向量模型以及 rerank 模型。`
+                  : '向量混合交火增强方案已启用，但当前聊天尚无纪要向量索引归档；未满 100 条前发送时不会触发关键词召回和概要索引覆盖注入，自动归档仍会在填表保存后继续累积。请确认已配置好向量模型以及 rerank 模型。'
+              : '使用前请先配置好向量模型以及 rerank 模型；开启后会自动累积纪要向量索引，归档纪要满 100 条后才会在发送前执行关键词召回并覆盖概要索引；旧对话需要点击“立即执行远记忆归档”按钮完成纪要向量索引归档。');
       }
       if ($useMainApiCheckbox_ACU) { $useMainApiCheckbox_ACU.prop('checked', s.apiConfig.useMainApi); if (typeof updateCustomApiInputsState_ACU === 'function') updateCustomApiInputsState_ACU(); }
       if ($streamingEnabledCheckbox_ACU) $streamingEnabledCheckbox_ACU.prop('checked', s.streamingEnabled || false);
