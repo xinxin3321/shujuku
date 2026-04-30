@@ -32,6 +32,7 @@ export interface VectorMemoryConfig_ACU {
     summaryPromptGroup: VectorMemoryKeywordPromptSegment_ACU[];
     keywordApiPreset: string;
     keywordContextPairCount: number;
+    keywordGenerationMaxAttempts: number;
     keywordPromptGroup: VectorMemoryKeywordPromptSegment_ACU[];
     recallCandidateLimit: number;
 }
@@ -135,6 +136,7 @@ export function normalizeVectorMemoryConfig_ACU(rawConfig: any): VectorMemoryCon
         summaryPromptGroup: normalizeKeywordPromptGroup_ACU(source.summaryPromptGroup, (defaults as any).summaryPromptGroup || []),
         keywordApiPreset: normalizeTextField_ACU(source.keywordApiPreset, defaults.keywordApiPreset),
         keywordContextPairCount: normalizePositiveInteger_ACU(source.keywordContextPairCount, defaults.keywordContextPairCount),
+        keywordGenerationMaxAttempts: normalizePositiveInteger_ACU((source as any).keywordGenerationMaxAttempts, (defaults as any).keywordGenerationMaxAttempts || 3),
         keywordPromptGroup: normalizeKeywordPromptGroup_ACU(source.keywordPromptGroup, defaults.keywordPromptGroup),
         recallCandidateLimit: normalizePositiveInteger_ACU(source.recallCandidateLimit, defaults.recallCandidateLimit),
     };

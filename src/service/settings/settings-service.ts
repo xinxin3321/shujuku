@@ -320,6 +320,7 @@ export   function loadSettings_ACU() {
               vectorConfig.minScore = defaultVectorMemoryConfig_ACU.minScore;
               vectorConfig.summaryPromptGroup = JSON.parse(JSON.stringify(defaultVectorMemoryConfig_ACU.summaryPromptGroup || []));
               vectorConfig.keywordPromptGroup = JSON.parse(JSON.stringify(defaultVectorMemoryConfig_ACU.keywordPromptGroup || []));
+              vectorConfig.keywordGenerationMaxAttempts = (defaultVectorMemoryConfig_ACU as any).keywordGenerationMaxAttempts || 3;
               vectorConfig.defaultsRefreshVersion = VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU;
               logDebug_ACU(`[向量记忆] 已刷新默认归档/召回/关键词参数: ${VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU}`);
           }

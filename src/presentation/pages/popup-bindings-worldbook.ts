@@ -248,6 +248,10 @@ export async function bindWorldbookEvents_ACU(): Promise<void> {
           const defaults = getDefaultVectorMemoryConfig_ACU();
           updateVectorMemoryField_ACU('keywordContextPairCount', parseIntegerField_ACU($input.val(), defaults.keywordContextPairCount));
       });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-keyword-generation-max-attempts`, 'change', ($input) => {
+          const defaults = getDefaultVectorMemoryConfig_ACU();
+          updateVectorMemoryField_ACU('keywordGenerationMaxAttempts', parseIntegerField_ACU($input.val(), (defaults as any).keywordGenerationMaxAttempts || 3));
+      });
 
       const bindPromptGroupEditor_ACU = (
           containerId: string,

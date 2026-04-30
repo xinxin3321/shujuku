@@ -271,6 +271,11 @@ export function generateTableTabHTML(): string {
                                             <input type="number" id="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-keyword-context-pair-count" min="1" step="1" placeholder="1">
                                             <small class="notes">关键词生成时读取的最近对话层数；1 层 = 1 条 AI 回复 + 其上方 1 条用户输入，不再截断。</small>
                                         </div>
+                                        <div class="acu-col-sm">
+                                            <label for="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-keyword-generation-max-attempts">关键词生成最大尝试次数</label>
+                                            <input type="number" id="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-keyword-generation-max-attempts" min="1" step="1" placeholder="3">
+                                            <small class="notes">发送前关键词生成最多尝试几次；原生向量和向量混合交火增强方案共用此配置。</small>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="acu-section" style="margin-bottom: 12px;">

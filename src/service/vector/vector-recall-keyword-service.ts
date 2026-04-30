@@ -136,48 +136,55 @@ export async function generateVectorRecallKeywords_ACU(
     const promptGroup = Array.isArray(vectorConfig.keywordPromptGroup) && vectorConfig.keywordPromptGroup.length > 0
         ? vectorConfig.keywordPromptGroup
         : [];
+    const maxAttempts = Math.max(1, Math.floor(Number(vectorConfig.keywordGenerationMaxAttempts) || 3));
+    const messages = promptGroup.length > 0
+        ? buildKeywordPromptMessagesFromGroup_ACU(promptGroup, userInput, promptContext)
+        : buildKeywordPromptMessagesFromGroup_ACU(
+            [
+                { role: 'system', content: '你负责为向量记忆召回生成检索关键词。\n请输出 3 到 8 个简洁关键词或短语。\n禁止输出解释、句子、编号、前后缀说明。\n多个关键词请使用中文逗号分隔。', deletable: false },
+                { role: 'user', content: '最近上下文：\n$RECENT_CONTEXT\n\n当前用户输入：\n$USER_INPUT\n\n请仅输出关键词。', deletable: true },
+            ],
+            userInput,
+            promptContext,
+        );
+    const errors: string[] = [];
 
-    try {
-        const messages = promptGroup.length > 0
-            ? buildKeywordPromptMessagesFromGroup_ACU(promptGroup, userInput, promptContext)
-            : buildKeywordPromptMessagesFromGroup_ACU(
-                [
-                    { role: 'system', content: '你负责为向量记忆召回生成检索关键词。\n请输出 3 到 8 个简洁关键词或短语。\n禁止输出解释、句子、编号、前后缀说明。\n多个关键词请使用中文逗号分隔。', deletable: false },
-                    { role: 'user', content: '最近上下文：\n$RECENT_CONTEXT\n\n当前用户输入：\n$USER_INPUT\n\n请仅输出关键词。', deletable: true },
-                ],
-                userInput,
-                promptContext,
-            );
-        const rawOutput = await callAIWithPreset_ACU(messages, presetName);
-        const keywords = sanitizeKeywordOutput_ACU(rawOutput);
-        if (!keywords) {
-            logWarn_ACU('[向量记忆] 关键词生成结果为空，回退原始用户输入');
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+            const rawOutput = await callAIWithPreset_ACU(messages, presetName);
+            const keywords = sanitizeKeywordOutput_ACU(rawOutput);
+            if (!keywords) {
+                const emptyMessage = `第 ${attempt}/${maxAttempts} 次关键词生成结果为空`;
+                errors.push(emptyMessage);
+                logWarn_ACU(`[向量记忆] ${emptyMessage}`);
+                continue;
+            }
+
+            logDebug_ACU('[向量记忆] 关键词生成完成', {
+                presetName: presetName || '当前配置',
+                attempt,
+                maxAttempts,
+                usedFallback: false,
+                keywords,
+            });
             return {
-                keywords: userInput,
-                usedFallback: true,
+                keywords,
+                usedFallback: false,
                 promptContext,
-                errors: ['关键词生成结果为空'],
+                errors: [],
             };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            errors.push(`第 ${attempt}/${maxAttempts} 次关键词生成失败: ${message}`);
+            logWarn_ACU(`[向量记忆] 第 ${attempt}/${maxAttempts} 次关键词生成失败:`, error);
         }
-
-        logDebug_ACU('[向量记忆] 关键词生成完成', {
-            presetName: presetName || '当前配置',
-            usedFallback: false,
-            keywords,
-        });
-        return {
-            keywords,
-            usedFallback: false,
-            promptContext,
-            errors: [],
-        };
-    } catch (error) {
-        logWarn_ACU('[向量记忆] 关键词生成失败，回退原始用户输入:', error);
-        return {
-            keywords: userInput,
-            usedFallback: true,
-            promptContext,
-            errors: [error instanceof Error ? error.message : String(error)],
-        };
     }
+
+    logWarn_ACU('[向量记忆] 关键词生成全部尝试失败，回退原始用户输入', { maxAttempts, errors });
+    return {
+        keywords: userInput,
+        usedFallback: true,
+        promptContext,
+        errors: errors.length > 0 ? errors : ['关键词生成结果为空'],
+    };
 }

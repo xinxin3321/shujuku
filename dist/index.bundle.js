@@ -2742,7 +2742,7 @@ $CONTENT
     const DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU = 500;
     const AUTO_UPDATE_FLOOR_INCREASE_DELAY_ACU = 2000;
     // --- 一次性默认值刷新版本标记 ---
-    const VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU = 'spv2.1.3-vector-keywords-12';
+    const VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU = 'spv3.1.2-keyword-retry';
     const TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU = 'spv2.1.2-table-template-defaults';
     // --- 向量记忆全局默认配置（独立于世界书配置，跟随数据库全局设置） ---
     const defaultVectorMemoryConfig_ACU = {
@@ -2783,6 +2783,7 @@ $CONTENT
         ],
         keywordApiPreset: '',
         keywordContextPairCount: 1,
+        keywordGenerationMaxAttempts: 3,
         keywordPromptGroup: [
             {
                 role: 'system',
@@ -3603,6 +3604,7 @@ $CONTENT
             summaryPromptGroup: normalizeKeywordPromptGroup_ACU(source.summaryPromptGroup, defaults.summaryPromptGroup || []),
             keywordApiPreset: normalizeTextField_ACU(source.keywordApiPreset, defaults.keywordApiPreset),
             keywordContextPairCount: normalizePositiveInteger_ACU$1(source.keywordContextPairCount, defaults.keywordContextPairCount),
+            keywordGenerationMaxAttempts: normalizePositiveInteger_ACU$1(source.keywordGenerationMaxAttempts, defaults.keywordGenerationMaxAttempts || 3),
             keywordPromptGroup: normalizeKeywordPromptGroup_ACU(source.keywordPromptGroup, defaults.keywordPromptGroup),
             recallCandidateLimit: normalizePositiveInteger_ACU$1(source.recallCandidateLimit, defaults.recallCandidateLimit),
         };
@@ -23249,6 +23251,7 @@ $CONTENT
                 vectorConfig.minScore = defaultVectorMemoryConfig_ACU.minScore;
                 vectorConfig.summaryPromptGroup = JSON.parse(JSON.stringify(defaultVectorMemoryConfig_ACU.summaryPromptGroup || []));
                 vectorConfig.keywordPromptGroup = JSON.parse(JSON.stringify(defaultVectorMemoryConfig_ACU.keywordPromptGroup || []));
+                vectorConfig.keywordGenerationMaxAttempts = defaultVectorMemoryConfig_ACU.keywordGenerationMaxAttempts || 3;
                 vectorConfig.defaultsRefreshVersion = VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU;
                 logDebug_ACU(`[向量记忆] 已刷新默认归档/召回/关键词参数: ${VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU}`);
             }
@@ -25764,6 +25767,10 @@ $CONTENT
         bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-keyword-context-pair-count`, 'change', ($input) => {
             const defaults = getDefaultVectorMemoryConfig_ACU();
             updateVectorMemoryField_ACU('keywordContextPairCount', parseIntegerField_ACU($input.val(), defaults.keywordContextPairCount));
+        });
+        bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-keyword-generation-max-attempts`, 'change', ($input) => {
+            const defaults = getDefaultVectorMemoryConfig_ACU();
+            updateVectorMemoryField_ACU('keywordGenerationMaxAttempts', parseIntegerField_ACU($input.val(), defaults.keywordGenerationMaxAttempts || 3));
         });
         const bindPromptGroupEditor_ACU = (containerId, addButtonId, resetButtonId, fieldName, renderFn, readFn, getDefaultSegments) => {
             const $container = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-${containerId}`);
@@ -29668,6 +29675,7 @@ $CONTENT
         setVal('worldbook-vector-memory-entry-key', vectorMemoryConfig.entryKey);
         setVal('worldbook-vector-memory-keyword-api-preset', vectorMemoryConfig.keywordApiPreset);
         setVal('worldbook-vector-memory-keyword-context-pair-count', vectorMemoryConfig.keywordContextPairCount || 1);
+        setVal('worldbook-vector-memory-keyword-generation-max-attempts', vectorMemoryConfig.keywordGenerationMaxAttempts || 3);
         renderKeywordPromptGroupToUI_ACU(vectorMemoryConfig.keywordPromptGroup || []);
         renderSummaryPromptGroupToUI_ACU(vectorMemoryConfig.summaryPromptGroup || []);
         const $vectorMemoryBlock = find('worldbook-vector-memory-config-block');
@@ -42612,6 +42620,11 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
                                             <input type="number" id="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-keyword-context-pair-count" min="1" step="1" placeholder="1">
                                             <small class="notes">关键词生成时读取的最近对话层数；1 层 = 1 条 AI 回复 + 其上方 1 条用户输入，不再截断。</small>
                                         </div>
+                                        <div class="acu-col-sm">
+                                            <label for="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-keyword-generation-max-attempts">关键词生成最大尝试次数</label>
+                                            <input type="number" id="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-keyword-generation-max-attempts" min="1" step="1" placeholder="3">
+                                            <small class="notes">发送前关键词生成最多尝试几次；原生向量和向量混合交火增强方案共用此配置。</small>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="acu-section" style="margin-bottom: 12px;">
@@ -45310,45 +45323,51 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         const promptGroup = Array.isArray(vectorConfig.keywordPromptGroup) && vectorConfig.keywordPromptGroup.length > 0
             ? vectorConfig.keywordPromptGroup
             : [];
-        try {
-            const messages = promptGroup.length > 0
-                ? buildKeywordPromptMessagesFromGroup_ACU(promptGroup, userInput, promptContext)
-                : buildKeywordPromptMessagesFromGroup_ACU([
-                    { role: 'system', content: '你负责为向量记忆召回生成检索关键词。\n请输出 3 到 8 个简洁关键词或短语。\n禁止输出解释、句子、编号、前后缀说明。\n多个关键词请使用中文逗号分隔。', deletable: false },
-                    { role: 'user', content: '最近上下文：\n$RECENT_CONTEXT\n\n当前用户输入：\n$USER_INPUT\n\n请仅输出关键词。', deletable: true },
-                ], userInput, promptContext);
-            const rawOutput = await callAIWithPreset_ACU(messages, presetName);
-            const keywords = sanitizeKeywordOutput_ACU(rawOutput);
-            if (!keywords) {
-                logWarn_ACU('[向量记忆] 关键词生成结果为空，回退原始用户输入');
+        const maxAttempts = Math.max(1, Math.floor(Number(vectorConfig.keywordGenerationMaxAttempts) || 3));
+        const messages = promptGroup.length > 0
+            ? buildKeywordPromptMessagesFromGroup_ACU(promptGroup, userInput, promptContext)
+            : buildKeywordPromptMessagesFromGroup_ACU([
+                { role: 'system', content: '你负责为向量记忆召回生成检索关键词。\n请输出 3 到 8 个简洁关键词或短语。\n禁止输出解释、句子、编号、前后缀说明。\n多个关键词请使用中文逗号分隔。', deletable: false },
+                { role: 'user', content: '最近上下文：\n$RECENT_CONTEXT\n\n当前用户输入：\n$USER_INPUT\n\n请仅输出关键词。', deletable: true },
+            ], userInput, promptContext);
+        const errors = [];
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+            try {
+                const rawOutput = await callAIWithPreset_ACU(messages, presetName);
+                const keywords = sanitizeKeywordOutput_ACU(rawOutput);
+                if (!keywords) {
+                    const emptyMessage = `第 ${attempt}/${maxAttempts} 次关键词生成结果为空`;
+                    errors.push(emptyMessage);
+                    logWarn_ACU(`[向量记忆] ${emptyMessage}`);
+                    continue;
+                }
+                logDebug_ACU('[向量记忆] 关键词生成完成', {
+                    presetName: presetName || '当前配置',
+                    attempt,
+                    maxAttempts,
+                    usedFallback: false,
+                    keywords,
+                });
                 return {
-                    keywords: userInput,
-                    usedFallback: true,
+                    keywords,
+                    usedFallback: false,
                     promptContext,
-                    errors: ['关键词生成结果为空'],
+                    errors: [],
                 };
             }
-            logDebug_ACU('[向量记忆] 关键词生成完成', {
-                presetName: presetName || '当前配置',
-                usedFallback: false,
-                keywords,
-            });
-            return {
-                keywords,
-                usedFallback: false,
-                promptContext,
-                errors: [],
-            };
+            catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                errors.push(`第 ${attempt}/${maxAttempts} 次关键词生成失败: ${message}`);
+                logWarn_ACU(`[向量记忆] 第 ${attempt}/${maxAttempts} 次关键词生成失败:`, error);
+            }
         }
-        catch (error) {
-            logWarn_ACU('[向量记忆] 关键词生成失败，回退原始用户输入:', error);
-            return {
-                keywords: userInput,
-                usedFallback: true,
-                promptContext,
-                errors: [error instanceof Error ? error.message : String(error)],
-            };
-        }
+        logWarn_ACU('[向量记忆] 关键词生成全部尝试失败，回退原始用户输入', { maxAttempts, errors });
+        return {
+            keywords: userInput,
+            usedFallback: true,
+            promptContext,
+            errors: errors.length > 0 ? errors : ['关键词生成结果为空'],
+        };
     }
 
     function normalizeEndpoint_ACU(endpoint) {

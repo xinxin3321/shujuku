@@ -190,6 +190,7 @@ setVal('merge-prompt-template', s.mergeSummaryPrompt || (isSqliteMode() ? DEFAUL
       setVal('worldbook-vector-memory-entry-key', vectorMemoryConfig.entryKey);
       setVal('worldbook-vector-memory-keyword-api-preset', vectorMemoryConfig.keywordApiPreset);
       setVal('worldbook-vector-memory-keyword-context-pair-count', (vectorMemoryConfig as any).keywordContextPairCount || 1);
+      setVal('worldbook-vector-memory-keyword-generation-max-attempts', (vectorMemoryConfig as any).keywordGenerationMaxAttempts || 3);
       renderKeywordPromptGroupToUI_ACU((vectorMemoryConfig as any).keywordPromptGroup || []);
       renderSummaryPromptGroupToUI_ACU((vectorMemoryConfig as any).summaryPromptGroup || []);
       const $vectorMemoryBlock = find('worldbook-vector-memory-config-block');
