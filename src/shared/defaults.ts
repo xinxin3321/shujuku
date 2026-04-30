@@ -25,7 +25,7 @@ export const DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU = 500;
 export const AUTO_UPDATE_FLOOR_INCREASE_DELAY_ACU = 2000;
 
 // --- 一次性默认值刷新版本标记 ---
-export const VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU = 'spv3.1.4-summary-index-archive-concurrency';
+export const VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU = 'spv3.1.5-summary-index-archive-resume';
 export const TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU = 'spv2.1.2-table-template-defaults';
 
 // --- 向量记忆全局默认配置（独立于世界书配置，跟随数据库全局设置） ---
@@ -35,7 +35,7 @@ export const defaultVectorMemoryConfig_ACU = {
   archiveTriggerCount: 9,
   archiveBatchSize: 3,
   archiveMaxConcurrency: 3,
-  summaryIndexArchiveMaxConcurrency: 50,
+  summaryIndexArchiveMaxConcurrency: 30,
   topK: 10,
   minScore: 0.6,
   embeddingEndpoint: '',

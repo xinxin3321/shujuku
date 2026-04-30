@@ -316,7 +316,7 @@ export   function loadSettings_ACU() {
               vectorConfig.archiveTriggerCount = defaultVectorMemoryConfig_ACU.archiveTriggerCount;
               vectorConfig.archiveBatchSize = defaultVectorMemoryConfig_ACU.archiveBatchSize;
               vectorConfig.archiveMaxConcurrency = defaultVectorMemoryConfig_ACU.archiveMaxConcurrency;
-              vectorConfig.summaryIndexArchiveMaxConcurrency = (defaultVectorMemoryConfig_ACU as any).summaryIndexArchiveMaxConcurrency || 50;
+              vectorConfig.summaryIndexArchiveMaxConcurrency = (defaultVectorMemoryConfig_ACU as any).summaryIndexArchiveMaxConcurrency || 30;
               vectorConfig.topK = defaultVectorMemoryConfig_ACU.topK;
               vectorConfig.minScore = defaultVectorMemoryConfig_ACU.minScore;
               vectorConfig.summaryPromptGroup = JSON.parse(JSON.stringify(defaultVectorMemoryConfig_ACU.summaryPromptGroup || []));

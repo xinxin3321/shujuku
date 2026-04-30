@@ -281,7 +281,7 @@ export function getEffectiveSummaryVectorIndexConfig_ACU(configInput?: any): Sum
     const defaults = cloneDefaultVectorMemoryConfig_ACU() as any;
     const summaryIndexArchiveMaxConcurrency = normalizePositiveInteger_ACU(
         (config as any).summaryIndexArchiveMaxConcurrency,
-        Number(defaults.summaryIndexArchiveMaxConcurrency) || 50,
+        Number(defaults.summaryIndexArchiveMaxConcurrency) || 30,
     );
     return {
         ...config,
