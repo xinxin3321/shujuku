@@ -264,6 +264,57 @@ describe('buildAutoUpdatePlan_ACU', () => {
     expect(plan.tablesToUpdate.length).toBeGreaterThanOrEqual(0);
   });
 
+  it('仅保存表数据但没有追踪键时，高频表不应被视为已更新并顺延下次更新楼层', () => {
+    const liveChat = [
+      { is_user: true },
+      {
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            independentData: { sheet_0: { name: '高频表' } },
+            modifiedKeys: [],
+            updateGroupKeys: [],
+          },
+        },
+      },
+      { is_user: true },
+      { is_user: false },
+    ];
+    const tableData = {
+      sheet_0: { name: '高频表', updateConfig: { updateFrequency: 3 } },
+    };
+    const plan = buildAutoUpdatePlan_ACU(liveChat, tableData, baseSettings, '');
+    expect(plan.tablesToUpdate).toHaveLength(0);
+  });
+
+  it('存在追踪键时，高频表才按真实更新楼层计算下轮触发', () => {
+    const liveChat = [
+      { is_user: true },
+      {
+        is_user: false,
+        TavernDB_ACU_IsolatedData: {
+          '': {
+            independentData: { sheet_0: { name: '高频表' } },
+            modifiedKeys: ['sheet_0'],
+            updateGroupKeys: ['sheet_0'],
+          },
+        },
+      },
+      { is_user: true },
+      { is_user: false },
+      { is_user: true },
+      { is_user: false },
+      { is_user: true },
+      { is_user: false },
+    ];
+    const tableData = {
+      sheet_0: { name: '高频表', updateConfig: { updateFrequency: 3 } },
+    };
+    const plan = buildAutoUpdatePlan_ACU(liveChat, tableData, baseSettings, '');
+    expect(plan.tablesToUpdate).toHaveLength(1);
+    expect(plan.tablesToUpdate[0].indices).toContain(7);
+  });
+
   it('空表格数据返回空计划', () => {
     const liveChat = [{ is_user: true }, { is_user: false }];
     const plan = buildAutoUpdatePlan_ACU(liveChat, {}, baseSettings, '');

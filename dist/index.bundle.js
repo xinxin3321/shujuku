@@ -5532,7 +5532,7 @@ $CONTENT
     // 从 data/repositories/table-repo.ts 迁入（消除 data 层越权）
     // ═══════════════════════════════════════════════════════════════
     async function persistTablesToChatMessage_ACU(options = {}) {
-        const { targetMessageIndex = -1, targetSheetKeys = null, updateGroupKeys = null, trackAsUpdate = true, } = options;
+        const { targetMessageIndex = -1, targetSheetKeys = null, updateGroupKeys = null, trackingSheetKeys = targetSheetKeys, trackAsUpdate = true, } = options;
         /**
          * 保存独立表格数据到聊天记录。
          * 返回 { saved: boolean, messageIndex?: number, error?: string }
@@ -5595,11 +5595,14 @@ $CONTENT
         }
         let currentTagData = isolatedData[currentIsolationKey];
         let independentData = currentTagData.independentData || {};
-        const actuallyModifiedKeys = targetSheetKeys ? [...targetSheetKeys] : [];
         let keysToSave = targetSheetKeys;
         if (!keysToSave) {
             keysToSave = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
         }
+        const trackingKeySet = new Set(Array.isArray(trackingSheetKeys)
+            ? trackingSheetKeys.filter((sheetKey) => typeof sheetKey === 'string' && sheetKey.length > 0)
+            : []);
+        const actuallyModifiedKeys = keysToSave.filter(sheetKey => trackingKeySet.has(sheetKey));
         keysToSave.forEach(sheetKey => {
             const table = currentJsonTableData_ACU[sheetKey];
             if (table) {
@@ -5650,11 +5653,12 @@ $CONTENT
      * 返回 { saved: boolean, messageIndex?: number, error?: string }
      * 注意：不再内部调用 refreshMergedDataAndNotify，调用方按需自行刷新。
      */
-    async function saveIndependentTableToChatHistory_ACU(targetMessageIndex = -1, targetSheetKeys = null, updateGroupKeys = null, _skipPostRefresh = false) {
+    async function saveIndependentTableToChatHistory_ACU(targetMessageIndex = -1, targetSheetKeys = null, updateGroupKeys = null, _skipPostRefresh = false, trackingSheetKeys = targetSheetKeys) {
         return persistTablesToChatMessage_ACU({
             targetMessageIndex,
             targetSheetKeys,
             updateGroupKeys,
+            trackingSheetKeys,
             trackAsUpdate: true,
         });
     }
@@ -21302,9 +21306,6 @@ $CONTENT
                 }
             }
         }
-        if (lastTrackedUpdateMessageIndex === -1 && latestDataMessageIndex !== -1) {
-            lastTrackedUpdateMessageIndex = latestDataMessageIndex;
-        }
         return {
             latestAiMessageIndex,
             latestDataMessageIndex,
@@ -30211,15 +30212,16 @@ $CONTENT
                             logDebug_ACU('[Init] First time initialization detected. Saving complete template structure with all tables.');
                         }
                         const updateGroupKeysRaw = isFirstTimeInit ? keysToPersist : targetSheetKeys;
+                        const keysToTrackAsUpdated = keysToPersist.filter((sheetKey) => keysToActuallySave.includes(sheetKey));
                         const updateGroupKeysToUse = Array.isArray(updateGroupKeysRaw)
                             ? updateGroupKeysRaw.filter(sheetKey => {
                                 const table = currentJsonTableData_ACU?.[sheetKey];
                                 if (!table || !isSummaryOrOutlineTable_ACU(table.name))
                                     return true;
-                                return keysToActuallySave.includes(sheetKey);
+                                return keysToTrackAsUpdated.includes(sheetKey);
                             })
                             : updateGroupKeysRaw;
-                        const saveSuccess = await saveIndependentTableToChatHistory_ACU(saveTargetIndex, keysToActuallySave, updateGroupKeysToUse);
+                        const saveSuccess = await saveIndependentTableToChatHistory_ACU(saveTargetIndex, keysToActuallySave, updateGroupKeysToUse, false, keysToTrackAsUpdated);
                         if (!saveSuccess) {
                             return { success: false, modifiedKeys, error: '无法将更新后的数据库保存到聊天记录。' };
                         }

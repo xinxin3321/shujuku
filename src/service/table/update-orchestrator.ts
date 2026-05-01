@@ -415,14 +415,21 @@ export async function executeCardUpdateCore_ACU(
                     }
 
                     const updateGroupKeysRaw = isFirstTimeInit ? keysToPersist : targetSheetKeys;
+                    const keysToTrackAsUpdated = keysToPersist.filter((sheetKey: string) => keysToActuallySave.includes(sheetKey));
                     const updateGroupKeysToUse = Array.isArray(updateGroupKeysRaw)
                         ? updateGroupKeysRaw.filter(sheetKey => {
                             const table = currentJsonTableData_ACU?.[sheetKey];
                             if (!table || !isSummaryOrOutlineTable_ACU(table.name)) return true;
-                            return keysToActuallySave.includes(sheetKey);
+                            return keysToTrackAsUpdated.includes(sheetKey);
                         })
                         : updateGroupKeysRaw;
-                    const saveSuccess = await saveIndependentTableToChatHistory_ACU(saveTargetIndex, keysToActuallySave, updateGroupKeysToUse);
+                    const saveSuccess = await saveIndependentTableToChatHistory_ACU(
+                        saveTargetIndex,
+                        keysToActuallySave,
+                        updateGroupKeysToUse,
+                        false,
+                        keysToTrackAsUpdated,
+                    );
                     if (!saveSuccess) {
                         return { success: false, modifiedKeys, error: '无法将更新后的数据库保存到聊天记录。' };
                     }

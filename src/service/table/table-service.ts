@@ -24,6 +24,12 @@ export interface TableChatPersistOptions_ACU {
   targetMessageIndex?: number;
   targetSheetKeys?: string[] | null;
   updateGroupKeys?: string[] | null;
+  /**
+   * 只把这些 sheet 记录为“本轮已更新”。
+   * targetSheetKeys 决定保存哪些表；trackingSheetKeys 决定哪些表推进自动更新门禁。
+   * 未传时沿用 targetSheetKeys，保持旧调用兼容。
+   */
+  trackingSheetKeys?: string[] | null;
   trackAsUpdate?: boolean;
 }
 
@@ -34,6 +40,7 @@ export async function persistTablesToChatMessage_ACU(
     targetMessageIndex = -1,
     targetSheetKeys = null,
     updateGroupKeys = null,
+    trackingSheetKeys = targetSheetKeys,
     trackAsUpdate = true,
   } = options;
 
@@ -107,13 +114,18 @@ export async function persistTablesToChatMessage_ACU(
   let currentTagData = isolatedData[currentIsolationKey];
   let independentData = currentTagData.independentData || {};
 
-  const actuallyModifiedKeys = targetSheetKeys ? [...targetSheetKeys] : [];
-
   let keysToSave: string[] = targetSheetKeys as string[];
 
   if (!keysToSave) {
     keysToSave = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
   }
+
+  const trackingKeySet = new Set(
+    Array.isArray(trackingSheetKeys)
+      ? trackingSheetKeys.filter((sheetKey): sheetKey is string => typeof sheetKey === 'string' && sheetKey.length > 0)
+      : []
+  );
+  const actuallyModifiedKeys = keysToSave.filter(sheetKey => trackingKeySet.has(sheetKey));
 
   keysToSave.forEach(sheetKey => {
     const table = currentJsonTableData_ACU[sheetKey];
@@ -182,11 +194,13 @@ export async function saveIndependentTableToChatHistory_ACU(
   targetSheetKeys: string[] | null = null,
   updateGroupKeys: string[] | null = null,
   _skipPostRefresh = false,
+  trackingSheetKeys: string[] | null = targetSheetKeys,
 ): Promise<{ saved: boolean; messageIndex?: number; error?: string }> {
   return persistTablesToChatMessage_ACU({
     targetMessageIndex,
     targetSheetKeys,
     updateGroupKeys,
+    trackingSheetKeys,
     trackAsUpdate: true,
   });
 }
