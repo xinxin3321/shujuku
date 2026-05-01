@@ -1,7 +1,7 @@
 import { createEmbeddings_ACU } from '../../data/gateways/vector-embedding-gateway';
 import { logDebug_ACU, logWarn_ACU } from '../../shared/utils';
 import { getChatArray_ACU } from '../chat/chat-service';
-import { callApiWithPlotPreset_ACU } from '../ai/api-call';
+import { callAIWithPreset_ACU } from '../ai/api-call';
 import { getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
 import { globalMeta_ACU } from '../../data/repositories/profile-repo';
 import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from '../worldbook/injection-engine';
@@ -112,7 +112,7 @@ async function generateKeywords_ACU(config: any, userInput: string): Promise<str
     const attempts = Math.max(1, Number(config.keywordGenerationMaxAttempts) || 1);
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
-            const response = await callApiWithPlotPreset_ACU(messages, config.keywordApiPreset || '');
+            const response = await callAIWithPreset_ACU(messages, config.keywordApiPreset || '');
             const keywords = parseKeywords_ACU(response || '');
             if (keywords.length > 0) return keywords;
         } catch (error) {

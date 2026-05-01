@@ -44744,7 +44744,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
         const attempts = Math.max(1, Number(config.keywordGenerationMaxAttempts) || 1);
         for (let attempt = 1; attempt <= attempts; attempt += 1) {
             try {
-                const response = await callApiWithPlotPreset_ACU(messages, config.keywordApiPreset || '');
+                const response = await callAIWithPreset_ACU(messages, config.keywordApiPreset || '');
                 const keywords = parseKeywords_ACU(response || '');
                 if (keywords.length > 0)
                     return keywords;
