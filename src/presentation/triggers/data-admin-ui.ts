@@ -68,33 +68,10 @@ import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-d
                 renderPromptSegments_ACU(combinedData.prompt);
                 showToastr_ACU('success', '提示词预设已成功导入并保存！');
 
-                // UI 操作：更新合并提示词输入框
-                if (modifiedFields.includes('mergeSummaryPrompt')) {
-                    const $mergePromptInput = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-prompt-template`);
-                    if ($mergePromptInput.length) {
-                        $mergePromptInput.val(combinedData.mergeSummaryPrompt);
-                    }
-                }
-
-                // UI 操作：更新合并设置相关的 UI 元素
+                // 合并总结 UI 已停用；导入兼容仍保留 merge 字段，但不再尝试同步已移除的合并控件。
                 if (modifiedFields.includes('mergeTargetCount')) {
-                    const $mergeTargetCount = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-target-count`);
-                    const $mergeBatchSize = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-batch-size`);
-                    const $mergeStartIndex = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-start-index`);
-                    const $mergeEndIndex = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-merge-end-index`);
-                    const $autoMergeEnabled = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-merge-enabled`);
-                    const $autoMergeThreshold = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-merge-threshold`);
-                    const $autoMergeReserve = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-auto-merge-reserve`);
                     const $deleteStartFloor = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-delete-start-floor`);
                     const $deleteEndFloor = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-delete-end-floor`);
-
-                    if ($mergeTargetCount.length) $mergeTargetCount.val(settings_ACU.mergeTargetCount);
-                    if ($mergeBatchSize.length) $mergeBatchSize.val(settings_ACU.mergeBatchSize);
-                    if ($mergeStartIndex.length) $mergeStartIndex.val(settings_ACU.mergeStartIndex);
-                    if ($mergeEndIndex.length) $mergeEndIndex.val(settings_ACU.mergeEndIndex || '');
-                    if ($autoMergeEnabled.length) $autoMergeEnabled.prop('checked', settings_ACU.autoMergeEnabled);
-                    if ($autoMergeThreshold.length) $autoMergeThreshold.val(settings_ACU.autoMergeThreshold);
-                    if ($autoMergeReserve.length) $autoMergeReserve.val(settings_ACU.autoMergeReserve);
                     if ($deleteStartFloor.length) $deleteStartFloor.val(settings_ACU.deleteStartFloor || 1);
                     if ($deleteEndFloor.length) $deleteEndFloor.val(settings_ACU.deleteEndFloor || '');
                 }

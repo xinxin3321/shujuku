@@ -106,20 +106,11 @@ import { $popupInstance_ACU, $statusMessageSpan_ACU, $manualUpdateCardButton_ACU
     } catch(e) {}
   }
 
-  // [T178] 将合并/删除设置同步到 UI
+  // [T178] 将删除设置同步到 UI。合并总结 UI 已停用，不再同步 merge/auto-merge 控件。
   export function syncMergeSettingsToUI_ACU(s: any) {
     if (!$popupInstance_ACU) return;
     const find = (id: string) => $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-${id}`);
     const setVal = (id: string, v: any) => { const $el = find(id); if ($el.length) $el.val(v); };
-    const setChecked = (id: string, v: any) => { const $el = find(id); if ($el.length) $el.prop('checked', !!v); };
-setVal('merge-prompt-template', s.mergeSummaryPrompt || (isSqliteMode() ? DEFAULT_MERGE_SUMMARY_PROMPT_SQL_ACU : DEFAULT_MERGE_SUMMARY_PROMPT_ACU));
-    setVal('merge-target-count', s.mergeTargetCount || 1);
-    setVal('merge-batch-size', s.mergeBatchSize || 5);
-    setVal('merge-start-index', s.mergeStartIndex || 1);
-    setVal('merge-end-index', s.mergeEndIndex || '');
-    setChecked('auto-merge-enabled', s.autoMergeEnabled);
-    setVal('auto-merge-threshold', s.autoMergeThreshold || 20);
-    setVal('auto-merge-reserve', s.autoMergeReserve || 0);
     setVal('delete-start-floor', s.deleteStartFloor || 1);
     setVal('delete-end-floor', s.deleteEndFloor || '');
   }
