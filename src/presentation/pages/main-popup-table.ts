@@ -136,7 +136,7 @@ export function generateTableTabHTML(): string {
                                 <div style="flex: 1 1 280px; min-width: 240px;">
                                     <label for="${SCRIPT_ID_PREFIX_ACU}-worldbook-summary-vector-index-mode-enabled" style="font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; cursor: pointer;">
                                         <input type="checkbox" id="${SCRIPT_ID_PREFIX_ACU}-worldbook-summary-vector-index-mode-enabled" style="width: 14px; height: 14px; cursor: pointer;">
-                                        <span>启用交火模式向量索引（外置存储）</span>
+                                        <span>启用向量混合增强交火方案</span>
                                     </label>
                                     <small class="notes">开启后会随纪要表更新自动累积外置向量索引；聊天记录只保存 manifest，向量分片写入 /user/files。下方配置 Embedding、Rerank 与召回参数。</small>
                                 </div>

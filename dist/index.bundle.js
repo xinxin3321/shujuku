@@ -20763,7 +20763,7 @@ $CONTENT
             specialIndexLocks: {},
             // [新增] 0TK占用模式全局默认值：新对话会继承这个值
             zeroTkOccupyModeDefault: false,
-            // [新增] 向量混合交火增强方案全局默认值：新对话会继承这个值
+            // [新增] 向量混合增强交火方案全局默认值：新对话会继承这个值
             summaryVectorIndexModeDefault: false,
             // [Profile] dataIsolationEnabled/code 由当前 profile 决定；history 走 globalMeta
             dataIsolationCode: '',
@@ -20906,7 +20906,7 @@ $CONTENT
             settings_ACU.summaryVectorIndexModeDefault = false;
             globalMeta_ACU.summaryVectorIndexModeGlobal = false;
         }
-        // 0TK 与向量混合交火增强方案是全局互斥开关；worldbookConfig 里的同名字段只是兼容投影。
+        // 0TK 与向量混合增强交火方案是全局互斥开关；worldbookConfig 里的同名字段只是兼容投影。
         const cfg = getCurrentWorldbookConfig_ACU();
         cfg.zeroTkOccupyMode = enabled;
         cfg.summaryVectorIndexModeEnabled = enabled ? false : (globalMeta_ACU.summaryVectorIndexModeGlobal === true);
@@ -20922,11 +20922,11 @@ $CONTENT
             settings_ACU.zeroTkOccupyModeDefault = false;
             globalMeta_ACU.zeroTkOccupyModeGlobal = false;
         }
-        // 向量混合交火增强方案会复用普通向量模型/API/rerank 配置；启停交火时必须同步启停普通向量开关。
+        // 向量混合增强交火方案会复用普通向量模型/API/rerank 配置；启停交火时必须同步启停普通向量开关。
         // 这里只改 enabled，不覆盖模型、API、rerank、namespace 等用户配置。
         const vectorMemoryConfig = getCurrentVectorMemoryConfig_ACU();
         vectorMemoryConfig.enabled = enabled;
-        // 0TK 与向量混合交火增强方案是全局互斥开关；worldbookConfig 里的同名字段只是兼容投影。
+        // 0TK 与向量混合增强交火方案是全局互斥开关；worldbookConfig 里的同名字段只是兼容投影。
         const cfg = getCurrentWorldbookConfig_ACU();
         cfg.summaryVectorIndexModeEnabled = enabled;
         cfg.zeroTkOccupyMode = enabled ? false : (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
@@ -41582,7 +41582,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
                                 <div style="flex: 1 1 280px; min-width: 240px;">
                                     <label for="${SCRIPT_ID_PREFIX_ACU}-worldbook-summary-vector-index-mode-enabled" style="font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; cursor: pointer;">
                                         <input type="checkbox" id="${SCRIPT_ID_PREFIX_ACU}-worldbook-summary-vector-index-mode-enabled" style="width: 14px; height: 14px; cursor: pointer;">
-                                        <span>启用交火模式向量索引（外置存储）</span>
+                                        <span>启用向量混合增强交火方案</span>
                                     </label>
                                     <small class="notes">开启后会随纪要表更新自动累积外置向量索引；聊天记录只保存 manifest，向量分片写入 /user/files。下方配置 Embedding、Rerank 与召回参数。</small>
                                 </div>
@@ -42258,7 +42258,7 @@ insertRow(1, ["时间2", "大纲事件2...", "关键词"]);
                         <div style="background: var(--acu-bg-2); padding: 12px; border-radius: 6px; margin-bottom: 10px;">
                             <label for="${SCRIPT_ID_PREFIX_ACU}-vector-index-mode-enabled" style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 6px;">
                                 <input type="checkbox" id="${SCRIPT_ID_PREFIX_ACU}-vector-index-mode-enabled" style="width: 14px; height: 14px; cursor: pointer;">
-                                <span style="font-weight: 600;">启用交火模式向量索引（外置存储）</span>
+                                <span style="font-weight: 600;">启用向量混合增强交火方案</span>
                             </label>
                             <small class="notes">这是交火模式的启停入口；开启后会随纪要表数据增删改自动维护外置索引文件。下面的按钮只负责刷新状态、清缓存或删除当前索引资产。</small>
                         </div>

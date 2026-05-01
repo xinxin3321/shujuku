@@ -601,7 +601,7 @@ export   function buildDefaultSettings_ACU() {
           specialIndexLocks: {},
           // [新增] 0TK占用模式全局默认值：新对话会继承这个值
           zeroTkOccupyModeDefault: false,
-          // [新增] 向量混合交火增强方案全局默认值：新对话会继承这个值
+          // [新增] 向量混合增强交火方案全局默认值：新对话会继承这个值
           summaryVectorIndexModeDefault: false,
           // [Profile] dataIsolationEnabled/code 由当前 profile 决定；history 走 globalMeta
           dataIsolationCode: '',
@@ -754,7 +754,7 @@ export function setZeroTkOccupyMode_ACU(modeEnabled: boolean) {
         globalMeta_ACU.summaryVectorIndexModeGlobal = false;
     }
 
-    // 0TK 与向量混合交火增强方案是全局互斥开关；worldbookConfig 里的同名字段只是兼容投影。
+    // 0TK 与向量混合增强交火方案是全局互斥开关；worldbookConfig 里的同名字段只是兼容投影。
     const cfg = getCurrentWorldbookConfig_ACU();
     cfg.zeroTkOccupyMode = enabled;
     cfg.summaryVectorIndexModeEnabled = enabled ? false : (globalMeta_ACU.summaryVectorIndexModeGlobal === true);
@@ -772,12 +772,12 @@ export function setSummaryVectorIndexMode_ACU(modeEnabled: boolean) {
         globalMeta_ACU.zeroTkOccupyModeGlobal = false;
     }
 
-    // 向量混合交火增强方案会复用普通向量模型/API/rerank 配置；启停交火时必须同步启停普通向量开关。
+    // 向量混合增强交火方案会复用普通向量模型/API/rerank 配置；启停交火时必须同步启停普通向量开关。
     // 这里只改 enabled，不覆盖模型、API、rerank、namespace 等用户配置。
     const vectorMemoryConfig = getCurrentVectorMemoryConfig_ACU();
     vectorMemoryConfig.enabled = enabled;
 
-    // 0TK 与向量混合交火增强方案是全局互斥开关；worldbookConfig 里的同名字段只是兼容投影。
+    // 0TK 与向量混合增强交火方案是全局互斥开关；worldbookConfig 里的同名字段只是兼容投影。
     const cfg = getCurrentWorldbookConfig_ACU();
     cfg.summaryVectorIndexModeEnabled = enabled;
     cfg.zeroTkOccupyMode = enabled ? false : (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
