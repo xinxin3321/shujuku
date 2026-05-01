@@ -27126,7 +27126,7 @@ $CONTENT
             updateCardUpdateStatusDisplay_ACU();
     }
     function collectManualExtraHint_ACU() {
-        _set_manualExtraHint_ACU('');
+        _set_manualExtraHint_ACU$1('');
         if (!$manualExtraHintCheckbox_ACU || !$manualExtraHintCheckbox_ACU.length)
             return;
         if (!$manualExtraHintCheckbox_ACU.is(':checked'))
@@ -27135,7 +27135,7 @@ $CONTENT
         const trimmed = (userInput || '').trim();
         if (!trimmed)
             return;
-        _set_manualExtraHint_ACU(`以下为用户的额外填表要求，请严格遵守：${trimmed}`);
+        _set_manualExtraHint_ACU$1(`以下为用户的额外填表要求，请严格遵守：${trimmed}`);
     }
     // [新增] 获取当前选中的手动更新表格列表（无效或为空则回退为全部表）
     function getSelectedManualSheetKeys_ACU() {
