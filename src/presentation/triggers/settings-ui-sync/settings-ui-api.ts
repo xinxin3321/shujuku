@@ -26,6 +26,7 @@ import { topLevelWindow_ACU } from '../../../shared/env';
 import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } from '../../../shared/utils';
 import { executeContentOptimization_ACU } from '../../components/optimization-ui';
 import { maybeLiftWorldbookSuppression_ACU } from '../../../service/runtime/helpers-remaining';
+import { getCurrentVectorMemoryConfig_ACU } from '../../../service/vector/vector-memory-config';
 /**
  * presentation/triggers/settings-ui-sync.ts — UI读写/保存/刷新函数
  * 从 service/runtime/helpers-remaining.ts 提取的纯 UI 函数
@@ -241,6 +242,10 @@ import { maybeLiftWorldbookSuppression_ACU } from '../../../service/runtime/help
     if (settings_ACU.plotApiPreset === presetName) {
       settings_ACU.plotApiPreset = '';
     }
+    const vectorMemoryConfig = getCurrentVectorMemoryConfig_ACU();
+    if (vectorMemoryConfig.keywordApiPreset === presetName) {
+      vectorMemoryConfig.keywordApiPreset = '';
+    }
     // [新增] 清除按表名保存的表级 API 预设覆盖中引用了该预设的条目
     if (settings_ACU.tableApiPresetOverridesByName && typeof settings_ACU.tableApiPresetOverridesByName === 'object') {
       const overrides = settings_ACU.tableApiPresetOverridesByName;
@@ -310,6 +315,18 @@ $plotTaskApiPresetSelect.append(renderOption_ACU(p.name, p.name));
 $optimizationApiPresetSelect.append(renderOption_ACU(p.name, p.name));
       });
       $optimizationApiPresetSelect.val(settings_ACU.contentOptimizationSettings?.apiPreset || '');
+    }
+
+    // 刷新交火关键词生成的 API 预设选择器
+    const $keywordApiPresetSelect = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-keyword-api-preset`);
+    if ($keywordApiPresetSelect.length) {
+      const vectorMemoryConfig = getCurrentVectorMemoryConfig_ACU();
+      const currentKeywordPreset = String(vectorMemoryConfig.keywordApiPreset || $keywordApiPresetSelect.val() || '');
+      $keywordApiPresetSelect.empty().append('<option value="">使用当前API配置</option>');
+      presets.forEach((p: any) => {
+$keywordApiPresetSelect.append(renderOption_ACU(p.name, p.name));
+      });
+      $keywordApiPresetSelect.val(currentKeywordPreset);
     }
 
     // [新增] 刷新可视化编辑器配置面板中的表级 API 预设覆盖选择器
