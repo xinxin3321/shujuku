@@ -226,4 +226,4 @@ export interface SummaryVectorIndexStats_ACU {
 }
 
 export const SUMMARY_VECTOR_INDEX_MANIFEST_VERSION_ACU = 1;
-export const SUMMARY_VECTOR_INDEX_REGISTRY_PATH_ACU = 'TavernDB_ACU_vector_registry.json';
+export const SUMMARY_VECTOR_INDEX_REGISTRY_PATH_ACU = 'TavernDB_ACU_vector_registry';

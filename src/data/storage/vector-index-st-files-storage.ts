@@ -55,8 +55,9 @@ export function buildVectorIndexFileName_ACU(parts: {
     const chatKey = normalizeFileNamePart_ACU(parts.chatKey);
     const isolationKey = normalizeFileNamePart_ACU(parts.isolationKey || 'default');
     const indexId = normalizeFileNamePart_ACU(parts.indexId);
+    const role = normalizeFileNamePart_ACU(parts.role);
     const shardId = parts.shardId ? `_${normalizeFileNamePart_ACU(parts.shardId)}` : '';
-    return `TavernDB_ACU_vector_${chatKey}_${isolationKey}_${indexId}_${parts.role}${shardId}.json`;
+    return `TavernDB_ACU_vector_${chatKey}_${isolationKey}_${indexId}_${role}${shardId}`;
 }
 
 export function buildVectorIndexStableDirectory_ACU(parts: {
@@ -69,7 +70,7 @@ export function buildVectorIndexStableDirectory_ACU(parts: {
         normalizePathSegment_ACU(parts.chatKey),
         normalizePathSegment_ACU(parts.isolationKey || 'default'),
         normalizePathSegment_ACU(parts.sourceTableKey || 'summary'),
-    ].join('/');
+    ].join('_');
 }
 
 export function buildVectorIndexStableFilePath_ACU(parts: {
@@ -79,20 +80,13 @@ export function buildVectorIndexStableFilePath_ACU(parts: {
     role: SummaryVectorIndexExternalFileRole_ACU;
     shardId?: string;
 }): string {
-    const directory = buildVectorIndexStableDirectory_ACU(parts);
+    const scope = buildVectorIndexStableDirectory_ACU(parts);
+    const role = normalizePathSegment_ACU(parts.role || 'manifest');
     if (parts.role === 'base_shard' || parts.role === 'delta_shard') {
         const shardName = normalizePathSegment_ACU(parts.shardId || 'shard_0001');
-        return `${directory}/${shardName}.json`;
+        return `${scope}_${role}_${shardName}`;
     }
-    const fileNameByRole: Record<SummaryVectorIndexExternalFileRole_ACU, string> = {
-        manifest: 'manifest.json',
-        row_index: 'row_index.json',
-        tombstone: 'tombstone.json',
-        base_shard: 'shard_0001.json',
-        delta_shard: 'shard_0001.json',
-        registry: 'registry.json',
-    };
-    return `${directory}/${fileNameByRole[parts.role]}`;
+    return `${scope}_${role}`;
 }
 
 function encodeUserFilePath_ACU(path: string): string {
