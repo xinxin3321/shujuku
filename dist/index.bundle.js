@@ -21762,7 +21762,15 @@ $CONTENT
         return `TavernDB_ACU_vector_${normalizeVectorFileNamePart_ACU(chatKey)}_${normalizeVectorFileNamePart_ACU(isolationKey || 'default')}_`;
     }
     function buildVectorIndexStableScopePrefix_ACU(chatKey, isolationKey, sourceTableKey) {
-        return `${buildVectorIndexStableDirectory_ACU({ chatKey, isolationKey, sourceTableKey })}/`;
+        return `${buildVectorIndexStableDirectory_ACU({ chatKey, isolationKey, sourceTableKey })}_`;
+    }
+    function buildLegacyVectorIndexStableScopePrefix_ACU(chatKey, isolationKey, sourceTableKey) {
+        return [
+            'TavernDB_ACU_vector',
+            normalizeVectorFileNamePart_ACU(chatKey),
+            normalizeVectorFileNamePart_ACU(isolationKey || 'default'),
+            normalizeVectorFileNamePart_ACU(sourceTableKey || 'summary'),
+        ].join('/');
     }
     function buildIndexId_ACU(params) {
         return `idx_${hashUserInput_ACU(`${params.chatKey}\n${params.isolationKey}\n${params.sourceTableKey}\n${params.snapshotMessageId}\n${params.indexedAt}`)}`;
@@ -21871,12 +21879,24 @@ $CONTENT
             await deleteVectorIndexCacheByIndex_ACU(previousManifest.indexId);
         }
     }
-    async function cleanupSnapshotScopeFilesExcept_ACU(manifest, retainedPaths) {
+    function isSameIsolationSourceTableVectorFile_ACU(path, manifest) {
+        const normalizedPath = String(path || '');
+        if (!normalizedPath.startsWith('TavernDB_ACU_vector_'))
+            return false;
+        const isolationPart = normalizeVectorFileNamePart_ACU(manifest.isolationKey || 'default');
+        const sourceTablePart = normalizeVectorFileNamePart_ACU(manifest.sourceTableKey || 'summary');
+        return normalizedPath.includes(`_${isolationPart}_${sourceTablePart}_`);
+    }
+    async function cleanupSnapshotScopeFilesExcept_ACU(manifest, retainedPaths, options = {}) {
         const legacyScopePrefix = buildVectorIndexScopePrefix_ACU(manifest.chatKey, manifest.isolationKey);
         const stableScopePrefix = buildVectorIndexStableScopePrefix_ACU(manifest.chatKey, manifest.isolationKey, manifest.sourceTableKey);
+        const legacyStableScopePrefix = buildLegacyVectorIndexStableScopePrefix_ACU(manifest.chatKey, manifest.isolationKey, manifest.sourceTableKey);
         const removedPaths = await deleteRegisteredVectorIndexFilesWhere_ACU((file) => {
             const path = String(file?.path || '');
-            const inSameScope = path.startsWith(legacyScopePrefix) || path.startsWith(stableScopePrefix);
+            const inSameScope = path.startsWith(legacyScopePrefix)
+                || path.startsWith(stableScopePrefix)
+                || path.startsWith(legacyStableScopePrefix)
+                || (options.includeSameSourceTableFallback === true && isSameIsolationSourceTableVectorFile_ACU(path, manifest));
             return inSameScope && !retainedPaths.has(path);
         });
         if (removedPaths.length > 0) {
@@ -22245,7 +22265,9 @@ $CONTENT
     async function deleteSummaryVectorIndexExternal_ACU(manifest) {
         if (!manifest)
             return;
-        await cleanupManifestFilesExcept_ACU(manifest, new Set());
+        const retainedPaths = new Set();
+        await cleanupManifestFilesExcept_ACU(manifest, retainedPaths);
+        await cleanupSnapshotScopeFilesExcept_ACU(manifest, retainedPaths, { includeSameSourceTableFallback: true });
         if (manifest.indexId) {
             await deleteVectorIndexCacheByIndex_ACU(manifest.indexId);
         }
