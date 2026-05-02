@@ -44530,6 +44530,63 @@ $CONTENT
         }
     }
 
+    function normalizeErrorMessage_ACU(error) {
+        if (error instanceof Error)
+            return error.message || error.name || '未知错误';
+        if (typeof error === 'string')
+            return error;
+        try {
+            const json = JSON.stringify(error);
+            return json && json !== '{}' ? json : String(error || '未知错误');
+        }
+        catch (_jsonError) {
+            return String(error || '未知错误');
+        }
+    }
+    async function preloadSummaryVectorIndexCacheForCurrentChat_ACU() {
+        const snapshot = getLatestSummaryVectorIndexSnapshotState_ACU();
+        const manifest = snapshot?.summaryVectorIndexState?.manifest || null;
+        if (!manifest) {
+            return {
+                success: true,
+                skipped: true,
+                reason: 'no_manifest',
+                chunkCount: 0,
+            };
+        }
+        if (manifest.status !== 'ready') {
+            return {
+                success: true,
+                skipped: true,
+                reason: `manifest_status_${manifest.status || 'unknown'}`,
+                chunkCount: 0,
+                indexId: manifest.indexId,
+            };
+        }
+        try {
+            const chunks = await loadSummaryVectorIndexChunksFromManifest_ACU(manifest);
+            logDebug_ACU(`[交火向量索引] 当前聊天向量缓存预热完成：indexId=${manifest.indexId}, chunks=${chunks.length}`);
+            return {
+                success: true,
+                skipped: false,
+                chunkCount: chunks.length,
+                indexId: manifest.indexId,
+            };
+        }
+        catch (error) {
+            const message = normalizeErrorMessage_ACU(error);
+            logWarn_ACU('[交火向量索引] 当前聊天向量缓存预热失败:', message);
+            return {
+                success: false,
+                skipped: false,
+                reason: 'preload_failed',
+                chunkCount: 0,
+                indexId: manifest.indexId,
+                error: message,
+            };
+        }
+    }
+
     // init.ts — 初始化编排（presentation 层：负责事件绑定、UI 初始化、模块串联）
     // 从 05_core_tail.js 迁入
     // [从 state-manager.ts 搬入 presentation 层] 安装发送意图捕捉钩子（DOM 事件绑定）
@@ -44688,6 +44745,10 @@ $CONTENT
                         }
                         // 3. 刷新数据（UI 刷新由 presentation 层负责）
                         await refreshMergedDataAndNotifyWithUI_ACU();
+                        // [交火向量索引] 聊天数据刷新完成后，预热当前聊天对应的外置分片缓存。
+                        // 注意：必须放在 refreshMergedDataAndNotifyWithUI_ACU 之后，否则可能读取到旧聊天的 manifest。
+                        const vectorCacheResult = await preloadSummaryVectorIndexCacheForCurrentChat_ACU();
+                        logDebug_ACU(`[交火向量索引] CHAT_CHANGED 缓存预热结果：success=${vectorCacheResult.success}, skipped=${vectorCacheResult.skipped === true}, reason=${vectorCacheResult.reason || 'none'}, chunks=${vectorCacheResult.chunkCount}, indexId=${vectorCacheResult.indexId || 'none'}`);
                         // [新增] 再次强制刷新状态显示，确保UI同步
                         if (typeof updateCardUpdateStatusDisplay_ACU === 'function') {
                             updateCardUpdateStatusDisplay_ACU();

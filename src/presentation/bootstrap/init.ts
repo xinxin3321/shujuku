@@ -24,6 +24,7 @@ import { handleNewMessageDebounced_ACU } from '../triggers/settings-ui-sync';
 import { enterLoopRetryFlow_ACU, onLoopGenerationEnded_ACU, stopAutoLoop_ACU } from '../triggers/auto-loop';
 import { runOptimizationLogicWithUI_ACU } from '../components/plot-planning-ui';
 import { processSummaryVectorIndexBeforeGenerationWithUI_ACU } from '../components/summary-vector-index-ui';
+import { preloadSummaryVectorIndexCacheForCurrentChat_ACU } from '../../service/vector/summary-vector-index-cache-service';
 
 // [从 state-manager.ts 搬入 presentation 层] 安装发送意图捕捉钩子（DOM 事件绑定）
 function installSendIntentCaptureHooks_ACU() {
@@ -208,6 +209,11 @@ export   function mainInitialize_ACU() {
 
             // 3. 刷新数据（UI 刷新由 presentation 层负责）
             await refreshMergedDataAndNotifyWithUI_ACU();
+
+            // [交火向量索引] 聊天数据刷新完成后，预热当前聊天对应的外置分片缓存。
+            // 注意：必须放在 refreshMergedDataAndNotifyWithUI_ACU 之后，否则可能读取到旧聊天的 manifest。
+            const vectorCacheResult = await preloadSummaryVectorIndexCacheForCurrentChat_ACU();
+            logDebug_ACU(`[交火向量索引] CHAT_CHANGED 缓存预热结果：success=${vectorCacheResult.success}, skipped=${vectorCacheResult.skipped === true}, reason=${vectorCacheResult.reason || 'none'}, chunks=${vectorCacheResult.chunkCount}, indexId=${vectorCacheResult.indexId || 'none'}`);
             
             // [新增] 再次强制刷新状态显示，确保UI同步
             if (typeof updateCardUpdateStatusDisplay_ACU === 'function') {
