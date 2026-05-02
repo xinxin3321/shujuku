@@ -22311,13 +22311,15 @@ $CONTENT
             throw error;
         }
     }
-    async function loadChunksFromShardRefs_ACU(indexId, shardRefs) {
+    async function loadChunksFromShardRefs_ACU(indexId, shardRefs, options = {}) {
         const chunks = [];
         for (const ref of shardRefs) {
             if (!ref.shardId)
                 continue;
-            const cached = await getVectorIndexCachedShard_ACU(indexId, ref.shardId);
-            let shard = cached;
+            let shard = null;
+            if (options.preferExternalFiles !== true) {
+                shard = await getVectorIndexCachedShard_ACU(indexId, ref.shardId);
+            }
             if (!shard) {
                 const loaded = await readVectorIndexJsonFile_ACU(ref.path);
                 if (!loaded.ok || !loaded.data) {
@@ -22335,7 +22337,7 @@ $CONTENT
         }
         return chunks.filter((chunk) => Array.isArray(chunk.vector) && chunk.vector.length > 0);
     }
-    async function loadSummaryVectorIndexChunksFromManifest_ACU(manifest) {
+    async function loadSummaryVectorIndexChunksFromManifest_ACU(manifest, options = {}) {
         if (!manifest)
             return [];
         if (Array.isArray(manifest.batchRefs) && manifest.batchRefs.length > 0) {
@@ -22345,7 +22347,7 @@ $CONTENT
             const chunks = [];
             for (const batch of manifest.batchRefs) {
                 const shardRefs = (batch.files || []).filter((file) => file.role === 'base_shard' || file.role === 'delta_shard');
-                const batchChunks = await loadChunksFromShardRefs_ACU(batch.indexId || manifest.indexId, shardRefs);
+                const batchChunks = await loadChunksFromShardRefs_ACU(batch.indexId || manifest.indexId, shardRefs, options);
                 batchChunks.forEach((chunk) => {
                     if (removedRowKeys.has(chunk.rowKey))
                         return;
@@ -22364,7 +22366,7 @@ $CONTENT
         if (!manifest.files?.length)
             return [];
         const shardRefs = manifest.files.filter((file) => file.role === 'base_shard' || file.role === 'delta_shard');
-        return loadChunksFromShardRefs_ACU(manifest.indexId, shardRefs);
+        return loadChunksFromShardRefs_ACU(manifest.indexId, shardRefs, options);
     }
     async function deleteSummaryVectorIndexExternal_ACU(manifest) {
         if (!manifest)
@@ -44781,8 +44783,27 @@ $CONTENT
             return String(error || '未知错误');
         }
     }
+    function isMissingExternalVectorFileError_ACU(message) {
+        const text = String(message || '').toLowerCase();
+        return text.includes('交火向量索引分片读取失败')
+            && (text.includes('404') || text.includes('not found') || text.includes('读取失败'));
+    }
+    async function clearLatestSummaryVectorIndexState_ACU(params) {
+        const chat = getChatArray_ACU();
+        const message = chat?.[params.messageIndex];
+        if (!message || message.is_user)
+            return false;
+        const tagData = readIsolatedTagData_ACU(message, params.isolationKey);
+        if (!tagData)
+            return false;
+        assignSummaryVectorIndexStateToTagData_ACU(tagData, null);
+        writeIsolatedTagData_ACU(message, params.isolationKey, tagData);
+        await saveChatToHost_ACU();
+        return true;
+    }
     async function preloadSummaryVectorIndexCacheForCurrentChat_ACU() {
         const snapshot = getLatestSummaryVectorIndexSnapshotState_ACU();
+        const latestLayer = snapshot?.layers?.[0] || null;
         const manifest = snapshot?.summaryVectorIndexState?.manifest || null;
         if (!manifest) {
             return {
@@ -44802,7 +44823,7 @@ $CONTENT
             };
         }
         try {
-            const chunks = await loadSummaryVectorIndexChunksFromManifest_ACU(manifest);
+            const chunks = await loadSummaryVectorIndexChunksFromManifest_ACU(manifest, { preferExternalFiles: true });
             logDebug_ACU(`[交火向量索引] 当前聊天向量缓存预热完成：indexId=${manifest.indexId}, chunks=${chunks.length}`);
             return {
                 success: true,
@@ -44813,6 +44834,23 @@ $CONTENT
         }
         catch (error) {
             const message = normalizeErrorMessage_ACU(error);
+            if (isMissingExternalVectorFileError_ACU(message)) {
+                await deleteVectorIndexCacheByIndex_ACU(manifest.indexId);
+                const chatStateCleared = latestLayer
+                    ? await clearLatestSummaryVectorIndexState_ACU({ messageIndex: latestLayer.messageIndex, isolationKey: latestLayer.isolationKey })
+                    : false;
+                logWarn_ACU('[交火向量索引] 当前聊天外置向量文件缺失，已清空对应缓存与聊天索引状态:', message);
+                return {
+                    success: true,
+                    skipped: true,
+                    reason: 'external_files_missing_cache_cleared',
+                    chunkCount: 0,
+                    indexId: manifest.indexId,
+                    error: message,
+                    cacheCleared: true,
+                    chatStateCleared,
+                };
+            }
             logWarn_ACU('[交火向量索引] 当前聊天向量缓存预热失败:', message);
             return {
                 success: false,

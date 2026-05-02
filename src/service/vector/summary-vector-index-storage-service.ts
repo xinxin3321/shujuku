@@ -599,12 +599,15 @@ export async function persistSummaryVectorIndexSnapshot_ACU(
 async function loadChunksFromShardRefs_ACU(
     indexId: string,
     shardRefs: SummaryVectorIndexExternalFileRef_ACU[],
+    options: { preferExternalFiles?: boolean } = {},
 ): Promise<ChatSummaryVectorIndexChunk_ACU[]> {
     const chunks: ChatSummaryVectorIndexChunk_ACU[] = [];
     for (const ref of shardRefs) {
         if (!ref.shardId) continue;
-        const cached = await getVectorIndexCachedShard_ACU(indexId, ref.shardId);
-        let shard = cached;
+        let shard: SummaryVectorIndexShard_ACU | null = null;
+        if (options.preferExternalFiles !== true) {
+            shard = await getVectorIndexCachedShard_ACU(indexId, ref.shardId);
+        }
         if (!shard) {
             const loaded = await readVectorIndexJsonFile_ACU<SummaryVectorIndexShard_ACU>(ref.path);
             if (!loaded.ok || !loaded.data) {
@@ -625,6 +628,7 @@ async function loadChunksFromShardRefs_ACU(
 
 export async function loadSummaryVectorIndexChunksFromManifest_ACU(
     manifest: ChatSummaryVectorIndexManifest_ACU | null | undefined,
+    options: { preferExternalFiles?: boolean } = {},
 ): Promise<ChatSummaryVectorIndexChunk_ACU[]> {
     if (!manifest) return [];
     if (Array.isArray(manifest.batchRefs) && manifest.batchRefs.length > 0) {
@@ -634,7 +638,7 @@ export async function loadSummaryVectorIndexChunksFromManifest_ACU(
         const chunks: ChatSummaryVectorIndexChunk_ACU[] = [];
         for (const batch of manifest.batchRefs) {
             const shardRefs = (batch.files || []).filter((file) => file.role === 'base_shard' || file.role === 'delta_shard');
-            const batchChunks = await loadChunksFromShardRefs_ACU(batch.indexId || manifest.indexId, shardRefs);
+            const batchChunks = await loadChunksFromShardRefs_ACU(batch.indexId || manifest.indexId, shardRefs, options);
             batchChunks.forEach((chunk) => {
                 if (removedRowKeys.has(chunk.rowKey)) return;
                 if (activeRowKeys.size > 0 && !activeRowKeys.has(chunk.rowKey)) return;
@@ -649,7 +653,7 @@ export async function loadSummaryVectorIndexChunksFromManifest_ACU(
     }
     if (!manifest.files?.length) return [];
     const shardRefs = manifest.files.filter((file) => file.role === 'base_shard' || file.role === 'delta_shard');
-    return loadChunksFromShardRefs_ACU(manifest.indexId, shardRefs);
+    return loadChunksFromShardRefs_ACU(manifest.indexId, shardRefs, options);
 }
 
 export async function deleteSummaryVectorIndexExternal_ACU(manifest: ChatSummaryVectorIndexManifest_ACU | null | undefined): Promise<void> {
