@@ -151,33 +151,41 @@ interface VectorIndexFileDeleteRequestCandidate_ACU {
     body: Record<string, string>;
 }
 
+function normalizeDeletePathInput_ACU(path: string): string {
+    return String(path || '')
+        .trim()
+        .replace(/^\/+/, '')
+        .replace(/^user\/files\//, '')
+        .replace(/^files\//, '');
+}
+
 function buildDeleteRequestCandidates_ACU(path: string): VectorIndexFileDeleteRequestCandidate_ACU[] {
-    const normalizedPath = String(path || '').trim().replace(/^\/+/, '');
+    const fileName = normalizeDeletePathInput_ACU(path);
     const candidates: VectorIndexFileDeleteRequestCandidate_ACU[] = [];
     const seen = new Set<string>();
     const addCandidate = (label: string, body: Record<string, string>): void => {
         const key = JSON.stringify(body);
-        if (!seen.has(key)) {
+        if (body.path && !seen.has(key)) {
             seen.add(key);
             candidates.push({ label, body });
         }
     };
 
-    addCandidate('path', { path: normalizedPath });
-    addCandidate('name', { name: normalizedPath });
-    if (normalizedPath && !normalizedPath.startsWith('user/files/')) {
-        addCandidate('path:user-files-prefix', { path: `user/files/${normalizedPath}` });
-    }
+    // SillyTavern exposes uploaded files as /user/files/<name>, while the delete API expects
+    // a user-directory relative path. Keep the raw filename fallback for older compatible builds.
+    addCandidate('path:files-prefix', { path: `files/${fileName}` });
+    addCandidate('path:filename', { path: fileName });
     return candidates;
 }
 
 export async function deleteVectorIndexFile_ACU(path: string): Promise<VectorIndexFileDeleteResult_ACU> {
-    const normalizedPath = String(path || '').trim().replace(/^\/+/, '');
+    const normalizedPath = normalizeDeletePathInput_ACU(path);
     if (!normalizedPath) {
         return { ok: false, path, error: '删除失败：文件路径为空' };
     }
 
     const attempts: string[] = [];
+    let notFoundSeen = false;
     for (const candidate of buildDeleteRequestCandidates_ACU(normalizedPath)) {
         try {
             const response = await fetch('/api/files/delete', {
@@ -189,16 +197,23 @@ export async function deleteVectorIndexFile_ACU(path: string): Promise<VectorInd
                 return { ok: true, path: normalizedPath };
             }
             const detail = await response.text().catch(() => response.statusText);
+            if (response.status === 404) {
+                notFoundSeen = true;
+            }
             attempts.push(`${candidate.label} -> ${response.status}: ${detail || response.statusText}`);
         } catch (error) {
             attempts.push(`${candidate.label} -> ${normalizeError_ACU(error)}`);
         }
     }
 
+    if (notFoundSeen) {
+        return { ok: true, path: normalizedPath };
+    }
+
     return {
         ok: false,
         path: normalizedPath,
-        error: `删除失败，已尝试 ${attempts.length} 种请求体: ${attempts.join('；')}`,
+        error: `删除失败，已尝试 ${attempts.length} 种 path 请求体: ${attempts.join('；')}`,
     };
 }
 

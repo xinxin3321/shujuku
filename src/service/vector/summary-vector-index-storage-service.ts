@@ -177,13 +177,16 @@ async function cleanupManifestFilesExcept_ACU(
     if (!previousManifest?.files?.length && !previousManifest?.batchRefs?.length) return;
     const previousPaths = collectManifestFilePaths_ACU(previousManifest);
     const removablePaths = Array.from(previousPaths).filter((path) => path && !retainedPaths.has(path));
+    const deletedPaths: string[] = [];
     for (const path of removablePaths) {
         const result = await deleteVectorIndexFile_ACU(path);
-        if (!result.ok) {
+        if (result.ok) {
+            deletedPaths.push(result.path || path);
+        } else {
             logWarn_ACU('[交火向量索引] 清理未复用外置文件失败:', path, result.error);
         }
     }
-    await unregisterVectorIndexFiles_ACU(removablePaths);
+    await unregisterVectorIndexFiles_ACU(deletedPaths);
     if (previousManifest.indexId && !Array.from(retainedPaths).some((path) => path.includes(previousManifest.indexId))) {
         await deleteVectorIndexCacheByIndex_ACU(previousManifest.indexId);
     }
