@@ -29626,6 +29626,42 @@ $CONTENT
         };
     }
 
+    const summaryVectorIndexArchiveLocks_ACU = new Map();
+    function buildSummaryVectorIndexArchiveScopeKey_ACU(parts) {
+        return [
+            String(parts.chatKey || 'current-chat'),
+            String(parts.isolationKey || 'default'),
+            String(parts.sourceTableKey || 'summary'),
+        ].join('::');
+    }
+    async function runSummaryVectorIndexArchiveWithScopeLock_ACU(scopeKey, task) {
+        const previous = summaryVectorIndexArchiveLocks_ACU.get(scopeKey) || Promise.resolve();
+        let releaseLock;
+        const current = new Promise((resolve) => {
+            releaseLock = resolve;
+        });
+        summaryVectorIndexArchiveLocks_ACU.set(scopeKey, previous.then(() => current, () => current));
+        let waited = false;
+        try {
+            if (summaryVectorIndexArchiveLocks_ACU.get(scopeKey) !== current) {
+                waited = true;
+                logDebug_ACU(`[纪要向量索引] 同一 scope 已有归档任务运行，等待串行执行：${scopeKey}`);
+                await previous.catch((error) => {
+                    logWarn_ACU('[纪要向量索引] 前序归档任务失败，继续执行后续排队任务:', error);
+                });
+            }
+            if (waited) {
+                logDebug_ACU(`[纪要向量索引] scope 归档排队结束，重新读取最新状态后执行：${scopeKey}`);
+            }
+            return await task();
+        }
+        finally {
+            releaseLock();
+            if (summaryVectorIndexArchiveLocks_ACU.get(scopeKey) === current) {
+                summaryVectorIndexArchiveLocks_ACU.delete(scopeKey);
+            }
+        }
+    }
     function buildResult_ACU(partial = {}) {
         return {
             success: false,
@@ -30145,6 +30181,49 @@ $CONTENT
         return true;
     }
     async function archiveSummaryVectorIndexNow_ACU(options = {}) {
+        const config = getEffectiveSummaryVectorIndexConfig_ACU();
+        const validation = validateSummaryVectorIndexConfig_ACU(config);
+        if (!validation.valid) {
+            return buildResult_ACU({
+                success: false,
+                reason: 'summary_vector_index_config_invalid',
+                errors: validation.errors,
+            });
+        }
+        const selectedSummary = findSummaryTable_ACU();
+        if (!selectedSummary) {
+            return buildResult_ACU({
+                success: true,
+                skipped: true,
+                reason: 'summary_table_not_found',
+            });
+        }
+        const targetMessageIndex = resolveTargetMessageIndex_ACU(options.targetMessageIndex);
+        if (targetMessageIndex < 0) {
+            return buildResult_ACU({
+                success: false,
+                reason: 'target_message_not_found',
+                errors: ['未找到可写入纪要向量索引的 AI 楼层。'],
+            });
+        }
+        const chat = getChatArray_ACU();
+        const targetMessage = chat[targetMessageIndex];
+        if (!targetMessage || targetMessage.is_user) {
+            return buildResult_ACU({
+                success: false,
+                reason: 'target_message_invalid',
+                errors: ['目标楼层不是可写入的 AI 消息。'],
+            });
+        }
+        const isolationKey = getCurrentIsolationKey_ACU();
+        const archiveScopeKey = buildSummaryVectorIndexArchiveScopeKey_ACU({
+            chatKey: currentChatFileIdentifier_ACU,
+            isolationKey,
+            sourceTableKey: selectedSummary.summaryKey,
+        });
+        return runSummaryVectorIndexArchiveWithScopeLock_ACU(archiveScopeKey, () => archiveSummaryVectorIndexNowUnlocked_ACU(options));
+    }
+    async function archiveSummaryVectorIndexNowUnlocked_ACU(options = {}) {
         const config = getEffectiveSummaryVectorIndexConfig_ACU();
         const validation = validateSummaryVectorIndexConfig_ACU(config);
         if (!validation.valid) {
