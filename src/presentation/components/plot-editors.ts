@@ -22,6 +22,22 @@ function getPlotTaskApiPresetOverrides_ACU(): Record<string, string> {
     return settings_ACU.plotTaskApiPresetOverridesById;
 }
 
+function ensureSelectOptionValue_ACU($select: any, value: string, label = value) {
+    const normalizedValue = String(value || '').trim();
+    if (!$select || !$select.length || !normalizedValue) return;
+    const escapedValue = escapeHtml_ACU(normalizedValue);
+    if ($select.find(`option[value="${escapedValue}"]`).length) return;
+    $select.append(`<option value="${escapedValue}">${escapeHtml_ACU(label || normalizedValue)}</option>`);
+}
+
+function setPlotTaskApiPresetSelectValue_ACU(task: any) {
+    if (!$popupInstance_ACU) return;
+    const presetName = getPlotTaskApiPresetFromGlobalSettings_ACU(task);
+    const $select = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-api-preset`);
+    ensureSelectOptionValue_ACU($select, presetName);
+    $select.val(presetName);
+}
+
 function getPlotTaskApiPresetFromGlobalSettings_ACU(task: any): string {
     const taskId = String(task?.id || '').trim();
     if (!taskId) return '';
@@ -357,7 +373,17 @@ function stripRuntimeOnlyPlotTaskFields_ACU(task: any) {
       $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-min-length`).val(selectedTask.minLength ?? 0);
       $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-stage`).val(normalizePositiveInteger_ACU(selectedTask.stage, 1));
       $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-max-retries`).val(selectedTask.maxRetries ?? DEFAULT_PLOT_SETTINGS_ACU.loopSettings?.maxRetries ?? 3);
-      $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-api-preset`).val(getPlotTaskApiPresetFromGlobalSettings_ACU(selectedTask));
+      setPlotTaskApiPresetSelectValue_ACU(selectedTask);
+  }
+
+  export function refreshCurrentPlotTaskApiPresetSelect_ACU(plotSettings = getActivePlotEditorSettings_ACU()) {
+      if (!$popupInstance_ACU || !plotSettings) return;
+      const { selectedTask } = getCurrentPlotTaskEditorState_ACU(plotSettings, { autoSelect: true });
+      if (!selectedTask) {
+          $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-plot-task-api-preset`).val('');
+          return;
+      }
+      setPlotTaskApiPresetSelectValue_ACU(selectedTask);
   }
 
 function persistPlotTaskEditorSettings_ACU(source = 'ui_task_edit') {
