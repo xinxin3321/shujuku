@@ -29738,7 +29738,6 @@ $CONTENT
     function buildPreparedRowFingerprint_ACU(row) {
         return hashUserInput_ACU([
             row.rowId,
-            row.rowOrder,
             row.timeSpan,
             row.location,
             row.summary,
@@ -29856,7 +29855,6 @@ $CONTENT
     function getSummaryRowFingerprintFromStateRow_ACU(row) {
         return hashUserInput_ACU([
             row.rowId,
-            row.rowOrder,
             row.timeSpan,
             row.location,
             row.summary,

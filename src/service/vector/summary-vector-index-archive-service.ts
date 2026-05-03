@@ -162,7 +162,6 @@ function buildStableSummaryRowKey_ACU(summaryKey: string, rowId: string, indexCo
 function buildPreparedRowFingerprint_ACU(row: SummaryVectorArchivePreparedRow_ACU): string {
     return hashUserInput_ACU([
         row.rowId,
-        row.rowOrder,
         row.timeSpan,
         row.location,
         row.summary,
@@ -292,7 +291,6 @@ function cloneSummaryVectorIndexState_ACU(state: ChatSummaryVectorIndexState_ACU
 function getSummaryRowFingerprintFromStateRow_ACU(row: ChatSummaryVectorIndexRow_ACU): string {
     return hashUserInput_ACU([
         row.rowId,
-        row.rowOrder,
         row.timeSpan,
         row.location,
         row.summary,
