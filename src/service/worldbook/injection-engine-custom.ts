@@ -33,11 +33,11 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
       const baseLegacyPrefix = 'TavernDB-ACU-CustomExport';
       const LEGACY_EXPORT_PREFIX = isoPrefix + baseLegacyPrefix;
       
-      // [修改] 0TK 与交火模式允许同时启用：0TK 只控制普通大纲条目，交火模式控制"纪要索引"条目。
+      // [修改] 0TK 与交火模式允许同时启用：交火模式可保留/覆盖纪要索引内容，但 0TK 仍持续控制该条目的 enabled 状态。
       const worldbookConfig = getCurrentWorldbookConfig_ACU();
       const zeroTkOccupyMode = worldbookConfig?.zeroTkOccupyMode === true;
       const summaryVectorIndexModeEnabled = worldbookConfig?.summaryVectorIndexModeEnabled === true;
-      const extraIndexEntryEnabled = summaryVectorIndexModeEnabled || !zeroTkOccupyMode;
+      const extraIndexEntryEnabled = !zeroTkOccupyMode;
       logDebug_ACU(`[CustomExport] 0TK模式=${zeroTkOccupyMode}, 交火纪要索引=${summaryVectorIndexModeEnabled}, 纪要索引条目enabled=${extraIndexEntryEnabled}`);
 
       try {
@@ -242,7 +242,7 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
               names.push(mainComment);
               const normalizedPlacement = normalizePlacementConfig_ACU(placement, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU);
               plans.push({ comment: mainComment, order: cursor, placement: normalizedPlacement });
-              // [修复] 0TK模式只控制"纪要索引"条目，其他表格的索引条目始终启用
+              // [修复] 0TK 模式仍持续控制"纪要索引"条目的 enabled；交火模式只控制内容保护，不接管 enabled。
               const finalEnabled = extraIndexSpec.entryName === '纪要索引' ? enabled : true;
               entries.push(applyPlacementToEntry_ACU({
                   comment: mainComment,

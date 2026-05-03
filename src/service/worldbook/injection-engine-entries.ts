@@ -24,12 +24,12 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
         return;
     }
 
-    // [修改] 0TK 只控制 OutlineTable 条目；交火模式独立控制"纪要索引"条目。
+    // [修改] 0TK 只控制 OutlineTable 条目；交火模式可独立运行，但不能接管"纪要索引"条目的 enabled 状态。
     const worldbookConfig = getCurrentWorldbookConfig_ACU();
     const zeroTkOccupyMode = worldbookConfig?.zeroTkOccupyMode === true;
     const summaryVectorIndexModeEnabled = worldbookConfig?.summaryVectorIndexModeEnabled === true;
     const outlineEntryEnabled = !zeroTkOccupyMode;
-    const summaryIndexEntryEnabled = summaryVectorIndexModeEnabled || !zeroTkOccupyMode;
+    const summaryIndexEntryEnabled = !zeroTkOccupyMode;
 
     const IMPORT_PREFIX = getImportBatchPrefix_ACU();
     // [修改] 加入隔离标识前缀
@@ -49,7 +49,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
                 logDebug_ACU('Deleted outline table entry as there is no data.');
             }
             // [修复] 即使没有outlineTable数据，也要同步更新"纪要索引"条目的enabled状态。
-            // 交火模式启用时，0TK 不应禁用纪要索引召回条目。
+            // 0TK 持续控制该条目是否启用；交火模式不应把它重新打开。
             try {
                 const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
                 if (existingIndexEntry) {
@@ -123,7 +123,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
         }
 
         // [新增] 同步更新"纪要索引"条目的enabled状态。
-        // 交火模式启用时，0TK 不应禁用纪要索引召回条目。
+        // 0TK 持续控制该条目是否启用；交火模式不应把它重新打开。
         try {
             const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
             if (existingIndexEntry) {

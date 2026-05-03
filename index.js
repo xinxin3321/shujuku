@@ -16444,12 +16444,12 @@ $CONTENT
             logWarn_ACU('Cannot update outline table entry: No injection target lorebook set.');
             return;
         }
-        // [修改] 0TK 只控制 OutlineTable 条目；交火模式独立控制"纪要索引"条目。
+        // [修改] 0TK 只控制 OutlineTable 条目；交火模式可独立运行，但不能接管"纪要索引"条目的 enabled 状态。
         const worldbookConfig = getCurrentWorldbookConfig_ACU();
         const zeroTkOccupyMode = worldbookConfig?.zeroTkOccupyMode === true;
         const summaryVectorIndexModeEnabled = worldbookConfig?.summaryVectorIndexModeEnabled === true;
         const outlineEntryEnabled = !zeroTkOccupyMode;
-        const summaryIndexEntryEnabled = summaryVectorIndexModeEnabled || !zeroTkOccupyMode;
+        const summaryIndexEntryEnabled = !zeroTkOccupyMode;
         const IMPORT_PREFIX = getImportBatchPrefix_ACU$1();
         // [修改] 加入隔离标识前缀
         const isoPrefix = getIsolationPrefix_ACU();
@@ -16466,7 +16466,7 @@ $CONTENT
                     logDebug_ACU('Deleted outline table entry as there is no data.');
                 }
                 // [修复] 即使没有outlineTable数据，也要同步更新"纪要索引"条目的enabled状态。
-                // 交火模式启用时，0TK 不应禁用纪要索引召回条目。
+                // 0TK 持续控制该条目是否启用；交火模式不应把它重新打开。
                 try {
                     const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
                     if (existingIndexEntry) {
@@ -16534,7 +16534,7 @@ $CONTENT
                 logDebug_ACU(`Outline table lorebook entry not found. Created a new one. enabled=${outlineEntryEnabled} (0TK占用模式=${zeroTkOccupyMode})`);
             }
             // [新增] 同步更新"纪要索引"条目的enabled状态。
-            // 交火模式启用时，0TK 不应禁用纪要索引召回条目。
+            // 0TK 持续控制该条目是否启用；交火模式不应把它重新打开。
             try {
                 const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
                 if (existingIndexEntry) {
@@ -16829,11 +16829,11 @@ $CONTENT
         // [修改] 定义旧版前缀用于清理（非外部导入模式）
         const baseLegacyPrefix = 'TavernDB-ACU-CustomExport';
         const LEGACY_EXPORT_PREFIX = isoPrefix + baseLegacyPrefix;
-        // [修改] 0TK 与交火模式允许同时启用：0TK 只控制普通大纲条目，交火模式控制"纪要索引"条目。
+        // [修改] 0TK 与交火模式允许同时启用：交火模式可保留/覆盖纪要索引内容，但 0TK 仍持续控制该条目的 enabled 状态。
         const worldbookConfig = getCurrentWorldbookConfig_ACU();
         const zeroTkOccupyMode = worldbookConfig?.zeroTkOccupyMode === true;
         const summaryVectorIndexModeEnabled = worldbookConfig?.summaryVectorIndexModeEnabled === true;
-        const extraIndexEntryEnabled = summaryVectorIndexModeEnabled || !zeroTkOccupyMode;
+        const extraIndexEntryEnabled = !zeroTkOccupyMode;
         logDebug_ACU(`[CustomExport] 0TK模式=${zeroTkOccupyMode}, 交火纪要索引=${summaryVectorIndexModeEnabled}, 纪要索引条目enabled=${extraIndexEntryEnabled}`);
         try {
             const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
@@ -17028,7 +17028,7 @@ $CONTENT
                 names.push(mainComment);
                 const normalizedPlacement = normalizePlacementConfig_ACU(placement, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU);
                 plans.push({ comment: mainComment, order: cursor, placement: normalizedPlacement });
-                // [修复] 0TK模式只控制"纪要索引"条目，其他表格的索引条目始终启用
+                // [修复] 0TK 模式仍持续控制"纪要索引"条目的 enabled；交火模式只控制内容保护，不接管 enabled。
                 const finalEnabled = extraIndexSpec.entryName === '纪要索引' ? enabled : true;
                 entries.push(applyPlacementToEntry_ACU({
                     comment: mainComment,
@@ -25389,7 +25389,7 @@ $CONTENT
                         const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
                         const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
                         if (existingIndexEntry) {
-                            const nextEnabled = (getCurrentWorldbookConfig_ACU()?.summaryVectorIndexModeEnabled === true) || !modeEnabled;
+                            const nextEnabled = !modeEnabled;
                             if (existingIndexEntry.enabled !== nextEnabled) {
                                 await setLorebookEntries_ACU(primaryLorebookName, [{
                                         uid: existingIndexEntry.uid,
@@ -25419,7 +25419,7 @@ $CONTENT
                         const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
                         const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
                         if (existingIndexEntry) {
-                            const nextEnabled = modeEnabled || !getCurrentWorldbookConfig_ACU()?.zeroTkOccupyMode;
+                            const nextEnabled = getCurrentWorldbookConfig_ACU()?.zeroTkOccupyMode !== true;
                             if (existingIndexEntry.enabled !== nextEnabled) {
                                 await setLorebookEntries_ACU(primaryLorebookName, [{
                                         uid: existingIndexEntry.uid,

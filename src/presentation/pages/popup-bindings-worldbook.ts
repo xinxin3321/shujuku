@@ -492,7 +492,7 @@ export async function bindWorldbookEvents_ACU(): Promise<void> {
                       const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
                       const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
                       if (existingIndexEntry) {
-                          const nextEnabled = (getCurrentWorldbookConfig_ACU()?.summaryVectorIndexModeEnabled === true) || !modeEnabled;
+                          const nextEnabled = !modeEnabled;
                           if (existingIndexEntry.enabled !== nextEnabled) {
                               await setLorebookEntries_ACU(primaryLorebookName, [{
                                   uid: existingIndexEntry.uid,
@@ -523,7 +523,7 @@ export async function bindWorldbookEvents_ACU(): Promise<void> {
                       const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
                       const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
                       if (existingIndexEntry) {
-                          const nextEnabled = modeEnabled || !getCurrentWorldbookConfig_ACU()?.zeroTkOccupyMode;
+                          const nextEnabled = getCurrentWorldbookConfig_ACU()?.zeroTkOccupyMode !== true;
                           if (existingIndexEntry.enabled !== nextEnabled) {
                               await setLorebookEntries_ACU(primaryLorebookName, [{
                                   uid: existingIndexEntry.uid,
