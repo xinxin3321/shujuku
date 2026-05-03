@@ -29630,6 +29630,7 @@ $CONTENT
     }
 
     const summaryVectorIndexArchiveLocks_ACU = new Map();
+    const summaryVectorIndexArchivePendingTasks_ACU = new Map();
     function buildSummaryVectorIndexArchiveScopeKey_ACU(parts) {
         return [
             String(parts.chatKey || 'current-chat'),
@@ -29638,24 +29639,39 @@ $CONTENT
         ].join('::');
     }
     async function runSummaryVectorIndexArchiveWithScopeLock_ACU(scopeKey, task) {
-        const previous = summaryVectorIndexArchiveLocks_ACU.get(scopeKey) || Promise.resolve();
+        const active = summaryVectorIndexArchiveLocks_ACU.get(scopeKey);
+        if (active) {
+            const existingPending = summaryVectorIndexArchivePendingTasks_ACU.get(scopeKey);
+            if (existingPending) {
+                logDebug_ACU(`[纪要向量索引] 同一 scope 已有归档任务和合并补跑任务，复用 pending：${scopeKey}`);
+                return existingPending;
+            }
+            const pending = (async () => {
+                logDebug_ACU(`[纪要向量索引] 同一 scope 已有归档任务运行，合并后续请求为一次补跑：${scopeKey}`);
+                await active.catch((error) => {
+                    logWarn_ACU('[纪要向量索引] 前序归档任务失败，继续执行合并补跑任务:', error);
+                });
+                logDebug_ACU(`[纪要向量索引] scope 合并补跑开始，重新读取最新状态后执行：${scopeKey}`);
+                return await runSummaryVectorIndexArchiveWithScopeLock_ACU(scopeKey, task);
+            })();
+            summaryVectorIndexArchivePendingTasks_ACU.set(scopeKey, pending);
+            void pending.then(() => {
+                if (summaryVectorIndexArchivePendingTasks_ACU.get(scopeKey) === pending) {
+                    summaryVectorIndexArchivePendingTasks_ACU.delete(scopeKey);
+                }
+            }, () => {
+                if (summaryVectorIndexArchivePendingTasks_ACU.get(scopeKey) === pending) {
+                    summaryVectorIndexArchivePendingTasks_ACU.delete(scopeKey);
+                }
+            });
+            return pending;
+        }
         let releaseLock;
         const current = new Promise((resolve) => {
             releaseLock = resolve;
         });
-        summaryVectorIndexArchiveLocks_ACU.set(scopeKey, previous.then(() => current, () => current));
-        let waited = false;
+        summaryVectorIndexArchiveLocks_ACU.set(scopeKey, current);
         try {
-            if (summaryVectorIndexArchiveLocks_ACU.get(scopeKey) !== current) {
-                waited = true;
-                logDebug_ACU(`[纪要向量索引] 同一 scope 已有归档任务运行，等待串行执行：${scopeKey}`);
-                await previous.catch((error) => {
-                    logWarn_ACU('[纪要向量索引] 前序归档任务失败，继续执行后续排队任务:', error);
-                });
-            }
-            if (waited) {
-                logDebug_ACU(`[纪要向量索引] scope 归档排队结束，重新读取最新状态后执行：${scopeKey}`);
-            }
             return await task();
         }
         finally {
@@ -30324,15 +30340,23 @@ $CONTENT
             const reusable = buildExistingReusableRows_ACU(prepared.rows, existingState);
             const reusableRowKeySet = new Set(reusable.reusableRows.map((row) => row.rowKey));
             const rowsNeedingEmbedding = prepared.rows.filter((row) => !reusableRowKeySet.has(row.rowKey));
+            if (rowsNeedingEmbedding.length === 0 && existingState?.manifest) {
+                logDebug_ACU('[纪要向量索引] 当前纪要表未发现新增或变更条目，跳过重复覆盖上传。');
+                return buildResult_ACU({
+                    success: true,
+                    skipped: true,
+                    summaryKey: selectedSummary.summaryKey,
+                    messageIndex: targetMessageIndex,
+                    skippedRowCount: prepared.skippedRowCount,
+                    reason: 'no_changes_skip_snapshot_upload',
+                });
+            }
             const indexedAt = new Date().toISOString();
             const sourceTableName = normalizeText_ACU$1(selectedSummary.table?.name) || '纪要表';
             const maxRowsPerBatch = Math.max(1, Math.floor(Number(config.summaryIndexArchiveMaxConcurrency) || 30));
             const embeddedRows = [];
             const embeddedChunks = [];
             let checkpointResult = buildFinalSummaryVectorIndexRowsAndChunks_ACU(reusable.reusableRows, reusable.reusableChunks);
-            if (rowsNeedingEmbedding.length === 0) {
-                logDebug_ACU('[纪要向量索引] 当前纪要表未发现新增或变更条目，复用已有归档向量。');
-            }
             for (let startIndex = 0; startIndex < rowsNeedingEmbedding.length; startIndex += maxRowsPerBatch) {
                 const rowBatch = rowsNeedingEmbedding.slice(startIndex, startIndex + maxRowsPerBatch);
                 if (rowBatch.length === 0)
@@ -30375,24 +30399,6 @@ $CONTENT
                     reason: 'embedding_empty',
                     errors: ['纪要向量索引 embedding 结果为空。'],
                 });
-            }
-            if (rowsNeedingEmbedding.length === 0) {
-                await writeSummaryVectorIndexCheckpoint_ACU({
-                    chat,
-                    aggregatedSnapshot,
-                    embeddingModel: config.embeddingModel,
-                    preparedRows: prepared.rows,
-                    finalRows: finalResult.rows,
-                    finalChunks: finalResult.chunks,
-                    targetMessageIndex,
-                    snapshotMessageId,
-                    sourceTableKey: selectedSummary.summaryKey,
-                    sourceTableName,
-                    indexedAt,
-                    skippedRowCount: prepared.skippedRowCount,
-                    mode: archiveMode,
-                });
-                logDebug_ACU('[纪要向量索引] 无新增或变更条目，已覆盖刷新稳定快照文件。');
             }
             return buildResult_ACU({
                 success: true,
