@@ -156,6 +156,7 @@ export function createCoreDataApi(ctx: ApiGroupContext): Record<string, Function
                             const syncResult = await archiveSummaryVectorIndexNow_ACU({
                                 targetMessageIndex: targetMessageIndexForVectorSync >= 0 ? targetMessageIndexForVectorSync : undefined,
                                 mode: 'sync',
+                                saveChatAfterWrite: false,
                             });
                             if (!syncResult.success && !syncResult.skipped) {
                                 logWarn_ACU(`[importTableAsJson] 交火向量索引同步失败: reason=${syncResult.reason || 'unknown'}`, syncResult.errors || []);

@@ -339,6 +339,7 @@ import { archiveSummaryVectorIndexNow_ACU } from '../../service/vector/summary-v
                       const archiveResult = await archiveSummaryVectorIndexNow_ACU({
                           targetMessageIndex: latestAiIndex !== -1 ? latestAiIndex : undefined,
                           mode: 'sync',
+                          saveChatAfterWrite: false,
                       });
                       if (!archiveResult.success) {
                           logWarn_ACU('[VisualizerVectorIndex] 交火索引快照同步失败:', archiveResult.reason, archiveResult.errors);

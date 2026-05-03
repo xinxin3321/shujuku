@@ -358,6 +358,7 @@ async function syncSummaryVectorIndexAfterTableEdit_ACU(
         const result = await archiveSummaryVectorIndexNow_ACU({
             targetMessageIndex: preferredTargetIndex,
             mode: 'sync',
+            saveChatAfterWrite: false,
         });
         if (!result.success && !result.skipped) {
             logWarn_ACU(`${methodName}: Summary vector index sync failed after editing [${tableName}]. reason=${result.reason || 'unknown'}`, result.errors || []);

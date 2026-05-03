@@ -29955,7 +29955,6 @@ $CONTENT
             const chunks = existingChunksByRowKey.get(existingRow.rowKey) || [];
             const existingFingerprint = hashUserInput_ACU([
                 existingRow.rowId,
-                existingRow.rowOrder,
                 existingRow.timeSpan,
                 existingRow.location,
                 existingRow.summary,
@@ -30416,6 +30415,8 @@ $CONTENT
             const reusableRowKeySet = new Set(reusable.reusableRows.map((row) => row.rowKey));
             const rowsNeedingEmbedding = prepared.rows.filter((row) => !reusableRowKeySet.has(row.rowKey));
             const activeRowKeysUnchanged = areSummaryVectorActiveRowKeysSame_ACU(prepared.rows, existingState);
+            const existingActiveRowCount = existingState?.manifest?.snapshot?.activeRowKeys?.length || existingState?.rows?.length || 0;
+            logDebug_ACU(`[纪要向量索引] 增量归档判定：prepared=${prepared.rows.length}, existingActive=${existingActiveRowCount}, reused=${reusable.reusableRows.length}, embedding=${rowsNeedingEmbedding.length}, activeRowsUnchanged=${activeRowKeysUnchanged}, skippedRows=${prepared.skippedRowCount}`);
             if (rowsNeedingEmbedding.length === 0 && existingState?.manifest && activeRowKeysUnchanged) {
                 logDebug_ACU('[纪要向量索引] 当前纪要表未发现新增、变更或删除条目，跳过重复覆盖上传。');
                 return buildResult_ACU({
@@ -30473,7 +30474,7 @@ $CONTENT
                 indexedAt,
                 skippedRowCount: prepared.skippedRowCount,
                 mode: archiveMode,
-                saveChatAfterWrite: true,
+                saveChatAfterWrite: options.saveChatAfterWrite !== false,
             });
             return buildResult_ACU({
                 success: true,
@@ -30823,7 +30824,7 @@ $CONTENT
                     await updateReadableLorebookEntry_ACU(true);
                     if (getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
                         try {
-                            const archiveResult = await archiveSummaryVectorIndexNow_ACU({ targetMessageIndex: saveTargetIndex, mode: 'append' });
+                            const archiveResult = await archiveSummaryVectorIndexNow_ACU({ targetMessageIndex: saveTargetIndex, mode: 'append', saveChatAfterWrite: false });
                             if (!archiveResult.success && !archiveResult.skipped) {
                                 logWarn_ACU('[交火模式纪要索引] 填表完成后自动归档失败:', archiveResult.errors?.join('; ') || archiveResult.reason || 'unknown_error');
                             }
@@ -35551,6 +35552,7 @@ $CONTENT
                         const archiveResult = await archiveSummaryVectorIndexNow_ACU({
                             targetMessageIndex: latestAiIndex !== -1 ? latestAiIndex : undefined,
                             mode: 'sync',
+                            saveChatAfterWrite: false,
                         });
                         if (!archiveResult.success) {
                             logWarn_ACU('[VisualizerVectorIndex] 交火索引快照同步失败:', archiveResult.reason, archiveResult.errors);
@@ -45798,6 +45800,7 @@ $CONTENT
                                 const syncResult = await archiveSummaryVectorIndexNow_ACU({
                                     targetMessageIndex: targetMessageIndexForVectorSync >= 0 ? targetMessageIndexForVectorSync : undefined,
                                     mode: 'sync',
+                                    saveChatAfterWrite: false,
                                 });
                                 if (!syncResult.success && !syncResult.skipped) {
                                     logWarn_ACU(`[importTableAsJson] 交火向量索引同步失败: reason=${syncResult.reason || 'unknown'}`, syncResult.errors || []);
@@ -46112,6 +46115,7 @@ $CONTENT
             const result = await archiveSummaryVectorIndexNow_ACU({
                 targetMessageIndex: preferredTargetIndex,
                 mode: 'sync',
+                saveChatAfterWrite: false,
             });
             if (!result.success && !result.skipped) {
                 logWarn_ACU(`${methodName}: Summary vector index sync failed after editing [${tableName}]. reason=${result.reason || 'unknown'}`, result.errors || []);

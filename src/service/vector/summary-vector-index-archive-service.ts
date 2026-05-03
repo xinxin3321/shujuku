@@ -37,6 +37,12 @@ import { hashUserInput_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logWarn_A
 
 type SummaryVectorIndexArchiveMode_ACU = 'append' | 'sync';
 
+type SummaryVectorIndexArchiveOptions_ACU = {
+    targetMessageIndex?: number;
+    mode?: SummaryVectorIndexArchiveMode_ACU;
+    saveChatAfterWrite?: boolean;
+};
+
 export interface SummaryVectorIndexArchiveResult_ACU {
     success: boolean;
     skipped: boolean;
@@ -389,7 +395,6 @@ function buildExistingReusableRows_ACU(
         const chunks = existingChunksByRowKey.get(existingRow.rowKey) || [];
         const existingFingerprint = hashUserInput_ACU([
             existingRow.rowId,
-            existingRow.rowOrder,
             existingRow.timeSpan,
             existingRow.location,
             existingRow.summary,
@@ -758,7 +763,7 @@ async function clearSummaryVectorIndexCheckpoint_ACU(params: {
     return true;
 }
 
-export async function archiveSummaryVectorIndexNow_ACU(options: { targetMessageIndex?: number; mode?: SummaryVectorIndexArchiveMode_ACU } = {}): Promise<SummaryVectorIndexArchiveResult_ACU> {
+export async function archiveSummaryVectorIndexNow_ACU(options: SummaryVectorIndexArchiveOptions_ACU = {}): Promise<SummaryVectorIndexArchiveResult_ACU> {
     const config = getEffectiveSummaryVectorIndexConfig_ACU();
     const validation = validateSummaryVectorIndexConfig_ACU(config);
     if (!validation.valid) {
@@ -806,7 +811,7 @@ export async function archiveSummaryVectorIndexNow_ACU(options: { targetMessageI
     return runSummaryVectorIndexArchiveWithScopeLock_ACU(archiveScopeKey, () => archiveSummaryVectorIndexNowUnlocked_ACU(options));
 }
 
-async function archiveSummaryVectorIndexNowUnlocked_ACU(options: { targetMessageIndex?: number; mode?: SummaryVectorIndexArchiveMode_ACU } = {}): Promise<SummaryVectorIndexArchiveResult_ACU> {
+async function archiveSummaryVectorIndexNowUnlocked_ACU(options: SummaryVectorIndexArchiveOptions_ACU = {}): Promise<SummaryVectorIndexArchiveResult_ACU> {
     const config = getEffectiveSummaryVectorIndexConfig_ACU();
     const validation = validateSummaryVectorIndexConfig_ACU(config);
     if (!validation.valid) {
@@ -910,6 +915,8 @@ async function archiveSummaryVectorIndexNowUnlocked_ACU(options: { targetMessage
         const reusableRowKeySet = new Set(reusable.reusableRows.map((row) => row.rowKey));
         const rowsNeedingEmbedding = prepared.rows.filter((row) => !reusableRowKeySet.has(row.rowKey));
         const activeRowKeysUnchanged = areSummaryVectorActiveRowKeysSame_ACU(prepared.rows, existingState);
+        const existingActiveRowCount = existingState?.manifest?.snapshot?.activeRowKeys?.length || existingState?.rows?.length || 0;
+        logDebug_ACU(`[纪要向量索引] 增量归档判定：prepared=${prepared.rows.length}, existingActive=${existingActiveRowCount}, reused=${reusable.reusableRows.length}, embedding=${rowsNeedingEmbedding.length}, activeRowsUnchanged=${activeRowKeysUnchanged}, skippedRows=${prepared.skippedRowCount}`);
         if (rowsNeedingEmbedding.length === 0 && existingState?.manifest && activeRowKeysUnchanged) {
             logDebug_ACU('[纪要向量索引] 当前纪要表未发现新增、变更或删除条目，跳过重复覆盖上传。');
             return buildResult_ACU({
@@ -975,7 +982,7 @@ async function archiveSummaryVectorIndexNowUnlocked_ACU(options: { targetMessage
             indexedAt,
             skippedRowCount: prepared.skippedRowCount,
             mode: archiveMode,
-            saveChatAfterWrite: true,
+            saveChatAfterWrite: options.saveChatAfterWrite !== false,
         });
 
         return buildResult_ACU({

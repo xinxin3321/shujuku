@@ -441,7 +441,7 @@ export async function executeCardUpdateCore_ACU(
 
                     if (getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
                         try {
-                            const archiveResult = await archiveSummaryVectorIndexNow_ACU({ targetMessageIndex: saveTargetIndex, mode: 'append' });
+                            const archiveResult = await archiveSummaryVectorIndexNow_ACU({ targetMessageIndex: saveTargetIndex, mode: 'append', saveChatAfterWrite: false });
                             if (!archiveResult.success && !archiveResult.skipped) {
                                 logWarn_ACU('[交火模式纪要索引] 填表完成后自动归档失败:', archiveResult.errors?.join('; ') || archiveResult.reason || 'unknown_error');
                             } else {
