@@ -29893,6 +29893,30 @@ $CONTENT
             chunks: normalizedChunks,
         };
     }
+    function getSummaryVectorIndexActiveRowKeys_ACU(state) {
+        if (!state)
+            return [];
+        const manifestActiveRowKeys = Array.isArray(state.manifest?.snapshot?.activeRowKeys)
+            ? state.manifest.snapshot.activeRowKeys
+            : [];
+        if (manifestActiveRowKeys.length > 0) {
+            return Array.from(new Set(manifestActiveRowKeys.map((rowKey) => String(rowKey || '')).filter(Boolean)));
+        }
+        return Array.isArray(state.rows)
+            ? Array.from(new Set(state.rows.filter((row) => row && row.status !== 'removed').map((row) => String(row.rowKey || '')).filter(Boolean)))
+            : [];
+    }
+    function areSummaryVectorActiveRowKeysSame_ACU(preparedRows, existingState) {
+        const preparedKeys = Array.from(new Set((Array.isArray(preparedRows) ? preparedRows : []).map((row) => String(row?.rowKey || '')).filter(Boolean))).sort();
+        const existingKeys = getSummaryVectorIndexActiveRowKeys_ACU(existingState).sort();
+        if (preparedKeys.length !== existingKeys.length)
+            return false;
+        for (let index = 0; index < preparedKeys.length; index += 1) {
+            if (preparedKeys[index] !== existingKeys[index])
+                return false;
+        }
+        return true;
+    }
     function buildExistingReusableRows_ACU(preparedRows, existingState) {
         const preparedByKey = new Map(preparedRows.map((row) => [row.rowKey, row]));
         const existingRows = Array.isArray(existingState?.rows) ? existingState.rows : [];
@@ -30373,8 +30397,9 @@ $CONTENT
             const reusable = buildExistingReusableRows_ACU(prepared.rows, existingState);
             const reusableRowKeySet = new Set(reusable.reusableRows.map((row) => row.rowKey));
             const rowsNeedingEmbedding = prepared.rows.filter((row) => !reusableRowKeySet.has(row.rowKey));
-            if (rowsNeedingEmbedding.length === 0 && existingState?.manifest) {
-                logDebug_ACU('[纪要向量索引] 当前纪要表未发现新增或变更条目，跳过重复覆盖上传。');
+            const activeRowKeysUnchanged = areSummaryVectorActiveRowKeysSame_ACU(prepared.rows, existingState);
+            if (rowsNeedingEmbedding.length === 0 && existingState?.manifest && activeRowKeysUnchanged) {
+                logDebug_ACU('[纪要向量索引] 当前纪要表未发现新增、变更或删除条目，跳过重复覆盖上传。');
                 return buildResult_ACU({
                     success: true,
                     skipped: true,
