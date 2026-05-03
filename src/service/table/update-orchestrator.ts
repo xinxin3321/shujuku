@@ -495,97 +495,100 @@ export async function processUpdatesBatch_ACU(
 
     const { targetSheetKeys, batchSize: specificBatchSize, requestOptions } = options;
 
+    _set_wasStoppedByUser_ACU(false);
     _set_isAutoUpdatingCard_ACU(true);
 
-    const isSummaryMode = (mode && (mode.includes('summary') || mode === 'manual_summary')) || false;
-    const batchSize = specificBatchSize || (settings_ACU.updateBatchSize || 2);
+    try {
+        const isSummaryMode = (mode && (mode.includes('summary') || mode === 'manual_summary')) || false;
+        const batchSize = specificBatchSize || (settings_ACU.updateBatchSize || 2);
 
-    const batches: number[][] = [];
-    for (let i = 0; i < indicesToUpdate.length; i += batchSize) {
-        batches.push(indicesToUpdate.slice(i, i + batchSize));
-    }
-
-    logDebug_ACU(`[${mode}] Processing ${indicesToUpdate.length} updates in ${batches.length} batches of size ${batchSize} (${isSummaryMode ? '总结表模式' : '标准表模式'}). Target Sheets: ${targetSheetKeys ? targetSheetKeys.length : 'All'}`);
-
-    const chatHistory = getChatArray_ACU();
-    const isAutoUpdateMode = mode && mode.startsWith('auto');
-    const isSilentMode = !!(isAutoUpdateMode && settings_ACU.toastMuteEnabled);
-
-    for (let i = 0; i < batches.length; i++) {
-        const batchIndices = batches[i];
-        const batchNumber = i + 1;
-        const firstMessageIndexOfBatch = batchIndices[0];
-        const lastMessageIndexOfBatch = batchIndices[batchIndices.length - 1];
-        const finalSaveTargetIndex = lastMessageIndexOfBatch;
-
-        // 构建合并基底
-        const baseResult = buildBatchMergeBase_ACU(batchNumber);
-        if (!baseResult.data) {
-            _set_isAutoUpdatingCard_ACU(false);
-            return { success: false, failedBatch: batchNumber, error: baseResult.error || '无法构建合并基底，操作已终止。' };
-        }
-        const mergedBatchData = baseResult.data;
-
-        const batchSheetKeys = getSortedSheetKeys_ACU(mergedBatchData);
-        const batchIsolationKey = getCurrentIsolationKey_ACU();
-
-        // 加载历史数据
-        const loadResult = loadBatchBaseData_ACU(chatHistory, firstMessageIndexOfBatch, batchIsolationKey, batchSheetKeys, mergedBatchData);
-        _set_currentJsonTableData_ACU(mergedBatchData);
-        logDebug_ACU(`[Batch ${batchNumber}] Loaded ${loadResult.foundCount}/${loadResult.totalCount} tables from history before index ${firstMessageIndexOfBatch}. Missing tables will use template structure (header-only).`);
-
-        // 计算上下文范围
-        let sliceStartIndex = firstMessageIndexOfBatch;
-        if (sliceStartIndex > 0 && chatHistory[sliceStartIndex - 1]?.is_user) {
-            sliceStartIndex--;
-            logDebug_ACU(`[Batch ${batchNumber}] Adjusted slice start to ${sliceStartIndex} to include preceding user message.`);
-        }
-        const messagesForContext = chatHistory.slice(sliceStartIndex, lastMessageIndexOfBatch + 1);
-
-        // 检查最新AI回复长度阈值
-        const lastAiMessageInBatch = chatHistory[lastMessageIndexOfBatch];
-        const lastAiMessageContent = lastAiMessageInBatch?.mes || lastAiMessageInBatch?.message || '';
-        const lastAiMessageLength = lastAiMessageContent.length;
-        const minReplyLength = settings_ACU.autoUpdateTokenThreshold || 0;
-
-        if (isAutoUpdateMode && lastAiMessageLength < minReplyLength) {
-            logDebug_ACU(`[Auto] Batch ${batchNumber}/${batches.length} skipped: Last AI reply length (${lastAiMessageLength}) is below threshold (${minReplyLength}).`);
-            continue;
+        const batches: number[][] = [];
+        for (let i = 0; i < indicesToUpdate.length; i += batchSize) {
+            batches.push(indicesToUpdate.slice(i, i + batchSize));
         }
 
-        // 确定更新模式
-        const updateMode = resolveUpdateMode_ACU(mode);
+        logDebug_ACU(`[${mode}] Processing ${indicesToUpdate.length} updates in ${batches.length} batches of size ${batchSize} (${isSummaryMode ? '总结表模式' : '标准表模式'}). Target Sheets: ${targetSheetKeys ? targetSheetKeys.length : 'All'}`);
 
-        // 决议 effective API preset：如果调用方未指定 tableApiPreset，
-        // 则以 targetSheetKeys 中第一个表名为准查覆盖映射
-        let effectiveRequestOptions = requestOptions;
-        if (!effectiveRequestOptions?.tableApiPreset && targetSheetKeys && targetSheetKeys.length > 0) {
-            const templateForLookup = parseTableTemplateJson_ACU({ stripSeedRows: true });
-            const firstTableName = templateForLookup?.[targetSheetKeys[0]]?.name || '';
-            const resolvedPreset = resolveTableApiPresetOverride_ACU(firstTableName);
-            if (resolvedPreset) {
-                effectiveRequestOptions = { ...(effectiveRequestOptions || {}), tableApiPreset: resolvedPreset };
+        const chatHistory = getChatArray_ACU();
+        const isAutoUpdateMode = mode && mode.startsWith('auto');
+        const isSilentMode = !!(isAutoUpdateMode && settings_ACU.toastMuteEnabled);
+
+        for (let i = 0; i < batches.length; i++) {
+            const batchIndices = batches[i];
+            const batchNumber = i + 1;
+            const firstMessageIndexOfBatch = batchIndices[0];
+            const lastMessageIndexOfBatch = batchIndices[batchIndices.length - 1];
+            const finalSaveTargetIndex = lastMessageIndexOfBatch;
+
+            // 构建合并基底
+            const baseResult = buildBatchMergeBase_ACU(batchNumber);
+            if (!baseResult.data) {
+                return { success: false, failedBatch: batchNumber, error: baseResult.error || '无法构建合并基底，操作已终止。' };
+            }
+            const mergedBatchData = baseResult.data;
+
+            const batchSheetKeys = getSortedSheetKeys_ACU(mergedBatchData);
+            const batchIsolationKey = getCurrentIsolationKey_ACU();
+
+            // 加载历史数据
+            const loadResult = loadBatchBaseData_ACU(chatHistory, firstMessageIndexOfBatch, batchIsolationKey, batchSheetKeys, mergedBatchData);
+            _set_currentJsonTableData_ACU(mergedBatchData);
+            logDebug_ACU(`[Batch ${batchNumber}] Loaded ${loadResult.foundCount}/${loadResult.totalCount} tables from history before index ${firstMessageIndexOfBatch}. Missing tables will use template structure (header-only).`);
+
+            // 计算上下文范围
+            let sliceStartIndex = firstMessageIndexOfBatch;
+            if (sliceStartIndex > 0 && chatHistory[sliceStartIndex - 1]?.is_user) {
+                sliceStartIndex--;
+                logDebug_ACU(`[Batch ${batchNumber}] Adjusted slice start to ${sliceStartIndex} to include preceding user message.`);
+            }
+            const messagesForContext = chatHistory.slice(sliceStartIndex, lastMessageIndexOfBatch + 1);
+
+            // 检查最新AI回复长度阈值
+            const lastAiMessageInBatch = chatHistory[lastMessageIndexOfBatch];
+            const lastAiMessageContent = lastAiMessageInBatch?.mes || lastAiMessageInBatch?.message || '';
+            const lastAiMessageLength = lastAiMessageContent.length;
+            const minReplyLength = settings_ACU.autoUpdateTokenThreshold || 0;
+
+            if (isAutoUpdateMode && lastAiMessageLength < minReplyLength) {
+                logDebug_ACU(`[Auto] Batch ${batchNumber}/${batches.length} skipped: Last AI reply length (${lastAiMessageLength}) is below threshold (${minReplyLength}).`);
+                continue;
+            }
+
+            // 确定更新模式
+            const updateMode = resolveUpdateMode_ACU(mode);
+
+            // 决议 effective API preset：如果调用方未指定 tableApiPreset，
+            // 则以 targetSheetKeys 中第一个表名为准查覆盖映射
+            let effectiveRequestOptions = requestOptions;
+            if (!effectiveRequestOptions?.tableApiPreset && targetSheetKeys && targetSheetKeys.length > 0) {
+                const templateForLookup = parseTableTemplateJson_ACU({ stripSeedRows: true });
+                const firstTableName = templateForLookup?.[targetSheetKeys[0]]?.name || '';
+                const resolvedPreset = resolveTableApiPresetOverride_ACU(firstTableName);
+                if (resolvedPreset) {
+                    effectiveRequestOptions = { ...(effectiveRequestOptions || {}), tableApiPreset: resolvedPreset };
+                }
+            }
+
+            const result = await executeUpdate(
+                messagesForContext,
+                finalSaveTargetIndex,
+                updateMode,
+                isSilentMode,
+                targetSheetKeys,
+                effectiveRequestOptions,
+                { currentBatch: batchNumber, totalBatches: batches.length }
+            );
+
+            if (!result.success) {
+                return { success: false, failedBatch: batchNumber, error: result.error || `批处理在第 ${batchNumber} 批时失败或被终止。` };
             }
         }
 
-        const result = await executeUpdate(
-            messagesForContext,
-            finalSaveTargetIndex,
-            updateMode,
-            isSilentMode,
-            targetSheetKeys,
-            effectiveRequestOptions,
-            { currentBatch: batchNumber, totalBatches: batches.length }
-        );
-
-        if (!result.success) {
-            _set_isAutoUpdatingCard_ACU(false);
-            return { success: false, failedBatch: batchNumber, error: result.error || `批处理在第 ${batchNumber} 批时失败或被终止。` };
-        }
+        return { success: true };
+    } finally {
+        _set_isAutoUpdatingCard_ACU(false);
+        _set_wasStoppedByUser_ACU(false);
     }
-
-    _set_isAutoUpdatingCard_ACU(false);
-    return { success: true };
 }
 
 /**
