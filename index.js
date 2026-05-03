@@ -30195,7 +30195,9 @@ $CONTENT
             code: settings_ACU.dataIsolationCode,
         });
         writeLegacyCompatData_ACU(message, nextTagData.independentData || {}, nextTagData.modifiedKeys || [], nextTagData.updateGroupKeys || []);
-        await saveChatToHost_ACU();
+        if (options.saveChatAfterWrite !== false) {
+            await saveChatToHost_ACU();
+        }
     }
     async function clearSummaryVectorIndexCheckpoint_ACU(params) {
         const message = params.chat?.[params.targetMessageIndex];
@@ -30418,6 +30420,7 @@ $CONTENT
                         indexedAt,
                         skippedRowCount: prepared.skippedRowCount,
                         mode: archiveMode,
+                        saveChatAfterWrite: false,
                     });
                 }
             }
@@ -30431,6 +30434,22 @@ $CONTENT
                     errors: ['纪要向量索引 embedding 结果为空。'],
                 });
             }
+            await writeSummaryVectorIndexCheckpoint_ACU({
+                chat,
+                aggregatedSnapshot,
+                embeddingModel: config.embeddingModel,
+                preparedRows: prepared.rows,
+                finalRows: finalResult.rows,
+                finalChunks: finalResult.chunks,
+                targetMessageIndex,
+                snapshotMessageId,
+                sourceTableKey: selectedSummary.summaryKey,
+                sourceTableName,
+                indexedAt,
+                skippedRowCount: prepared.skippedRowCount,
+                mode: archiveMode,
+                saveChatAfterWrite: true,
+            });
             return buildResult_ACU({
                 success: true,
                 skipped: false,
