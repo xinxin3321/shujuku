@@ -204,7 +204,7 @@ export   function loadSettings_ACU() {
               settings_ACU.dataIsolationCode = activeCode;
               settings_ACU.dataIsolationEnabled = (activeCode !== '');
 
-              // 0TK / 纪要向量索引全局偏好：优先 globalMeta；若缺失则从旧 profile 字段迁移
+              // 0TK / 纪要向量索引全局偏好：两者独立读取、独立写入，不再互斥投影
               if (typeof globalMeta_ACU.zeroTkOccupyModeGlobal === 'boolean') {
                   settings_ACU.zeroTkOccupyModeDefault = (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
               } else {
@@ -215,11 +215,6 @@ export   function loadSettings_ACU() {
                   settings_ACU.summaryVectorIndexModeDefault = (globalMeta_ACU.summaryVectorIndexModeGlobal === true);
               } else {
                   globalMeta_ACU.summaryVectorIndexModeGlobal = (settings_ACU.summaryVectorIndexModeDefault === true);
-                  saveGlobalMeta_ACU();
-              }
-              if (settings_ACU.summaryVectorIndexModeDefault === true) {
-                  settings_ACU.zeroTkOccupyModeDefault = false;
-                  globalMeta_ACU.zeroTkOccupyModeGlobal = false;
                   saveGlobalMeta_ACU();
               }
 
@@ -264,11 +259,6 @@ export   function loadSettings_ACU() {
                   settings_ACU.summaryVectorIndexModeDefault = (globalMeta_ACU.summaryVectorIndexModeGlobal === true);
               } else {
                   globalMeta_ACU.summaryVectorIndexModeGlobal = (settings_ACU.summaryVectorIndexModeDefault === true);
-                  saveGlobalMeta_ACU();
-              }
-              if (settings_ACU.summaryVectorIndexModeDefault === true) {
-                  settings_ACU.zeroTkOccupyModeDefault = false;
-                  globalMeta_ACU.zeroTkOccupyModeGlobal = false;
                   saveGlobalMeta_ACU();
               }
           }
@@ -755,16 +745,11 @@ export function setZeroTkOccupyMode_ACU(modeEnabled: boolean) {
     const enabled = !!modeEnabled;
     settings_ACU.zeroTkOccupyModeDefault = enabled;
     globalMeta_ACU.zeroTkOccupyModeGlobal = enabled;
-    if (enabled) {
-        settings_ACU.summaryVectorIndexModeDefault = false;
-        globalMeta_ACU.summaryVectorIndexModeGlobal = false;
-    }
 
-    // 0TK 与向量混合增强交火方案是全局互斥开关；worldbookConfig 里的同名字段只是兼容投影。
+    // 0TK 只控制大纲注入条目本身，不再强制关闭交火模式。
     const cfg = getCurrentWorldbookConfig_ACU();
     cfg.zeroTkOccupyMode = enabled;
-    cfg.summaryVectorIndexModeEnabled = enabled ? false : (globalMeta_ACU.summaryVectorIndexModeGlobal === true);
-    cfg.outlineEntryEnabled = cfg.summaryVectorIndexModeEnabled === true ? true : !cfg.zeroTkOccupyMode;
+    cfg.outlineEntryEnabled = !enabled;
     saveGlobalMeta_ACU();
     saveSettings_ACU();
 }
@@ -773,21 +758,16 @@ export function setSummaryVectorIndexMode_ACU(modeEnabled: boolean) {
     const enabled = !!modeEnabled;
     settings_ACU.summaryVectorIndexModeDefault = enabled;
     globalMeta_ACU.summaryVectorIndexModeGlobal = enabled;
-    if (enabled) {
-        settings_ACU.zeroTkOccupyModeDefault = false;
-        globalMeta_ACU.zeroTkOccupyModeGlobal = false;
-    }
 
     // 向量混合增强交火方案会复用普通向量模型/API/rerank 配置；启停交火时必须同步启停普通向量开关。
     // 这里只改 enabled，不覆盖模型、API、rerank、namespace 等用户配置。
     const vectorMemoryConfig = getCurrentVectorMemoryConfig_ACU();
     vectorMemoryConfig.enabled = enabled;
 
-    // 0TK 与向量混合增强交火方案是全局互斥开关；worldbookConfig 里的同名字段只是兼容投影。
+    // 交火模式只控制纪要索引条目本身，不再强制关闭 0TK。
     const cfg = getCurrentWorldbookConfig_ACU();
     cfg.summaryVectorIndexModeEnabled = enabled;
-    cfg.zeroTkOccupyMode = enabled ? false : (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
-    cfg.outlineEntryEnabled = cfg.summaryVectorIndexModeEnabled === true ? true : !cfg.zeroTkOccupyMode;
+    cfg.outlineEntryEnabled = !cfg.zeroTkOccupyMode;
     saveGlobalMeta_ACU();
     saveSettings_ACU();
 }

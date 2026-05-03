@@ -3266,6 +3266,7 @@ $CONTENT
             const worldbookConfigForNewChat = JSON.parse(JSON.stringify(defaultWorldbookConfig_ACU));
             worldbookConfigForNewChat.zeroTkOccupyMode = globalZeroTkDefault;
             worldbookConfigForNewChat.outlineEntryEnabled = !globalZeroTkDefault;
+            worldbookConfigForNewChat.summaryVectorIndexModeEnabled = globalMeta_ACU?.summaryVectorIndexModeGlobal === true;
             settings_ACU.characterSettings[charId] = {
                 worldbookConfig: worldbookConfigForNewChat,
             };
@@ -3276,8 +3277,8 @@ $CONTENT
             const mergedCfg = deepMerge_ACU(JSON.parse(JSON.stringify(defaultWorldbookConfig_ACU)), existingCfg);
             const globalSummaryVectorIndexEnabled = globalMeta_ACU?.summaryVectorIndexModeGlobal === true;
             mergedCfg.summaryVectorIndexModeEnabled = globalSummaryVectorIndexEnabled;
-            mergedCfg.zeroTkOccupyMode = globalSummaryVectorIndexEnabled ? false : globalZeroTkDefault;
-            mergedCfg.outlineEntryEnabled = globalSummaryVectorIndexEnabled ? true : !mergedCfg.zeroTkOccupyMode;
+            mergedCfg.zeroTkOccupyMode = globalZeroTkDefault;
+            mergedCfg.outlineEntryEnabled = !mergedCfg.zeroTkOccupyMode;
             settings_ACU.characterSettings[charId].worldbookConfig = mergedCfg;
         }
         catch (e) {
@@ -16443,11 +16444,12 @@ $CONTENT
             logWarn_ACU('Cannot update outline table entry: No injection target lorebook set.');
             return;
         }
-        // [新增] 0TK占用模式：开=世界书条目不启用；关=世界书条目启用
-        // 说明：这里控制的是"注入到世界书里的 OutlineTable 条目"的 enabled，而不是读取世界书/剧情推进等其他开关。
+        // [修改] 0TK 只控制 OutlineTable 条目；交火模式独立控制"纪要索引"条目。
         const worldbookConfig = getCurrentWorldbookConfig_ACU();
         const zeroTkOccupyMode = worldbookConfig?.zeroTkOccupyMode === true;
+        const summaryVectorIndexModeEnabled = worldbookConfig?.summaryVectorIndexModeEnabled === true;
         const outlineEntryEnabled = !zeroTkOccupyMode;
+        const summaryIndexEntryEnabled = summaryVectorIndexModeEnabled || !zeroTkOccupyMode;
         const IMPORT_PREFIX = getImportBatchPrefix_ACU$1();
         // [修改] 加入隔离标识前缀
         const isoPrefix = getIsolationPrefix_ACU();
@@ -16463,18 +16465,17 @@ $CONTENT
                     await deleteLorebookEntries_ACU(primaryLorebookName, [existingEntry.uid]);
                     logDebug_ACU('Deleted outline table entry as there is no data.');
                 }
-                // [修复] 即使没有outlineTable数据，也要同步更新"纪要索引"条目的enabled状态
-                // 这样0TK模式切换时，纪要索引条目也会被正确禁用/启用
+                // [修复] 即使没有outlineTable数据，也要同步更新"纪要索引"条目的enabled状态。
+                // 交火模式启用时，0TK 不应禁用纪要索引召回条目。
                 try {
-                    // [修复] 使用endsWith匹配，因为条目名称可能带有隔离前缀
                     const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
                     if (existingIndexEntry) {
-                        if (existingIndexEntry.enabled !== outlineEntryEnabled) {
+                        if (existingIndexEntry.enabled !== summaryIndexEntryEnabled) {
                             await setLorebookEntries_ACU(primaryLorebookName, [{
                                     uid: existingIndexEntry.uid,
-                                    enabled: outlineEntryEnabled
+                                    enabled: summaryIndexEntryEnabled,
                                 }]);
-                            logDebug_ACU(`Successfully updated 纪要索引 entry (no outline data). enabled=${outlineEntryEnabled}`);
+                            logDebug_ACU(`Successfully updated 纪要索引 entry (no outline data). enabled=${summaryIndexEntryEnabled}`);
                         }
                     }
                 }
@@ -16532,17 +16533,17 @@ $CONTENT
                 await createLorebookEntries_ACU(primaryLorebookName, [newEntry]);
                 logDebug_ACU(`Outline table lorebook entry not found. Created a new one. enabled=${outlineEntryEnabled} (0TK占用模式=${zeroTkOccupyMode})`);
             }
-            // [新增] 同步更新"纪要索引"条目的enabled状态
+            // [新增] 同步更新"纪要索引"条目的enabled状态。
+            // 交火模式启用时，0TK 不应禁用纪要索引召回条目。
             try {
-                // [修复] 使用endsWith匹配，因为条目名称可能带有隔离前缀
                 const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
                 if (existingIndexEntry) {
-                    if (existingIndexEntry.enabled !== outlineEntryEnabled) {
+                    if (existingIndexEntry.enabled !== summaryIndexEntryEnabled) {
                         await setLorebookEntries_ACU(primaryLorebookName, [{
                                 uid: existingIndexEntry.uid,
-                                enabled: outlineEntryEnabled
+                                enabled: summaryIndexEntryEnabled,
                             }]);
-                        logDebug_ACU(`Successfully updated 纪要索引 entry. enabled=${outlineEntryEnabled}`);
+                        logDebug_ACU(`Successfully updated 纪要索引 entry. enabled=${summaryIndexEntryEnabled}`);
                     }
                 }
             }
@@ -16828,11 +16829,12 @@ $CONTENT
         // [修改] 定义旧版前缀用于清理（非外部导入模式）
         const baseLegacyPrefix = 'TavernDB-ACU-CustomExport';
         const LEGACY_EXPORT_PREFIX = isoPrefix + baseLegacyPrefix;
-        // [新增] 获取0TK占用模式状态，用于控制"纪要索引"条目的enabled
+        // [修改] 0TK 与交火模式允许同时启用：0TK 只控制普通大纲条目，交火模式控制"纪要索引"条目。
         const worldbookConfig = getCurrentWorldbookConfig_ACU();
         const zeroTkOccupyMode = worldbookConfig?.zeroTkOccupyMode === true;
-        const extraIndexEntryEnabled = !zeroTkOccupyMode; // 0TK模式启用=条目禁用
-        logDebug_ACU(`[CustomExport] 0TK模式=${zeroTkOccupyMode}, 纪要索引条目enabled=${extraIndexEntryEnabled}`);
+        const summaryVectorIndexModeEnabled = worldbookConfig?.summaryVectorIndexModeEnabled === true;
+        const extraIndexEntryEnabled = summaryVectorIndexModeEnabled || !zeroTkOccupyMode;
+        logDebug_ACU(`[CustomExport] 0TK模式=${zeroTkOccupyMode}, 交火纪要索引=${summaryVectorIndexModeEnabled}, 纪要索引条目enabled=${extraIndexEntryEnabled}`);
         try {
             const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
             const usedOrders = buildUsedOrderSet_ACU(allEntries);
@@ -17014,7 +17016,15 @@ $CONTENT
                 // 自定义表格导出的附加索引条目：在注释名中加入统一标记，便于在世界书 UI 中识别为"数据库生成条目"并默认隐藏
                 // [修复] 外部导入时只使用"外部导入-"前缀
                 const mainComment = getImportEntryName(extraIndexSpec.entryName);
-                const mainContent = buildEntryContent(extraIndexSpec.entryName, fullTable, templateStr, false, fallbackTemplate);
+                const isCrossfireSummaryEntry = extraIndexSpec.entryName === '纪要索引';
+                let mainContent = buildEntryContent(extraIndexSpec.entryName, fullTable, templateStr, false, fallbackTemplate);
+                if (!isImport && isCrossfireSummaryEntry && summaryVectorIndexModeEnabled) {
+                    const existingEntry = allEntries.find(e => e.comment === mainComment);
+                    if (existingEntry?.content) {
+                        mainContent = existingEntry.content;
+                        logDebug_ACU('[CustomExport] 交火模式已启用，普通刷新保留现有纪要索引召回内容，避免覆盖发送前召回结果。');
+                    }
+                }
                 names.push(mainComment);
                 const normalizedPlacement = normalizePlacementConfig_ACU(placement, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU);
                 plans.push({ comment: mainComment, order: cursor, placement: normalizedPlacement });
@@ -20439,7 +20449,7 @@ $CONTENT
                 // [Profile] 强制以 globalMeta.activeIsolationCode 作为当前标识
                 settings_ACU.dataIsolationCode = activeCode;
                 settings_ACU.dataIsolationEnabled = (activeCode !== '');
-                // 0TK / 纪要向量索引全局偏好：优先 globalMeta；若缺失则从旧 profile 字段迁移
+                // 0TK / 纪要向量索引全局偏好：两者独立读取、独立写入，不再互斥投影
                 if (typeof globalMeta_ACU.zeroTkOccupyModeGlobal === 'boolean') {
                     settings_ACU.zeroTkOccupyModeDefault = (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
                 }
@@ -20452,11 +20462,6 @@ $CONTENT
                 }
                 else {
                     globalMeta_ACU.summaryVectorIndexModeGlobal = (settings_ACU.summaryVectorIndexModeDefault === true);
-                    saveGlobalMeta_ACU();
-                }
-                if (settings_ACU.summaryVectorIndexModeDefault === true) {
-                    settings_ACU.zeroTkOccupyModeDefault = false;
-                    globalMeta_ACU.zeroTkOccupyModeGlobal = false;
                     saveGlobalMeta_ACU();
                 }
                 // 确保当前角色有配置
@@ -20500,11 +20505,6 @@ $CONTENT
                 }
                 else {
                     globalMeta_ACU.summaryVectorIndexModeGlobal = (settings_ACU.summaryVectorIndexModeDefault === true);
-                    saveGlobalMeta_ACU();
-                }
-                if (settings_ACU.summaryVectorIndexModeDefault === true) {
-                    settings_ACU.zeroTkOccupyModeDefault = false;
-                    globalMeta_ACU.zeroTkOccupyModeGlobal = false;
                     saveGlobalMeta_ACU();
                 }
             }
@@ -20979,15 +20979,10 @@ $CONTENT
         const enabled = !!modeEnabled;
         settings_ACU.zeroTkOccupyModeDefault = enabled;
         globalMeta_ACU.zeroTkOccupyModeGlobal = enabled;
-        if (enabled) {
-            settings_ACU.summaryVectorIndexModeDefault = false;
-            globalMeta_ACU.summaryVectorIndexModeGlobal = false;
-        }
-        // 0TK 与向量混合增强交火方案是全局互斥开关；worldbookConfig 里的同名字段只是兼容投影。
+        // 0TK 只控制大纲注入条目本身，不再强制关闭交火模式。
         const cfg = getCurrentWorldbookConfig_ACU();
         cfg.zeroTkOccupyMode = enabled;
-        cfg.summaryVectorIndexModeEnabled = enabled ? false : (globalMeta_ACU.summaryVectorIndexModeGlobal === true);
-        cfg.outlineEntryEnabled = cfg.summaryVectorIndexModeEnabled === true ? true : !cfg.zeroTkOccupyMode;
+        cfg.outlineEntryEnabled = !enabled;
         saveGlobalMeta_ACU();
         saveSettings_ACU();
     }
@@ -20995,19 +20990,14 @@ $CONTENT
         const enabled = !!modeEnabled;
         settings_ACU.summaryVectorIndexModeDefault = enabled;
         globalMeta_ACU.summaryVectorIndexModeGlobal = enabled;
-        if (enabled) {
-            settings_ACU.zeroTkOccupyModeDefault = false;
-            globalMeta_ACU.zeroTkOccupyModeGlobal = false;
-        }
         // 向量混合增强交火方案会复用普通向量模型/API/rerank 配置；启停交火时必须同步启停普通向量开关。
         // 这里只改 enabled，不覆盖模型、API、rerank、namespace 等用户配置。
         const vectorMemoryConfig = getCurrentVectorMemoryConfig_ACU();
         vectorMemoryConfig.enabled = enabled;
-        // 0TK 与向量混合增强交火方案是全局互斥开关；worldbookConfig 里的同名字段只是兼容投影。
+        // 交火模式只控制纪要索引条目本身，不再强制关闭 0TK。
         const cfg = getCurrentWorldbookConfig_ACU();
         cfg.summaryVectorIndexModeEnabled = enabled;
-        cfg.zeroTkOccupyMode = enabled ? false : (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
-        cfg.outlineEntryEnabled = cfg.summaryVectorIndexModeEnabled === true ? true : !cfg.zeroTkOccupyMode;
+        cfg.outlineEntryEnabled = !cfg.zeroTkOccupyMode;
         saveGlobalMeta_ACU();
         saveSettings_ACU();
     }
@@ -25385,35 +25375,27 @@ $CONTENT
         const $outlineEnabledToggle = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-outline-entry-enabled`);
         if ($outlineEnabledToggle.length) {
             $outlineEnabledToggle.off('change.acu_outline_toggle').on('change.acu_outline_toggle', async function () {
-                // UI 是"0TK占用模式"
                 const modeEnabled = jQuery_API_ACU(this).is(':checked');
                 setZeroTkOccupyMode_ACU(modeEnabled);
-                if (modeEnabled) {
-                    $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-summary-vector-index-mode-enabled`).prop('checked', false);
-                }
-                showToastr_ACU('info', `0TK占用模式已${modeEnabled ? '启用' : '禁用'}（世界书中该条目显示为 ${modeEnabled ? '禁用' : '启用'}）。`);
+                showToastr_ACU('info', `0TK占用模式已${modeEnabled ? '启用' : '禁用'}。`);
                 // 尝试立即同步世界书条目 enabled 状态（不强制全量更新）
                 try {
                     if (currentJsonTableData_ACU) {
                         const { outlineTable } = formatJsonToReadable_ACU(currentJsonTableData_ACU);
                         await updateOutlineTableEntry_ACU(outlineTable, false);
                     }
-                    // [修复] 额外直接更新"纪要索引"条目的enabled状态
-                    // 因为该条目可能由updateCustomTableExports_ACU创建，不在updateOutlineTableEntry_ACU控制范围内
                     const primaryLorebookName = await getInjectionTargetLorebook_ACU();
                     if (primaryLorebookName && isWorldbookApiAvailable_ACU()) {
-                        const isoPrefix = getIsolationPrefix_ACU();
                         const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
-                        // [修复] 使用endsWith匹配，因为条目名称可能带有隔离前缀
                         const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
                         if (existingIndexEntry) {
-                            const outlineEntryEnabled = !modeEnabled; // 0TK模式启用=条目禁用
-                            if (existingIndexEntry.enabled !== outlineEntryEnabled) {
+                            const nextEnabled = (getCurrentWorldbookConfig_ACU()?.summaryVectorIndexModeEnabled === true) || !modeEnabled;
+                            if (existingIndexEntry.enabled !== nextEnabled) {
                                 await setLorebookEntries_ACU(primaryLorebookName, [{
                                         uid: existingIndexEntry.uid,
-                                        enabled: outlineEntryEnabled
+                                        enabled: nextEnabled,
                                     }]);
-                                logDebug_ACU(`0TK mode toggle: updated 纪要索引 entry. enabled=${outlineEntryEnabled}`);
+                                logDebug_ACU(`0TK mode toggle: updated 纪要索引 entry. enabled=${nextEnabled}`);
                             }
                         }
                     }
@@ -25425,14 +25407,31 @@ $CONTENT
         }
         const $summaryVectorIndexModeToggle = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-summary-vector-index-mode-enabled`);
         if ($summaryVectorIndexModeToggle.length) {
-            $summaryVectorIndexModeToggle.off('change.acu_summary_vector_index_mode').on('change.acu_summary_vector_index_mode', function () {
+            $summaryVectorIndexModeToggle.off('change.acu_summary_vector_index_mode').on('change.acu_summary_vector_index_mode', async function () {
                 const modeEnabled = jQuery_API_ACU(this).is(':checked');
                 setSummaryVectorIndexMode_ACU(modeEnabled);
                 $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-enabled`).prop('checked', modeEnabled);
                 $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-config-block`).toggle(modeEnabled);
                 syncManualUpdateButtonAvailability_ACU();
-                if (modeEnabled) {
-                    $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-outline-entry-enabled`).prop('checked', false);
+                try {
+                    const primaryLorebookName = await getInjectionTargetLorebook_ACU();
+                    if (primaryLorebookName && isWorldbookApiAvailable_ACU()) {
+                        const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
+                        const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
+                        if (existingIndexEntry) {
+                            const nextEnabled = modeEnabled || !getCurrentWorldbookConfig_ACU()?.zeroTkOccupyMode;
+                            if (existingIndexEntry.enabled !== nextEnabled) {
+                                await setLorebookEntries_ACU(primaryLorebookName, [{
+                                        uid: existingIndexEntry.uid,
+                                        enabled: nextEnabled,
+                                    }]);
+                                logDebug_ACU(`summary vector mode toggle: updated 纪要索引 entry. enabled=${nextEnabled}`);
+                            }
+                        }
+                    }
+                }
+                catch (e) {
+                    logWarn_ACU('Failed to sync summary index entry enabled state immediately:', e);
                 }
                 const activeSnapshot = getAggregatedSummaryVectorIndexSnapshot_ACU();
                 const activeState = activeSnapshot?.summaryVectorIndexState || null;
@@ -28918,7 +28917,7 @@ $CONTENT
             $manualUpdateCardButton_ACU
                 .prop('disabled', false)
                 .addClass(MANUAL_UPDATE_VECTOR_SOFT_DISABLED_CLASS_ACU)
-                .text('请先关闭交火索引')
+                .text('交火索引已启用')
                 .attr('title', '交火模式纪要索引启用时不建议手动更新表格；特殊场景下仍可点击执行。');
             return;
         }
@@ -37975,9 +37974,6 @@ $CONTENT
             $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-summary-vector-index-mode-enabled`).prop('checked', modeEnabled);
             $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-enabled`).prop('checked', modeEnabled);
             $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-config-block`).toggle(modeEnabled);
-            if (modeEnabled) {
-                $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-outline-entry-enabled`).prop('checked', false);
-            }
             syncManualUpdateButtonAvailability_ACU();
         };
         const handleSummaryVectorIndexModeChange_ACU = (modeEnabled) => {

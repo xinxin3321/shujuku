@@ -24,11 +24,12 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
         return;
     }
 
-    // [新增] 0TK占用模式：开=世界书条目不启用；关=世界书条目启用
-    // 说明：这里控制的是"注入到世界书里的 OutlineTable 条目"的 enabled，而不是读取世界书/剧情推进等其他开关。
+    // [修改] 0TK 只控制 OutlineTable 条目；交火模式独立控制"纪要索引"条目。
     const worldbookConfig = getCurrentWorldbookConfig_ACU();
     const zeroTkOccupyMode = worldbookConfig?.zeroTkOccupyMode === true;
+    const summaryVectorIndexModeEnabled = worldbookConfig?.summaryVectorIndexModeEnabled === true;
     const outlineEntryEnabled = !zeroTkOccupyMode;
+    const summaryIndexEntryEnabled = summaryVectorIndexModeEnabled || !zeroTkOccupyMode;
 
     const IMPORT_PREFIX = getImportBatchPrefix_ACU();
     // [修改] 加入隔离标识前缀
@@ -47,18 +48,17 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
                 await deleteLorebookEntries_ACU(primaryLorebookName, [existingEntry.uid]);
                 logDebug_ACU('Deleted outline table entry as there is no data.');
             }
-            // [修复] 即使没有outlineTable数据，也要同步更新"纪要索引"条目的enabled状态
-            // 这样0TK模式切换时，纪要索引条目也会被正确禁用/启用
+            // [修复] 即使没有outlineTable数据，也要同步更新"纪要索引"条目的enabled状态。
+            // 交火模式启用时，0TK 不应禁用纪要索引召回条目。
             try {
-                // [修复] 使用endsWith匹配，因为条目名称可能带有隔离前缀
                 const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
                 if (existingIndexEntry) {
-                    if (existingIndexEntry.enabled !== outlineEntryEnabled) {
-                await setLorebookEntries_ACU(primaryLorebookName, [{
+                    if (existingIndexEntry.enabled !== summaryIndexEntryEnabled) {
+                        await setLorebookEntries_ACU(primaryLorebookName, [{
                             uid: existingIndexEntry.uid,
-                            enabled: outlineEntryEnabled
+                            enabled: summaryIndexEntryEnabled,
                         }]);
-                        logDebug_ACU(`Successfully updated 纪要索引 entry (no outline data). enabled=${outlineEntryEnabled}`);
+                        logDebug_ACU(`Successfully updated 纪要索引 entry (no outline data). enabled=${summaryIndexEntryEnabled}`);
                     }
                 }
             } catch (indexError) {
@@ -122,17 +122,17 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
             logDebug_ACU(`Outline table lorebook entry not found. Created a new one. enabled=${outlineEntryEnabled} (0TK占用模式=${zeroTkOccupyMode})`);
         }
 
-        // [新增] 同步更新"纪要索引"条目的enabled状态
+        // [新增] 同步更新"纪要索引"条目的enabled状态。
+        // 交火模式启用时，0TK 不应禁用纪要索引召回条目。
         try {
-            // [修复] 使用endsWith匹配，因为条目名称可能带有隔离前缀
             const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
             if (existingIndexEntry) {
-                if (existingIndexEntry.enabled !== outlineEntryEnabled) {
-                await setLorebookEntries_ACU(primaryLorebookName, [{
+                if (existingIndexEntry.enabled !== summaryIndexEntryEnabled) {
+                    await setLorebookEntries_ACU(primaryLorebookName, [{
                         uid: existingIndexEntry.uid,
-                        enabled: outlineEntryEnabled
+                        enabled: summaryIndexEntryEnabled,
                     }]);
-                    logDebug_ACU(`Successfully updated 纪要索引 entry. enabled=${outlineEntryEnabled}`);
+                    logDebug_ACU(`Successfully updated 纪要索引 entry. enabled=${summaryIndexEntryEnabled}`);
                 }
             }
         } catch (indexError) {

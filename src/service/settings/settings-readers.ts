@@ -28,6 +28,7 @@ export function getCurrentCharSettings_ACU() {
         const worldbookConfigForNewChat = JSON.parse(JSON.stringify(defaultWorldbookConfig_ACU));
         worldbookConfigForNewChat.zeroTkOccupyMode = globalZeroTkDefault;
         worldbookConfigForNewChat.outlineEntryEnabled = !globalZeroTkDefault;
+        worldbookConfigForNewChat.summaryVectorIndexModeEnabled = globalMeta_ACU?.summaryVectorIndexModeGlobal === true;
         settings_ACU.characterSettings[charId] = {
             worldbookConfig: worldbookConfigForNewChat,
         };
@@ -41,8 +42,8 @@ export function getCurrentCharSettings_ACU() {
         );
         const globalSummaryVectorIndexEnabled = globalMeta_ACU?.summaryVectorIndexModeGlobal === true;
         mergedCfg.summaryVectorIndexModeEnabled = globalSummaryVectorIndexEnabled;
-        mergedCfg.zeroTkOccupyMode = globalSummaryVectorIndexEnabled ? false : globalZeroTkDefault;
-        mergedCfg.outlineEntryEnabled = globalSummaryVectorIndexEnabled ? true : !mergedCfg.zeroTkOccupyMode;
+        mergedCfg.zeroTkOccupyMode = globalZeroTkDefault;
+        mergedCfg.outlineEntryEnabled = !mergedCfg.zeroTkOccupyMode;
         settings_ACU.characterSettings[charId].worldbookConfig = mergedCfg;
     } catch (e) {
         // ignore

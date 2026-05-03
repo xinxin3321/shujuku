@@ -166,9 +166,6 @@ export async function bindDataEvents_ACU(): Promise<void> {
           $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-summary-vector-index-mode-enabled`).prop('checked', modeEnabled);
           $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-enabled`).prop('checked', modeEnabled);
           $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-config-block`).toggle(modeEnabled);
-          if (modeEnabled) {
-              $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-outline-entry-enabled`).prop('checked', false);
-          }
           syncManualUpdateButtonAvailability_ACU();
       };
 

@@ -44,16 +44,16 @@ import { $popupInstance_ACU, $statusMessageSpan_ACU, $manualUpdateCardButton_ACU
  
   export function syncManualUpdateButtonAvailability_ACU() {
     if (!$manualUpdateCardButton_ACU) return;
- 
+  
     if (shouldShowVectorMemoryManualUpdateWarning_ACU()) {
         $manualUpdateCardButton_ACU
             .prop('disabled', false)
             .addClass(MANUAL_UPDATE_VECTOR_SOFT_DISABLED_CLASS_ACU)
-            .text('请先关闭交火索引')
+            .text('交火索引已启用')
             .attr('title', '交火模式纪要索引启用时不建议手动更新表格；特殊场景下仍可点击执行。');
         return;
     }
- 
+  
     $manualUpdateCardButton_ACU
         .prop('disabled', false)
         .removeClass(MANUAL_UPDATE_VECTOR_SOFT_DISABLED_CLASS_ACU)

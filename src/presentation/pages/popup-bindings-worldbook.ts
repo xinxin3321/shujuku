@@ -474,15 +474,11 @@ export async function bindWorldbookEvents_ACU(): Promise<void> {
       const $outlineEnabledToggle = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-outline-entry-enabled`);
       if ($outlineEnabledToggle.length) {
           $outlineEnabledToggle.off('change.acu_outline_toggle').on('change.acu_outline_toggle', async function() {
-              // UI 是"0TK占用模式"
               const modeEnabled = jQuery_API_ACU(this).is(':checked');
               setZeroTkOccupyMode_ACU(modeEnabled);
-              if (modeEnabled) {
-                  $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-summary-vector-index-mode-enabled`).prop('checked', false);
-              }
               showToastr_ACU(
                   'info',
-                  `0TK占用模式已${modeEnabled ? '启用' : '禁用'}（世界书中该条目显示为 ${modeEnabled ? '禁用' : '启用'}）。`,
+                  `0TK占用模式已${modeEnabled ? '启用' : '禁用'}。`,
               );
 
               // 尝试立即同步世界书条目 enabled 状态（不强制全量更新）
@@ -491,22 +487,18 @@ export async function bindWorldbookEvents_ACU(): Promise<void> {
                       const { outlineTable } = formatJsonToReadable_ACU(currentJsonTableData_ACU);
                       await updateOutlineTableEntry_ACU(outlineTable, false);
                   }
-                  // [修复] 额外直接更新"纪要索引"条目的enabled状态
-                  // 因为该条目可能由updateCustomTableExports_ACU创建，不在updateOutlineTableEntry_ACU控制范围内
                   const primaryLorebookName = await getInjectionTargetLorebook_ACU();
                   if (primaryLorebookName && isWorldbookApiAvailable_ACU()) {
-                      const isoPrefix = getIsolationPrefix_ACU();
                       const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
-                      // [修复] 使用endsWith匹配，因为条目名称可能带有隔离前缀
                       const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
                       if (existingIndexEntry) {
-                          const outlineEntryEnabled = !modeEnabled; // 0TK模式启用=条目禁用
-                          if (existingIndexEntry.enabled !== outlineEntryEnabled) {
+                          const nextEnabled = (getCurrentWorldbookConfig_ACU()?.summaryVectorIndexModeEnabled === true) || !modeEnabled;
+                          if (existingIndexEntry.enabled !== nextEnabled) {
                               await setLorebookEntries_ACU(primaryLorebookName, [{
                                   uid: existingIndexEntry.uid,
-                                  enabled: outlineEntryEnabled
+                                  enabled: nextEnabled,
                               }]);
-                              logDebug_ACU(`0TK mode toggle: updated 纪要索引 entry. enabled=${outlineEntryEnabled}`);
+                              logDebug_ACU(`0TK mode toggle: updated 纪要索引 entry. enabled=${nextEnabled}`);
                           }
                       }
                   }
@@ -518,15 +510,33 @@ export async function bindWorldbookEvents_ACU(): Promise<void> {
 
       const $summaryVectorIndexModeToggle = $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-summary-vector-index-mode-enabled`);
       if ($summaryVectorIndexModeToggle.length) {
-          $summaryVectorIndexModeToggle.off('change.acu_summary_vector_index_mode').on('change.acu_summary_vector_index_mode', function() {
+          $summaryVectorIndexModeToggle.off('change.acu_summary_vector_index_mode').on('change.acu_summary_vector_index_mode', async function() {
               const modeEnabled = jQuery_API_ACU(this).is(':checked');
               setSummaryVectorIndexMode_ACU(modeEnabled);
               $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-enabled`).prop('checked', modeEnabled);
               $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-config-block`).toggle(modeEnabled);
               syncManualUpdateButtonAvailability_ACU();
-              if (modeEnabled) {
-                  $popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-outline-entry-enabled`).prop('checked', false);
+
+              try {
+                  const primaryLorebookName = await getInjectionTargetLorebook_ACU();
+                  if (primaryLorebookName && isWorldbookApiAvailable_ACU()) {
+                      const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
+                      const existingIndexEntry = allEntries.find(e => e.comment && e.comment.endsWith('TavernDB-ACU-CustomExport-纪要索引'));
+                      if (existingIndexEntry) {
+                          const nextEnabled = modeEnabled || !getCurrentWorldbookConfig_ACU()?.zeroTkOccupyMode;
+                          if (existingIndexEntry.enabled !== nextEnabled) {
+                              await setLorebookEntries_ACU(primaryLorebookName, [{
+                                  uid: existingIndexEntry.uid,
+                                  enabled: nextEnabled,
+                              }]);
+                              logDebug_ACU(`summary vector mode toggle: updated 纪要索引 entry. enabled=${nextEnabled}`);
+                          }
+                      }
+                  }
+              } catch (e) {
+                  logWarn_ACU('Failed to sync summary index entry enabled state immediately:', e);
               }
+
               const activeSnapshot = getAggregatedSummaryVectorIndexSnapshot_ACU();
               const activeState = activeSnapshot?.summaryVectorIndexState || null;
               const archivedRowCount = activeState?.rowCount || (Array.isArray(activeState?.rows) ? activeState.rows.length : 0);

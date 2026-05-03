@@ -33,11 +33,12 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
       const baseLegacyPrefix = 'TavernDB-ACU-CustomExport';
       const LEGACY_EXPORT_PREFIX = isoPrefix + baseLegacyPrefix;
       
-      // [新增] 获取0TK占用模式状态，用于控制"纪要索引"条目的enabled
+      // [修改] 0TK 与交火模式允许同时启用：0TK 只控制普通大纲条目，交火模式控制"纪要索引"条目。
       const worldbookConfig = getCurrentWorldbookConfig_ACU();
       const zeroTkOccupyMode = worldbookConfig?.zeroTkOccupyMode === true;
-      const extraIndexEntryEnabled = !zeroTkOccupyMode; // 0TK模式启用=条目禁用
-      logDebug_ACU(`[CustomExport] 0TK模式=${zeroTkOccupyMode}, 纪要索引条目enabled=${extraIndexEntryEnabled}`);
+      const summaryVectorIndexModeEnabled = worldbookConfig?.summaryVectorIndexModeEnabled === true;
+      const extraIndexEntryEnabled = summaryVectorIndexModeEnabled || !zeroTkOccupyMode;
+      logDebug_ACU(`[CustomExport] 0TK模式=${zeroTkOccupyMode}, 交火纪要索引=${summaryVectorIndexModeEnabled}, 纪要索引条目enabled=${extraIndexEntryEnabled}`);
 
       try {
           const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
@@ -223,13 +224,21 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
               // 自定义表格导出的附加索引条目：在注释名中加入统一标记，便于在世界书 UI 中识别为"数据库生成条目"并默认隐藏
               // [修复] 外部导入时只使用"外部导入-"前缀
               const mainComment = getImportEntryName(extraIndexSpec.entryName);
-              const mainContent = buildEntryContent(
+              const isCrossfireSummaryEntry = extraIndexSpec.entryName === '纪要索引';
+              let mainContent = buildEntryContent(
                   extraIndexSpec.entryName,
                   fullTable,
                   templateStr,
                   false,
                   fallbackTemplate
               );
+              if (!isImport && isCrossfireSummaryEntry && summaryVectorIndexModeEnabled) {
+                  const existingEntry = allEntries.find(e => e.comment === mainComment);
+                  if (existingEntry?.content) {
+                      mainContent = existingEntry.content;
+                      logDebug_ACU('[CustomExport] 交火模式已启用，普通刷新保留现有纪要索引召回内容，避免覆盖发送前召回结果。');
+                  }
+              }
               names.push(mainComment);
               const normalizedPlacement = normalizePlacementConfig_ACU(placement, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU);
               plans.push({ comment: mainComment, order: cursor, placement: normalizedPlacement });
