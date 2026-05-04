@@ -43,6 +43,8 @@ type SummaryVectorIndexArchiveOptions_ACU = {
     targetMessageIndex?: number;
     mode?: SummaryVectorIndexArchiveMode_ACU;
     saveChatAfterWrite?: boolean;
+    /** 为 true 时跳过 "无变更" 检测，强制执行归档写入（含外置文件上传） */
+    force?: boolean;
 };
 
 export interface SummaryVectorIndexArchiveResult_ACU {
@@ -1059,7 +1061,7 @@ async function archiveSummaryVectorIndexNowUnlocked_ACU(options: SummaryVectorIn
         const activeRowKeysUnchanged = areSummaryVectorActiveRowKeysSame_ACU(prepared.rows, existingState);
         const existingActiveRowCount = existingState?.manifest?.snapshot?.activeRowKeys?.length || existingState?.rows?.length || 0;
         logDebug_ACU(`[纪要向量索引] 增量归档判定：prepared=${prepared.rows.length}, existingActive=${existingActiveRowCount}, reused=${reusable.reusableRows.length}, embedding=${rowsNeedingEmbedding.length}, activeRowsUnchanged=${activeRowKeysUnchanged}, skippedRows=${prepared.skippedRowCount}`);
-        if (rowsNeedingEmbedding.length === 0 && existingState?.manifest && activeRowKeysUnchanged) {
+        if (!options.force && rowsNeedingEmbedding.length === 0 && existingState?.manifest && activeRowKeysUnchanged) {
             logDebug_ACU('[纪要向量索引] 当前纪要表未发现新增、变更或删除条目，跳过重复覆盖上传。');
             return buildResult_ACU({
                 success: true,
@@ -1069,6 +1071,9 @@ async function archiveSummaryVectorIndexNowUnlocked_ACU(options: SummaryVectorIn
                 skippedRowCount: prepared.skippedRowCount,
                 reason: 'no_changes_skip_snapshot_upload',
             });
+        }
+        if (options.force) {
+            logDebug_ACU('[纪要向量索引] force=true，强制执行归档写入（跳过无变更检测）。');
         }
         const indexedAt = new Date().toISOString();
         const sourceTableName = normalizeText_ACU(selectedSummary.table?.name) || '纪要表';

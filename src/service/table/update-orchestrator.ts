@@ -11,7 +11,7 @@ import { coreApisAreReady_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_
 import { checkAutoMergeTrigger_ACU, prepareAutoMergeBatches_ACU, executeAutoMergeBatch_ACU, finalizeAutoMerge_ACU } from '../summary/merge-logic';
 import { getChatSheetGuideDataForIsolationKey_ACU } from '../template/chat-scope';
 import { loadAllChatMessages_ACU, updateReadableLorebookEntry_ACU } from '../worldbook/pipeline';
-import { enqueueSummaryVectorIndexFlush_ACU, flushSummaryVectorIndexTaskNow_ACU } from '../vector/summary-vector-index-flush-queue';
+import { archiveSummaryVectorIndexNow_ACU } from '../vector/summary-vector-index-archive-service';
 import { getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
 
 import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
@@ -441,25 +441,22 @@ export async function executeCardUpdateCore_ACU(
 
                     if (getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
                         try {
-                            const queueResult = await enqueueSummaryVectorIndexFlush_ACU({
+                            logDebug_ACU('[交火模式纪要索引] 填表完成，直接触发纪要向量索引归档...');
+                            const archiveResult = await archiveSummaryVectorIndexNow_ACU({
                                 targetMessageIndex: saveTargetIndex,
-                                mode: 'append',
-                                reason: 'table_update_completed',
+                                mode: 'sync',
+                                saveChatAfterWrite: true,
+                                force: true,
                             });
-                            if (!queueResult.queued && !queueResult.skipped) {
-                                logWarn_ACU('[交火模式纪要索引] 填表完成后加入防抖归档队列失败:', queueResult.reason || 'unknown_error');
-                            } else if (queueResult.queued && queueResult.scopeKey) {
-                                const flushResult = await flushSummaryVectorIndexTaskNow_ACU(queueResult.scopeKey);
-                                if (!flushResult.success) {
-                                    logWarn_ACU('[交火模式纪要索引] 填表完成后立即归档失败:', flushResult.error || flushResult.reason || 'unknown_error');
-                                } else {
-                                    logDebug_ACU(`[交火模式纪要索引] 填表完成后已立即归档：skipped=${flushResult.skipped}, reason=${flushResult.reason || ''}`);
-                                }
+                            if (archiveResult.success && !archiveResult.skipped) {
+                                logDebug_ACU(`[交火模式纪要索引] 归档完成：rows=${archiveResult.indexedRowCount}, chunks=${archiveResult.chunkCount}, floor=${archiveResult.messageIndex}`);
+                            } else if (archiveResult.skipped) {
+                                logDebug_ACU(`[交火模式纪要索引] 归档跳过：${archiveResult.reason || 'unknown'}`);
                             } else {
-                                logDebug_ACU(`[交火模式纪要索引] 填表完成后归档入队跳过：queued=${queueResult.queued}, skipped=${queueResult.skipped}, reason=${queueResult.reason || ''}`);
+                                logWarn_ACU('[交火模式纪要索引] 归档失败:', archiveResult.reason || 'unknown', archiveResult.errors?.join('; ') || '');
                             }
                         } catch (archiveError) {
-                            logWarn_ACU('[交火模式纪要索引] 填表完成后加入防抖归档队列异常，已保留本次表格保存结果:', archiveError);
+                            logWarn_ACU('[交火模式纪要索引] 填表完成后归档异常，已保留本次表格保存结果:', archiveError);
                         }
                     }
             } else {
