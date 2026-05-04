@@ -165,7 +165,7 @@ export interface SummaryVectorIndexBatchRef_ACU {
 
 export interface SummaryVectorIndexSnapshotInfo_ACU {
     revision: number;
-    mode: 'snapshot';
+    mode: 'snapshot' | 'single_file_snapshot';
     parentIndexIds: string[];
     activeRowKeys: string[];
     activeChunkIds?: string[];

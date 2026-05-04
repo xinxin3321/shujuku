@@ -107,6 +107,14 @@ export function buildVectorIndexSnapshotFilePath_ACU(parts: {
     return `${scope}_${indexId}_${role}`;
 }
 
+export function buildVectorIndexSingleSnapshotFilePath_ACU(parts: {
+    chatKey: string;
+    isolationKey: string;
+    sourceTableKey: string;
+}): string {
+    return `${buildVectorIndexStableDirectory_ACU(parts)}_snapshot`;
+}
+
 function encodeUserFilePath_ACU(path: string): string {
     return String(path || '')
         .split('/')
