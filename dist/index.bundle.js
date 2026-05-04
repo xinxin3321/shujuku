@@ -16821,2078 +16821,6 @@ $CONTENT
     }
 
     /**
-     * service/worldbook/injection-engine-custom.ts — 自定义表格导出
-     * 从 injection-engine.ts 拆出
-     */
-    // [新增] 处理自定义表格导出逻辑
-    // [修复] 当 mergedData 为空/null 时，仍需执行"清理旧自定义导出条目"逻辑，
-    // 避免删除楼层回溯到空数据时旧条目残留在世界书中。
-    async function updateCustomTableExports_ACU(mergedData, isImport = false) {
-        if (!isWorldbookApiAvailable_ACU())
-            return;
-        const primaryLorebookName = await getInjectionTargetLorebook_ACU();
-        if (!primaryLorebookName)
-            return;
-        const IMPORT_PREFIX = getImportBatchPrefix_ACU$1();
-        const isoPrefix = getIsolationPrefix_ACU();
-        // [修复] 外部导入的自定义导出条目必须加外部导入前缀，避免被当作普通注入条目/或被清理逻辑误删
-        // [修改] 外部导入时只使用"外部导入-"前缀，不再包含"TavernDB-ACU-CustomExport-"
-        const exportPrefix = isoPrefix + (isImport ? IMPORT_PREFIX : '');
-        // [修复] 外部导入时的条目命名辅助函数：只使用"外部导入-"前缀
-        const getImportEntryName = (name) => isImport ? `${exportPrefix}${name}` : `${exportPrefix}TavernDB-ACU-CustomExport-${name}`;
-        // [修改] 定义旧版前缀用于清理（非外部导入模式）
-        const baseLegacyPrefix = 'TavernDB-ACU-CustomExport';
-        const LEGACY_EXPORT_PREFIX = isoPrefix + baseLegacyPrefix;
-        // [修改] 0TK 与交火模式允许同时启用：交火模式可保留/覆盖纪要索引内容，但 0TK 仍持续控制该条目的 enabled 状态。
-        const worldbookConfig = getCurrentWorldbookConfig_ACU();
-        const zeroTkOccupyMode = worldbookConfig?.zeroTkOccupyMode === true;
-        const summaryVectorIndexModeEnabled = worldbookConfig?.summaryVectorIndexModeEnabled === true;
-        const extraIndexEntryEnabled = !zeroTkOccupyMode;
-        logDebug_ACU(`[CustomExport] 0TK模式=${zeroTkOccupyMode}, 交火纪要索引=${summaryVectorIndexModeEnabled}, 纪要索引条目enabled=${extraIndexEntryEnabled}`);
-        try {
-            const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
-            const usedOrders = buildUsedOrderSet_ACU(allEntries);
-            // 1. Delete entries
-            // [修改] 使用 knownCustomEntryNames 和 LEGACY_PREFIX 进行全面清理
-            // 即使是回退或改名，只要曾经记录在 knownCustomEntryNames 中，并且符合当前隔离前缀，就会被清理
-            // 加载已知条目列表（外部导入模式不使用 knownNames，以避免把第三方世界书纳入"本插件管理范围"）
-            let knownNames = settings_ACU.knownCustomEntryNames || [];
-            if (!Array.isArray(knownNames))
-                knownNames = [];
-            const uidsToDelete = allEntries
-                .filter(e => {
-                if (!e.comment)
-                    return false;
-                // 用户要求：外部导入每次导入前不清理（允许多批并存）
-                if (isImport)
-                    return false;
-                // 1. 检查旧版前缀 (兼容性)
-                // LEGACY_EXPORT_PREFIX 已经包含了 isoPrefix
-                if (e.comment.startsWith(LEGACY_EXPORT_PREFIX))
-                    return true;
-                // 2. 检查是否在已知列表中（仅非外部导入模式）
-                // 只有当条目属于当前隔离环境时才删除
-                if (e.comment.startsWith(isoPrefix)) {
-                    if (knownNames.includes(e.comment))
-                        return true;
-                }
-                return false;
-            })
-                .map(e => e.uid);
-            // [新增] 还需要把当前配置会生成的名字也加入到"待删除"列表中，以防它们是新生成的但同名
-            // 这一步会在后续生成 entriesToCreate 时自然覆盖，但显式删除更干净。
-            // 由于我们下面会重新生成并添加到 knownNames，这里先删除所有已知的"本插件生成条目"是安全的。
-            if (uidsToDelete.length > 0) {
-                await deleteLorebookEntries_ACU(primaryLorebookName, uidsToDelete);
-                logDebug_ACU(`Deleted ${uidsToDelete.length} custom export entries (Legacy + Known).`);
-            }
-            // 每次更新时，我们重置 knownNames 列表（仅非外部导入模式）
-            // 外部导入模式不维护 knownNames，避免影响第三方世界书
-            if (!isImport) {
-                if (isoPrefix)
-                    knownNames = knownNames.filter((name) => !name.startsWith(isoPrefix));
-                else
-                    knownNames = knownNames.filter((name) => name.startsWith('ACU-'));
-            }
-            // [修复] 如果 mergedData 为空，清理完旧条目后直接返回，不再尝试创建新条目
-            if (!mergedData) {
-                logDebug_ACU('[CustomExport] mergedData 为空，已清理旧条目，跳过创建。');
-                // 保存清理后的 knownNames
-                if (!isImport) {
-                    settings_ACU.knownCustomEntryNames = knownNames;
-                    saveSettings_ACU();
-                }
-                return;
-            }
-            // 2. Create new entries
-            const entriesToCreate = [];
-            // [新增] 创建后 order 强制回写计划（按 comment 匹配 uid 再 setLorebookEntries）
-            // 目的：防止创建接口把重复 order 自动改写，导致"同表行条目仍然各占一个深度"
-            const postCreateOrderFixPlan = [];
-            // [新增] 用于合并同名条目的分组对象
-            const mergedEntriesMap = {};
-            // [FIX] 定义 newGeneratedNames 用于收集本次生成的名称
-            const newGeneratedNames = [];
-            // [FIX] 重新定义 tableKeys (之前的定义在 if 块内，这里无法访问)
-            const tableKeys = getSortedSheetKeys_ACU(mergedData);
-            // [新增] 为"自定义导出条目"分配不重叠的 order 段，避免不同表格的包裹/行条目互相穿插
-            // 机制：严格按"用户手动顺序/模板顺序"分配，避免填表/读取后顺序漂移
-            const sortedTableKeys = [...tableKeys];
-            let nextCustomExportOrder = 10000; // 维持原本"自定义导出"大致优先级区间
-            // [优化] 不允许重复 order：为每个条目分配唯一 order，并整体避开世界书现有 order
-            const CUSTOM_EXPORT_ORDER_GAP = 1;
-            const toIntOrFallback_ACU = (v, fb) => {
-                const n = parseInt(v, 10);
-                return Number.isFinite(n) ? n : fb;
-            };
-            const calcPreferredBlockStart_ACU = (baseOrder, leadingSlots = 0, fallback = 1) => {
-                const o = toIntOrFallback_ACU(baseOrder, fallback);
-                return Math.max(1, o - Math.max(0, toIntOrFallback_ACU(leadingSlots, 0)));
-            };
-            // [新增] 解析注入模板，提取用于前后包裹的常量条目内容
-            const parseWrapperTemplate = (templateStr) => {
-                if (!templateStr || typeof templateStr !== 'string')
-                    return null;
-                const markerIndex = templateStr.indexOf('$1');
-                if (markerIndex === -1)
-                    return null;
-                const before = templateStr.slice(0, markerIndex).trim();
-                const after = templateStr.slice(markerIndex + 2).trim();
-                if (!before && !after)
-                    return null;
-                return { before, after };
-            };
-            // [新增] 统一的条目内容生成器，支持在包裹模式下忽略自定义模板
-            const buildEntryContent = (entryName, tableData, template, ignoreTemplate = false, fallbackTemplate = null, isSplitMode = false) => {
-                let finalTemplate = ignoreTemplate ? null : template;
-                if (!finalTemplate) {
-                    if (fallbackTemplate) {
-                        finalTemplate = fallbackTemplate;
-                    }
-                    else if (isSplitMode) {
-                        // 拆分模式下，不添加条目名称，只保留内容
-                        finalTemplate = `$1`;
-                    }
-                    else if (entryName === '重要人物表' || entryName === '总结表') {
-                        finalTemplate = `# ${entryName}\n\n$1`;
-                    }
-                    else {
-                        finalTemplate = `# ${entryName}\n\n$1`;
-                    }
-                }
-                return finalTemplate.replace('$1', tableData);
-            };
-            const buildMarkdownTableFromRows_ACU = (headerList, rowList) => {
-                if (!Array.isArray(headerList) || headerList.length === 0)
-                    return '';
-                const lines = [];
-                lines.push(`| ${headerList.join(' | ')} |`);
-                lines.push(`|${headerList.map(() => '---').join('|')}|`);
-                (Array.isArray(rowList) ? rowList : []).forEach(row => {
-                    const cells = headerList.map((_, idx) => {
-                        const v = Array.isArray(row) ? row[idx] : '';
-                        return v === null || v === undefined ? '' : String(v);
-                    });
-                    lines.push(`| ${cells.join(' | ')} |`);
-                });
-                return lines.join('\n');
-            };
-            const resolveExtraIndexSpec_ACU = (cfg, originalHeaders, rawRows, defaultName) => {
-                if (!cfg || cfg.extraIndexEnabled !== true)
-                    return null;
-                if (!Array.isArray(originalHeaders) || originalHeaders.length === 0)
-                    return null;
-                const selectedRaw = Array.isArray(cfg.extraIndexColumns) ? cfg.extraIndexColumns : [];
-                const selectedCols = [...new Set(selectedRaw.filter(col => typeof col === 'string' && originalHeaders.includes(col)))];
-                if (selectedCols.length === 0)
-                    return null;
-                const modeMap = (cfg.extraIndexColumnModes && typeof cfg.extraIndexColumnModes === 'object')
-                    ? cfg.extraIndexColumnModes
-                    : {};
-                const selectedMeta = selectedCols.map((col) => {
-                    const idx = originalHeaders.indexOf(col);
-                    const mode = modeMap[col] === 'index_only' ? 'index_only' : 'both';
-                    return { name: col, idx, mode };
-                }).filter(m => m.idx >= 0);
-                if (selectedMeta.length === 0)
-                    return null;
-                const indexCols = selectedMeta.map(m => m.name);
-                const indexColIndexes = selectedMeta.map(m => m.idx);
-                const indexOnlySet = new Set(selectedMeta.filter(m => m.mode === 'index_only').map(m => m.idx));
-                const mainColIndexes = originalHeaders
-                    .map((_, idx) => idx)
-                    .filter(idx => !indexOnlySet.has(idx));
-                const mainCols = mainColIndexes.map(idx => originalHeaders[idx]);
-                const mapRowsByIndexes = (rows, indexes) => {
-                    const safeRows = Array.isArray(rows) ? rows : [];
-                    return safeRows.map(row => indexes.map(i => {
-                        const v = Array.isArray(row) ? row[i] : '';
-                        return v === null || v === undefined ? '' : String(v);
-                    }));
-                };
-                return {
-                    entryName: String(cfg.extraIndexEntryName || `${defaultName}-索引`).trim() || `${defaultName}-索引`,
-                    indexCols,
-                    indexRows: mapRowsByIndexes(rawRows, indexColIndexes),
-                    mainCols,
-                    mainRows: mapRowsByIndexes(rawRows, mainColIndexes),
-                };
-            };
-            const buildExtraIndexEntryBlock_ACU = ({ exportPrefix, extraIndexSpec, templateStr, startOrder, placement, usedOrderSet, enabled = true }) => {
-                if (!extraIndexSpec)
-                    return { entries: [], names: [], plans: [], nextOrder: startOrder, span: 0 };
-                const cursor = allocOrder_ACU(usedOrderSet || usedOrders, startOrder, 1, 99999);
-                const names = [];
-                const plans = [];
-                const entries = [];
-                const fullTable = buildMarkdownTableFromRows_ACU(extraIndexSpec.indexCols, extraIndexSpec.indexRows);
-                const fallbackTemplate = `# ${extraIndexSpec.entryName}\n\n$1`;
-                // 自定义表格导出的附加索引条目：在注释名中加入统一标记，便于在世界书 UI 中识别为"数据库生成条目"并默认隐藏
-                // [修复] 外部导入时只使用"外部导入-"前缀
-                const mainComment = getImportEntryName(extraIndexSpec.entryName);
-                const isCrossfireSummaryEntry = extraIndexSpec.entryName === '纪要索引';
-                let mainContent = buildEntryContent(extraIndexSpec.entryName, fullTable, templateStr, false, fallbackTemplate);
-                if (!isImport && isCrossfireSummaryEntry && summaryVectorIndexModeEnabled) {
-                    const existingEntry = allEntries.find(e => e.comment === mainComment);
-                    if (existingEntry?.content) {
-                        mainContent = existingEntry.content;
-                        logDebug_ACU('[CustomExport] 交火模式已启用，普通刷新保留现有纪要索引召回内容，避免覆盖发送前召回结果。');
-                    }
-                }
-                names.push(mainComment);
-                const normalizedPlacement = normalizePlacementConfig_ACU(placement, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU);
-                plans.push({ comment: mainComment, order: cursor, placement: normalizedPlacement });
-                // [修复] 0TK 模式仍持续控制"纪要索引"条目的 enabled；交火模式只控制内容保护，不接管 enabled。
-                const finalEnabled = extraIndexSpec.entryName === '纪要索引' ? enabled : true;
-                entries.push(applyPlacementToEntry_ACU({
-                    comment: mainComment,
-                    content: mainContent,
-                    keys: [],
-                    enabled: finalEnabled,
-                    type: 'constant',
-                    prevent_recursion: true,
-                    order: cursor
-                }, normalizedPlacement));
-                return {
-                    entries,
-                    names,
-                    plans,
-                    nextOrder: cursor + 1,
-                    span: entries.length,
-                };
-            };
-            sortedTableKeys.forEach(sheetKey => {
-                const table = mergedData[sheetKey];
-                // Check for exportConfig
-                // [修改] 增加 injectIntoWorldbook === false 的检查，如果被禁用，即使 enabled 为 true 也不导出
-                if (!table || !table.exportConfig || !table.exportConfig.enabled)
-                    return;
-                // [新增] 检查是否只导出索引条目（主条目不注入但索引条目启用）
-                const mainEntryDisabled = table.exportConfig.injectIntoWorldbook === false;
-                const hasExtraIndexEnabled = table.exportConfig.extraIndexEnabled === true;
-                // 如果主条目和索引条目都不导出，则跳过
-                if (mainEntryDisabled && !hasExtraIndexEnabled)
-                    return;
-                const config = ensureExportConfigDefaults_ACU(table.exportConfig, table.name || sheetKey);
-                const tableName = table.name;
-                const entryPlacement = normalizePlacementConfig_ACU(config.entryPlacement, DEFAULT_ENTRY_PLACEMENT_ACU);
-                const extraIndexPlacement = normalizePlacementConfig_ACU(config.extraIndexPlacement, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU);
-                const headers = table.content[0] ? table.content[0].slice(1) : [];
-                const rows = table.content.slice(1).map((row) => row.slice(1));
-                const hasAnyNonEmptyExportCell_ACU = (row) => Array.isArray(row) && row.some((cell) => {
-                    const text = cell === null || cell === undefined ? '' : String(cell);
-                    return text.trim() !== '';
-                });
-                const effectiveRows = rows.filter(hasAnyNonEmptyExportCell_ACU);
-                const extraIndexSpec = resolveExtraIndexSpec_ACU(config, headers, effectiveRows, config.entryName || tableName || '表格');
-                const mainHeaders = extraIndexSpec ? extraIndexSpec.mainCols : headers;
-                const mainRows = extraIndexSpec ? extraIndexSpec.mainRows : effectiveRows;
-                // [新增] 检查是否有有效的索引条目数据
-                const hasExtraIndex = hasExtraIndexEnabled && extraIndexSpec && extraIndexSpec.indexCols.length > 0 && extraIndexSpec.indexRows.length > 0;
-                const wrapperParts = parseWrapperTemplate(config.injectionTemplate);
-                const useWrapperEntries = !!wrapperParts;
-                if (effectiveRows.length === 0 && !hasExtraIndex)
-                    return; // 仅存在空白行时不注入任何表格相关条目
-                // [新增] 如果主条目禁用但索引条目启用，只处理索引条目
-                if (mainEntryDisabled && hasExtraIndex) {
-                    // 只导出索引条目
-                    const extraBlock = buildExtraIndexEntryBlock_ACU({
-                        exportPrefix,
-                        extraIndexSpec,
-                        templateStr: config.extraIndexInjectionTemplate,
-                        startOrder: toIntOrFallback_ACU(extraIndexPlacement.order, nextCustomExportOrder),
-                        placement: extraIndexPlacement,
-                        usedOrderSet: usedOrders,
-                        enabled: extraIndexEntryEnabled,
-                    });
-                    newGeneratedNames.push(...extraBlock.names);
-                    postCreateOrderFixPlan.push(...extraBlock.plans);
-                    entriesToCreate.push(...extraBlock.entries);
-                    nextCustomExportOrder = extraBlock.nextOrder + CUSTOM_EXPORT_ORDER_GAP;
-                    return; // 跳过主条目处理
-                }
-                // 准备表格数据内容 (Common logic)
-                let tableContentMarkdown = "";
-                if (config.splitByRow) {
-                    // Will be handled inside loop
-                }
-                else {
-                    // Whole table content
-                    tableContentMarkdown = buildMarkdownTableFromRows_ACU(mainHeaders, mainRows);
-                }
-                if (config.splitByRow) {
-                    // Split export: One entry per row
-                    const rowEntries = [];
-                    const hasWrapperBefore = !!(wrapperParts && wrapperParts.before);
-                    const hasWrapperAfter = !!(wrapperParts && wrapperParts.after);
-                    const use3DepthWrapperGroup = !!(useWrapperEntries && (hasWrapperBefore || hasWrapperAfter));
-                    const needsHeader = (!use3DepthWrapperGroup && mainHeaders.length > 0);
-                    const hasExtraIndexEntry = !!(extraIndexSpec && extraIndexSpec.indexCols.length > 0);
-                    const blockSpan = (use3DepthWrapperGroup ? 3 : (needsHeader ? 2 : 1));
-                    const leadingSlots = (use3DepthWrapperGroup && hasWrapperBefore) ? 1 : ((!useWrapperEntries && mainHeaders.length > 0) ? 1 : 0);
-                    const preferredMainOrder = toIntOrFallback_ACU(entryPlacement.order, nextCustomExportOrder);
-                    const preferredBlockStart = calcPreferredBlockStart_ACU(preferredMainOrder, leadingSlots, nextCustomExportOrder);
-                    const baseOrder = allocConsecutiveOrderBlock_ACU(usedOrders, Math.max(1, blockSpan), preferredBlockStart, 1, 99999);
-                    let orderCursor = baseOrder;
-                    // 准备表头markdown
-                    const headerMarkdown = mainHeaders.length
-                        ? `# ${tableName}\n\n${buildMarkdownTableFromRows_ACU(mainHeaders, [])}`
-                        : `# ${tableName}`;
-                    // 在拆分模式下，如果存在包裹模板，先追加前置常量条目（包含表头）
-                    if (use3DepthWrapperGroup && hasWrapperBefore) {
-                        const wrapperName = getImportEntryName(`${(config.entryName || tableName)}-包裹-上`);
-                        newGeneratedNames.push(wrapperName);
-                        postCreateOrderFixPlan.push({ comment: wrapperName, order: orderCursor, placement: entryPlacement });
-                        const wrapperContent = [wrapperParts.before, headerMarkdown].filter(Boolean).join('\n\n').trim();
-                        rowEntries.push(applyPlacementToEntry_ACU({
-                            comment: wrapperName, content: wrapperContent, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: orderCursor++
-                        }, entryPlacement));
-                    }
-                    else if (!useWrapperEntries && mainHeaders.length > 0) {
-                        const headerName = getImportEntryName(`${(config.entryName || tableName)}-表头`);
-                        newGeneratedNames.push(headerName);
-                        postCreateOrderFixPlan.push({ comment: headerName, order: orderCursor, placement: entryPlacement });
-                        rowEntries.push(applyPlacementToEntry_ACU({
-                            comment: headerName, content: headerMarkdown, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: orderCursor++
-                        }, entryPlacement));
-                    }
-                    const dataOrder = orderCursor++;
-                    mainRows.forEach((rowData, i) => {
-                        const entryName = config.entryName ? `${config.entryName}-${i + 1}` : `${tableName}-${i + 1}`;
-                        let keys = [];
-                        if (config.keywords) {
-                            const keywordList = splitKeywordsByComma_ACU(config.keywords);
-                            keywordList.forEach((k) => {
-                                const colIndex = headers.indexOf(k);
-                                if (colIndex !== -1) {
-                                    const rawRowData = rows[i] || [];
-                                    const cellContent = rawRowData[colIndex];
-                                    if (cellContent) {
-                                        keys.push(...splitKeywordsByComma_ACU(cellContent));
-                                    }
-                                }
-                                else {
-                                    keys.push(k);
-                                }
-                            });
-                        }
-                        if (config.entryType === 'keyword' && keys.length === 0)
-                            return;
-                        const rowTableMarkdown = mainHeaders.length > 0 ? `| ${rowData.join(' | ')} |\n` : '';
-                        const finalContent = buildEntryContent(entryName, rowTableMarkdown, config.injectionTemplate, useWrapperEntries, null, true);
-                        const fullComment = getImportEntryName(entryName);
-                        newGeneratedNames.push(fullComment);
-                        postCreateOrderFixPlan.push({ comment: fullComment, order: dataOrder, placement: entryPlacement });
-                        rowEntries.push(applyPlacementToEntry_ACU({
-                            comment: fullComment, content: finalContent, keys: keys, enabled: true,
-                            type: config.entryType || 'constant', prevent_recursion: config.preventRecursion !== false, order: dataOrder
-                        }, entryPlacement));
-                    });
-                    if (use3DepthWrapperGroup && hasWrapperAfter) {
-                        const wrapperName = getImportEntryName(`${(config.entryName || tableName)}-包裹-下`);
-                        newGeneratedNames.push(wrapperName);
-                        postCreateOrderFixPlan.push({ comment: wrapperName, order: orderCursor, placement: entryPlacement });
-                        rowEntries.push(applyPlacementToEntry_ACU({
-                            comment: wrapperName, content: wrapperParts.after, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: orderCursor++
-                        }, entryPlacement));
-                    }
-                    if (hasExtraIndexEntry) {
-                        const extraBlock = buildExtraIndexEntryBlock_ACU({
-                            exportPrefix, extraIndexSpec, templateStr: config.extraIndexInjectionTemplate,
-                            startOrder: toIntOrFallback_ACU(extraIndexPlacement.order, orderCursor),
-                            placement: extraIndexPlacement, usedOrderSet: usedOrders, enabled: extraIndexEntryEnabled,
-                        });
-                        newGeneratedNames.push(...extraBlock.names);
-                        postCreateOrderFixPlan.push(...extraBlock.plans);
-                        rowEntries.push(...extraBlock.entries);
-                        orderCursor = extraBlock.nextOrder;
-                    }
-                    entriesToCreate.push(...rowEntries);
-                    nextCustomExportOrder = orderCursor + CUSTOM_EXPORT_ORDER_GAP;
-                }
-                else {
-                    if (extraIndexSpec) {
-                        const entryName = config.entryName || tableName;
-                        let keys = config.keywords ? splitKeywordsByComma_ACU(config.keywords) : [];
-                        if (config.entryType === 'keyword' && keys.length === 0)
-                            return;
-                        const hasWrapperBefore = !!(wrapperParts && wrapperParts.before);
-                        const hasWrapperAfter = !!(wrapperParts && wrapperParts.after);
-                        const useWrapperBlock = !!(useWrapperEntries && (hasWrapperBefore || hasWrapperAfter));
-                        const needsHeader = (!useWrapperBlock && mainHeaders.length > 0);
-                        const blockSize = (useWrapperBlock ? 2 : 0) + (needsHeader ? 1 : 0) + 1;
-                        const leadingSlots = (useWrapperBlock && hasWrapperBefore) ? 1 : ((!useWrapperEntries && mainHeaders.length > 0) ? 1 : 0);
-                        const preferredMainOrder = toIntOrFallback_ACU(entryPlacement.order, nextCustomExportOrder);
-                        const preferredBlockStart = calcPreferredBlockStart_ACU(preferredMainOrder, leadingSlots, nextCustomExportOrder);
-                        const baseOrder = allocConsecutiveOrderBlock_ACU(usedOrders, Math.max(1, blockSize), preferredBlockStart, 1, 99999);
-                        let cursor = baseOrder;
-                        const blockEntries = [];
-                        const tableHeader = mainHeaders.length > 0
-                            ? `# ${tableName}\n\n${buildMarkdownTableFromRows_ACU(mainHeaders, [])}`
-                            : `# ${tableName}`;
-                        if (useWrapperBlock && hasWrapperBefore) {
-                            const wrapperName = getImportEntryName(`${entryName}-包裹-上`);
-                            const wrapperContent = [wrapperParts.before, tableHeader].filter(Boolean).join('\n\n').trim();
-                            newGeneratedNames.push(wrapperName);
-                            postCreateOrderFixPlan.push({ comment: wrapperName, order: cursor, placement: entryPlacement });
-                            blockEntries.push(applyPlacementToEntry_ACU({
-                                comment: wrapperName, content: wrapperContent, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: cursor++
-                            }, entryPlacement));
-                        }
-                        else if (!useWrapperEntries && mainHeaders.length > 0) {
-                            const headerName = getImportEntryName(`${entryName}-表头`);
-                            newGeneratedNames.push(headerName);
-                            postCreateOrderFixPlan.push({ comment: headerName, order: cursor, placement: entryPlacement });
-                            blockEntries.push(applyPlacementToEntry_ACU({
-                                comment: headerName, content: tableHeader, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: cursor++
-                            }, entryPlacement));
-                        }
-                        const mainBody = buildMarkdownTableFromRows_ACU(mainHeaders, mainRows);
-                        const mainContent = buildEntryContent(entryName, mainBody, config.injectionTemplate, useWrapperBlock, '$1');
-                        const fullComment = getImportEntryName(entryName);
-                        newGeneratedNames.push(fullComment);
-                        postCreateOrderFixPlan.push({ comment: fullComment, order: cursor, placement: entryPlacement });
-                        blockEntries.push(applyPlacementToEntry_ACU({
-                            comment: fullComment, content: mainContent, keys: keys, enabled: true,
-                            type: config.entryType || 'constant', prevent_recursion: config.preventRecursion !== false, order: cursor++
-                        }, entryPlacement));
-                        if (useWrapperBlock && hasWrapperAfter) {
-                            const wrapperName = getImportEntryName(`${entryName}-包裹-下`);
-                            newGeneratedNames.push(wrapperName);
-                            postCreateOrderFixPlan.push({ comment: wrapperName, order: cursor, placement: entryPlacement });
-                            blockEntries.push(applyPlacementToEntry_ACU({
-                                comment: wrapperName, content: wrapperParts.after, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: cursor++
-                            }, entryPlacement));
-                        }
-                        const extraBlock = buildExtraIndexEntryBlock_ACU({
-                            exportPrefix, extraIndexSpec, templateStr: config.extraIndexInjectionTemplate,
-                            startOrder: toIntOrFallback_ACU(extraIndexPlacement.order, cursor),
-                            placement: extraIndexPlacement, usedOrderSet: usedOrders, enabled: extraIndexEntryEnabled,
-                        });
-                        newGeneratedNames.push(...extraBlock.names);
-                        postCreateOrderFixPlan.push(...extraBlock.plans);
-                        blockEntries.push(...extraBlock.entries);
-                        cursor = extraBlock.nextOrder;
-                        entriesToCreate.push(...blockEntries);
-                        nextCustomExportOrder = cursor + CUSTOM_EXPORT_ORDER_GAP;
-                        return;
-                    }
-                    // Whole table export
-                    const entryName = config.entryName || tableName;
-                    let keys = config.keywords ? splitKeywordsByComma_ACU(config.keywords) : [];
-                    if (config.entryType === 'keyword' && keys.length === 0)
-                        return;
-                    // [合并逻辑] 检查是否可以合并
-                    const mergeKey = `${entryName}|${config.entryType || 'constant'}|${keys.sort().join(',')}`;
-                    if (!mergedEntriesMap[mergeKey]) {
-                        mergedEntriesMap[mergeKey] = {
-                            entryName: entryName, entryType: config.entryType || 'constant', keywords: keys,
-                            preventRecursion: config.preventRecursion !== false, sheetKeys: [], tableContents: [],
-                            injectionTemplate: config.injectionTemplate, wrapperParts: wrapperParts,
-                            useWrapperEntries: useWrapperEntries, entryPlacement: entryPlacement
-                        };
-                    }
-                    if (!mergedEntriesMap[mergeKey].wrapperParts && wrapperParts) {
-                        mergedEntriesMap[mergeKey].wrapperParts = wrapperParts;
-                        mergedEntriesMap[mergeKey].useWrapperEntries = useWrapperEntries;
-                    }
-                    if (!mergedEntriesMap[mergeKey].injectionTemplate && config.injectionTemplate) {
-                        mergedEntriesMap[mergeKey].injectionTemplate = config.injectionTemplate;
-                    }
-                    if (!mergedEntriesMap[mergeKey].entryPlacement) {
-                        mergedEntriesMap[mergeKey].entryPlacement = entryPlacement;
-                    }
-                    mergedEntriesMap[mergeKey].sheetKeys.push(sheetKey);
-                    if (!mergedEntriesMap[mergeKey].tableHeaders) {
-                        mergedEntriesMap[mergeKey].tableHeaders = [];
-                    }
-                    mergedEntriesMap[mergeKey].tableHeaders.push({ name: tableName, headers: headers });
-                    const rowsOnly = rows.map((row) => `| ${row.join(' | ')} |`).join('\n');
-                    mergedEntriesMap[mergeKey].tableContents.push(rowsOnly);
-                    if (config.preventRecursion === false) {
-                        mergedEntriesMap[mergeKey].preventRecursion = false;
-                    }
-                }
-            });
-            // Process Merged Entries
-            Object.keys(mergedEntriesMap).forEach(key => {
-                const group = mergedEntriesMap[key];
-                const combinedTableData = group.tableContents.join('\n\n');
-                const wrapperParts = group.useWrapperEntries ? group.wrapperParts : null;
-                const useWrapperEntries = !!(group.useWrapperEntries && (wrapperParts?.before || wrapperParts?.after));
-                const groupPlacement = normalizePlacementConfig_ACU(group.entryPlacement, DEFAULT_ENTRY_PLACEMENT_ACU);
-                const blockEntries = [];
-                const allHeadersContent = group.tableHeaders ? group.tableHeaders.map((th) => {
-                    return `# ${th.name}\n\n| ${th.headers.join(' | ')} |\n|${th.headers.map(() => '---').join('|')}|`;
-                }).join('\n\n') : '';
-                const needsHeader = (!useWrapperEntries && !!allHeadersContent);
-                const blockSize = (useWrapperEntries ? 2 : 0) + (needsHeader ? 1 : 0) + 1;
-                const leadingSlots = (useWrapperEntries && wrapperParts?.before) ? 1 : ((!useWrapperEntries && !!allHeadersContent) ? 1 : 0);
-                const preferredMainOrder = toIntOrFallback_ACU(groupPlacement.order, nextCustomExportOrder);
-                const preferredBlockStart = calcPreferredBlockStart_ACU(preferredMainOrder, leadingSlots, nextCustomExportOrder);
-                const baseOrder = allocConsecutiveOrderBlock_ACU(usedOrders, Math.max(1, blockSize), preferredBlockStart, 1, 99999);
-                let cursor = baseOrder;
-                if (useWrapperEntries && wrapperParts?.before) {
-                    const wrapperName = `${exportPrefix}${group.entryName}-包裹-上`;
-                    newGeneratedNames.push(wrapperName);
-                    const wrapperContent = [wrapperParts.before, allHeadersContent].filter(Boolean).join('\n\n').trim();
-                    postCreateOrderFixPlan.push({ comment: wrapperName, order: cursor, placement: groupPlacement });
-                    blockEntries.push(applyPlacementToEntry_ACU({
-                        comment: wrapperName, content: wrapperContent, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: cursor++
-                    }, groupPlacement));
-                }
-                else if (!useWrapperEntries && allHeadersContent) {
-                    const headerName = `${exportPrefix}${group.entryName}-表头`;
-                    newGeneratedNames.push(headerName);
-                    postCreateOrderFixPlan.push({ comment: headerName, order: cursor, placement: groupPlacement });
-                    blockEntries.push(applyPlacementToEntry_ACU({
-                        comment: headerName, content: allHeadersContent, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: cursor++
-                    }, groupPlacement));
-                }
-                const finalContent = buildEntryContent(group.entryName, combinedTableData, group.injectionTemplate, useWrapperEntries, '$1');
-                const fullComment = `${exportPrefix}${group.entryName}`;
-                newGeneratedNames.push(fullComment);
-                postCreateOrderFixPlan.push({ comment: fullComment, order: cursor, placement: groupPlacement });
-                blockEntries.push(applyPlacementToEntry_ACU({
-                    comment: fullComment, content: finalContent, keys: group.keywords, enabled: true,
-                    type: group.entryType, prevent_recursion: group.preventRecursion, order: cursor++
-                }, groupPlacement));
-                if (useWrapperEntries && wrapperParts?.after) {
-                    const wrapperName = `${exportPrefix}${group.entryName}-包裹-下`;
-                    newGeneratedNames.push(wrapperName);
-                    postCreateOrderFixPlan.push({ comment: wrapperName, order: cursor, placement: groupPlacement });
-                    blockEntries.push(applyPlacementToEntry_ACU({
-                        comment: wrapperName, content: wrapperParts.after, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: cursor++
-                    }, groupPlacement));
-                }
-                entriesToCreate.push(...blockEntries);
-                nextCustomExportOrder = cursor + CUSTOM_EXPORT_ORDER_GAP;
-            });
-            if (entriesToCreate.length > 0) {
-                await createLorebookEntries_ACU(primaryLorebookName, entriesToCreate);
-                logDebug_ACU(`Successfully created ${entriesToCreate.length} new custom export entries.`);
-                // [兜底] 创建完成后强制回写 order（通过 comment 找 uid）
-                if (postCreateOrderFixPlan.length > 0) {
-                    try {
-                        const latest = await getLorebookEntries_ACU(primaryLorebookName);
-                        const byComment = new Map();
-                        latest.forEach((e) => { if (e?.comment)
-                            byComment.set(e.comment, e); });
-                        const updates = [];
-                        postCreateOrderFixPlan.forEach((p) => {
-                            const e = byComment.get(p.comment);
-                            if (e?.uid != null && Number.isFinite(p.order)) {
-                                const fixed = applyPlacementToEntry_ACU({ uid: e.uid, order: p.order }, p.placement || DEFAULT_ENTRY_PLACEMENT_ACU);
-                                updates.push(fixed);
-                            }
-                        });
-                        if (updates.length > 0) {
-                            await setLorebookEntries_ACU(primaryLorebookName, updates);
-                        }
-                    }
-                    catch (e) {
-                        logWarn_ACU('[CustomExportOrderFix] Failed to enforce grouped orders for split exports:', e);
-                    }
-                }
-            }
-            // [新增] 更新并保存 knownCustomEntryNames（外部导入模式不写入，避免绑定第三方世界书）
-            if (!isImport) {
-                settings_ACU.knownCustomEntryNames = [...knownNames, ...newGeneratedNames];
-                settings_ACU.knownCustomEntryNames = [...new Set(settings_ACU.knownCustomEntryNames)];
-                saveSettings_ACU();
-                logDebug_ACU(`Updated knownCustomEntryNames. Count: ${settings_ACU.knownCustomEntryNames.length}`);
-            }
-        }
-        catch (error) {
-            logError_ACU('Failed to update custom table export entries:', error);
-        }
-    }
-
-    /**
-     * service/worldbook/injection-engine.ts — 世界书注入/导出/清理引擎（入口文件）
-     * 原 2,281 行代码已按阶段拆分为以下子模块：
-     *   - injection-engine-config.ts   — 放置配置常量与默认值
-     *   - injection-engine-order.ts    — 注入位置与Order分配工具
-     *   - injection-engine-state.ts    — 状态重置、目标获取、隔离前缀、条目清理、聊天历史清理
-     *   - injection-engine-entries.ts  — 大纲表、总结表、重要人物表注入
-     *   - injection-engine-custom.ts   — 自定义表格导出
-     *
-     * 本文件仅作为统一入口，re-export 所有子模块的公开 API。
-     * 外部文件的 import 路径无需修改。
-     */
-    // ═══ 放置配置常量与默认值 ═══
-
-    /**
-     * service/template/chat-scope/chat-scope-base.ts — 共享基础函数
-     * 被 chat-scope-plot.ts、chat-scope-template.ts、chat-scope-guide.ts、chat-scope-sheet.ts 共同依赖的函数
-     */
-    /**
-     * 规范化聊天作用域配置来源字符串
-     * @param source 原始来源字符串
-     * @param fallback 默认值，默认 'inherit'
-     * @returns 规范化后的来源字符串
-     */
-    function normalizeChatScopedConfigSource_ACU(source, fallback = 'inherit') {
-        if (typeof source !== 'string')
-            return fallback;
-        const normalized = source.trim();
-        return normalized || fallback;
-    }
-    /**
-     * 规范化 sheet guide 数据对象——只保留表头行、sourceData、updateConfig、exportConfig、seedRows
-     * 被 B、D、E 三组广泛使用，提取到 base 层避免循环依赖
-     */
-    function normalizeGuideData_ACU(dataObj) {
-        if (!dataObj || typeof dataObj !== 'object')
-            return null;
-        const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
-        if (dataObj.mate && typeof dataObj.mate === 'object') {
-            out.mate = dataObj.mate;
-        }
-        if (!out.mate || typeof out.mate !== 'object')
-            out.mate = { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU };
-        if (!out.mate.type)
-            out.mate.type = 'chatSheets';
-        if (!Number.isFinite(out.mate.version) || Math.trunc(out.mate.version) < CHAT_SHEET_GUIDE_VERSION_ACU)
-            out.mate.version = CHAT_SHEET_GUIDE_VERSION_ACU;
-        Object.keys(dataObj).forEach(k => {
-            if (!k.startsWith('sheet_'))
-                return;
-            const s = dataObj[k];
-            if (!s || typeof s !== 'object')
-                return;
-            const headerRow = Array.isArray(s.content) && Array.isArray(s.content[0]) ? s.content[0] : [null];
-            const keep = {
-                uid: s.uid || k,
-                name: s.name || k,
-                sourceData: s.sourceData || { note: '', initNode: '', insertNode: '', updateNode: '', deleteNode: '' },
-                content: [headerRow],
-                updateConfig: s.updateConfig || { uiSentinel: -1, contextDepth: -1, updateFrequency: -1, batchSize: -1, skipFloors: -1, sendLatestRows: -1, groupId: -1 },
-                exportConfig: ensureExportConfigDefaults_ACU(s.exportConfig, s.name || k),
-            };
-            if (Array.isArray(s[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU])) {
-                try {
-                    keep[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(s[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU]));
-                }
-                catch (e) {
-                    keep[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = [];
-                }
-            }
-            if (s[TABLE_ORDER_FIELD_ACU] !== undefined)
-                keep[TABLE_ORDER_FIELD_ACU] = s[TABLE_ORDER_FIELD_ACU];
-            out[k] = keep;
-        });
-        return out;
-    }
-
-    /**
-     * service/template/chat-scope/chat-scope-plot.ts — Plot Scope 管理
-     * 从 chat-scope.ts 拆出的 A 组：剧情作用域的读取、构建、设置、清除
-     */
-    function normalizePlotScopeMode_ACU(mode) {
-        return mode === 'chat_override' ? 'chat_override' : 'inherit_global';
-    }
-    function sanitizePlotSettingsSnapshotForChat_ACU(plotSettings) {
-        if (!plotSettings || typeof plotSettings !== 'object')
-            return null;
-        const snapshot = cloneScopedConfigData_ACU(plotSettings, null);
-        if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot))
-            return null;
-        delete snapshot.promptPresets;
-        delete snapshot.lastUsedPresetName;
-        delete snapshot.enabled;
-        ensurePlotPromptsArray_ACU(snapshot);
-        ensureLoopPromptsArray_ACU(snapshot);
-        ensurePlotTasksCompat_ACU(snapshot, { syncLegacy: true });
-        snapshot.plotTasks = stripPlotTaskRuntimeApiPresetFields_ACU(snapshot.plotTasks);
-        snapshot.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(snapshot);
-        setPlotPromptContentByIdForSettings_ACU(snapshot, 'finalSystemDirective', snapshot.finalSystemDirective || '');
-        return snapshot;
-    }
-    function normalizeChatPlotScopeState_ACU(rawState) {
-        const state = (rawState && typeof rawState === 'object' && !Array.isArray(rawState)) ? rawState : {};
-        const snapshot = sanitizePlotSettingsSnapshotForChat_ACU(state.snapshot);
-        return {
-            mode: normalizePlotScopeMode_ACU(state.mode),
-            presetName: normalizePlotPresetSelectionValue_ACU(state.presetName || ''),
-            snapshot,
-            originGlobalName: normalizePlotPresetSelectionValue_ACU(state.originGlobalName || ''),
-            originGlobalRevision: Number.isFinite(state.originGlobalRevision) ? Math.max(0, Math.trunc(state.originGlobalRevision)) : 0,
-            updatedAt: Number.isFinite(state.updatedAt) ? state.updatedAt : 0,
-            source: normalizeChatScopedConfigSource_ACU(state.source, 'inherit'),
-        };
-    }
-    function getCurrentChatPlotScopeState_ACU(chat = getChatArray_ACU()) {
-        const container = getChatScopedConfigContainer_ACU(chat);
-        const rawState = container?.plot;
-        if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState))
-            return null;
-        const normalizedState = normalizeChatPlotScopeState_ACU(rawState);
-        if (normalizedState.mode !== 'chat_override' || !normalizedState.snapshot) {
-            return null;
-        }
-        return normalizedState;
-    }
-    function buildChatPlotScopeStateFromSettings_ACU(plotSettings, { presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now() } = {}) {
-        const snapshot = sanitizePlotSettingsSnapshotForChat_ACU(plotSettings);
-        if (!snapshot)
-            return null;
-        return normalizeChatPlotScopeState_ACU({
-            mode: 'chat_override',
-            presetName,
-            snapshot,
-            originGlobalName,
-            originGlobalRevision,
-            updatedAt,
-            source,
-        });
-    }
-    function setCurrentChatPlotScopeState_ACU(plotState, { reason = '' } = {}) {
-        const chat = getChatArray_ACU();
-        const first = getChatFirstLayerMessage_ACU(chat);
-        if (!first)
-            return null;
-        const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
-        const normalizedState = normalizeChatPlotScopeState_ACU(plotState);
-        if (normalizedState.mode === 'chat_override' && normalizedState.snapshot) {
-            container.plot = {
-                ...normalizedState,
-                reason: String(reason || ''),
-            };
-        }
-        else {
-            delete container.plot;
-        }
-        const hasPayload = Object.keys(container).some(key => key !== 'version');
-        if (hasPayload) {
-            first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
-        }
-        else {
-            delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
-        }
-        return getCurrentChatPlotScopeState_ACU(chat);
-    }
-    function clearCurrentChatPlotScopeState_ACU() {
-        return setCurrentChatPlotScopeState_ACU({ mode: 'inherit_global' }, { reason: 'clear_plot_override' });
-    }
-
-    /**
-     * service/template/chat-scope/chat-scope-sheet.ts
-     * Sheet 排序和清洗（E 组）
-     */
-    function getSortedSheetKeys_ACU(dataObj, { ignoreChatGuide = false, includeMissingFromGuide = false } = {}) {
-        if (!dataObj || typeof dataObj !== 'object')
-            return [];
-        const existingKeys = Object.keys(dataObj).filter(k => k.startsWith('sheet_'));
-        if (existingKeys.length === 0)
-            return [];
-        // [新增] 聊天级空白指导表：一旦存在，则该聊天不再按模板顺序合并/显示，而是按此指导表作为总指导
-        if (!ignoreChatGuide) {
-            try {
-                const isolationKey = (typeof getCurrentIsolationKey_ACU === 'function') ? getCurrentIsolationKey_ACU() : '';
-                const guideData = getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
-                if (guideData && typeof guideData === 'object') {
-                    const guideKeys = Object.keys(guideData).filter(k => k.startsWith('sheet_'));
-                    if (guideKeys.length > 0) {
-                        const sorted = guideKeys.sort((a, b) => {
-                            const ao = Number.isFinite(guideData?.[a]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(guideData[a][TABLE_ORDER_FIELD_ACU]) : Infinity;
-                            const bo = Number.isFinite(guideData?.[b]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(guideData[b][TABLE_ORDER_FIELD_ACU]) : Infinity;
-                            if (ao !== bo)
-                                return ao - bo;
-                            return String(a).localeCompare(String(b));
-                        });
-                        return includeMissingFromGuide ? sorted : sorted.filter(k => dataObj[k]);
-                    }
-                }
-            }
-            catch (e) {
-                // ignore guide failures; fallback to legacy ordering
-            }
-        }
-        // 尝试拿模板做兜底（比如老数据/导入数据缺编号）
-        const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
-        // 先对 dataObj 补齐缺失编号（仅在确实缺失/重复时重建）
-        // baseOrderKeys 的优先级：模板顺序 > 当前对象键顺序（保证"载入模板编好号"后的稳定性）
-        const baseKeys = (() => {
-            const tk = templateObj && typeof templateObj === 'object'
-                ? Object.keys(templateObj).filter(k => k.startsWith('sheet_'))
-                : [];
-            return tk.length ? tk : existingKeys;
-        })();
-        ensureSheetOrderNumbers_ACU(dataObj, { baseOrderKeys: baseKeys, forceRebuild: false });
-        const orderValueOf = (k) => {
-            const v = dataObj?.[k]?.[TABLE_ORDER_FIELD_ACU];
-            if (Number.isFinite(v))
-                return Math.trunc(v);
-            const tv = templateObj?.[k]?.[TABLE_ORDER_FIELD_ACU];
-            if (Number.isFinite(tv))
-                return Math.trunc(tv);
-            return Infinity;
-        };
-        return existingKeys.sort((a, b) => {
-            const ao = orderValueOf(a);
-            const bo = orderValueOf(b);
-            if (ao !== bo)
-                return ao - bo;
-            // 稳定排序：同编号时按名称/键
-            const an = String(dataObj?.[a]?.name || templateObj?.[a]?.name || a);
-            const bn = String(dataObj?.[b]?.name || templateObj?.[b]?.name || b);
-            const c = an.localeCompare(bn);
-            if (c !== 0)
-                return c;
-            return String(a).localeCompare(String(b));
-        });
-    }
-    // [新增] 基于"空白指导表"构建可合并的骨架数据（深拷贝，避免后续修改污染原对象）
-    function buildGuidedBaseDataFromSheetGuide_ACU(guideData) {
-        const normalized = normalizeGuideData_ACU(guideData);
-        if (!normalized)
-            return { mate: { type: 'chatSheets', version: 1 } };
-        try {
-            return JSON.parse(JSON.stringify(normalized));
-        }
-        catch (e) {
-            return normalized;
-        }
-    }
-    // [修复] 按指定顺序重建对象键，避免 Object.keys()/合并/深拷贝导致的顺序漂移
-    function reorderDataBySheetKeys_ACU(dataObj, orderedSheetKeys) {
-        if (!dataObj || typeof dataObj !== 'object')
-            return dataObj;
-        const out = {};
-        // 先保留非 sheet_ 键（mate 等）
-        Object.keys(dataObj).forEach(k => {
-            if (!k.startsWith('sheet_'))
-                out[k] = dataObj[k];
-        });
-        // 再按顺序插入 sheet_ 键
-        const keys = Array.isArray(orderedSheetKeys) ? orderedSheetKeys : getSortedSheetKeys_ACU(dataObj);
-        keys.forEach(k => {
-            if (dataObj[k])
-                out[k] = dataObj[k];
-        });
-        return out;
-    }
-    // =========================
-    // [瘦身/兼容] ChatSheets 表格对象清洗（用于：导出、写入聊天记录、持久化模板）
-    // 目标：
-    // - 与旧模板/旧存档兼容：导入时允许存在冗余字段
-    // - 从现在开始：导出/保存时不再携带历史遗留冗余字段，降低体积
-    // =========================
-    const SHEET_KEEP_KEYS_ACU = new Set([
-        'uid',
-        'name',
-        'sourceData',
-        'content',
-        // [重要] 可视化编辑器/表格配置（更新频率、上下文深度等）依赖该字段
-        'updateConfig',
-        'exportConfig',
-        TABLE_ORDER_FIELD_ACU, // orderNo
-    ]);
-    function sanitizeSheetForStorage_ACU(sheet) {
-        if (!sheet || typeof sheet !== 'object')
-            return sheet;
-        const out = {};
-        SHEET_KEEP_KEYS_ACU.forEach(k => {
-            if (sheet[k] !== undefined)
-                out[k] = sheet[k];
-        });
-        // 兜底：保证结构可被模板导入验证通过
-        if (!out.name && sheet.name)
-            out.name = sheet.name;
-        if (!out.content && Array.isArray(sheet.content))
-            out.content = sheet.content;
-        if (!out.sourceData && sheet.sourceData)
-            out.sourceData = sheet.sourceData;
-        out.exportConfig = ensureExportConfigDefaults_ACU(out.exportConfig, out.name || sheet.name || sheet.uid || '');
-        return out;
-    }
-    function sanitizeChatSheetsObject_ACU(dataObj, { ensureMate = false } = {}) {
-        if (!dataObj || typeof dataObj !== 'object')
-            return dataObj;
-        const out = {};
-        Object.keys(dataObj).forEach(k => {
-            if (k.startsWith('sheet_')) {
-                out[k] = sanitizeSheetForStorage_ACU(dataObj[k]);
-            }
-            else if (k === 'mate') {
-                out.mate = dataObj.mate;
-            }
-            else {
-                // 其它顶层键：为兼容保留
-                out[k] = dataObj[k];
-            }
-        });
-        if (ensureMate) {
-            if (!out.mate || typeof out.mate !== 'object')
-                out.mate = { type: 'chatSheets', version: 1 };
-            if (!out.mate.type)
-                out.mate.type = 'chatSheets';
-            if (!out.mate.version)
-                out.mate.version = 1;
-        }
-        return out;
-    }
-    // [新增] 辅助函数：从上下文中提取指定标签的内容（正文标签提取）
-    // 从 shared/utils.ts 搬来（原函数依赖 service/data 层，不适合放在 shared 层）
-    function getTemplateSheetKeys_ACU() {
-        const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
-        if (!templateObj || typeof templateObj !== 'object')
-            return [];
-        const keys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
-        if (keys.length === 0)
-            return [];
-        const changed = ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: keys, forceRebuild: false });
-        if (changed) {
-            try {
-                const normalizedTemplateStr = JSON.stringify(templateObj);
-                _set_TABLE_TEMPLATE_ACU(normalizedTemplateStr);
-                const currentChatTemplateScope = getCurrentChatTemplateScopeState_ACU() || migrateLegacyTemplateScopeForCurrentChat_ACU();
-                if (currentChatTemplateScope?.templateStr) {
-                    const updatedGuideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: false });
-                    const nextState = buildChatTemplateScopeStateFromCurrent_ACU({
-                        isolationKey: currentChatTemplateScope.isolationKey,
-                        presetName: currentChatTemplateScope.presetName,
-                        source: currentChatTemplateScope.source || 'inherit',
-                        originGlobalName: currentChatTemplateScope.originGlobalName,
-                        originGlobalRevision: currentChatTemplateScope.originGlobalRevision,
-                        updatedAt: currentChatTemplateScope.updatedAt || Date.now(),
-                        templateSource: normalizedTemplateStr,
-                        guideData: updatedGuideData || currentChatTemplateScope.guideData,
-                    });
-                    if (nextState) {
-                        setCurrentChatTemplateScopeState_ACU(nextState, {
-                            isolationKey: currentChatTemplateScope.isolationKey,
-                            reason: 'template_scope_order_no_init',
-                        });
-                    }
-                    logDebug_ACU('[OrderNo] Chat template order numbers initialized and persisted to current chat scope.');
-                }
-                else {
-                    saveCurrentProfileTemplate_ACU(TABLE_TEMPLATE_ACU, settings_ACU);
-                    logDebug_ACU('[OrderNo] Global template order numbers initialized and persisted.');
-                }
-            }
-            catch (e) {
-                logWarn_ACU('[OrderNo] Failed to persist initialized template order numbers:', e);
-            }
-        }
-        return keys.sort((a, b) => {
-            const ao = Number.isFinite(templateObj[a]?.[TABLE_ORDER_FIELD_ACU]) ? templateObj[a][TABLE_ORDER_FIELD_ACU] : Infinity;
-            const bo = Number.isFinite(templateObj[b]?.[TABLE_ORDER_FIELD_ACU]) ? templateObj[b][TABLE_ORDER_FIELD_ACU] : Infinity;
-            if (ao !== bo)
-                return ao - bo;
-            return String(templateObj[a]?.name || a).localeCompare(String(templateObj[b]?.name || b));
-        });
-    }
-
-    /**
-     * service/template/chat-scope/chat-scope-guide.ts
-     * Sheet Guide 数据操作（D 组）
-     */
-    function materializeDataFromSheetGuide_ACU(guideData, { includeSeedRows = true } = {}) {
-        const normalized = normalizeGuideData_ACU(guideData);
-        if (!normalized)
-            return { mate: { type: 'chatSheets', version: 1 } };
-        const out = { mate: normalized.mate || { type: 'chatSheets', version: 1 } };
-        Object.keys(normalized).forEach((k) => {
-            if (!k.startsWith('sheet_'))
-                return;
-            const s = normalized[k];
-            const headerRow = Array.isArray(s?.content?.[0]) ? JSON.parse(JSON.stringify(s.content[0])) : ["row_id"];
-            const next = JSON.parse(JSON.stringify(s));
-            // content: header + (可选) seedRows
-            const seedRows = includeSeedRows && Array.isArray(s?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU])
-                ? JSON.parse(JSON.stringify(s[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU]))
-                : [];
-            next.content = [headerRow, ...seedRows];
-            // 保留 seedRows 字段本身（便于后续再次写回/二次处理），但不会影响表格使用者（他们只看 content）
-            out[k] = next;
-        });
-        return out;
-    }
-    function getLegacyHeaderGuideDataForIsolationKey_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const normalizedKey = String(isolationKey ?? '');
-        try {
-            const first = getChatFirstLayerMessage_ACU(chat);
-            const legacyRaw = first ? first[LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU] : null;
-            const legacyObj = legacyRaw ? ((typeof legacyRaw === 'string') ? safeJsonParse_ACU(legacyRaw, null) : legacyRaw) : null;
-            const legacyTags = legacyObj?.tags;
-            const legacySlot = (legacyTags && typeof legacyTags === 'object') ? legacyTags[normalizedKey] : null;
-            const legacyHeaders = Array.isArray(legacySlot?.headers) ? legacySlot.headers : null;
-            if (!legacyHeaders || legacyHeaders.length === 0)
-                return null;
-            const orderedUids = legacyHeaders
-                .map((h) => h?.uid)
-                .filter((uid) => typeof uid === 'string' && uid.startsWith('sheet_'));
-            if (orderedUids.length === 0)
-                return null;
-            const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
-            const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
-            orderedUids.forEach((uid, idx) => {
-                const base = (templateObj && templateObj[uid])
-                    ? JSON.parse(JSON.stringify(templateObj[uid]))
-                    : { uid, name: uid, content: [["row_id"]], sourceData: {}, updateConfig: {}, exportConfig: {} };
-                if (Array.isArray(base.content) && base.content.length > 1) {
-                    base[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(base.content.slice(1)));
-                    base.content = [base.content[0]];
-                }
-                if (!Array.isArray(base.content) || base.content.length === 0)
-                    base.content = [["row_id"]];
-                base.uid = uid;
-                if (!Number.isFinite(base[TABLE_ORDER_FIELD_ACU]))
-                    base[TABLE_ORDER_FIELD_ACU] = idx;
-                out[uid] = base;
-            });
-            return normalizeGuideData_ACU(out);
-        }
-        catch (e) {
-            return null;
-        }
-    }
-    function getHistoricalTemplateGuideDataForIsolationKey_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        if (!Array.isArray(chat) || chat.length === 0)
-            return null;
-        const historicalData = { mate: { type: 'chatSheets', version: 1 } };
-        const encounteredKeys = [];
-        const encounteredSet = new Set();
-        const appendTables = (dataObj, { summaryOnly = null } = {}) => {
-            if (!dataObj || typeof dataObj !== 'object' || Array.isArray(dataObj))
-                return;
-            Object.keys(dataObj).forEach(key => {
-                if (!key.startsWith('sheet_') || encounteredSet.has(key))
-                    return;
-                const sheet = dataObj[key];
-                if (!sheet || typeof sheet !== 'object' || Array.isArray(sheet))
-                    return;
-                const isSummary = !!sheet.name && isSummaryOrOutlineTable_ACU(sheet.name);
-                if (summaryOnly === true && !isSummary)
-                    return;
-                if (summaryOnly === false && isSummary)
-                    return;
-                historicalData[key] = JSON.parse(JSON.stringify(sheet));
-                encounteredKeys.push(key);
-                encounteredSet.add(key);
-            });
-        };
-        for (let i = chat.length - 1; i >= 0; i--) {
-            const message = chat[i];
-            if (!message || message.is_user)
-                continue;
-            const isolatedTagData = readIsolatedTagData_ACU(message, normalizedKey);
-            appendTables(isolatedTagData?.independentData);
-            const isLegacyMatch = isLegacyMatchForIsolation_ACU(message, {
-                enabled: settings_ACU.dataIsolationEnabled,
-                code: settings_ACU.dataIsolationCode,
-            });
-            if (!isLegacyMatch)
-                continue;
-            appendTables(readLegacyIndependentData_ACU(message));
-            appendTables(readLegacyStandardData_ACU(message), { summaryOnly: false });
-            appendTables(readLegacySummaryData_ACU(message), { summaryOnly: true });
-        }
-        if (encounteredKeys.length === 0)
-            return null;
-        const orderedKeys = encounteredKeys
-            .map((key, index) => ({
-            key,
-            index,
-            order: Number.isFinite(historicalData?.[key]?.[TABLE_ORDER_FIELD_ACU])
-                ? Math.trunc(historicalData[key][TABLE_ORDER_FIELD_ACU])
-                : null,
-        }))
-            .sort((a, b) => {
-            if (a.order !== null && b.order !== null && a.order !== b.order)
-                return a.order - b.order;
-            if (a.order !== null && b.order === null)
-                return -1;
-            if (a.order === null && b.order !== null)
-                return 1;
-            return a.index - b.index;
-        })
-            .map(item => item.key);
-        applySheetOrderNumbers_ACU(historicalData, orderedKeys);
-        return buildChatSheetGuideDataFromData_ACU(historicalData, {
-            preserveSeedRowsFromGuideData: null,
-            seedRowsFromTemplateObj: null,
-            orderedKeys,
-        });
-    }
-    function getLegacyTemplateSnapshotLabel_ACU(source = 'legacy_frozen') {
-        if (source === 'legacy_history_frozen')
-            return '旧对话历史模板快照';
-        if (source === 'legacy_header_frozen')
-            return '旧版表头冻结模板';
-        return '旧版聊天冻结模板';
-    }
-    function buildChatTemplateScopeStateFromGuideData_ACU({ isolationKey = getCurrentIsolationKey_ACU(), presetName = '', source = 'legacy_frozen', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now(), guideData = null } = {}) {
-        const normalizedGuideData = normalizeGuideData_ACU(guideData);
-        if (!normalizedGuideData || !Object.keys(normalizedGuideData).some(k => k.startsWith('sheet_')))
-            return null;
-        const templateObj = materializeDataFromSheetGuide_ACU(normalizedGuideData, { includeSeedRows: true });
-        return buildChatTemplateScopeStateFromCurrent_ACU({
-            isolationKey,
-            presetName,
-            source,
-            originGlobalName,
-            originGlobalRevision,
-            updatedAt,
-            templateSource: templateObj,
-            guideData: normalizedGuideData,
-        });
-    }
-    function migrateLegacyTemplateScopeForCurrentChat_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const existingScopeState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
-        if (existingScopeState)
-            return existingScopeState;
-        const persistMigratedState = (guideData, { source = 'legacy_frozen', updatedAt = Date.now() } = {}) => {
-            const templateState = buildChatTemplateScopeStateFromGuideData_ACU({
-                isolationKey: normalizedKey,
-                presetName: getLegacyTemplateSnapshotLabel_ACU(source),
-                source,
-                originGlobalName: '',
-                originGlobalRevision: 0,
-                updatedAt,
-                guideData,
-            });
-            if (!templateState)
-                return null;
-            return setCurrentChatTemplateScopeState_ACU(templateState, {
-                isolationKey: normalizedKey,
-                reason: `template_scope_${source}`,
-            });
-        };
-        const container = getChatSheetGuideContainer_ACU(chat);
-        const legacySlot = container?.tags?.[normalizedKey];
-        const hasExplicitLegacyScopeMode = typeof legacySlot?.templateScopeMode === 'string' && legacySlot.templateScopeMode.trim() !== '';
-        const legacySlotMode = hasExplicitLegacyScopeMode
-            ? normalizeTemplateScopeMode_ACU(legacySlot.templateScopeMode)
-            : 'chat_override';
-        const legacyGuideData = normalizeGuideData_ACU(legacySlot?.data);
-        if (legacySlotMode === 'chat_override' && legacyGuideData && Object.keys(legacyGuideData).some(k => k.startsWith('sheet_'))) {
-            return persistMigratedState(legacyGuideData, {
-                source: 'legacy_frozen',
-                updatedAt: Number(legacySlot?.updatedAt) || Date.now(),
-            });
-        }
-        const historicalGuideData = getHistoricalTemplateGuideDataForIsolationKey_ACU({ chat, isolationKey: normalizedKey });
-        if (historicalGuideData && Object.keys(historicalGuideData).some(k => k.startsWith('sheet_'))) {
-            return persistMigratedState(historicalGuideData, {
-                source: 'legacy_history_frozen',
-                updatedAt: Date.now(),
-            });
-        }
-        const legacyHeaderGuideData = getLegacyHeaderGuideDataForIsolationKey_ACU({ chat, isolationKey: normalizedKey });
-        if (legacyHeaderGuideData && Object.keys(legacyHeaderGuideData).some(k => k.startsWith('sheet_'))) {
-            return persistMigratedState(legacyHeaderGuideData, {
-                source: 'legacy_header_frozen',
-                updatedAt: Date.now(),
-            });
-        }
-        return null;
-    }
-    function clearChatSheetGuideDataForIsolationKey_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const first = getChatFirstLayerMessage_ACU(chat);
-        if (!first)
-            return false;
-        const container = getChatSheetGuideContainer_ACU(chat);
-        if (!container || typeof container !== 'object' || !container.tags || typeof container.tags !== 'object')
-            return false;
-        const normalizedKey = String(isolationKey ?? '');
-        if (!Object.prototype.hasOwnProperty.call(container.tags, normalizedKey))
-            return false;
-        const nextContainer = cloneScopedConfigData_ACU(container, null) || { version: CHAT_SHEET_GUIDE_VERSION_ACU, tags: {} };
-        if (!nextContainer.tags || typeof nextContainer.tags !== 'object')
-            nextContainer.tags = {};
-        delete nextContainer.tags[normalizedKey];
-        if (Object.keys(nextContainer.tags).length === 0) {
-            delete first[CHAT_SHEET_GUIDE_FIELD_ACU];
-        }
-        else {
-            nextContainer.version = CHAT_SHEET_GUIDE_VERSION_ACU;
-            first[CHAT_SHEET_GUIDE_FIELD_ACU] = nextContainer;
-        }
-        return true;
-    }
-    function getChatSheetGuideDataForIsolationKey_ACU(isolationKey) {
-        const chat = getChatArray_ACU();
-        const normalizedKey = String(isolationKey ?? '');
-        const scopedTemplateState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey })
-            || migrateLegacyTemplateScopeForCurrentChat_ACU({ chat, isolationKey: normalizedKey });
-        const scopedGuideData = normalizeGuideData_ACU(scopedTemplateState?.guideData);
-        if (scopedGuideData && Object.keys(scopedGuideData).some(k => k.startsWith('sheet_'))) {
-            return scopedGuideData;
-        }
-        const buildGuideDataFromTemplateSource_ACU = (templateSource) => {
-            const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateSource);
-            const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateSnapshot?.templateObj, { stripSeedRows: false });
-            return (guideData && Object.keys(guideData).some(k => k.startsWith('sheet_'))) ? guideData : null;
-        };
-        if (scopedTemplateState?.mode === 'chat_override' && scopedTemplateState?.templateStr) {
-            const overrideGuideData = buildGuideDataFromTemplateSource_ACU(scopedTemplateState.templateStr);
-            if (overrideGuideData) {
-                return overrideGuideData;
-            }
-        }
-        if (scopedTemplateState?.mode === 'preset_link') {
-            const linkedPresetName = normalizeTemplatePresetSelectionValue_ACU(scopedTemplateState?.presetName || '');
-            const linkedTemplateSource = linkedPresetName
-                ? (getTemplatePreset_ACU(linkedPresetName)?.templateStr || null)
-                : getDefaultTemplateSnapshot_ACU()?.templateStr;
-            const linkedGuideData = buildGuideDataFromTemplateSource_ACU(linkedTemplateSource);
-            if (linkedGuideData) {
-                return linkedGuideData;
-            }
-        }
-        const activeTemplateGuideData = buildGuideDataFromTemplateSource_ACU(TABLE_TEMPLATE_ACU);
-        if (activeTemplateGuideData) {
-            return activeTemplateGuideData;
-        }
-        const globalSnapshot = getGlobalTemplateSnapshotForCurrentProfile_ACU();
-        const globalGuideData = buildChatSheetGuideDataFromTemplateObj_ACU(globalSnapshot?.templateObj, { stripSeedRows: false });
-        if (globalGuideData && Object.keys(globalGuideData).some(k => k.startsWith('sheet_'))) {
-            return globalGuideData;
-        }
-        return null;
-    }
-    function setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, { reason = '', syncTemplateScope = false, templateSource = null, presetName = '', source = '', updatedAt = Date.now() } = {}) {
-        const chat = getChatArray_ACU();
-        const first = getChatFirstLayerMessage_ACU(chat);
-        if (!first)
-            return false;
-        const normalized = normalizeGuideData_ACU(guideData);
-        if (!normalized || !Object.keys(normalized).some(k => k.startsWith('sheet_')))
-            return false;
-        const normalizedKey = String(isolationKey ?? '');
-        const existingTemplateScopeState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
-        const normalizedScopeMode = normalizeTemplateScopeMode_ACU(existingTemplateScopeState?.mode);
-        const shouldSyncTemplateScope = !!syncTemplateScope || normalizedScopeMode === 'chat_override' || normalizedScopeMode === 'preset_link';
-        const container = getChatSheetGuideContainer_ACU(chat) || { version: CHAT_SHEET_GUIDE_VERSION_ACU, tags: {} };
-        if (!container.tags || typeof container.tags !== 'object')
-            container.tags = {};
-        container.version = CHAT_SHEET_GUIDE_VERSION_ACU;
-        container.tags[normalizedKey] = {
-            data: normalized,
-            updatedAt,
-            reason: String(reason || ''),
-            templateScopeMode: shouldSyncTemplateScope ? 'chat_override' : 'inherit_global',
-        };
-        first[CHAT_SHEET_GUIDE_FIELD_ACU] = container;
-        if (shouldSyncTemplateScope) {
-            const fallbackTemplateSource = existingTemplateScopeState?.templateStr || materializeDataFromSheetGuide_ACU(normalized, { includeSeedRows: true });
-            const resolvedTemplateSource = templateSource || fallbackTemplateSource;
-            const currentGlobalPresetName = normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }));
-            const resolvedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName || existingTemplateScopeState?.presetName || currentGlobalPresetName);
-            const resolvedSource = normalizeChatScopedConfigSource_ACU(source, existingTemplateScopeState?.source || (syncTemplateScope ? 'ui' : 'inherit'));
-            const templateState = buildChatTemplateScopeStateFromCurrent_ACU({
-                isolationKey: normalizedKey,
-                presetName: resolvedPresetName,
-                source: resolvedSource,
-                originGlobalName: normalizeTemplatePresetSelectionValue_ACU(existingTemplateScopeState?.originGlobalName || currentGlobalPresetName),
-                originGlobalRevision: Number.isFinite(existingTemplateScopeState?.originGlobalRevision)
-                    ? existingTemplateScopeState.originGlobalRevision
-                    : 0,
-                updatedAt,
-                templateSource: resolvedTemplateSource,
-                guideData: normalized,
-            });
-            if (templateState) {
-                setCurrentChatTemplateScopeState_ACU(templateState, {
-                    isolationKey: normalizedKey,
-                    reason: String(reason || `template_scope_${resolvedSource}`),
-                });
-                try {
-                    upsertChatTemplatePresetEntry_ACU(templateState, { isolationKey: normalizedKey });
-                }
-                catch (e) {
-                    logWarn_ACU('[Guide] upsertChatPresetEntry 失败:', e);
-                }
-            }
-        }
-        return true;
-    }
-    // =========================
-    // [新增] seedRows 解析/兜底：用于 $0 注入与"无数据初始化"场景
-    // 目标：
-    // - 新对话首次填表时，即使 currentJsonTableData_ACU 仅有表结构，也能从"内部指导表/模板"取到 seedRows
-    // - 支持隔离标签切换或初始化早期 chat 尚未加载导致的"指导表未命中"情况
-    // 注意：这里只把 seedRows 挂在表对象字段上，不会写入 content（不把模板基础数据当作真实聊天数据）
-    // =========================
-    let _seedRowsTemplateCacheStr_ACU = null;
-    let _seedRowsTemplateCacheObj_ACU = null;
-    function getTemplateObjForSeedRows_ACU() {
-        try {
-            if (_seedRowsTemplateCacheStr_ACU === TABLE_TEMPLATE_ACU && _seedRowsTemplateCacheObj_ACU)
-                return _seedRowsTemplateCacheObj_ACU;
-            const obj = parseTableTemplateJson_ACU({ stripSeedRows: false });
-            _seedRowsTemplateCacheStr_ACU = TABLE_TEMPLATE_ACU;
-            _seedRowsTemplateCacheObj_ACU = obj;
-            return obj;
-        }
-        catch (e) {
-            return null;
-        }
-    }
-    async function ensureChatSheetGuideSeeded_ACU({ reason = 'auto_seed_seedRows', force = false } = {}) {
-        try {
-            const isolationKey = getCurrentIsolationKey_ACU();
-            const existing = getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
-            const hasExisting = !!(existing && typeof existing === 'object' && Object.keys(existing).some(k => k.startsWith('sheet_')));
-            if (hasExisting && !force)
-                return existing;
-            const chat = getChatArray_ACU();
-            if (!chat || !Array.isArray(chat) || chat.length === 0)
-                return existing || null;
-            const templateObj = getTemplateObjForSeedRows_ACU();
-            if (!templateObj)
-                return existing || null;
-            // 用模板构建指导表（content 保留表头；seedRows 写入字段）
-            const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: true });
-            if (!guideData)
-                return existing || null;
-            const ok = setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, { reason });
-            if (ok) {
-                try {
-                    await saveChatToHost_ACU();
-                }
-                catch (e) {
-                    logWarn_ACU('[Guide] saveChatToHost 失败:', e);
-                }
-                logDebug_ACU(`[SheetGuide] Auto-seeded chat sheet guide for tag [${isolationKey || '无标签'}], reason=${reason}`);
-            }
-            return guideData;
-        }
-        catch (e) {
-            return null;
-        }
-    }
-    function pickAnyGuideSeedRowsSlot_ACU(sheetKey) {
-        try {
-            const chat = getChatArray_ACU();
-            let best = null;
-            const applyCandidate = (ts, data) => {
-                const sr = data?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
-                if (!Array.isArray(sr) || sr.length === 0)
-                    return;
-                if (!best || ts > best.ts) {
-                    best = { ts, seedRows: sr };
-                }
-            };
-            const scopedContainer = getChatScopedConfigContainer_ACU(chat);
-            const scopedTemplateSlots = scopedContainer?.template;
-            if (scopedTemplateSlots && typeof scopedTemplateSlots === 'object' && !Array.isArray(scopedTemplateSlots)) {
-                Object.keys(scopedTemplateSlots).forEach((tagKey) => {
-                    const slotState = normalizeChatTemplateScopeState_ACU(scopedTemplateSlots[tagKey], { isolationKey: tagKey });
-                    if (slotState.mode !== 'chat_override')
-                        return;
-                    applyCandidate(Number(slotState.updatedAt) || 0, normalizeGuideData_ACU(slotState.guideData));
-                });
-            }
-            if (best) {
-                return JSON.parse(JSON.stringify(best.seedRows));
-            }
-            const container = getChatSheetGuideContainer_ACU(chat);
-            const tags = container?.tags;
-            if (!tags || typeof tags !== 'object')
-                return null;
-            Object.keys(tags).forEach((tagKey) => {
-                const slot = tags[tagKey];
-                const ts = Number(slot?.updatedAt) || 0;
-                applyCandidate(ts, normalizeGuideData_ACU(slot?.data));
-            });
-            return best ? JSON.parse(JSON.stringify(best.seedRows)) : null;
-        }
-        catch (e) {
-            return null;
-        }
-    }
-    function getEffectiveSeedRowsForSheet_ACU(sheetKey, { guideData = null, allowTemplateFallback = true } = {}) {
-        try {
-            if (!sheetKey || !String(sheetKey).startsWith('sheet_'))
-                return [];
-            const direct = currentJsonTableData_ACU?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
-            if (Array.isArray(direct) && direct.length > 0)
-                return JSON.parse(JSON.stringify(direct));
-            const g = guideData || (() => {
-                const isolationKey = getCurrentIsolationKey_ACU();
-                return getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
-            })();
-            const sr1 = g?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
-            if (Array.isArray(sr1) && sr1.length > 0)
-                return JSON.parse(JSON.stringify(sr1));
-            const any = pickAnyGuideSeedRowsSlot_ACU(sheetKey);
-            if (Array.isArray(any) && any.length > 0)
-                return any;
-            if (!allowTemplateFallback)
-                return [];
-            const templateObj = getTemplateObjForSeedRows_ACU();
-            const tplRows = templateObj?.[sheetKey]?.content;
-            if (Array.isArray(tplRows) && tplRows.length > 1)
-                return JSON.parse(JSON.stringify(tplRows.slice(1)));
-            return [];
-        }
-        catch (e) {
-            return [];
-        }
-    }
-    function attachSeedRowsToCurrentDataFromGuide_ACU(guideData) {
-        try {
-            if (!currentJsonTableData_ACU || typeof currentJsonTableData_ACU !== 'object')
-                return false;
-            const g = normalizeGuideData_ACU(guideData);
-            if (!g)
-                return false;
-            let changed = false;
-            Object.keys(currentJsonTableData_ACU).forEach(k => {
-                if (!k.startsWith('sheet_'))
-                    return;
-                const table = currentJsonTableData_ACU[k];
-                if (!table || typeof table !== 'object')
-                    return;
-                const existing = table?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
-                if (Array.isArray(existing) && existing.length > 0)
-                    return;
-                const sr = g?.[k]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
-                if (Array.isArray(sr) && sr.length > 0) {
-                    table[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(sr));
-                    changed = true;
-                }
-            });
-            return changed;
-        }
-        catch (e) {
-            return false;
-        }
-    }
-    // [新增] 用"当前数据"构建空白指导表：只保留表头行 + 参数（顺序由 getSortedSheetKeys_ACU 的旧逻辑决定，避免递归）
-    function buildChatSheetGuideDataFromData_ACU(dataObj, { preserveSeedRowsFromGuideData = null, seedRowsFromTemplateObj = null, orderedKeys = null } = {}) {
-        if (!dataObj || typeof dataObj !== 'object')
-            return null;
-        const keys = Array.isArray(orderedKeys) && orderedKeys.length
-            ? orderedKeys.filter(k => typeof k === 'string' && k.startsWith('sheet_') && dataObj[k])
-            : getSortedSheetKeys_ACU(dataObj, { ignoreChatGuide: true });
-        const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
-        if (dataObj.mate && typeof dataObj.mate === 'object') {
-            out.mate = JSON.parse(JSON.stringify(dataObj.mate));
-        }
-        out.mate.globalInjectionConfig = ensureGlobalInjectionConfigDefaults_ACU(out.mate.globalInjectionConfig);
-        keys.forEach((k) => {
-            const s = dataObj[k];
-            if (!s)
-                return;
-            const headerRow = Array.isArray(s.content) && Array.isArray(s.content[0]) ? JSON.parse(JSON.stringify(s.content[0])) : ["row_id"];
-            const blank = {
-                uid: s.uid || k,
-                name: s.name || k,
-                sourceData: s.sourceData ? JSON.parse(JSON.stringify(s.sourceData)) : { note: '', initNode: '', insertNode: '', updateNode: '', deleteNode: '' },
-                content: [headerRow],
-                updateConfig: s.updateConfig ? JSON.parse(JSON.stringify(s.updateConfig)) : { uiSentinel: -1, contextDepth: -1, updateFrequency: -1, batchSize: -1, skipFloors: -1, sendLatestRows: -1, groupId: -1 },
-                exportConfig: ensureExportConfigDefaults_ACU(s.exportConfig ? JSON.parse(JSON.stringify(s.exportConfig)) : null, s.name || k),
-            };
-            // 需求4：结构/表名/参数变更时，仅更新指导表元信息，不修改"基础数据(seedRows)"
-            const preserved = preserveSeedRowsFromGuideData?.[k]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
-            if (Array.isArray(preserved)) {
-                blank[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(preserved));
-            }
-            else {
-                // 需求1：首次生成指导表时，把模板预置数据写入 seedRows（仅在未能从既有指导表继承时）
-                const tplRows = seedRowsFromTemplateObj?.[k]?.content;
-                if (Array.isArray(tplRows) && tplRows.length > 1) {
-                    blank[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(tplRows.slice(1)));
-                }
-            }
-            if (Number.isFinite(s?.[TABLE_ORDER_FIELD_ACU]))
-                blank[TABLE_ORDER_FIELD_ACU] = Math.trunc(s[TABLE_ORDER_FIELD_ACU]);
-            out[k] = blank;
-        });
-        return normalizeGuideData_ACU(out);
-    }
-    // [新增] 用"模板对象"构建空白指导表：只保留表头行 + 参数（模板已有顺序编号）
-    function buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows = true } = {}) {
-        if (!templateObj || typeof templateObj !== 'object')
-            return null;
-        const keys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
-        if (keys.length === 0)
-            return null;
-        // 确保模板编号稳定（缺失则补齐）
-        try {
-            ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: keys, forceRebuild: false });
-        }
-        catch (e) {
-            logWarn_ACU('[Guide] ensureSheetOrderNumbers 失败:', e);
-        }
-        const sorted = keys.sort((a, b) => {
-            const ao = Number.isFinite(templateObj?.[a]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(templateObj[a][TABLE_ORDER_FIELD_ACU]) : Infinity;
-            const bo = Number.isFinite(templateObj?.[b]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(templateObj[b][TABLE_ORDER_FIELD_ACU]) : Infinity;
-            if (ao !== bo)
-                return ao - bo;
-            return String(a).localeCompare(String(b));
-        });
-        const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
-        if (templateObj.mate && typeof templateObj.mate === 'object') {
-            out.mate = JSON.parse(JSON.stringify(templateObj.mate));
-        }
-        out.mate.globalInjectionConfig = ensureGlobalInjectionConfigDefaults_ACU(out.mate.globalInjectionConfig);
-        sorted.forEach((k, idx) => {
-            const base = JSON.parse(JSON.stringify(templateObj[k] || {}));
-            base.uid = base.uid || k;
-            base.name = base.name || k;
-            if (!Array.isArray(base.content) || base.content.length === 0)
-                base.content = [["row_id"]];
-            // v2: 保存模板预置数据为 seedRows，但指导表本体 content 仍只保留表头
-            if (Array.isArray(base.content) && base.content.length > 1) {
-                base[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(base.content.slice(1)));
-            }
-            if (stripSeedRows && Array.isArray(base.content) && base.content.length > 1)
-                base.content = [base.content[0]];
-            if (!Number.isFinite(base[TABLE_ORDER_FIELD_ACU]))
-                base[TABLE_ORDER_FIELD_ACU] = idx;
-            out[k] = base;
-        });
-        return normalizeGuideData_ACU(out);
-    }
-    // [新增] 覆盖式更新：用模板写入当前聊天第一层"空白指导表"
-    async function overwriteChatSheetGuideFromTemplate_ACU(templateObj, { reason = 'template_changed', stripSeedRows = true, presetName = '', source = 'ui', syncTemplateScope = false, registerPreset = false } = {}) {
-        const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows });
-        if (!guideData)
-            return false;
-        const isolationKey = getCurrentIsolationKey_ACU();
-        const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateObj);
-        const normalizedPresetName = deriveTemplatePresetNameForImport_ACU({ presetName });
-        if (registerPreset && normalizedPresetName && templateSnapshot?.templateStr) {
-            try {
-                const savePresetOk = upsertTemplatePreset_ACU(normalizedPresetName, templateSnapshot.templateStr);
-                if (!savePresetOk) {
-                    logWarn_ACU(`[TemplateScope] 保存模板预设失败：${normalizedPresetName}`);
-                }
-            }
-            catch (e) {
-                logWarn_ACU('[TemplateScope] 保存模板预设失败:', e);
-            }
-        }
-        const ok = setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, {
-            reason,
-            syncTemplateScope,
-            templateSource: templateSnapshot?.templateStr || templateObj,
-            presetName: normalizedPresetName,
-            source,
-        });
-        if (!ok)
-            return false;
-        if (syncTemplateScope) {
-            try {
-                applyTemplateScopeForCurrentChat_ACU();
-            }
-            catch (e) {
-                logWarn_ACU('[Guide] applyTemplateScope 失败:', e);
-            }
-        }
-        try {
-            await saveChatToHost_ACU();
-        }
-        catch (e) {
-            logWarn_ACU('[Guide] saveChatToHost 失败:', e);
-        }
-        try {
-            await refreshMergedDataAndNotify_ACU();
-        }
-        catch (e) { }
-        return true;
-    }
-    // [表格顺序新机制] 获取表格 keys：
-    // - 若当前聊天已存在"空白指导表"：优先按指导表的 orderNo 顺序（可过滤不在指导表里的表）
-    // - 否则：按"编号(orderNo)从小到大"排序；缺编号则回退到模板编号/模板顺序
-
-    /**
-     * service/template/chat-scope/chat-scope-template.ts
-     * Template Scope 管理 + Global Template（B+C 组）
-     */
-    function normalizeTemplateScopeMode_ACU(mode) {
-        if (mode === 'chat_override')
-            return 'chat_override';
-        if (mode === 'preset_link')
-            return 'preset_link';
-        return 'inherit_global';
-    }
-    function normalizeTemplateScopeIsolationKey_ACU(isolationKey = getCurrentIsolationKey_ACU()) {
-        return String(isolationKey ?? '');
-    }
-    function sanitizeTemplateSnapshotForChat_ACU(templateSource) {
-        let templateObj = null;
-        if (typeof templateSource === 'string') {
-            templateObj = safeJsonParse_ACU(templateSource, null);
-        }
-        else if (templateSource && typeof templateSource === 'object' && !Array.isArray(templateSource)) {
-            templateObj = cloneScopedConfigData_ACU(templateSource, null);
-        }
-        if (!templateObj || typeof templateObj !== 'object' || Array.isArray(templateObj))
-            return null;
-        try {
-            const sheetKeys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
-            ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: sheetKeys, forceRebuild: false });
-        }
-        catch (e) {
-            logWarn_ACU('[模板作用域] sanitizeTemplateSnapshot: 排序号处理失败:', e);
-        }
-        const sanitized = sanitizeChatSheetsObject_ACU(templateObj, { ensureMate: true });
-        const templateStr = safeJsonStringify_ACU(sanitized, '');
-        if (!templateStr)
-            return null;
-        return {
-            templateStr,
-            templateObj: safeJsonParse_ACU(templateStr, null),
-        };
-    }
-    function normalizeChatTemplateScopeState_ACU(rawState, { isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const state = (rawState && typeof rawState === 'object' && !Array.isArray(rawState)) ? rawState : {};
-        const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(state.templateStr || state.templateObj || state.template || null);
-        const guideData = normalizeGuideData_ACU(state.guideData);
-        return {
-            mode: normalizeTemplateScopeMode_ACU(state.mode),
-            isolationKey: normalizeTemplateScopeIsolationKey_ACU(state.isolationKey ?? isolationKey),
-            presetName: normalizeTemplatePresetSelectionValue_ACU(state.presetName || ''),
-            templateStr: templateSnapshot?.templateStr || '',
-            guideData,
-            originGlobalName: normalizeTemplatePresetSelectionValue_ACU(state.originGlobalName || ''),
-            originGlobalRevision: Number.isFinite(state.originGlobalRevision) ? Math.max(0, Math.trunc(state.originGlobalRevision)) : 0,
-            updatedAt: Number.isFinite(state.updatedAt) ? state.updatedAt : 0,
-            source: normalizeChatScopedConfigSource_ACU(state.source, 'inherit'),
-        };
-    }
-    function buildChatTemplatePresetSlotKey_ACU(presetName) {
-        return normalizeTemplatePresetSelectionValue_ACU(presetName) || DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU;
-    }
-    function listChatTemplatePresetEntries_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const entryMap = new Map();
-        getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).forEach((entry) => {
-            const slotKey = buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '');
-            const previousEntry = entryMap.get(slotKey);
-            const currentTs = Number(entry?.updatedAt) || Number(entry?.archivedAt) || 0;
-            const previousTs = Number(previousEntry?.updatedAt) || Number(previousEntry?.archivedAt) || 0;
-            if (!previousEntry || currentTs >= previousTs) {
-                entryMap.set(slotKey, entry);
-            }
-        });
-        return Array.from(entryMap.values()).sort((a, b) => {
-            const ta = Number(a?.updatedAt) || Number(a?.archivedAt) || 0;
-            const tb = Number(b?.updatedAt) || Number(b?.archivedAt) || 0;
-            return tb - ta;
-        });
-    }
-    function findChatTemplatePresetEntry_ACU(presetName, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const slotKey = buildChatTemplatePresetSlotKey_ACU(presetName);
-        return listChatTemplatePresetEntries_ACU({ chat, isolationKey }).find(entry => buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '') === slotKey) || null;
-    }
-    function upsertChatTemplatePresetEntry_ACU(templateState, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
-        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
-            return null;
-        const slotKey = buildChatTemplatePresetSlotKey_ACU(normalizedState.presetName || '');
-        const archivedAt = Date.now();
-        const nextEntries = [
-            {
-                ...normalizedState,
-                archiveKey: slotKey,
-                archivedAt,
-                updatedAt: normalizedState.updatedAt || archivedAt,
-            },
-            ...getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).filter((entry) => buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '') !== slotKey),
-        ];
-        setChatTemplateArchiveEntries_ACU(nextEntries, { chat, isolationKey: normalizedKey });
-        return findChatTemplatePresetEntry_ACU(normalizedState.presetName || '', { chat, isolationKey: normalizedKey });
-    }
-    function ensureCurrentChatTemplatePresetEntry_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const currentState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ chat, isolationKey: normalizedKey });
-        const normalizedState = normalizeChatTemplateScopeState_ACU(currentState, { isolationKey: normalizedKey });
-        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
-            return null;
-        const existingEntry = findChatTemplatePresetEntry_ACU(normalizedState.presetName || '', { chat, isolationKey: normalizedKey });
-        const currentFingerprint = buildChatTemplateArchiveFingerprint_ACU(normalizedState, { isolationKey: normalizedKey });
-        const existingFingerprint = existingEntry ? buildChatTemplateArchiveFingerprint_ACU(existingEntry, { isolationKey: normalizedKey }) : '';
-        if (existingEntry && currentFingerprint && existingFingerprint === currentFingerprint) {
-            return existingEntry;
-        }
-        return upsertChatTemplatePresetEntry_ACU(normalizedState, { chat, isolationKey: normalizedKey });
-    }
-    function buildChatTemplatePresetLinkState_ACU({ isolationKey = getCurrentIsolationKey_ACU(), presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now() } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        return normalizeChatTemplateScopeState_ACU({
-            mode: 'preset_link',
-            isolationKey: normalizedKey,
-            presetName,
-            originGlobalName,
-            originGlobalRevision,
-            updatedAt,
-            source,
-        }, { isolationKey: normalizedKey });
-    }
-    async function activateChatTemplatePresetSelection_ACU(presetName, { source = 'ui_chat_select', save = true } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(getCurrentIsolationKey_ACU());
-        const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
-        const localEntry = findChatTemplatePresetEntry_ACU(normalizedPresetName, { isolationKey: normalizedKey });
-        const hasGlobalPreset = !normalizedPresetName || !!getTemplatePreset_ACU(normalizedPresetName)?.templateStr;
-        try {
-            ensureCurrentChatTemplatePresetEntry_ACU({ isolationKey: normalizedKey });
-        }
-        catch (e) {
-            logWarn_ACU('[模板作用域] ensureCurrentChatPresetEntry 失败:', e);
-        }
-        if (localEntry?.templateStr) {
-            persistTemplateScopeSelectionState_ACU(normalizedPresetName, {
-                source,
-                updateGlobal: false,
-                save,
-                persistChatScope: true,
-                templateSource: localEntry.templateStr,
-                guideData: localEntry.guideData,
-                scopeMode: 'chat_override',
-                registerChatPresetEntry: false,
-            });
-        }
-        else {
-            if (!hasGlobalPreset)
-                return false;
-            const linkState = buildChatTemplatePresetLinkState_ACU({
-                isolationKey: normalizedKey,
-                presetName: normalizedPresetName,
-                source,
-                originGlobalName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
-                originGlobalRevision: 0,
-                updatedAt: Date.now(),
-            });
-            setCurrentChatTemplateScopeState_ACU(linkState, {
-                isolationKey: normalizedKey,
-                reason: `template_scope_${source}`,
-            });
-            try {
-                clearChatSheetGuideDataForIsolationKey_ACU({ isolationKey: normalizedKey });
-            }
-            catch (e) {
-                logWarn_ACU('[模板作用域] clearChatSheetGuide 失败:', e);
-            }
-            if (save) {
-                try {
-                    await saveChatToHost_ACU();
-                }
-                catch (error) {
-                    logWarn_ACU('[TemplateScope] 保存聊天级模板预设引用失败:', error);
-                }
-            }
-        }
-        applyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
-        try {
-            await refreshMergedDataAndNotify_ACU();
-        }
-        catch (e) { }
-        return {
-            presetName: normalizedPresetName,
-            mode: localEntry?.templateStr ? 'chat_override' : 'preset_link',
-            fromLocalSnapshot: !!localEntry?.templateStr,
-        };
-    }
-    function buildChatTemplateArchiveFingerprint_ACU(templateState, { isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey });
-        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
-            return '';
-        const raw = safeJsonStringify_ACU({
-            presetName: normalizedState.presetName || '',
-            source: normalizedState.source || '',
-            templateStr: normalizedState.templateStr || '',
-            guideData: normalizeGuideData_ACU(normalizedState.guideData),
-        }, '');
-        return raw ? hashUserInput_ACU(raw) : '';
-    }
-    function getChatTemplateArchiveBaseLabel_ACU(templateState, { fallback = '聊天模板快照' } = {}) {
-        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState);
-        if (normalizedState.source === 'legacy_history_frozen')
-            return '旧对话历史模板快照';
-        if (normalizedState.source === 'legacy_header_frozen')
-            return '旧版表头冻结模板';
-        if (normalizedState.source === 'legacy_frozen')
-            return '旧版聊天冻结模板';
-        const presetName = normalizeTemplatePresetSelectionValue_ACU(normalizedState.presetName || '');
-        return presetName ? getTemplatePresetDisplayName_ACU(presetName) : fallback;
-    }
-    function normalizeChatTemplateArchiveEntry_ACU(rawEntry, { isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const normalizedState = normalizeChatTemplateScopeState_ACU(rawEntry, { isolationKey });
-        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
-            return null;
-        const archiveKey = String(rawEntry?.archiveKey || buildChatTemplateArchiveFingerprint_ACU(normalizedState, { isolationKey: normalizedState.isolationKey }) || '').trim();
-        if (!archiveKey)
-            return null;
-        return {
-            archiveKey,
-            isolationKey: normalizedState.isolationKey,
-            presetName: normalizedState.presetName,
-            templateStr: normalizedState.templateStr,
-            guideData: normalizedState.guideData,
-            originGlobalName: normalizedState.originGlobalName,
-            originGlobalRevision: normalizedState.originGlobalRevision,
-            updatedAt: normalizedState.updatedAt,
-            archivedAt: Number.isFinite(rawEntry?.archivedAt) ? rawEntry.archivedAt : Date.now(),
-            source: normalizedState.source,
-            mode: 'chat_override',
-        };
-    }
-    function getChatTemplateArchiveEntries_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const container = getChatScopedConfigContainer_ACU(chat);
-        const rawSlots = container?.templateArchives;
-        if (!rawSlots || typeof rawSlots !== 'object' || Array.isArray(rawSlots))
-            return [];
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const rawEntries = Array.isArray(rawSlots[normalizedKey]) ? rawSlots[normalizedKey] : [];
-        return rawEntries
-            .map((entry) => normalizeChatTemplateArchiveEntry_ACU(entry, { isolationKey: normalizedKey }))
-            .filter(Boolean)
-            .sort((a, b) => (Number(b.archivedAt) || 0) - (Number(a.archivedAt) || 0));
-    }
-    function setChatTemplateArchiveEntries_ACU(entries, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const first = getChatFirstLayerMessage_ACU(chat);
-        if (!first)
-            return [];
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
-        const normalizedEntries = (Array.isArray(entries) ? entries : [])
-            .map(entry => normalizeChatTemplateArchiveEntry_ACU(entry, { isolationKey: normalizedKey }))
-            .filter(Boolean)
-            .sort((a, b) => (Number(b.archivedAt) || 0) - (Number(a.archivedAt) || 0))
-            .slice(0, MAX_CHAT_TEMPLATE_ARCHIVES_PER_TAG_ACU);
-        if (normalizedEntries.length > 0) {
-            if (!container.templateArchives || typeof container.templateArchives !== 'object' || Array.isArray(container.templateArchives)) {
-                container.templateArchives = {};
-            }
-            container.templateArchives[normalizedKey] = normalizedEntries;
-        }
-        else if (container.templateArchives && typeof container.templateArchives === 'object' && !Array.isArray(container.templateArchives)) {
-            delete container.templateArchives[normalizedKey];
-            if (Object.keys(container.templateArchives).length === 0)
-                delete container.templateArchives;
-        }
-        const hasPayload = Object.keys(container).some(key => key !== 'version');
-        if (hasPayload) {
-            first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
-        }
-        else {
-            delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
-        }
-        return getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey });
-    }
-    function archiveCurrentChatTemplateScopeState_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU(), nextTemplateState = null, reason = '' } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const currentState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ chat, isolationKey: normalizedKey });
-        const normalizedCurrentState = normalizeChatTemplateScopeState_ACU(currentState, { isolationKey: normalizedKey });
-        if (normalizedCurrentState.mode !== 'chat_override' || !normalizedCurrentState.templateStr)
-            return false;
-        const currentArchiveKey = buildChatTemplateArchiveFingerprint_ACU(normalizedCurrentState, { isolationKey: normalizedKey });
-        if (!currentArchiveKey)
-            return false;
-        const normalizedNextState = nextTemplateState
-            ? normalizeChatTemplateScopeState_ACU(nextTemplateState, { isolationKey: normalizedKey })
-            : null;
-        const nextArchiveKey = normalizedNextState?.templateStr
-            ? buildChatTemplateArchiveFingerprint_ACU(normalizedNextState, { isolationKey: normalizedKey })
-            : '';
-        if (nextArchiveKey && currentArchiveKey === nextArchiveKey)
-            return false;
-        const archivedAt = Date.now();
-        const nextEntries = [
-            {
-                ...normalizedCurrentState,
-                archiveKey: currentArchiveKey,
-                archivedAt,
-                updatedAt: normalizedCurrentState.updatedAt || archivedAt,
-                source: normalizedCurrentState.source || normalizeChatScopedConfigSource_ACU(reason, 'inherit'),
-            },
-            ...getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).filter((entry) => entry.archiveKey !== currentArchiveKey),
-        ];
-        setChatTemplateArchiveEntries_ACU(nextEntries, { chat, isolationKey: normalizedKey });
-        return true;
-    }
-    function buildChatTemplateArchiveOptionValue_ACU(archiveKey) {
-        const normalizedKey = String(archiveKey || '').trim();
-        return normalizedKey ? `${CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU}${normalizedKey}` : '';
-    }
-    function isChatTemplateArchiveOptionValue_ACU(value) {
-        return typeof value === 'string' && value.startsWith(CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU);
-    }
-    function parseChatTemplateArchiveOptionValue_ACU(value) {
-        return isChatTemplateArchiveOptionValue_ACU(value)
-            ? String(value.slice(CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU.length)).trim()
-            : '';
-    }
-    function getChatTemplateArchiveOptionLabel_ACU(entry) {
-        const normalizedEntry = normalizeChatTemplateArchiveEntry_ACU(entry);
-        if (!normalizedEntry)
-            return '聊天历史模板快照';
-        const baseLabel = getChatTemplateArchiveBaseLabel_ACU(normalizedEntry);
-        const archivedAtText = (typeof formatPlotScopeUpdatedAt_ACU$1 === 'function') ? formatPlotScopeUpdatedAt_ACU$1(normalizedEntry.archivedAt || normalizedEntry.updatedAt) : '';
-        return archivedAtText
-            ? `${baseLabel}（聊天历史快照，${archivedAtText}）`
-            : `${baseLabel}（聊天历史快照）`;
-    }
-    async function restoreChatTemplateArchiveEntry_ACU(archiveKey, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU(), save = true } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const normalizedArchiveKey = String(archiveKey || '').trim();
-        if (!normalizedArchiveKey)
-            return false;
-        const entry = getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).find((item) => item.archiveKey === normalizedArchiveKey);
-        if (!entry?.templateStr)
-            return false;
-        persistTemplateScopeSelectionState_ACU(entry.presetName, {
-            source: entry.source || 'ui_chat_archive_restore',
-            updateGlobal: false,
-            save,
-            persistChatScope: true,
-            templateSource: entry.templateStr,
-            guideData: entry.guideData,
-            archivePreviousChatScope: true,
-        });
-        applyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
-        try {
-            await refreshMergedDataAndNotify_ACU();
-        }
-        catch (e) { }
-        return {
-            archiveKey: normalizedArchiveKey,
-            presetName: entry.presetName || '',
-            label: getChatTemplateArchiveOptionLabel_ACU(entry),
-            templateStr: entry.templateStr,
-        };
-    }
-    function getCurrentChatTemplateScopeState_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const container = getChatScopedConfigContainer_ACU(chat);
-        const rawSlots = container?.template;
-        if (!rawSlots || typeof rawSlots !== 'object' || Array.isArray(rawSlots))
-            return null;
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const rawState = rawSlots[normalizedKey];
-        if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState))
-            return null;
-        const normalizedState = normalizeChatTemplateScopeState_ACU(rawState, { isolationKey: normalizedKey });
-        if (normalizedState.mode === 'preset_link') {
-            return normalizedState;
-        }
-        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr) {
-            return null;
-        }
-        return normalizedState;
-    }
-    function buildChatTemplateScopeStateFromCurrent_ACU({ isolationKey = getCurrentIsolationKey_ACU(), presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now(), templateSource = TABLE_TEMPLATE_ACU, guideData = null } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateSource);
-        if (!templateSnapshot?.templateStr)
-            return null;
-        const resolvedGuideData = normalizeGuideData_ACU(guideData || getChatSheetGuideDataForIsolationKey_ACU(normalizedKey));
-        return normalizeChatTemplateScopeState_ACU({
-            mode: 'chat_override',
-            isolationKey: normalizedKey,
-            presetName,
-            templateStr: templateSnapshot.templateStr,
-            guideData: resolvedGuideData,
-            originGlobalName,
-            originGlobalRevision,
-            updatedAt,
-            source,
-        }, { isolationKey: normalizedKey });
-    }
-    function setCurrentChatTemplateScopeState_ACU(templateState, { isolationKey = getCurrentIsolationKey_ACU(), reason = '' } = {}) {
-        const chat = getChatArray_ACU();
-        const first = getChatFirstLayerMessage_ACU(chat);
-        if (!first)
-            return null;
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
-        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
-        if (!container.template || typeof container.template !== 'object' || Array.isArray(container.template)) {
-            container.template = {};
-        }
-        if (normalizedState.mode === 'chat_override' && normalizedState.templateStr) {
-            container.template[normalizedKey] = {
-                ...normalizedState,
-                reason: String(reason || ''),
-            };
-        }
-        else if (normalizedState.mode === 'preset_link') {
-            container.template[normalizedKey] = {
-                ...normalizedState,
-                templateStr: '',
-                guideData: null,
-                reason: String(reason || ''),
-            };
-        }
-        else {
-            delete container.template[normalizedKey];
-            if (Object.keys(container.template).length === 0) {
-                delete container.template;
-            }
-        }
-        const hasPayload = Object.keys(container).some(key => key !== 'version');
-        if (hasPayload) {
-            first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
-        }
-        else {
-            delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
-        }
-        return getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
-    }
-    function clearCurrentChatTemplateScopeState_ACU({ isolationKey = getCurrentIsolationKey_ACU(), clearGuide = true, archiveCurrent = true } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        if (archiveCurrent) {
-            try {
-                archiveCurrentChatTemplateScopeState_ACU({ isolationKey: normalizedKey, reason: 'clear_template_override' });
-            }
-            catch (e) {
-                logWarn_ACU('[模板作用域] archiveTemplateScopeState 失败:', e);
-            }
-        }
-        const result = setCurrentChatTemplateScopeState_ACU({ mode: 'inherit_global' }, {
-            isolationKey: normalizedKey,
-            reason: 'clear_template_override',
-        });
-        if (clearGuide) {
-            try {
-                clearChatSheetGuideDataForIsolationKey_ACU({ isolationKey: normalizedKey });
-            }
-            catch (e) {
-                logWarn_ACU('[模板作用域] clearChatSheetGuide 失败:', e);
-            }
-        }
-        return result;
-    }
-    function getGlobalTemplateSnapshotForCurrentProfile_ACU() {
-        const code = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || '');
-        const previousTemplate = TABLE_TEMPLATE_ACU;
-        const savedTemplate = readProfileTemplateFromStorage_ACU(code);
-        let snapshot = sanitizeTemplateSnapshotForChat_ACU(savedTemplate || previousTemplate);
-        if (snapshot?.templateStr) {
-            return snapshot;
-        }
-        try {
-            _set_TABLE_TEMPLATE_ACU(savedTemplate || DEFAULT_TABLE_TEMPLATE_ACU);
-            const parsedTemplate = parseTableTemplateJson_ACU({ stripSeedRows: false });
-            snapshot = sanitizeTemplateSnapshotForChat_ACU(parsedTemplate);
-        }
-        catch (e) {
-            snapshot = null;
-        }
-        finally {
-            _set_TABLE_TEMPLATE_ACU(previousTemplate);
-        }
-        return snapshot || sanitizeTemplateSnapshotForChat_ACU(previousTemplate);
-    }
-
-    /**
-     * service/template/chat-scope/index.ts — 统一 re-export
-     * 保持外部 import { xxx } from '.../chat-scope' 路径不变
-     */
-    // 共享基础函数
-
-    /**
      * data/storage/optimization-cache-storage.ts — 正文优化基础缓存存储适配器
      *
      * 封装正文优化的浏览器侧缓存操作（window 对象 + localStorage 两层）。
@@ -19524,1780 +17452,6 @@ $CONTENT
      */
     function _set_optimizationProgressToast_ACU(v) { optimizationProgressToast_ACU = v; }
     function _set_contentOptimizationAbortRequested_ACU(v) { contentOptimizationAbortRequested_ACU = v; }
-
-    /**
-     * service/plot/plot-logic.ts — 剧情推进纯逻辑函数
-     *
-     * 从 presentation/components/optimization-ui.ts 真正搬入的纯数据/逻辑函数。
-     * 不操作 DOM，不引用 $popupInstance_ACU / jQuery_API_ACU 等 UI 对象。
-     */
-    // ═══ 循环提示词/提示词组兼容 ═══
-    function ensureLoopPromptsArray_ACU(plotSettings) {
-        if (!plotSettings || !plotSettings.loopSettings)
-            return;
-        const ls = plotSettings.loopSettings;
-        if (typeof ls.quickReplyContent === 'string') {
-            const oldContent = ls.quickReplyContent.trim();
-            ls.quickReplyContent = oldContent ? [oldContent] : [];
-            ls.currentPromptIndex = 0;
-            logDebug_ACU('[剧情推进] 已迁移旧版循环提示词格式（字符串 -> 数组）');
-        }
-        if (!Array.isArray(ls.quickReplyContent)) {
-            ls.quickReplyContent = [];
-        }
-        if (typeof ls.currentPromptIndex !== 'number' || ls.currentPromptIndex < 0) {
-            ls.currentPromptIndex = 0;
-        }
-        if (ls.quickReplyContent.length > 0 && ls.currentPromptIndex >= ls.quickReplyContent.length) {
-            ls.currentPromptIndex = 0;
-        }
-    }
-    function ensureTagRulesCompat_ACU(targetSettings) {
-        if (!targetSettings || typeof targetSettings !== 'object')
-            return;
-        targetSettings.tableContextExtractRules = normalizeExtractRules_ACU(targetSettings.tableContextExtractRules, targetSettings.tableContextExtractTags || '');
-        targetSettings.tableContextExcludeRules = normalizeExcludeRules_ACU(targetSettings.tableContextExcludeRules, targetSettings.tableContextExcludeTags || '');
-        const plot = targetSettings.plotSettings;
-        if (!plot || typeof plot !== 'object')
-            return;
-        plot.contextExtractRules = normalizeExtractRules_ACU(plot.contextExtractRules, plot.contextExtractTags || '');
-        plot.contextExcludeRules = normalizeExcludeRules_ACU(plot.contextExcludeRules, plot.contextExcludeTags || '');
-        if ((!Array.isArray(plot.contextExtractRules) || plot.contextExtractRules.length === 0)
-            && (plot.contextExtractTags || '').trim() === '') {
-            plot.contextExtractRules = normalizeExtractRules_ACU(DEFAULT_PLOT_SETTINGS_ACU.contextExtractRules, DEFAULT_PLOT_SETTINGS_ACU.contextExtractTags || '');
-        }
-        if ((!Array.isArray(plot.contextExcludeRules) || plot.contextExcludeRules.length === 0)
-            && (plot.contextExcludeTags || '').trim() === '') {
-            plot.contextExcludeRules = normalizeExcludeRules_ACU(DEFAULT_PLOT_SETTINGS_ACU.contextExcludeRules, DEFAULT_PLOT_SETTINGS_ACU.contextExcludeTags || '');
-        }
-        ensurePlotTasksCompat_ACU(plot);
-        if (Array.isArray(plot.promptPresets)) {
-            plot.promptPresets = plot.promptPresets.map((preset) => normalizePlotPresetExcludeRules_ACU(preset));
-        }
-    }
-    // ═══ Prompt 辅助 ═══
-    function getLegacyPromptFromThree_ACU(prompts, id) {
-        if (!prompts)
-            return '';
-        if (Array.isArray(prompts))
-            return (prompts.find(item => item && item.id === id)?.content) || '';
-        if (typeof prompts === 'object')
-            return prompts[id] || '';
-        return '';
-    }
-    function looksLikePromptGroupSegments_ACU(arr) {
-        if (!Array.isArray(arr) || arr.length === 0)
-            return false;
-        const first = arr[0];
-        return first && typeof first === 'object' && 'role' in first && 'content' in first && !('id' in first);
-    }
-    function getMainSlotFromPlotSegment_ACU(segment) {
-        if (!segment)
-            return '';
-        const slot = String(segment.mainSlot || '').toUpperCase();
-        if (slot === 'A' || slot === 'B')
-            return slot;
-        if (segment.isMain)
-            return 'A';
-        if (segment.isMain2)
-            return 'B';
-        return '';
-    }
-    function getLegacyPromptTextsFromPromptGroup_ACU(promptGroup) {
-        const segments = Array.isArray(promptGroup) ? promptGroup : [];
-        return {
-            mainPrompt: (segments.find((segment) => getMainSlotFromPlotSegment_ACU(segment) === 'A')?.content) || '',
-            systemPrompt: (segments.find((segment) => getMainSlotFromPlotSegment_ACU(segment) === 'B')?.content) || '',
-        };
-    }
-    function getPlotPromptGroupFromSource_ACU(source, { fallbackPromptGroup = null } = {}) {
-        if (Array.isArray(source?.promptGroup) && source.promptGroup.length > 0) {
-            return JSON.parse(JSON.stringify(source.promptGroup));
-        }
-        if (looksLikePromptGroupSegments_ACU(source?.prompts)) {
-            return JSON.parse(JSON.stringify(source.prompts));
-        }
-        const fallbackTexts = getLegacyPromptTextsFromPromptGroup_ACU(fallbackPromptGroup);
-        const legacyMain = source?.mainPrompt || getLegacyPromptFromThree_ACU(source?.prompts, 'mainPrompt') || fallbackTexts.mainPrompt || '';
-        const legacySystem = source?.systemPrompt || getLegacyPromptFromThree_ACU(source?.prompts, 'systemPrompt') || fallbackTexts.systemPrompt || '';
-        return buildDefaultPlotPromptGroup_ACU({ mainAContent: legacyMain, mainBContent: legacySystem });
-    }
-    function getPlotFinalDirectiveFromSource_ACU(source) {
-        if (!source || typeof source !== 'object')
-            return '';
-        return source.finalSystemDirective
-            || source.finalDirective
-            || getPlotPromptContentByIdFromSettings_ACU(source, 'finalSystemDirective')
-            || getLegacyPromptFromThree_ACU(source.prompts, 'finalSystemDirective')
-            || '';
-    }
-    // ═══ 任务规范化 ═══
-    function normalizePlotTask_ACU(task, { index = 0, fallbackTask = null } = {}) {
-        const cloned = task && typeof task === 'object' ? JSON.parse(JSON.stringify(task)) : {};
-        const fallback = fallbackTask && typeof fallbackTask === 'object' ? fallbackTask : null;
-        const defaultId = `plotTask${index + 1}`;
-        const rawId = String(cloned.id || cloned.name || fallback?.id || defaultId).trim();
-        const taskId = rawId.replace(/[^\w-]+/g, '_') || defaultId;
-        const taskName = String(cloned.name || fallback?.name || `剧情任务${index + 1}`).trim() || `剧情任务${index + 1}`;
-        const promptGroup = getPlotPromptGroupFromSource_ACU(cloned, { fallbackPromptGroup: fallback?.promptGroup || null });
-        return {
-            id: taskId,
-            name: taskName,
-            enabled: cloned.enabled !== false,
-            promptGroup,
-            extractTags: typeof cloned.extractTags === 'string' ? cloned.extractTags : (fallback?.extractTags || ''),
-            extractInjectTags: typeof cloned.extractInjectTags === 'string' ? cloned.extractInjectTags : (fallback?.extractInjectTags || ''),
-            finalDirectiveTemplate: typeof cloned.finalDirectiveTemplate === 'string' ? cloned.finalDirectiveTemplate : (fallback?.finalDirectiveTemplate || ''),
-            minLength: normalizeNonNegativeInteger_ACU$1(cloned.minLength, fallback?.minLength ?? 0),
-            maxRetries: normalizePositiveInteger_ACU$1(cloned.maxRetries ?? cloned.loopSettings?.maxRetries, fallback?.maxRetries ?? DEFAULT_PLOT_SETTINGS_ACU.loopSettings?.maxRetries ?? 3),
-            mergeStrategy: typeof cloned.mergeStrategy === 'string' && cloned.mergeStrategy.trim()
-                ? cloned.mergeStrategy.trim()
-                : (fallback?.mergeStrategy || 'append'),
-            stage: normalizePositiveInteger_ACU$1(cloned.stage, fallback?.stage ?? 1),
-            order: normalizeNonNegativeInteger_ACU$1(cloned.order, fallback?.order ?? index),
-        };
-    }
-    function buildLegacyWrappedPlotTask_ACU(source, { taskId = 'defaultPlotTask', taskName = '默认任务', order = 0 } = {}) {
-        return normalizePlotTask_ACU({
-            id: taskId,
-            name: taskName,
-            enabled: true,
-            promptGroup: getPlotPromptGroupFromSource_ACU(source),
-            extractTags: typeof source?.extractTags === 'string' ? source.extractTags : '',
-            minLength: source?.minLength,
-            maxRetries: source?.loopSettings?.maxRetries,
-            mergeStrategy: 'append',
-            stage: 1,
-            order,
-        }, { index: order });
-    }
-    function normalizePlotTasks_ACU(source, { fallbackTaskId = 'defaultPlotTask', fallbackTaskName = '默认任务' } = {}) {
-        const baseSource = source && typeof source === 'object' ? source : {};
-        const fallbackTask = buildLegacyWrappedPlotTask_ACU(baseSource, {
-            taskId: fallbackTaskId,
-            taskName: fallbackTaskName,
-            order: 0,
-        });
-        const rawTasks = Array.isArray(baseSource.plotTasks) && baseSource.plotTasks.length > 0
-            ? baseSource.plotTasks
-            : [fallbackTask];
-        return rawTasks
-            .map((task, index) => normalizePlotTask_ACU(task, {
-            index,
-            fallbackTask: { ...fallbackTask, order: index },
-        }))
-            .sort((a, b) => a.order - b.order);
-    }
-    function syncLegacyPlotSettingsFromTask_ACU(plotSettings, task) {
-        if (!plotSettings || !task)
-            return;
-        ensurePlotPromptsArray_ACU(plotSettings);
-        const normalizedPromptGroup = getPlotPromptGroupFromSource_ACU(task);
-        plotSettings.promptGroup = JSON.parse(JSON.stringify(normalizedPromptGroup));
-        plotSettings.extractTags = typeof task.extractTags === 'string' ? task.extractTags : '';
-        plotSettings.minLength = normalizeNonNegativeInteger_ACU$1(task.minLength, 0);
-        const legacyPromptTexts = getLegacyPromptTextsFromPromptGroup_ACU(normalizedPromptGroup);
-        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'mainPrompt', legacyPromptTexts.mainPrompt || '');
-        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'systemPrompt', legacyPromptTexts.systemPrompt || '');
-    }
-    function syncPrimaryPlotTaskFromLegacySettings_ACU(plotSettings) {
-        if (!plotSettings || typeof plotSettings !== 'object')
-            return;
-        ensurePlotPromptGroup_ACU(plotSettings);
-        ensurePlotPromptsArray_ACU(plotSettings);
-        const legacyPromptTexts = getLegacyPromptTextsFromPromptGroup_ACU(plotSettings.promptGroup || []);
-        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'mainPrompt', legacyPromptTexts.mainPrompt || '');
-        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'systemPrompt', legacyPromptTexts.systemPrompt || '');
-        const normalizedTasks = normalizePlotTasks_ACU(plotSettings);
-        const primaryTaskIndex = normalizedTasks.findIndex((task) => task && task.enabled !== false);
-        const targetIndex = primaryTaskIndex >= 0 ? primaryTaskIndex : 0;
-        const currentTask = normalizedTasks[targetIndex] || buildLegacyWrappedPlotTask_ACU(plotSettings, { order: targetIndex });
-        normalizedTasks[targetIndex] = normalizePlotTask_ACU({
-            ...currentTask,
-            promptGroup: JSON.parse(JSON.stringify(plotSettings.promptGroup || [])),
-            extractTags: plotSettings.extractTags,
-            minLength: plotSettings.minLength,
-            maxRetries: plotSettings.loopSettings?.maxRetries,
-            order: currentTask.order ?? targetIndex,
-        }, {
-            index: targetIndex,
-            fallbackTask: currentTask,
-        });
-        plotSettings.plotTasks = normalizedTasks;
-    }
-    function ensurePlotTasksCompat_ACU(plotSettings, { persist = false, syncLegacy = true } = {}) {
-        if (!plotSettings || typeof plotSettings !== 'object')
-            return;
-        const normalizedTasks = normalizePlotTasks_ACU(plotSettings);
-        plotSettings.plotTasks = normalizedTasks;
-        if (syncLegacy && normalizedTasks.length > 0) {
-            const primaryTask = normalizedTasks.find((task) => task && task.enabled !== false) || normalizedTasks[0];
-            syncLegacyPlotSettingsFromTask_ACU(plotSettings, primaryTask);
-        }
-        if (persist) {
-            try {
-                saveSettings_ACU();
-            }
-            catch (e) { }
-        }
-    }
-    // ═══ 预设选择值规范化 ═══
-    const DEFAULT_PRESET_OPTION_VALUE_ACU = '__ACU_DEFAULT_PRESET__';
-    function normalizePlotPresetSelectionValue_ACU(presetName) {
-        const normalizedName = String(presetName ?? '').trim();
-        return normalizedName === DEFAULT_PRESET_OPTION_VALUE_ACU ? '' : normalizedName;
-    }
-    function isDefaultPlotPresetSelection_ACU(presetName) {
-        return normalizePlotPresetSelectionValue_ACU(presetName) === '';
-    }
-    // ═══ 预设绑定存储 ═══
-    function ensurePlotPresetBindingsStore_ACU() {
-        if (!settings_ACU || typeof settings_ACU !== 'object')
-            return {};
-        if (!settings_ACU.plotPresetBindings || typeof settings_ACU.plotPresetBindings !== 'object' || Array.isArray(settings_ACU.plotPresetBindings)) {
-            settings_ACU.plotPresetBindings = {};
-        }
-        return settings_ACU.plotPresetBindings;
-    }
-    function normalizePlotPresetBindingChatId_ACU(chatId = currentChatFileIdentifier_ACU) {
-        const normalizedChatId = cleanChatName_ACU(String(chatId ?? '').trim());
-        return (normalizedChatId && normalizedChatId !== 'unknown_chat_source') ? normalizedChatId : '';
-    }
-    function hasPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
-        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
-        if (!normalizedChatId)
-            return false;
-        return Object.prototype.hasOwnProperty.call(ensurePlotPresetBindingsStore_ACU(), normalizedChatId);
-    }
-    function getPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
-        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
-        if (!normalizedChatId)
-            return null;
-        const bindingStore = ensurePlotPresetBindingsStore_ACU();
-        if (!Object.prototype.hasOwnProperty.call(bindingStore, normalizedChatId))
-            return null;
-        const rawBinding = bindingStore[normalizedChatId] || {};
-        const normalizedSource = ['inherit', 'ui', 'api'].includes(rawBinding.source) ? rawBinding.source : 'inherit';
-        const normalizedBinding = {
-            presetName: normalizePlotPresetSelectionValue_ACU(rawBinding.presetName),
-            source: normalizedSource,
-            isExplicit: rawBinding.isExplicit === true,
-            updatedAt: Number.isFinite(rawBinding.updatedAt) ? rawBinding.updatedAt : 0,
-        };
-        bindingStore[normalizedChatId] = normalizedBinding;
-        return normalizedBinding;
-    }
-    function setPlotPresetBindingForChat_ACU(chatId, presetName, { source = 'inherit', isExplicit = false } = {}) {
-        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
-        if (!normalizedChatId)
-            return null;
-        const normalizedSource = ['inherit', 'ui', 'api'].includes(source) ? source : 'inherit';
-        const binding = {
-            presetName: normalizePlotPresetSelectionValue_ACU(presetName),
-            source: normalizedSource,
-            isExplicit: isExplicit === true,
-            updatedAt: Date.now(),
-        };
-        ensurePlotPresetBindingsStore_ACU()[normalizedChatId] = binding;
-        return binding;
-    }
-    function clearPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
-        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
-        if (!normalizedChatId)
-            return false;
-        const bindingStore = ensurePlotPresetBindingsStore_ACU();
-        if (!Object.prototype.hasOwnProperty.call(bindingStore, normalizedChatId))
-            return false;
-        delete bindingStore[normalizedChatId];
-        return true;
-    }
-    function findPlotPresetByName_ACU(presetName) {
-        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-        if (!normalizedPresetName)
-            return null;
-        const presets = settings_ACU?.plotSettings?.promptPresets || [];
-        const targetPresetRaw = presets.find((p) => p.name === normalizedPresetName);
-        return targetPresetRaw ? normalizePlotPresetExcludeRules_ACU(targetPresetRaw) : null;
-    }
-    function resolveActivePlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
-        const chatScopeState = getCurrentChatPlotScopeState_ACU();
-        if (chatScopeState) {
-            return normalizePlotPresetSelectionValue_ACU(chatScopeState.presetName || '');
-        }
-        const binding = getPlotPresetBindingForChat_ACU();
-        if (binding) {
-            if (isDefaultPlotPresetSelection_ACU(binding.presetName))
-                return '';
-            const boundPreset = findPlotPresetByName_ACU(binding.presetName);
-            if (boundPreset)
-                return boundPreset.name;
-        }
-        if (!fallbackToGlobal)
-            return '';
-        const globalPresetName = normalizePlotPresetSelectionValue_ACU(settings_ACU?.plotSettings?.lastUsedPresetName || '');
-        if (isDefaultPlotPresetSelection_ACU(globalPresetName))
-            return '';
-        const globalPreset = findPlotPresetByName_ACU(globalPresetName);
-        return globalPreset ? globalPreset.name : '';
-    }
-    function getCurrentRuntimePlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
-        return normalizePlotPresetSelectionValue_ACU(resolveActivePlotPresetName_ACU({ fallbackToGlobal }));
-    }
-    // ═══ 编辑器设置 ═══
-    function normalizePlotEditorScope_ACU(scope = 'resolved') {
-        if (scope === 'chat')
-            return 'chat';
-        if (scope === 'global')
-            return 'global';
-        return 'resolved';
-    }
-    function setCurrentEditablePlotPresetState_ACU(presetName, { scope = 'resolved', source = '' } = {}) {
-        _set_currentEditablePlotPresetState_ACU({
-            initialized: true,
-            presetName: normalizePlotPresetSelectionValue_ACU(presetName),
-            scope: normalizePlotEditorScope_ACU(scope),
-            source: String(source || ''),
-        });
-        return currentEditablePlotPresetState_ACU;
-    }
-    function syncCurrentEditablePlotPresetState_ACU({ source = 'runtime_sync' } = {}) {
-        const chatScopeState = getCurrentChatPlotScopeState_ACU();
-        const binding = getPlotPresetBindingForChat_ACU();
-        const resolvedPresetName = resolveActivePlotPresetName_ACU({ fallbackToGlobal: true });
-        const scope = (chatScopeState || binding) ? 'chat' : 'global';
-        return setCurrentEditablePlotPresetState_ACU(resolvedPresetName, { scope, source });
-    }
-    function getActivePlotEditorSettings_ACU({ fallbackToRuntime = true } = {}) {
-        const activeSettings = activePlotEditorSettings_ACU || (fallbackToRuntime ? settings_ACU?.plotSettings : null);
-        return activeSettings && typeof activeSettings === 'object' ? activeSettings : null;
-    }
-    function setActivePlotEditorSettings_ACU(plotSettings) {
-        if (!plotSettings || typeof plotSettings !== 'object') {
-            _set_activePlotEditorSettings_ACU(null);
-            return null;
-        }
-        _set_activePlotEditorSettings_ACU(plotSettings);
-        ensurePlotPromptsArray_ACU(activePlotEditorSettings_ACU);
-        ensureLoopPromptsArray_ACU(activePlotEditorSettings_ACU);
-        ensurePlotTasksCompat_ACU(activePlotEditorSettings_ACU, { syncLegacy: true });
-        activePlotEditorSettings_ACU.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(activePlotEditorSettings_ACU);
-        setPlotPromptContentByIdForSettings_ACU(activePlotEditorSettings_ACU, 'finalSystemDirective', activePlotEditorSettings_ACU.finalSystemDirective || '');
-        return activePlotEditorSettings_ACU;
-    }
-    function getPlotGlobalRevision_ACU() {
-        const rawRevision = settings_ACU?.plotSettings?.globalRevision;
-        return Number.isFinite(rawRevision) ? Math.max(0, Math.trunc(rawRevision)) : 0;
-    }
-    // ═══ 预设应用/重置 ═══
-    function cloneDefaultPlotSettingsForPreset_ACU() {
-        const defaults = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
-        ensurePlotPromptsArray_ACU(defaults);
-        ensureLoopPromptsArray_ACU(defaults);
-        ensurePlotTasksCompat_ACU(defaults, { syncLegacy: true });
-        return defaults;
-    }
-    function applyPlotPresetToSettings_ACU(plotSettings, preset) {
-        if (!plotSettings || !preset) {
-            return { normalizedPreset: null, promptGroup: [], finalDirective: '' };
-        }
-        const preservedEnabled = plotSettings.enabled === true;
-        const normalizedPreset = normalizePlotPresetExcludeRules_ACU(preset);
-        const finalDirective = getPlotFinalDirectiveFromSource_ACU(normalizedPreset);
-        ensurePlotPromptsArray_ACU(plotSettings);
-        ensureLoopPromptsArray_ACU(plotSettings);
-        plotSettings.enabled = preservedEnabled;
-        plotSettings.plotTasks = normalizePlotTasks_ACU(normalizedPreset);
-        plotSettings.promptGroup = JSON.parse(JSON.stringify(getPlotPromptGroupFromSource_ACU(normalizedPreset)));
-        plotSettings.finalSystemDirective = finalDirective || '';
-        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'finalSystemDirective', finalDirective || '');
-        plotSettings.rateMain = normalizedPreset.rateMain ?? 1.0;
-        plotSettings.ratePersonal = normalizedPreset.ratePersonal ?? 1.0;
-        plotSettings.rateErotic = normalizedPreset.rateErotic ?? 0;
-        plotSettings.rateCuckold = normalizedPreset.rateCuckold ?? 1.0;
-        plotSettings.recallCount = normalizedPreset.recallCount ?? 20;
-        plotSettings.extractTags = normalizedPreset.extractTags || '';
-        plotSettings.contextExtractRules = normalizeExtractRules_ACU(normalizedPreset.contextExtractRules, normalizedPreset.contextExtractTags || '');
-        plotSettings.contextExcludeRules = normalizeExcludeRules_ACU(normalizedPreset.contextExcludeRules, normalizedPreset.contextExcludeTags || '');
-        plotSettings.minLength = normalizedPreset.minLength ?? 0;
-        plotSettings.contextTurnCount = normalizedPreset.contextTurnCount ?? 3;
-        if (normalizedPreset.loopSettings) {
-            plotSettings.loopSettings = { ...plotSettings.loopSettings, ...normalizedPreset.loopSettings };
-        }
-        ensureLoopPromptsArray_ACU(plotSettings);
-        ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
-        plotSettings.finalSystemDirective = getPlotPromptContentByIdFromSettings_ACU(plotSettings, 'finalSystemDirective') || plotSettings.finalSystemDirective || '';
-        return {
-            normalizedPreset,
-            promptGroup: JSON.parse(JSON.stringify(plotSettings.promptGroup || [])),
-            finalDirective: getPlotPromptContentByIdFromSettings_ACU(plotSettings, 'finalSystemDirective') || '',
-        };
-    }
-    function resetPlotSettingsToDefault_ACU(plotSettings) {
-        if (!plotSettings || typeof plotSettings !== 'object')
-            return null;
-        const preservedEnabled = plotSettings.enabled === true;
-        const preservedPromptPresets = Array.isArray(plotSettings.promptPresets)
-            ? JSON.parse(JSON.stringify(plotSettings.promptPresets))
-            : [];
-        const preservedLastUsedPresetName = normalizePlotPresetSelectionValue_ACU(plotSettings.lastUsedPresetName || '');
-        const preservedGlobalRevision = Number.isFinite(plotSettings.globalRevision)
-            ? Math.max(0, Math.trunc(plotSettings.globalRevision))
-            : 0;
-        const defaults = cloneDefaultPlotSettingsForPreset_ACU();
-        Object.keys(plotSettings).forEach((key) => { delete plotSettings[key]; });
-        Object.assign(plotSettings, defaults);
-        plotSettings.enabled = preservedEnabled;
-        plotSettings.promptPresets = preservedPromptPresets;
-        plotSettings.lastUsedPresetName = preservedLastUsedPresetName;
-        plotSettings.globalRevision = preservedGlobalRevision;
-        ensurePlotPromptsArray_ACU(plotSettings);
-        ensureLoopPromptsArray_ACU(plotSettings);
-        ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
-        return plotSettings;
-    }
-    function replaceCurrentPlotSettingsWithSnapshot_ACU(plotSettings, snapshot) {
-        if (!plotSettings || typeof plotSettings !== 'object')
-            return null;
-        const normalizedSnapshot = sanitizePlotSettingsSnapshotForChat_ACU(snapshot);
-        if (!normalizedSnapshot)
-            return null;
-        const preservedEnabled = plotSettings.enabled === true;
-        const preservedPromptPresets = Array.isArray(plotSettings.promptPresets)
-            ? JSON.parse(JSON.stringify(plotSettings.promptPresets))
-            : [];
-        const preservedLastUsedPresetName = normalizePlotPresetSelectionValue_ACU(plotSettings.lastUsedPresetName || '');
-        const preservedGlobalRevision = Number.isFinite(plotSettings.globalRevision)
-            ? Math.max(0, Math.trunc(plotSettings.globalRevision))
-            : 0;
-        const defaults = cloneDefaultPlotSettingsForPreset_ACU();
-        Object.keys(plotSettings).forEach((key) => { delete plotSettings[key]; });
-        Object.assign(plotSettings, defaults, normalizedSnapshot);
-        plotSettings.enabled = preservedEnabled;
-        plotSettings.promptPresets = preservedPromptPresets;
-        plotSettings.lastUsedPresetName = preservedLastUsedPresetName;
-        plotSettings.globalRevision = preservedGlobalRevision;
-        ensurePlotPromptsArray_ACU(plotSettings);
-        ensureLoopPromptsArray_ACU(plotSettings);
-        ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
-        plotSettings.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(plotSettings);
-        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'finalSystemDirective', plotSettings.finalSystemDirective || '');
-        return plotSettings;
-    }
-    // ═══ 排除规则 ═══
-    function stripPlotTaskRuntimeApiPresetFields_ACU(tasks) {
-        if (!Array.isArray(tasks))
-            return [];
-        return tasks.map((task) => {
-            if (!task || typeof task !== 'object')
-                return task;
-            const clonedTask = { ...task };
-            delete clonedTask.taskApiPreset;
-            return clonedTask;
-        });
-    }
-    function normalizePlotPresetExcludeRules_ACU(preset) {
-        if (!preset || typeof preset !== 'object')
-            return preset;
-        const cloned = JSON.parse(JSON.stringify(preset));
-        cloned.contextExtractRules = normalizeExtractRules_ACU(cloned.contextExtractRules, cloned.contextExtractTags || '');
-        cloned.contextExcludeRules = normalizeExcludeRules_ACU(cloned.contextExcludeRules, cloned.contextExcludeTags || '');
-        cloned.plotTasks = stripPlotTaskRuntimeApiPresetFields_ACU(normalizePlotTasks_ACU(cloned));
-        cloned.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(cloned);
-        ensurePlotTasksCompat_ACU(cloned, { syncLegacy: true });
-        cloned.plotTasks = stripPlotTaskRuntimeApiPresetFields_ACU(normalizePlotTasks_ACU(cloned));
-        setPlotPromptContentByIdForSettings_ACU(cloned, 'finalSystemDirective', cloned.finalSystemDirective || '');
-        delete cloned.contextExtractTags;
-        delete cloned.contextExcludeTags;
-        return cloned;
-    }
-    function stripPlotPresetWorldbookEntrySelectionForExport_ACU(preset) {
-        const normalizedPreset = normalizePlotPresetExcludeRules_ACU(preset);
-        if (!normalizedPreset || typeof normalizedPreset !== 'object')
-            return normalizedPreset;
-        const exportPreset = JSON.parse(JSON.stringify(normalizedPreset));
-        if (exportPreset.plotWorldbookConfig && typeof exportPreset.plotWorldbookConfig === 'object') {
-            delete exportPreset.plotWorldbookConfig.enabledEntries;
-        }
-        return exportPreset;
-    }
-    // ═══ Prompt 内容读写 ═══
-    function ensurePlotPromptsArray_ACU(plotSettings) {
-        if (!plotSettings)
-            return;
-        const p = plotSettings.prompts;
-        if (Array.isArray(p)) {
-            const required = [
-                { id: 'mainPrompt', role: 'system', name: '主系统提示词 (通用)' },
-                { id: 'systemPrompt', role: 'user', name: '拦截任务详细指令' },
-                { id: 'finalSystemDirective', role: 'system', name: '最终注入指令 (Storyteller Directive)' },
-            ];
-            required.forEach((req) => {
-                if (!p.some((x) => x && x.id === req.id)) {
-                    p.push({ ...req, content: '', deletable: false });
-                }
-            });
-            return;
-        }
-        const legacy = (p && typeof p === 'object') ? p : {};
-        plotSettings.prompts = [
-            { id: 'mainPrompt', name: '主系统提示词 (通用)', role: 'system', content: legacy.mainPrompt || '', deletable: false },
-            { id: 'systemPrompt', name: '拦截任务详细指令', role: 'user', content: legacy.systemPrompt || '', deletable: false },
-            { id: 'finalSystemDirective', name: '最终注入指令 (Storyteller Directive)', role: 'system', content: legacy.finalSystemDirective || '', deletable: false },
-        ];
-    }
-    function getPlotPromptContentByIdFromSettings_ACU(plotSettings, promptId) {
-        if (!plotSettings)
-            return '';
-        ensurePlotPromptsArray_ACU(plotSettings);
-        const arr = plotSettings.prompts || [];
-        const item = arr.find((p) => p && p.id === promptId);
-        return item?.content || '';
-    }
-    function setPlotPromptContentByIdForSettings_ACU(plotSettings, promptId, content) {
-        if (!plotSettings)
-            return;
-        ensurePlotPromptsArray_ACU(plotSettings);
-        const arr = plotSettings.prompts || [];
-        const item = arr.find((p) => p && p.id === promptId);
-        if (item)
-            item.content = content ?? '';
-    }
-    // ═══ 拦截标记 ═══
-    let lastPlotInterception_ACU = { text: '', ts: 0 };
-    function markPlotIntercept_ACU(text) {
-        lastPlotInterception_ACU = { text: String(text || ''), ts: Date.now() };
-    }
-    function shouldSkipPlotIntercept_ACU(text, windowMs = 5000) {
-        const t = String(text || '');
-        if (!t)
-            return false;
-        const age = Date.now() - (lastPlotInterception_ACU?.ts || 0);
-        if (age < 0 || age > windowMs)
-            return false;
-        return t === String(lastPlotInterception_ACU?.text || '');
-    }
-    // ═══ 预设持久化（纯数据操作） ═══
-    function queueSaveCurrentChatPlotScope_ACU(source = 'ui_plot_scope') {
-        Promise.resolve()
-            .then(() => saveChatToHost_ACU())
-            .catch(error => logWarn_ACU(`[剧情推进] 保存聊天级预设快照失败(${source}):`, error));
-    }
-    function persistCurrentChatPlotEditorSnapshot_ACU({ source = 'ui_task_edit', save = true } = {}) {
-        if (!settings_ACU?.plotSettings)
-            return null;
-        const normalizedPresetName = getCurrentRuntimePlotPresetName_ACU({ fallbackToGlobal: true });
-        const plotScopeState = buildChatPlotScopeStateFromSettings_ACU(settings_ACU.plotSettings, {
-            presetName: normalizedPresetName,
-            source,
-            originGlobalName: normalizePlotPresetSelectionValue_ACU(settings_ACU.plotSettings.lastUsedPresetName || ''),
-            originGlobalRevision: getPlotGlobalRevision_ACU(),
-            updatedAt: Date.now(),
-        });
-        if (!plotScopeState)
-            return null;
-        setCurrentChatPlotScopeState_ACU(plotScopeState, { reason: `plot_scope_${source}` });
-        setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, normalizedPresetName, {
-            source,
-            isExplicit: source !== 'inherit',
-        });
-        if (save) {
-            saveSettings_ACU();
-            queueSaveCurrentChatPlotScope_ACU(source);
-        }
-        return plotScopeState;
-    }
-    function persistPlotPresetSelectionState_ACU(presetName, options = {}) {
-        const { source = 'ui', updateGlobal = false, save = true, persistChatScope = !updateGlobal } = options;
-        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-        let shouldSaveChat = false;
-        if (updateGlobal && settings_ACU?.plotSettings) {
-            settings_ACU.plotSettings.lastUsedPresetName = normalizedPresetName;
-        }
-        else if (persistChatScope && settings_ACU?.plotSettings) {
-            const plotScopeState = buildChatPlotScopeStateFromSettings_ACU(settings_ACU.plotSettings, {
-                presetName: normalizedPresetName,
-                source,
-                originGlobalName: normalizePlotPresetSelectionValue_ACU(settings_ACU.plotSettings.lastUsedPresetName || ''),
-                originGlobalRevision: getPlotGlobalRevision_ACU(),
-                updatedAt: Date.now(),
-            });
-            if (plotScopeState) {
-                setCurrentChatPlotScopeState_ACU(plotScopeState, { reason: `plot_scope_${source}` });
-                shouldSaveChat = true;
-            }
-            setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, normalizedPresetName, {
-                source,
-                isExplicit: source !== 'inherit',
-            });
-        }
-        else {
-            setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, normalizedPresetName, {
-                source,
-                isExplicit: source !== 'inherit',
-            });
-        }
-        if (save) {
-            saveSettings_ACU();
-            if (shouldSaveChat) {
-                Promise.resolve()
-                    .then(() => saveChatToHost_ACU())
-                    .catch(error => logWarn_ACU('[剧情推进] 保存聊天级预设快照失败:', error));
-            }
-        }
-        return normalizedPresetName;
-    }
-    // ═══ 预设切换（纯业务逻辑，去掉 refreshUi） ═══
-    function switchCurrentChatPlotPreset_ACU(presetName, { source = 'ui', save = true } = {}) {
-        if (!settings_ACU?.plotSettings)
-            return false;
-        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-        const hadLegacyChatScopeSnapshot = !!getCurrentChatPlotScopeState_ACU();
-        if (hadLegacyChatScopeSnapshot) {
-            clearCurrentChatPlotScopeState_ACU();
-        }
-        const bindingSource = String(source || '').startsWith('api') ? 'api' : 'ui';
-        let result = null;
-        if (isDefaultPlotPresetSelection_ACU(normalizedPresetName)) {
-            clearPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU);
-            const inheritedGlobalPresetName = normalizePlotPresetSelectionValue_ACU(settings_ACU.plotSettings.lastUsedPresetName || '');
-            const inheritedGlobalPreset = findPlotPresetByName_ACU(inheritedGlobalPresetName);
-            if (inheritedGlobalPreset) {
-                applyPlotPresetToSettings_ACU(settings_ACU.plotSettings, inheritedGlobalPreset);
-            }
-            else {
-                resetPlotSettingsToDefault_ACU(settings_ACU.plotSettings);
-            }
-            _set_currentPlotTaskEditorId_ACU('');
-            setCurrentEditablePlotPresetState_ACU(inheritedGlobalPresetName, { scope: 'chat', source });
-            result = {
-                presetName: '',
-                isDefault: true,
-                followsGlobal: true,
-                preset: inheritedGlobalPreset || null,
-                activePresetName: inheritedGlobalPresetName,
-            };
-        }
-        else {
-            const targetPreset = findPlotPresetByName_ACU(normalizedPresetName);
-            if (!targetPreset)
-                return false;
-            applyPlotPresetToSettings_ACU(settings_ACU.plotSettings, targetPreset);
-            setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, targetPreset.name, {
-                source: bindingSource,
-                isExplicit: true,
-            });
-            _set_currentPlotTaskEditorId_ACU('');
-            setCurrentEditablePlotPresetState_ACU(targetPreset.name, { scope: 'chat', source });
-            result = {
-                presetName: targetPreset.name,
-                isDefault: false,
-                followsGlobal: false,
-                preset: targetPreset,
-                activePresetName: targetPreset.name,
-            };
-        }
-        if (save) {
-            saveSettings_ACU();
-            if (hadLegacyChatScopeSnapshot) {
-                queueSaveCurrentChatPlotScope_ACU(`${bindingSource}_clear_legacy_plot_scope`);
-            }
-        }
-        return result;
-    }
-    function buildPlotSettingsPreviewFromPreset_ACU(presetName) {
-        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-        const previewSettings = cloneDefaultPlotSettingsForPreset_ACU();
-        if (isDefaultPlotPresetSelection_ACU(normalizedPresetName)) {
-            resetPlotSettingsToDefault_ACU(previewSettings);
-        }
-        else {
-            const targetPreset = findPlotPresetByName_ACU(normalizedPresetName);
-            if (!targetPreset)
-                return null;
-            applyPlotPresetToSettings_ACU(previewSettings, targetPreset);
-        }
-        previewSettings.lastUsedPresetName = normalizedPresetName;
-        ensurePlotPromptsArray_ACU(previewSettings);
-        ensureLoopPromptsArray_ACU(previewSettings);
-        ensurePlotTasksCompat_ACU(previewSettings, { syncLegacy: true });
-        previewSettings.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(previewSettings);
-        setPlotPromptContentByIdForSettings_ACU(previewSettings, 'finalSystemDirective', previewSettings.finalSystemDirective || '');
-        return previewSettings;
-    }
-    function applyGlobalPlotPresetSelectionForEditor_ACU(presetName, { source = 'ui', save = true } = {}) {
-        if (!settings_ACU?.plotSettings)
-            return false;
-        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
-        const previewSettings = buildPlotSettingsPreviewFromPreset_ACU(normalizedPresetName);
-        if (!previewSettings)
-            return false;
-        _set_currentPlotTaskEditorId_ACU('');
-        setCurrentEditablePlotPresetState_ACU(normalizedPresetName, { scope: 'global', source });
-        persistPlotPresetSelectionState_ACU(normalizedPresetName, {
-            source,
-            updateGlobal: true,
-            save,
-            persistChatScope: false,
-        });
-        return {
-            presetName: normalizedPresetName,
-            isDefault: isDefaultPlotPresetSelection_ACU(normalizedPresetName),
-            previewSettings,
-        };
-    }
-    // ═══ 全局修订 ═══ (resolveActivePlotPresetName_ACU 已在上方定义为内部函数)
-    // ═══ 优化相关 ═══
-    function getLastOptimizedMessageIndex_ACU() {
-        const chat = getChatArray_ACU();
-        const cachedBase = getLastOptimizationBase_ACU();
-        if (cachedBase?.messageId != null) {
-            const runtimeIndex = chat.findIndex((msg) => msg && !msg.is_user && msg.message_id === cachedBase.messageId);
-            if (runtimeIndex >= 0)
-                return runtimeIndex;
-        }
-        if (Number.isInteger(cachedBase?.messageIndex) && cachedBase.messageIndex >= 0 && chat[cachedBase.messageIndex] && !chat[cachedBase.messageIndex].is_user) {
-            return cachedBase.messageIndex;
-        }
-        let latestIndex = -1;
-        let latestTimestamp = -1;
-        for (let i = 0; i < chat.length; i++) {
-            const msg = chat[i];
-            if (!msg || msg.is_user)
-                continue;
-            const extra = msg.extra || {};
-            const ts = Number(extra._acu_last_optimized_at || 0);
-            if (extra._acu_original_content && ts >= latestTimestamp) {
-                latestTimestamp = ts;
-                latestIndex = i;
-            }
-        }
-        if (latestIndex >= 0) {
-            const latestMessage = chat[latestIndex];
-            const latestExtra = latestMessage?.extra || {};
-            setLastOptimizationBase_ACU({
-                messageIndex: latestIndex,
-                messageId: latestMessage?.message_id ?? null,
-                baseContent: latestExtra._acu_original_content || latestMessage?.mes || ''
-            });
-        }
-        return latestIndex;
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // service/settings/settings-service.ts — 设置加载/保存编排
-    // 从 04_shared_helpers.js 迁入
-    //
-    // 这两个函数混合了数据读写 + UI 同步 + 运行时状态操作，
-    // 属于 service 层（业务编排），不是纯 data 层。
-    // ═══════════════════════════════════════════════════════════════
-    let settingsStorageReadyForSave_ACU = false;
-    let settingsReloadAfterIdbScheduled_ACU = false;
-    function scheduleSettingsReloadAfterIdbReady_ACU(reason) {
-        if (settingsReloadAfterIdbScheduled_ACU)
-            return;
-        settingsReloadAfterIdbScheduled_ACU = true;
-        _set_pendingSettingsReloadFromIdb_ACU(true);
-        logDebug_ACU(`[设置加载] IndexedDB 配置缓存尚未就绪，暂停本轮加载并等待重载：${reason}`);
-        void ensureConfigIdbCacheLoaded_ACU().then(() => {
-            settingsReloadAfterIdbScheduled_ACU = false;
-            if (pendingSettingsReloadFromIdb_ACU) {
-                _set_pendingSettingsReloadFromIdb_ACU(false);
-                loadSettings_ACU();
-            }
-        });
-    }
-    function applyGlobalPlotEnabledSetting_ACU() {
-        if (!settings_ACU.plotSettings || typeof settings_ACU.plotSettings !== 'object' || Array.isArray(settings_ACU.plotSettings)) {
-            settings_ACU.plotSettings = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
-        }
-        if (typeof globalMeta_ACU.plotEnabledGlobal !== 'boolean') {
-            globalMeta_ACU.plotEnabledGlobal = settings_ACU.plotSettings.enabled === false ? false : true;
-            saveGlobalMeta_ACU();
-        }
-        settings_ACU.plotSettings.enabled = globalMeta_ACU.plotEnabledGlobal === true;
-        return settings_ACU.plotSettings.enabled;
-    }
-    function saveSettings_ACU() {
-        if (!settingsStorageReadyForSave_ACU) {
-            if (isIndexedDbAvailable_ACU() && !configIdbCacheLoaded_ACU) {
-                scheduleSettingsReloadAfterIdbReady_ACU('save_before_config_cache_ready');
-            }
-            else {
-                void initTavernSettingsBridge_ACU();
-            }
-            logWarn_ACU('[设置保存] 设置尚未完成可靠加载，已拒绝本次保存以避免默认配置覆盖真实配置。');
-            return {
-                saved: false,
-                storageType: 'memory',
-                code: 'settings_loading',
-                warning: '设置仍在加载中，本次保存已被阻止以避免覆盖原配置。请稍后重试。',
-            };
-        }
-        // 业务编排：同步隔离码到 globalMeta + 持久化
-        const code = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || '');
-        if (globalMeta_ACU && typeof globalMeta_ACU === 'object') {
-            globalMeta_ACU.activeIsolationCode = code;
-            if (code)
-                addDataIsolationHistory_ACU(code, { save: false });
-            normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
-            saveGlobalMeta_ACU();
-        }
-        // 数据层：纯存储持久化
-        persistSettingsToStorage_ACU(settings_ACU, code);
-        try {
-            const store = (getConfigStorage_ACU)();
-            if (store && !store._isTavern) {
-                if ((isIndexedDbAvailable_ACU)()) {
-                    void (initTavernSettingsBridge_ACU)();
-                    return { saved: true, storageType: 'indexeddb', code: 'tavern_unavailable', warning: '当前未连接酒馆设置：已保存到 IndexedDB（仅本浏览器可用）。' };
-                }
-                else {
-                    void (initTavernSettingsBridge_ACU)();
-                    return { saved: true, storageType: 'memory', code: 'tavern_unavailable', warning: '⚠️ 当前未连接酒馆设置且 IndexedDB 不可用，本次修改刷新后会丢失。' };
-                }
-            }
-            return { saved: true, storageType: 'tavern' };
-        }
-        catch (error) {
-            logError_ACU('Failed to save settings:', error);
-            return { saved: false, storageType: 'memory', code: 'storage_error', error: '保存设置时发生浏览器存储错误。' };
-        }
-    }
-    function loadSettings_ACU() {
-        // 确保酒馆设置桥接已就绪（best-effort，不阻塞）
-        void initTavernSettingsBridge_ACU();
-        if (!configIdbCacheLoaded_ACU && isIndexedDbAvailable_ACU()) {
-            scheduleSettingsReloadAfterIdbReady_ACU('load_before_config_cache_ready');
-            return;
-        }
-        _set_pendingSettingsReloadFromIdb_ACU(false);
-        // 可选迁移：把旧 localStorage 的设置/模板搬迁到酒馆设置（迁移开关默认为 false）
-        migrateKeyToTavernStorageIfNeeded_ACU(STORAGE_KEY_ALL_SETTINGS_ACU);
-        migrateKeyToTavernStorageIfNeeded_ACU(STORAGE_KEY_CUSTOM_TEMPLATE_ACU);
-        // 1) 读取全局元信息（跨标识共享：标识列表/当前标识）
-        loadGlobalMeta_ACU();
-        const store = getConfigStorage_ACU();
-        const legacySettingsJson = store?.getItem?.(STORAGE_KEY_ALL_SETTINGS_ACU);
-        const legacySettingsObj = legacySettingsJson ? safeJsonParse_ACU(legacySettingsJson, null) : null;
-        const legacyCode = normalizeIsolationCode_ACU(legacySettingsObj?.dataIsolationCode || '');
-        // 2) 一次性迁移：旧版"单份设置/单份模板" -> 当前标识对应 profile
-        if (!globalMeta_ACU.migratedLegacySingleStore && (legacySettingsObj || store?.getItem?.(STORAGE_KEY_CUSTOM_TEMPLATE_ACU))) {
-            const targetCode = legacyCode; // 旧版 code 就是当时的隔离标识
-            const hasProfileSettings = !!readProfileSettingsFromStorage_ACU(targetCode);
-            const hasProfileTemplate = !!readProfileTemplateFromStorage_ACU(targetCode);
-            try {
-                if (!hasProfileSettings && legacySettingsObj) {
-                    const toSave = sanitizeSettingsForProfileSave_ACU(legacySettingsObj);
-                    toSave.dataIsolationCode = targetCode;
-                    writeProfileSettingsToStorage_ACU(targetCode, toSave);
-                }
-                if (!hasProfileTemplate) {
-                    const legacyTemplate = store?.getItem?.(STORAGE_KEY_CUSTOM_TEMPLATE_ACU);
-                    if (legacyTemplate && String(legacyTemplate).trim()) {
-                        writeProfileTemplateToStorage_ACU(targetCode, legacyTemplate);
-                    }
-                }
-                // 同步迁移"标识列表"到 globalMeta（跨标识共享）
-                if (Array.isArray(legacySettingsObj?.dataIsolationHistory)) {
-                    globalMeta_ACU.isolationCodeList = legacySettingsObj.dataIsolationHistory;
-                }
-                if (targetCode) {
-                    globalMeta_ACU.activeIsolationCode = targetCode;
-                    // 确保 active 在列表里
-                    globalMeta_ACU.isolationCodeList = [targetCode, ...(globalMeta_ACU.isolationCodeList || [])];
-                }
-                normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
-                globalMeta_ACU.migratedLegacySingleStore = true;
-                saveGlobalMeta_ACU();
-                // 迁移完成后移除 legacy 键，避免后续反复读取造成混乱
-                try {
-                    store?.removeItem?.(STORAGE_KEY_ALL_SETTINGS_ACU);
-                }
-                catch (e) { }
-                try {
-                    store?.removeItem?.(STORAGE_KEY_CUSTOM_TEMPLATE_ACU);
-                }
-                catch (e) { }
-                logDebug_ACU(`[Profile] Migrated legacy single-store -> profile: ${targetCode || '(default)'}`);
-            }
-            catch (e) {
-                logWarn_ACU('[Profile] Legacy migration failed (will keep legacy keys):', e);
-            }
-        }
-        // 3) 决定本次启动要加载的标识 code（优先 globalMeta.active，其次 legacyCode）
-        const activeCode = normalizeIsolationCode_ACU(globalMeta_ACU.activeIsolationCode || legacyCode || '');
-        globalMeta_ACU.activeIsolationCode = activeCode;
-        if (activeCode)
-            addDataIsolationHistory_ACU(activeCode, { save: false });
-        normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
-        saveGlobalMeta_ACU();
-        // 4) 加载模板（按标识 profile）
-        loadTemplateFromStorage_ACU(activeCode);
-        // 5) 加载设置（按标识 profile）
-        const defaultSettings = buildDefaultSettings_ACU();
-        try {
-            const savedSettings = readProfileSettingsFromStorage_ACU(activeCode);
-            if (savedSettings) {
-                // [迁移逻辑] 检查旧的顶层 worldbookConfig
-                if (savedSettings.worldbookConfig) {
-                    logDebug_ACU('Migrating legacy worldbookConfig to character-specific settings.');
-                    // 如果存在，并且没有 characterSettings，则创建一个
-                    if (!savedSettings.characterSettings) {
-                        savedSettings.characterSettings = {};
-                    }
-                    // 将旧配置迁移到 'default' 或一个通用的键下，以便初次加载时使用
-                    // 这里我们假设它应该成为所有未配置角色的基础，但为了简单起见，我们只处理当前角色
-                    const charId = currentChatFileIdentifier_ACU || 'default';
-                    if (!savedSettings.characterSettings[charId]) {
-                        savedSettings.characterSettings[charId] = { worldbookConfig: savedSettings.worldbookConfig };
-                    }
-                    // 删除顶层配置
-                    delete savedSettings.worldbookConfig;
-                }
-                // Deep merge saved settings into defaults to ensure new properties are added
-                _set_settings_ACU(deepMerge_ACU(defaultSettings, savedSettings));
-                // [剧情推进] 迁移/兜底：确保 plotWorldbookConfig 存在且结构完整
-                if (!settings_ACU.plotSettings)
-                    settings_ACU.plotSettings = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
-                if (!settings_ACU.plotSettings.plotWorldbookConfig) {
-                    // 兼容旧字段迁移：worldbookSource/selectedWorldbooks -> plotWorldbookConfig
-                    const legacySource = settings_ACU.plotSettings.worldbookSource || 'character';
-                    const legacyBooks = Array.isArray(settings_ACU.plotSettings.selectedWorldbooks) ? settings_ACU.plotSettings.selectedWorldbooks : [];
-                    settings_ACU.plotSettings.plotWorldbookConfig = buildDefaultPlotWorldbookConfig_ACU();
-                    settings_ACU.plotSettings.plotWorldbookConfig.source = (legacySource === 'manual') ? 'manual' : 'character';
-                    settings_ACU.plotSettings.plotWorldbookConfig.manualSelection = legacyBooks;
-                }
-                applyGlobalPlotEnabledSetting_ACU();
-                if (!settings_ACU.plotPresetBindings || typeof settings_ACU.plotPresetBindings !== 'object' || Array.isArray(settings_ACU.plotPresetBindings)) {
-                    settings_ACU.plotPresetBindings = {};
-                }
-                if (!settings_ACU.plotTaskApiPresetOverridesById || typeof settings_ACU.plotTaskApiPresetOverridesById !== 'object' || Array.isArray(settings_ACU.plotTaskApiPresetOverridesById)) {
-                    settings_ACU.plotTaskApiPresetOverridesById = {};
-                }
-                settings_ACU.currentTemplatePresetName = normalizeTemplatePresetSelectionValue_ACU(settings_ACU.currentTemplatePresetName || '');
-                if (typeof settings_ACU.plotSettings.lastUsedPresetName !== 'string') {
-                    settings_ACU.plotSettings.lastUsedPresetName = '';
-                }
-                // [Profile] 强制以 globalMeta.activeIsolationCode 作为当前标识
-                settings_ACU.dataIsolationCode = activeCode;
-                settings_ACU.dataIsolationEnabled = (activeCode !== '');
-                // 0TK / 纪要向量索引全局偏好：两者独立读取、独立写入，不再互斥投影
-                if (typeof globalMeta_ACU.zeroTkOccupyModeGlobal === 'boolean') {
-                    settings_ACU.zeroTkOccupyModeDefault = (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
-                }
-                else {
-                    globalMeta_ACU.zeroTkOccupyModeGlobal = (settings_ACU.zeroTkOccupyModeDefault === true);
-                    saveGlobalMeta_ACU();
-                }
-                if (typeof globalMeta_ACU.summaryVectorIndexModeGlobal === 'boolean') {
-                    settings_ACU.summaryVectorIndexModeDefault = (globalMeta_ACU.summaryVectorIndexModeGlobal === true);
-                }
-                else {
-                    globalMeta_ACU.summaryVectorIndexModeGlobal = (settings_ACU.summaryVectorIndexModeDefault === true);
-                    saveGlobalMeta_ACU();
-                }
-                // 确保当前角色有配置
-                getCurrentCharSettings_ACU();
-                if (!settings_ACU.characterSettings || typeof settings_ACU.characterSettings !== 'object') {
-                    settings_ACU.characterSettings = {};
-                }
-                const defaultWorldbookConfig = JSON.parse(JSON.stringify(defaultWorldbookConfig_ACU));
-                Object.keys(settings_ACU.characterSettings).forEach((charId) => {
-                    const charSettings = settings_ACU.characterSettings[charId];
-                    if (!charSettings || typeof charSettings !== 'object')
-                        return;
-                    const worldbookConfig = charSettings.worldbookConfig;
-                    if (!worldbookConfig || typeof worldbookConfig !== 'object' || Array.isArray(worldbookConfig)) {
-                        charSettings.worldbookConfig = JSON.parse(JSON.stringify(defaultWorldbookConfig));
-                        return;
-                    }
-                    charSettings.worldbookConfig = deepMerge_ACU(JSON.parse(JSON.stringify(defaultWorldbookConfig)), worldbookConfig);
-                });
-            }
-            else {
-                // No saved settings, use the defaults
-                _set_settings_ACU(defaultSettings);
-                // [剧情推进] 默认兜底
-                if (!settings_ACU.plotSettings.plotWorldbookConfig) {
-                    settings_ACU.plotSettings.plotWorldbookConfig = buildDefaultPlotWorldbookConfig_ACU();
-                }
-                applyGlobalPlotEnabledSetting_ACU();
-                // [Profile] 强制以 globalMeta.activeIsolationCode 作为当前标识
-                settings_ACU.dataIsolationCode = activeCode;
-                settings_ACU.dataIsolationEnabled = (activeCode !== '');
-                if (typeof globalMeta_ACU.zeroTkOccupyModeGlobal === 'boolean') {
-                    settings_ACU.zeroTkOccupyModeDefault = (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
-                }
-                else {
-                    globalMeta_ACU.zeroTkOccupyModeGlobal = (settings_ACU.zeroTkOccupyModeDefault === true);
-                    saveGlobalMeta_ACU();
-                }
-                if (typeof globalMeta_ACU.summaryVectorIndexModeGlobal === 'boolean') {
-                    settings_ACU.summaryVectorIndexModeDefault = (globalMeta_ACU.summaryVectorIndexModeGlobal === true);
-                }
-                else {
-                    globalMeta_ACU.summaryVectorIndexModeGlobal = (settings_ACU.summaryVectorIndexModeDefault === true);
-                    saveGlobalMeta_ACU();
-                }
-            }
-        }
-        catch (error) {
-            logError_ACU('Failed to load or parse settings, using defaults:', error);
-            _set_settings_ACU(buildDefaultSettings_ACU());
-            settings_ACU.dataIsolationCode = activeCode;
-            settings_ACU.dataIsolationEnabled = (activeCode !== '');
-        }
-        // [兼容] 旧标签排除字段自动迁移为新规则组结构
-        ensureTagRulesCompat_ACU(settings_ACU);
-        settingsStorageReadyForSave_ACU = true;
-        // [交火模式配置] 权威配置存放在 globalMeta.vectorMemoryConfigGlobal（跨 profile 全局）。
-        // settings_ACU.vectorMemoryConfig 只保留为运行时投影，兼容旧调用方。
-        if (!globalMeta_ACU.vectorMemoryConfigGlobal || typeof globalMeta_ACU.vectorMemoryConfigGlobal !== 'object' || Array.isArray(globalMeta_ACU.vectorMemoryConfigGlobal)) {
-            let bestSource = null;
-            if (settings_ACU.vectorMemoryConfig && typeof settings_ACU.vectorMemoryConfig === 'object' && !Array.isArray(settings_ACU.vectorMemoryConfig)) {
-                bestSource = settings_ACU.vectorMemoryConfig;
-            }
-            const charSettings = settings_ACU.characterSettings;
-            if (!bestSource && charSettings && typeof charSettings === 'object') {
-                for (const charId of Object.keys(charSettings)) {
-                    const vm = charSettings[charId]?.worldbookConfig?.vectorMemory;
-                    if (vm && typeof vm === 'object' && !Array.isArray(vm)) {
-                        // 优先选择 enabled=true 的配置
-                        if (vm.enabled === true) {
-                            bestSource = vm;
-                            break;
-                        }
-                        // 其次选择第一个非空配置
-                        if (!bestSource) {
-                            bestSource = vm;
-                        }
-                    }
-                }
-            }
-            globalMeta_ACU.vectorMemoryConfigGlobal = bestSource
-                ? JSON.parse(JSON.stringify(bestSource))
-                : JSON.parse(JSON.stringify(defaultVectorMemoryConfig_ACU));
-            saveGlobalMeta_ACU();
-            logDebug_ACU(bestSource
-                ? '[交火模式配置] 已从旧 profile/角色配置迁移到全局 globalMeta.vectorMemoryConfigGlobal'
-                : '[交火模式配置] 已初始化全局 globalMeta.vectorMemoryConfigGlobal');
-        }
-        settings_ACU.vectorMemoryConfig = globalMeta_ACU.vectorMemoryConfigGlobal;
-        // [交火模式] 一次性补齐默认归档/召回/关键词提示词参数。
-        // 只能补缺失字段，绝不能在版本刷新时覆盖用户已经填写的模型、API、召回参数或提示词。
-        let shouldPersistSettingsAfterLoad_ACU = false;
-        if (globalMeta_ACU.vectorMemoryConfigGlobal && typeof globalMeta_ACU.vectorMemoryConfigGlobal === 'object' && !Array.isArray(globalMeta_ACU.vectorMemoryConfigGlobal)) {
-            const vectorConfig = globalMeta_ACU.vectorMemoryConfigGlobal;
-            if (vectorConfig.defaultsRefreshVersion !== VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU) {
-                const cloneDefaultValue_ACU = (value) => JSON.parse(JSON.stringify(value));
-                const fillMissing_ACU = (key, value) => {
-                    if (typeof vectorConfig[key] === 'undefined' || vectorConfig[key] === null || vectorConfig[key] === '') {
-                        vectorConfig[key] = cloneDefaultValue_ACU(value);
-                        shouldPersistSettingsAfterLoad_ACU = true;
-                    }
-                };
-                const fillMissingPromptGroup_ACU = (key, value) => {
-                    if (!Array.isArray(vectorConfig[key]) || vectorConfig[key].length === 0) {
-                        vectorConfig[key] = cloneDefaultValue_ACU(value || []);
-                        shouldPersistSettingsAfterLoad_ACU = true;
-                    }
-                };
-                const fillMissingOrLegacyDefault_ACU = (key, value, legacyValues) => {
-                    const currentValue = vectorConfig[key];
-                    const isMissing = typeof currentValue === 'undefined' || currentValue === null || currentValue === '';
-                    const isLegacyDefault = legacyValues.some((legacyValue) => currentValue === legacyValue);
-                    if (isMissing || isLegacyDefault) {
-                        vectorConfig[key] = cloneDefaultValue_ACU(value);
-                        shouldPersistSettingsAfterLoad_ACU = true;
-                    }
-                };
-                fillMissing_ACU('archiveTriggerCount', defaultVectorMemoryConfig_ACU.archiveTriggerCount);
-                fillMissing_ACU('archiveBatchSize', defaultVectorMemoryConfig_ACU.archiveBatchSize);
-                fillMissing_ACU('archiveMaxConcurrency', defaultVectorMemoryConfig_ACU.archiveMaxConcurrency);
-                fillMissing_ACU('summaryIndexArchiveMaxConcurrency', defaultVectorMemoryConfig_ACU.summaryIndexArchiveMaxConcurrency || 30);
-                // [spv3.5.21] 一次性覆盖：topK / recallCandidateLimit / summaryIndexKeywordMinRows 强制更新到新默认值
-                const forceOverride_ACU = (key, newValue, legacyValues) => {
-                    const current = vectorConfig[key];
-                    const isLegacy = legacyValues.some((v) => current === v);
-                    if (isLegacy) {
-                        vectorConfig[key] = cloneDefaultValue_ACU(newValue);
-                        shouldPersistSettingsAfterLoad_ACU = true;
-                    }
-                };
-                fillMissingOrLegacyDefault_ACU('topK', defaultVectorMemoryConfig_ACU.topK, [10, 100]);
-                forceOverride_ACU('topK', defaultVectorMemoryConfig_ACU.topK, [100]);
-                fillMissingOrLegacyDefault_ACU('minScore', defaultVectorMemoryConfig_ACU.minScore, [0.4, 0.6]);
-                fillMissingOrLegacyDefault_ACU('recallCandidateLimit', defaultVectorMemoryConfig_ACU.recallCandidateLimit, [100]);
-                forceOverride_ACU('recallCandidateLimit', defaultVectorMemoryConfig_ACU.recallCandidateLimit, [100, 500]);
-                fillMissingOrLegacyDefault_ACU('summaryIndexKeywordMinRows', defaultVectorMemoryConfig_ACU.summaryIndexKeywordMinRows, [100]);
-                forceOverride_ACU('summaryIndexKeywordMinRows', defaultVectorMemoryConfig_ACU.summaryIndexKeywordMinRows, [100]);
-                fillMissing_ACU('recentFixedInjectCount', defaultVectorMemoryConfig_ACU.recentFixedInjectCount || 50);
-                fillMissingPromptGroup_ACU('summaryPromptGroup', defaultVectorMemoryConfig_ACU.summaryPromptGroup || []);
-                // [spv3.6.3] 关键词提示词：版本变更时无条件覆盖为最新默认值
-                // 不做签名匹配——签名匹配在用户微调过提示词后必然失效，导致覆盖永远不触发
-                vectorConfig.keywordPromptGroup = cloneDefaultValue_ACU(defaultVectorMemoryConfig_ACU.keywordPromptGroup || []);
-                shouldPersistSettingsAfterLoad_ACU = true;
-                logDebug_ACU('[交火模式配置] 已一次性覆盖关键词生成提示词为最新默认版本');
-                fillMissing_ACU('keywordGenerationMaxAttempts', defaultVectorMemoryConfig_ACU.keywordGenerationMaxAttempts || 3);
-                vectorConfig.defaultsRefreshVersion = VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU;
-                shouldPersistSettingsAfterLoad_ACU = true;
-                logDebug_ACU(`[交火模式配置] 已补齐缺失默认参数并记录版本: ${VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU}`);
-            }
-        }
-        settings_ACU.vectorMemoryConfig = globalMeta_ACU.vectorMemoryConfigGlobal;
-        settingsStorageReadyForSave_ACU = true;
-        refreshDefaultTableTemplateOnce_ACU(activeCode);
-        if (shouldPersistSettingsAfterLoad_ACU) {
-            saveGlobalMeta_ACU();
-            persistSettingsToStorage_ACU(settings_ACU, activeCode);
-            logDebug_ACU(`[交火模式配置] 已持久化全局默认参数刷新版本: ${VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU}`);
-        }
-        if (!Number.isFinite(settings_ACU.maxConcurrentGroups) || settings_ACU.maxConcurrentGroups < 1) {
-            settings_ACU.maxConcurrentGroups = 1;
-        }
-        logDebug_ACU('Settings loaded:', settings_ACU);
-    }
-    // loadSettingsAndRefreshUI_ACU 已搬到 presentation/components/settings-ui-helpers.ts
-    function loadTemplateFromStorage_ACU(codeOverride = null) {
-        const code = normalizeIsolationCode_ACU((codeOverride !== null && typeof codeOverride !== 'undefined')
-            ? codeOverride
-            : (settings_ACU?.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || ''));
-        // [更新参数哨兵迁移] 旧版本：0 表示"沿用UI"；新版本：-1 表示"沿用UI"，0 表示"禁用/不参与"（仅 updateFrequency 参与禁用语义）
-        function migrateTemplateUpdateConfigSentinel_ACU(templateObj) {
-            if (!templateObj || typeof templateObj !== 'object')
-                return { changed: false, obj: templateObj };
-            const mate = (templateObj.mate && typeof templateObj.mate === 'object') ? templateObj.mate : null;
-            const alreadyMigrated = !!(mate && mate.updateConfigUiSentinel === -1);
-            if (alreadyMigrated)
-                return { changed: false, obj: templateObj };
-            let changed = false;
-            const sheetKeys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
-            for (const k of sheetKeys) {
-                const sheet = templateObj[k];
-                if (!sheet || typeof sheet !== 'object')
-                    continue;
-                const uc = sheet.updateConfig;
-                if (!uc || typeof uc !== 'object')
-                    continue;
-                // sheet 级标记：用于聊天记录里的表格对象（没有 mate）也能识别新语义
-                if (uc.uiSentinel !== -1) {
-                    uc.uiSentinel = -1;
-                    changed = true;
-                }
-                for (const field of ['contextDepth', 'updateFrequency', 'batchSize', 'skipFloors']) {
-                    if (Object.prototype.hasOwnProperty.call(uc, field) && uc[field] === 0) {
-                        uc[field] = -1;
-                        changed = true;
-                    }
-                }
-            }
-            // 写入标记，避免后续把用户显式设置的 0(禁用) 再次误迁移
-            if (!templateObj.mate || typeof templateObj.mate !== 'object') {
-                templateObj.mate = { type: 'chatSheets', version: 1 };
-                changed = true;
-            }
-            else {
-                if (!templateObj.mate.type)
-                    templateObj.mate.type = 'chatSheets';
-                if (!templateObj.mate.version)
-                    templateObj.mate.version = 1;
-            }
-            if (templateObj.mate.updateConfigUiSentinel !== -1) {
-                templateObj.mate.updateConfigUiSentinel = -1;
-                changed = true;
-            }
-            return { changed, obj: templateObj };
-        }
-        try {
-            const savedTemplate = readProfileTemplateFromStorage_ACU(code);
-            if (savedTemplate) {
-                // [修复] 使用 safeJsonParse_ACU 静默处理解析失败，避免误报错误提示
-                const parsedTemplate = safeJsonParse_ACU(savedTemplate, null);
-                if (parsedTemplate && parsedTemplate.mate && Object.keys(parsedTemplate).some(k => k.startsWith('sheet_'))) {
-                    // [迁移] 0(沿用UI) -> -1(沿用UI)，并写入标记
-                    migrateTemplateUpdateConfigSentinel_ACU(parsedTemplate);
-                    // [Profile] 模板载入时先补齐/修复顺序编号，并回写（编号可随导出/导入迁移）
-                    const sheetKeys = Object.keys(parsedTemplate).filter(k => k.startsWith('sheet_'));
-                    ensureSheetOrderNumbers_ACU(parsedTemplate, { baseOrderKeys: sheetKeys, forceRebuild: false });
-                    // [瘦身] 无论是否 changed，都清洗模板（去掉 domain/type/enable/triggerSend*/config/customStyles 等冗余字段）
-                    const sanitizedTemplate = sanitizeChatSheetsObject_ACU(parsedTemplate, { ensureMate: true });
-                    _set_TABLE_TEMPLATE_ACU(JSON.stringify(sanitizedTemplate));
-                    writeProfileTemplateToStorage_ACU(code, TABLE_TEMPLATE_ACU);
-                    logDebug_ACU(`[Profile] Template loaded for code: ${code || '(default)'}`);
-                    return;
-                }
-                else if (parsedTemplate) {
-                    // 解析成功但格式不正确，静默回退到默认模板
-                    logDebug_ACU(`[Profile] Template format invalid for code: ${code || '(default)'}, using default.`);
-                }
-                // parsedTemplate 为 null 时表示解析失败，静默跳过（可能是旧的/其他标识的损坏数据）
-            }
-        }
-        catch (error) {
-            // 静默处理异常，避免误报错误提示困扰用户
-            logDebug_ACU('[Profile] Template load skipped due to error, using default.', error?.message || error);
-        }
-        // No valid template found -> default
-        _set_TABLE_TEMPLATE_ACU(DEFAULT_TABLE_TEMPLATE_ACU);
-        // [新机制] 默认模板也补齐一次编号（仅写入当前 profile，不改源码常量）
-        try {
-            const obj = JSON.parse(TABLE_TEMPLATE_ACU);
-            // 默认模板也写入哨兵标记（便于后续识别新语义）
-            try {
-                migrateTemplateUpdateConfigSentinel_ACU(obj);
-            }
-            catch (e) { }
-            const sheetKeys = Object.keys(obj).filter(k => k.startsWith('sheet_'));
-            if (ensureSheetOrderNumbers_ACU(obj, { baseOrderKeys: sheetKeys, forceRebuild: false })) {
-                const sanitizedTemplate = sanitizeChatSheetsObject_ACU(obj, { ensureMate: true });
-                _set_TABLE_TEMPLATE_ACU(JSON.stringify(sanitizedTemplate));
-            }
-        }
-        catch (e) {
-            // ignore
-        }
-        try {
-            writeProfileTemplateToStorage_ACU(code, TABLE_TEMPLATE_ACU);
-        }
-        catch (e) { }
-        logDebug_ACU(`[Profile] No valid template found, default persisted for code: ${code || '(default)'}`);
-    }
-    function refreshDefaultTableTemplateOnce_ACU(activeCode) {
-        try {
-            if (!settings_ACU || typeof settings_ACU !== 'object')
-                return;
-            if (settings_ACU.tableTemplateDefaultsRefreshVersion === TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU)
-                return;
-            const currentPresetName = normalizeTemplatePresetSelectionValue_ACU(settings_ACU.currentTemplatePresetName || '');
-            if (currentPresetName) {
-                settings_ACU.tableTemplateDefaultsRefreshVersion = TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU;
-                saveSettings_ACU();
-                logDebug_ACU(`[模板默认值] 当前全局模板使用命名预设，跳过默认模板刷新并记录版本: ${TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU}`);
-                return;
-            }
-            const defaultSnapshot = getDefaultTemplateSnapshot_ACU();
-            if (!defaultSnapshot?.templateStr) {
-                logWarn_ACU('[模板默认值] 默认表格模板快照无效，跳过一次性刷新。');
-                return;
-            }
-            const code = normalizeIsolationCode_ACU(activeCode || settings_ACU.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || '');
-            _set_TABLE_TEMPLATE_ACU(defaultSnapshot.templateStr);
-            writeProfileTemplateToStorage_ACU(code, TABLE_TEMPLATE_ACU);
-            settings_ACU.tableTemplateDefaultsRefreshVersion = TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU;
-            saveSettings_ACU();
-            logDebug_ACU(`[模板默认值] 已刷新当前 profile 默认表格模板: ${TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU}`);
-        }
-        catch (error) {
-            logWarn_ACU('[模板默认值] 默认表格模板一次性刷新失败:', error);
-        }
-    }
-    function buildDefaultSettings_ACU() {
-        return {
-            apiConfig: { url: '', apiKey: '', model: '', useMainApi: true, max_tokens: 60000, temperature: 1.0 },
-            apiMode: 'custom',
-            tavernProfile: '',
-            streamingEnabled: false, // [新增] 流式传输开关（默认关闭）
-            apiPresets: [],
-            tableApiPreset: '',
-            plotApiPreset: '',
-            // [剧情推进] 按剧情任务ID保存的任务级 API 预设覆盖（key=taskId, value=presetName）
-            // 不保存入聊天记录或剧情推进预设，只写进插件全局设置。
-            plotTaskApiPresetOverridesById: {},
-            // [新增] 按表格名称保存的表级 API 预设覆盖（key=标准化表名, value=presetName）
-            // 不保存入模板，只写进数据库插件设置；同名表跨模板复用
-            tableApiPresetOverridesByName: {},
-            charCardPrompt: DEFAULT_CHAR_CARD_PROMPT_ACU,
-            autoUpdateThreshold: DEFAULT_AUTO_UPDATE_THRESHOLD_ACU,
-            autoUpdateFrequency: DEFAULT_AUTO_UPDATE_FREQUENCY_ACU,
-            autoUpdateTokenThreshold: DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU,
-            updateBatchSize: 3,
-            maxConcurrentGroups: 1,
-            autoUpdateEnabled: true,
-            standardizedTableFillEnabled: true, // [新增] 规范填表功能
-            toastMuteEnabled: false,
-            // [剧情推进] 设置
-            plotSettings: JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU)),
-            plotPresetBindings: {}, // [剧情推进] 按聊天记录绑定剧情推进预设
-            currentTemplatePresetName: '', // [模板预设] 当前模板预设名，空表示默认预设
-            tableTemplateDefaultsRefreshVersion: '', // [模板预设] 默认表格模板一次性刷新版本
-            // [填表功能] 正文标签提取，从上下文中提取指定标签的内容发送给AI，User回复不受影响
-            tableContextExtractTags: '',
-            tableContextExtractRules: [],
-            // [填表功能] 正文标签排除：将指定标签内容从上下文中移除
-            tableContextExcludeTags: '',
-            tableContextExcludeRules: [],
-            // [填表功能] 仅识别最后一对 <tableEdit> 标签
-            tableEditLastPairOnly: true,
-            removeTags: '',
-            importSplitSize: 10000,
-            importPromptExcludeImportedWorldbookEntries: true, // [新增] 仅外部导入时，填表提示词中的世界书占位符屏蔽所有带"外部导入-"标签的条目
-            skipUpdateFloors: 0, // 跳过更新楼层（全局）
-            retainRecentLayers: 100, // [新增] 保留最近N层本地数据 (0或空=全部保留)
-            manualSelectedTables: [],
-            // [新增] 表格更新锁定（按聊天+隔离标签存储；仅对 updateRow 生效）
-            tableUpdateLocks: {},
-            // [新增] 总结表/总体大纲"编码索引列"特殊锁定（默认锁定）
-            specialIndexLocks: {},
-            // [新增] 0TK占用模式全局默认值：新对话会继承这个值
-            zeroTkOccupyModeDefault: false,
-            // [新增] 向量混合增强交火方案全局默认值：新对话会继承这个值
-            summaryVectorIndexModeDefault: false,
-            // [Profile] dataIsolationEnabled/code 由当前 profile 决定；history 走 globalMeta
-            dataIsolationCode: '',
-            dataIsolationHistory: [], // legacy 字段保留但不再持久化
-            characterSettings: {}, // Start with an empty object
-            knownCustomEntryNames: [], // [新增] 记录已创建的自定义条目名称，用于清理
-            mergeSummaryPrompt: DEFAULT_MERGE_SUMMARY_PROMPT_ACU, // [新增] 合并总结提示词
-            mergeTargetCount: 1, // [新增] 合并目标条数
-            mergeBatchSize: 5, // [新增] 合并批次大小
-            mergeStartIndex: 1, // [新增] 合并起始条数
-            mergeEndIndex: null, // [新增] 合并终止条数
-            autoMergeEnabled: false, // [新增] 是否开启自动合并总结
-            autoMergeThreshold: 20, // [新增] 自动合并总结楼层数
-            autoMergeReserve: 0, // [新增] 保留固定楼层数
-            deleteStartFloor: null, // [新增] 删除起始楼层 (null表示从头开始)
-            deleteEndFloor: null, // [新增] 删除终止楼层 (null表示到末尾)
-            // [新增] 酒馆提示词模板功能
-            promptTemplateSettings: {
-                enabled: true, // 总开关
-                maxNestingDepth: 10, // 最大嵌套深度
-                debugMode: false // 调试模式
-            },
-            // [新增] 存储模式（默认原生模式，用户可切换到 SQLite）
-            storageMode: 'native',
-            // [新增] 正文优化功能
-            contentOptimizationSettings: {
-                enabled: false, // 是否启用正文优化
-                apiPreset: '', // 优化使用的API预设（为空则使用当前配置）
-                seamlessMode: true, // 无感替换模式：显示遮罩，优化完成后直接显示结果
-                autoApply: true, // 是否自动应用优化结果（关闭时显示对比让用户选择）
-                showDiff: true, // 是否显示优化对比（非无感模式下有效）
-                parallelMode: false, // 填表与正文替换并行执行（默认关闭）
-                minLength: 100, // 最小优化长度阈值
-                maxOptimizations: 10, // 单次最大优化项数
-                loopCount: 1, // 循环优化次数
-                retryCount: 3, // 自动重试次数（API调用失败时自动重试，默认3次）
-                extractTags: '', // 正文标签提取（从正文中提取指定标签内容进行优化）
-                extractRules: [], // 正文标签提取规则（结构化）
-                excludeTags: '', // 标签排除（优化时排除指定标签内容）
-                excludeRules: [], // 标签排除规则（结构化）
-                promptGroup: buildDefaultContentOptimizationPromptGroup_ACU(), // 提示词组（段落编辑器）
-                promptPresets: [], // 提示词组预设列表
-            },
-            // [向量记忆] 全局配置，跟随数据库设置而非角色/对话
-            vectorMemoryConfig: null,
-        };
-    }
-    function applyTemplateScopeForCurrentChat_ACU({ isolationKey = getCurrentIsolationKey_ACU() } = {}) {
-        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
-        const migratedScopeState = migrateLegacyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
-        const scopeState = getCurrentChatTemplateScopeState_ACU({ isolationKey: normalizedKey }) || migratedScopeState;
-        const selectedPresetName = normalizeTemplatePresetSelectionValue_ACU(scopeState?.presetName || '');
-        let targetSnapshot = null;
-        if (scopeState?.mode === 'chat_override' && scopeState?.templateStr) {
-            targetSnapshot = sanitizeTemplateSnapshotForChat_ACU(scopeState.templateStr);
-        }
-        else if (scopeState?.mode === 'preset_link') {
-            if (selectedPresetName) {
-                targetSnapshot = sanitizeTemplateSnapshotForChat_ACU(getTemplatePreset_ACU(selectedPresetName)?.templateStr || null);
-            }
-            else {
-                targetSnapshot = getDefaultTemplateSnapshot_ACU();
-            }
-        }
-        if (!targetSnapshot?.templateStr) {
-            targetSnapshot = getGlobalTemplateSnapshotForCurrentProfile_ACU();
-        }
-        if (!targetSnapshot?.templateStr)
-            return null;
-        _set_TABLE_TEMPLATE_ACU(targetSnapshot.templateStr);
-        if (scopeState?.mode === 'chat_override' && scopeState?.templateStr) {
-            logDebug_ACU(`[TemplateScope] Applied chat template override for key [${normalizedKey || '默认'}].`);
-            return {
-                mode: 'chat_override',
-                isolationKey: normalizedKey,
-                presetName: scopeState.presetName || '',
-            };
-        }
-        if (scopeState?.mode === 'preset_link') {
-            logDebug_ACU(`[TemplateScope] Applied linked global preset for key [${normalizedKey || '默认'}]: ${selectedPresetName || '默认预设'}.`);
-            return {
-                mode: 'preset_link',
-                isolationKey: normalizedKey,
-                presetName: selectedPresetName,
-            };
-        }
-        logDebug_ACU(`[TemplateScope] Applied global template for key [${normalizedKey || '默认'}].`);
-        return {
-            mode: 'inherit_global',
-            isolationKey: normalizedKey,
-            presetName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
-        };
-    }
-    // [从 data/repositories/isolation-repo.ts 移入] 切换隔离 Profile（业务编排，不属于 data 层）
-    async function switchIsolationProfile_ACU(newCodeRaw) {
-        const newCode = normalizeIsolationCode_ACU(newCodeRaw);
-        const oldCode = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || '');
-        persistSettingsToStorage_ACU(settings_ACU, oldCode);
-        loadGlobalMeta_ACU();
-        if (oldCode)
-            addDataIsolationHistory_ACU(oldCode, { save: false });
-        if (newCode)
-            addDataIsolationHistory_ACU(newCode, { save: false });
-        globalMeta_ACU.activeIsolationCode = newCode;
-        normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
-        saveGlobalMeta_ACU();
-        ensureProfileExists_ACU(newCode, { seedFromCurrent: true, settings: settings_ACU });
-        loadSettings_ACU();
-        applyTemplateScopeForCurrentChat_ACU({ isolationKey: newCode });
-    }
-    // [从 data/repositories/template-preset-repo.ts 移入] 修改当前模板预设名 + 可选持久化
-    function persistCurrentTemplatePresetName_ACU(settingsObj, presetName, { save = true } = {}) {
-        if (!settingsObj || typeof settingsObj !== 'object')
-            return '';
-        const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
-        settingsObj.currentTemplatePresetName = normalizedPresetName;
-        if (save) {
-            const code = normalizeIsolationCode_ACU(settingsObj?.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || '');
-            persistSettingsToStorage_ACU(settingsObj, code);
-        }
-        return normalizedPresetName;
-    }
-    // getCurrentCharSettings_ACU 和 getCurrentWorldbookConfig_ACU 已移至 settings-readers.ts
-    function setGlobalPlotEnabled_ACU(modeEnabled) {
-        const enabled = !!modeEnabled;
-        if (!settings_ACU.plotSettings || typeof settings_ACU.plotSettings !== 'object' || Array.isArray(settings_ACU.plotSettings)) {
-            settings_ACU.plotSettings = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
-        }
-        settings_ACU.plotSettings.enabled = enabled;
-        globalMeta_ACU.plotEnabledGlobal = enabled;
-        saveGlobalMeta_ACU();
-        return enabled;
-    }
-    // [从 popup-bindings.ts / api-registry.ts 提取] 切换 0TK 占用模式的完整业务流程
-    function setZeroTkOccupyMode_ACU(modeEnabled) {
-        const enabled = !!modeEnabled;
-        settings_ACU.zeroTkOccupyModeDefault = enabled;
-        globalMeta_ACU.zeroTkOccupyModeGlobal = enabled;
-        // 0TK 只控制大纲注入条目本身，不再强制关闭交火模式。
-        const cfg = getCurrentWorldbookConfig_ACU();
-        cfg.zeroTkOccupyMode = enabled;
-        cfg.outlineEntryEnabled = !enabled;
-        saveGlobalMeta_ACU();
-        saveSettings_ACU();
-    }
-    function setSummaryVectorIndexMode_ACU(modeEnabled) {
-        const enabled = !!modeEnabled;
-        settings_ACU.summaryVectorIndexModeDefault = enabled;
-        globalMeta_ACU.summaryVectorIndexModeGlobal = enabled;
-        // 向量混合增强交火方案会复用普通向量模型/API/rerank 配置；启停交火时必须同步启停普通向量开关。
-        // 这里只改 enabled，不覆盖模型、API、rerank、namespace 等用户配置。
-        const vectorMemoryConfig = getCurrentVectorMemoryConfig_ACU();
-        vectorMemoryConfig.enabled = enabled;
-        // 交火模式只控制纪要索引条目本身，不再强制关闭 0TK。
-        const cfg = getCurrentWorldbookConfig_ACU();
-        cfg.summaryVectorIndexModeEnabled = enabled;
-        cfg.outlineEntryEnabled = !cfg.zeroTkOccupyMode;
-        saveGlobalMeta_ACU();
-        saveSettings_ACU();
-    }
-    // ============================================================
-    // 合并配置导入
-    // ============================================================
-    /**
-     * 导入合并配置中的 settings 字段
-     * 纯业务逻辑：将 combinedData 中的各字段赋值到 settings 对象
-     * 不涉及 UI（toast、DOM 更新由 presentation 层负责）
-     *
-     * @returns 被修改的字段名列表（供 presentation 层更新对应的 UI 元素）
-     */
-    function applyCombinedSettingsImport_ACU(combinedData) {
-        const modifiedFields = [];
-        // 导入提示词
-        if (Array.isArray(combinedData.prompt)) {
-            settings_ACU.charCardPrompt = combinedData.prompt;
-            modifiedFields.push('charCardPrompt');
-        }
-        // 导入合并提示词
-        if (combinedData.mergeSummaryPrompt) {
-            settings_ACU.mergeSummaryPrompt = combinedData.mergeSummaryPrompt;
-            modifiedFields.push('mergeSummaryPrompt');
-        }
-        // 导入合并设置
-        if (typeof combinedData.mergeSummaryPrompt !== 'undefined' ||
-            typeof combinedData.autoMergeEnabled !== 'undefined') {
-            // 手动合并设置
-            settings_ACU.mergeTargetCount = combinedData.mergeTargetCount || 1;
-            settings_ACU.mergeBatchSize = combinedData.mergeBatchSize || 5;
-            settings_ACU.mergeStartIndex = combinedData.mergeStartIndex || 1;
-            settings_ACU.mergeEndIndex = combinedData.mergeEndIndex || null;
-            modifiedFields.push('mergeTargetCount', 'mergeBatchSize', 'mergeStartIndex', 'mergeEndIndex');
-            // 自动合并设置
-            settings_ACU.autoMergeEnabled = combinedData.autoMergeEnabled || false;
-            settings_ACU.autoMergeThreshold = combinedData.autoMergeThreshold || 20;
-            settings_ACU.autoMergeReserve = combinedData.autoMergeReserve || 0;
-            modifiedFields.push('autoMergeEnabled', 'autoMergeThreshold', 'autoMergeReserve');
-            // 删除楼层范围设置
-            settings_ACU.deleteStartFloor = combinedData.deleteStartFloor || null;
-            settings_ACU.deleteEndFloor = combinedData.deleteEndFloor || null;
-            modifiedFields.push('deleteStartFloor', 'deleteEndFloor');
-        }
-        saveSettings_ACU();
-        return modifiedFields;
-    }
-
-    // merge-logic.ts
-    // ═══ 自动合并纪要：触发检查 ═══
-    function checkAutoMergeTrigger_ACU() {
-        if (!settings_ACU.autoMergeEnabled)
-            return { shouldTrigger: false };
-        const summaryKey = Object.keys(currentJsonTableData_ACU).find(k => currentJsonTableData_ACU[k].name === '纪要表' ||
-            currentJsonTableData_ACU[k].name === '总结表');
-        if (!summaryKey)
-            return { shouldTrigger: false };
-        const summaryCount = (currentJsonTableData_ACU[summaryKey].content || [])
-            .slice(1)
-            .filter((row) => !row || row[row.length - 1] !== 'auto_merged')
-            .length;
-        const threshold = settings_ACU.autoMergeThreshold || 20;
-        const reserve = settings_ACU.autoMergeReserve || 0;
-        const triggerThreshold = threshold + reserve;
-        if (summaryCount < triggerThreshold)
-            return { shouldTrigger: false };
-        const mergeCount = summaryCount - reserve;
-        if (mergeCount <= 0)
-            return { shouldTrigger: false };
-        return { shouldTrigger: true, mergeCount, summaryCount, reserve };
-    }
-    function prepareAutoMergeBatches_ACU(options) {
-        const { startIndex, endIndex, targetCount, batchSize, promptTemplate, isAutoMode } = options;
-        const summaryKey = Object.keys(currentJsonTableData_ACU).find(k => currentJsonTableData_ACU[k].name === '纪要表' ||
-            currentJsonTableData_ACU[k].name === '总结表');
-        if (!summaryKey)
-            throw new Error('未找到纪要表');
-        let allSummaryRows = (currentJsonTableData_ACU[summaryKey].content || [])
-            .slice(1)
-            .filter((row) => !row || row[row.length - 1] !== 'auto_merged');
-        allSummaryRows = allSummaryRows.slice(startIndex, endIndex);
-        const batches = [];
-        for (let i = 0; i < allSummaryRows.length; i += batchSize) {
-            batches.push({
-                batchIndex: batches.length,
-                batchRows: allSummaryRows.slice(i, i + batchSize),
-                globalStartOffset: (startIndex + 1) + i,
-            });
-        }
-        return { summaryKey, batches, targetCount, promptTemplate, isAutoMode, startIndex, endIndex };
-    }
-    // ═══ 自动合并纪要：执行单个批次 ═══
-    async function executeAutoMergeBatch_ACU(prepared, batch, accumulatedSummary) {
-        const { summaryKey, targetCount, promptTemplate, isAutoMode } = prepared;
-        const { batchRows, globalStartOffset, batchIndex } = batch;
-        const summaryTableObj = currentJsonTableData_ACU[summaryKey];
-        const formatRows = (rows, globalStartIndex) => rows.map((r, idx) => `[${globalStartIndex + idx}] ${r.slice(1).join(', ')}`).join('\n');
-        const textA = batchRows.length > 0 ? formatRows(batchRows, globalStartOffset) : "(本批次无新增纪要数据)";
-        let textBase = "";
-        const formatTableStructure = (tableName, currentRows, originalTableObj) => {
-            let str = `[0:${tableName}]\n`;
-            const headers = originalTableObj.content[0] ? originalTableObj.content[0].slice(1).map((h, i) => `[${i}:${h}]`).join(', ') : 'No Headers';
-            str += `  Columns: ${headers}\n`;
-            if (originalTableObj.sourceData) {
-                str += `  - Note: ${originalTableObj.sourceData.note || 'N/A'}\n`;
-            }
-            if (currentRows && currentRows.length > 0) {
-                currentRows.forEach((row, rIdx) => { str += `  [${rIdx}] ${row.join(', ')}\n`; });
-            }
-            else {
-                str += `  (Table Empty - No rows yet)\n`;
-            }
-            return str + "\n";
-        };
-        const getExistingAutoMergedRows = (tableObj, count = 1) => {
-            if (!tableObj || !tableObj.content)
-                return [];
-            const allRows = tableObj.content.slice(1);
-            const autoMergedRows = allRows.filter((row) => row && row[row.length - 1] === 'auto_merged');
-            if (!autoMergedRows.length)
-                return [];
-            const n = Number.isFinite(count) ? Math.max(0, count) : 0;
-            if (n <= 0)
-                return [];
-            const parseAmNumber = (row) => {
-                if (!Array.isArray(row))
-                    return null;
-                const candidates = row.slice(1).filter((v) => typeof v === 'string');
-                for (let i = candidates.length - 1; i >= 0; i--) {
-                    const m = candidates[i].trim().match(/^AM(\d+)\b/i);
-                    if (m)
-                        return parseInt(m[1], 10);
-                }
-                const joined = row.slice(1).join(' ');
-                const m2 = joined.match(/AM(\d+)/i);
-                return m2 ? parseInt(m2[1], 10) : null;
-            };
-            const withAm = autoMergedRows
-                .map((r) => ({ row: r, am: parseAmNumber(r) }))
-                .filter((x) => Number.isFinite(x.am));
-            if (withAm.length) {
-                withAm.sort((a, b) => a.am - b.am);
-                return withAm.slice(-n).map((x) => x.row);
-            }
-            const autoMergedOrder = settings_ACU.autoMergedOrder && settings_ACU.autoMergedOrder[summaryKey] ? settings_ACU.autoMergedOrder[summaryKey] : [];
-            const sortedAutoMergedRows = [];
-            autoMergedOrder.forEach((rowIndex) => {
-                const row = autoMergedRows.find((r) => r && r[0] === rowIndex);
-                if (row)
-                    sortedAutoMergedRows.push(row);
-            });
-            autoMergedRows.forEach((row) => {
-                if (row && !sortedAutoMergedRows.some((r) => r && r[0] === row[0])) {
-                    sortedAutoMergedRows.push(row);
-                }
-            });
-            const fallbackBase = sortedAutoMergedRows.length ? sortedAutoMergedRows : autoMergedRows;
-            return fallbackBase.slice(-n);
-        };
-        const existingSummaryAutoMerged = summaryTableObj ? getExistingAutoMergedRows(summaryTableObj, 1) : [];
-        const summaryBaseData = [...existingSummaryAutoMerged, ...accumulatedSummary];
-        if (summaryTableObj)
-            textBase += formatTableStructure(summaryTableObj.name, summaryBaseData, summaryTableObj);
-        let currentPrompt = promptTemplate.replace('$TARGET_COUNT', String(targetCount)).replace('$A', textA).replace('$BASE_DATA', textBase);
-        let aiResponseText = "";
-        const maxRetries = 3;
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                const messagesToUse = JSON.parse(JSON.stringify(settings_ACU.charCardPrompt || [isSqliteMode() ? DEFAULT_CHAR_CARD_PROMPT_SQL_ACU : DEFAULT_CHAR_CARD_PROMPT_ACU]));
-                const mainPromptSegment = messagesToUse.find((m) => (String(m?.mainSlot || '').toUpperCase() === 'A') || m?.isMain) ||
-                    messagesToUse.find((m) => m && m.content && m.content.includes("你接下来需要扮演一个填表用的美杜莎"));
-                if (mainPromptSegment) {
-                    mainPromptSegment.content = currentPrompt;
-                }
-                else {
-                    messagesToUse.push({ role: 'USER', content: currentPrompt });
-                }
-                const finalMessages = messagesToUse.map((m) => ({ role: m.role.toLowerCase(), content: m.content }));
-                if (settings_ACU.apiMode === 'tavern') {
-                    const result = await sendConnectionManagerRequest_ACU(settings_ACU.tavernProfile, finalMessages, settings_ACU.apiConfig.max_tokens || 4096);
-                    if (result && result.ok)
-                        aiResponseText = result.result.choices[0].message.content;
-                    else
-                        throw new Error('API请求返回不成功状态');
-                }
-                else {
-                    if (settings_ACU.apiConfig.useMainApi) {
-                        aiResponseText = isGenerateRawAvailable_ACU()
-                            ? await generateRaw_ACU({ ordered_prompts: finalMessages, should_stream: settings_ACU.streamingEnabled || false })
-                            : '';
-                    }
-                    else {
-                        const res = await fetch(`/api/backends/chat-completions/generate`, {
-                            method: 'POST',
-                            headers: { ...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                "messages": finalMessages, "model": settings_ACU.apiConfig.model, "temperature": settings_ACU.apiConfig.temperature,
-                                "max_tokens": settings_ACU.apiConfig.max_tokens || 4096, "stream": settings_ACU.streamingEnabled || false, "chat_completion_source": "custom",
-                                "reverse_proxy": settings_ACU.apiConfig.url, "custom_url": settings_ACU.apiConfig.url,
-                                "custom_include_headers": settings_ACU.apiConfig.apiKey ? `Authorization: Bearer ${settings_ACU.apiConfig.apiKey}` : ""
-                            })
-                        });
-                        if (!res.ok)
-                            throw new Error(`API请求失败: ${res.status} ${await res.text()}`);
-                        aiResponseText = await handleApiResponse_ACU(res);
-                        if (!aiResponseText)
-                            throw new Error('API返回的数据格式不正确');
-                    }
-                }
-                const extractResult = extractTableEditInner_ACU(aiResponseText, { allowNoTableEditTags: true });
-                if (!extractResult || !extractResult.inner) {
-                    throw new Error('AI未返回有效的 <tableEdit> 块');
-                }
-                const editsString = extractResult.inner;
-                const newSummaryRows = [];
-                editsString.split('\n').forEach((line) => {
-                    const match = line.trim().match(/insertRow\s*\(\s*(\d+)\s*,\s*(\{.*?\}|\[.*?\])\s*\)/);
-                    if (match) {
-                        try {
-                            const tableIdx = parseInt(match[1], 10);
-                            let rowData = JSON.parse(match[2].replace(/'/g, '"'));
-                            if (typeof rowData === 'object' && !Array.isArray(rowData)) {
-                                const sortedKeys = Object.keys(rowData).sort((a, b) => parseInt(a) - parseInt(b));
-                                const dataColumns = sortedKeys.map((k) => rowData[k]);
-                                rowData = [null, ...dataColumns]; // 行号占位，由 migrateContentNullToRowId 统一处理
-                            }
-                            if (isAutoMode) {
-                                rowData.push('auto_merged');
-                            }
-                            if (tableIdx === 0 && summaryKey)
-                                newSummaryRows.push(rowData);
-                        }
-                        catch (e) {
-                            logWarn_ACU('解析行失败:', line, e);
-                        }
-                    }
-                });
-                if (newSummaryRows.length === 0) {
-                    throw new Error('AI返回了内容，但未能解析出任何有效的数据行。');
-                }
-                return { accumulatedSummary: accumulatedSummary.concat(newSummaryRows) };
-            }
-            catch (e) {
-                logWarn_ACU(`自动合并批次 ${batchIndex + 1} 尝试 ${attempt} 失败: ${e.message}`);
-                if (attempt < maxRetries)
-                    await new Promise(resolve => setTimeout(resolve, 5000));
-            }
-        }
-        throw new Error(`批次 ${batchIndex + 1} 在 ${maxRetries} 次尝试后均失败`);
-    }
-    // ═══ 自动合并纪要：写回结果 ═══
-    async function finalizeAutoMerge_ACU(prepared, accumulatedSummary) {
-        const { summaryKey, endIndex } = prepared;
-        if (!summaryKey || accumulatedSummary.length === 0)
-            return { mergedRows: 0 };
-        const table = currentJsonTableData_ACU[summaryKey];
-        const originalContent = table.content.slice(1);
-        let actualEndIndex = 0;
-        let foundCount = 0;
-        for (let i = 0; i < originalContent.length; i++) {
-            const row = originalContent[i];
-            if (!row || row[row.length - 1] !== 'auto_merged') {
-                foundCount++;
-                if (foundCount === endIndex) {
-                    actualEndIndex = i + 1;
-                    break;
-                }
-            }
-        }
-        const existingAutoMergedRows = originalContent.filter((row) => row && row[row.length - 1] === 'auto_merged');
-        const remainingRows = originalContent.slice(actualEndIndex);
-        const newSummaryContent = [
-            ...existingAutoMergedRows,
-            ...accumulatedSummary,
-            ...remainingRows.filter((row) => !row || row[row.length - 1] !== 'auto_merged')
-        ];
-        table.content = [table.content[0], ...newSummaryContent];
-        if (!settings_ACU.autoMergedOrder)
-            settings_ACU.autoMergedOrder = {};
-        if (!settings_ACU.autoMergedOrder[summaryKey])
-            settings_ACU.autoMergedOrder[summaryKey] = [];
-        const orderList = settings_ACU.autoMergedOrder[summaryKey];
-        accumulatedSummary.forEach((row) => {
-            if (row && row[row.length - 1] === 'auto_merged' && row[0] !== null && row[0] !== undefined && !orderList.includes(row[0])) {
-                orderList.push(row[0]);
-            }
-        });
-        const keysToSave = [summaryKey];
-        await saveIndependentTableToChatHistory_ACU(getLastMessageIndex_ACU(), keysToSave, keysToSave);
-        await updateReadableLorebookEntry_ACU(true);
-        return { mergedRows: accumulatedSummary.length };
-    }
-
-    var mergeLogic = /*#__PURE__*/Object.freeze({
-        __proto__: null,
-        checkAutoMergeTrigger_ACU: checkAutoMergeTrigger_ACU,
-        executeAutoMergeBatch_ACU: executeAutoMergeBatch_ACU,
-        finalizeAutoMerge_ACU: finalizeAutoMerge_ACU,
-        prepareAutoMergeBatches_ACU: prepareAutoMergeBatches_ACU
-    });
 
     function isLegacyMatchForMessage_ACU(msg, settings) {
         const msgIdentity = msg?.TavernDB_ACU_Identity;
@@ -24638,6 +20792,3875 @@ $CONTENT
         }
         return null;
     }
+
+    /**
+     * service/worldbook/injection-engine-custom.ts — 自定义表格导出
+     * 从 injection-engine.ts 拆出
+     */
+    // [新增] 处理自定义表格导出逻辑
+    // [修复] 当 mergedData 为空/null 时，仍需执行"清理旧自定义导出条目"逻辑，
+    // 避免删除楼层回溯到空数据时旧条目残留在世界书中。
+    async function updateCustomTableExports_ACU(mergedData, isImport = false) {
+        if (!isWorldbookApiAvailable_ACU())
+            return;
+        const primaryLorebookName = await getInjectionTargetLorebook_ACU();
+        if (!primaryLorebookName)
+            return;
+        const IMPORT_PREFIX = getImportBatchPrefix_ACU$1();
+        const isoPrefix = getIsolationPrefix_ACU();
+        // [修复] 外部导入的自定义导出条目必须加外部导入前缀，避免被当作普通注入条目/或被清理逻辑误删
+        // [修改] 外部导入时只使用"外部导入-"前缀，不再包含"TavernDB-ACU-CustomExport-"
+        const exportPrefix = isoPrefix + (isImport ? IMPORT_PREFIX : '');
+        // [修复] 外部导入时的条目命名辅助函数：只使用"外部导入-"前缀
+        const getImportEntryName = (name) => isImport ? `${exportPrefix}${name}` : `${exportPrefix}TavernDB-ACU-CustomExport-${name}`;
+        // [修改] 定义旧版前缀用于清理（非外部导入模式）
+        const baseLegacyPrefix = 'TavernDB-ACU-CustomExport';
+        const LEGACY_EXPORT_PREFIX = isoPrefix + baseLegacyPrefix;
+        // [修改] 0TK 与交火模式允许同时启用：交火模式可保留/覆盖纪要索引内容，但 0TK 仍持续控制该条目的 enabled 状态。
+        const worldbookConfig = getCurrentWorldbookConfig_ACU();
+        const zeroTkOccupyMode = worldbookConfig?.zeroTkOccupyMode === true;
+        const summaryVectorIndexModeEnabled = worldbookConfig?.summaryVectorIndexModeEnabled === true;
+        const extraIndexEntryEnabled = !zeroTkOccupyMode;
+        logDebug_ACU(`[CustomExport] 0TK模式=${zeroTkOccupyMode}, 交火纪要索引=${summaryVectorIndexModeEnabled}, 纪要索引条目enabled=${extraIndexEntryEnabled}`);
+        // [spv3.6.4] 计算交火索引是否已达门槛：未达门槛时内容保护补丁不生效，让普通填表正常更新纪要索引条目
+        let crossfireThresholdMet = false;
+        if (summaryVectorIndexModeEnabled) {
+            try {
+                const snapshot = getLatestSummaryVectorIndexSnapshotState_ACU();
+                const state = snapshot?.summaryVectorIndexState || null;
+                if (state) {
+                    const activeRowKeys = new Set(state.manifest?.snapshot?.activeRowKeys || []);
+                    const indexedRowCount = Array.isArray(state.rows)
+                        ? state.rows.filter((row) => row.status !== 'removed' && (activeRowKeys.size === 0 || activeRowKeys.has(row.rowKey))).length
+                        : 0;
+                    const config = getEffectiveSummaryVectorIndexConfig_ACU();
+                    crossfireThresholdMet = indexedRowCount >= config.summaryIndexKeywordMinRows;
+                }
+            }
+            catch (e) {
+                logWarn_ACU('[CustomExport] 无法获取交火索引状态，默认不保护纪要索引条目内容:', e);
+            }
+        }
+        logDebug_ACU(`[CustomExport] 交火门槛已达标=${crossfireThresholdMet}`);
+        try {
+            const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
+            const usedOrders = buildUsedOrderSet_ACU(allEntries);
+            // 1. Delete entries
+            // [修改] 使用 knownCustomEntryNames 和 LEGACY_PREFIX 进行全面清理
+            // 即使是回退或改名，只要曾经记录在 knownCustomEntryNames 中，并且符合当前隔离前缀，就会被清理
+            // 加载已知条目列表（外部导入模式不使用 knownNames，以避免把第三方世界书纳入"本插件管理范围"）
+            let knownNames = settings_ACU.knownCustomEntryNames || [];
+            if (!Array.isArray(knownNames))
+                knownNames = [];
+            const uidsToDelete = allEntries
+                .filter(e => {
+                if (!e.comment)
+                    return false;
+                // 用户要求：外部导入每次导入前不清理（允许多批并存）
+                if (isImport)
+                    return false;
+                // 1. 检查旧版前缀 (兼容性)
+                // LEGACY_EXPORT_PREFIX 已经包含了 isoPrefix
+                if (e.comment.startsWith(LEGACY_EXPORT_PREFIX))
+                    return true;
+                // 2. 检查是否在已知列表中（仅非外部导入模式）
+                // 只有当条目属于当前隔离环境时才删除
+                if (e.comment.startsWith(isoPrefix)) {
+                    if (knownNames.includes(e.comment))
+                        return true;
+                }
+                return false;
+            })
+                .map(e => e.uid);
+            // [新增] 还需要把当前配置会生成的名字也加入到"待删除"列表中，以防它们是新生成的但同名
+            // 这一步会在后续生成 entriesToCreate 时自然覆盖，但显式删除更干净。
+            // 由于我们下面会重新生成并添加到 knownNames，这里先删除所有已知的"本插件生成条目"是安全的。
+            if (uidsToDelete.length > 0) {
+                await deleteLorebookEntries_ACU(primaryLorebookName, uidsToDelete);
+                logDebug_ACU(`Deleted ${uidsToDelete.length} custom export entries (Legacy + Known).`);
+            }
+            // 每次更新时，我们重置 knownNames 列表（仅非外部导入模式）
+            // 外部导入模式不维护 knownNames，避免影响第三方世界书
+            if (!isImport) {
+                if (isoPrefix)
+                    knownNames = knownNames.filter((name) => !name.startsWith(isoPrefix));
+                else
+                    knownNames = knownNames.filter((name) => name.startsWith('ACU-'));
+            }
+            // [修复] 如果 mergedData 为空，清理完旧条目后直接返回，不再尝试创建新条目
+            if (!mergedData) {
+                logDebug_ACU('[CustomExport] mergedData 为空，已清理旧条目，跳过创建。');
+                // 保存清理后的 knownNames
+                if (!isImport) {
+                    settings_ACU.knownCustomEntryNames = knownNames;
+                    saveSettings_ACU();
+                }
+                return;
+            }
+            // 2. Create new entries
+            const entriesToCreate = [];
+            // [新增] 创建后 order 强制回写计划（按 comment 匹配 uid 再 setLorebookEntries）
+            // 目的：防止创建接口把重复 order 自动改写，导致"同表行条目仍然各占一个深度"
+            const postCreateOrderFixPlan = [];
+            // [新增] 用于合并同名条目的分组对象
+            const mergedEntriesMap = {};
+            // [FIX] 定义 newGeneratedNames 用于收集本次生成的名称
+            const newGeneratedNames = [];
+            // [FIX] 重新定义 tableKeys (之前的定义在 if 块内，这里无法访问)
+            const tableKeys = getSortedSheetKeys_ACU(mergedData);
+            // [新增] 为"自定义导出条目"分配不重叠的 order 段，避免不同表格的包裹/行条目互相穿插
+            // 机制：严格按"用户手动顺序/模板顺序"分配，避免填表/读取后顺序漂移
+            const sortedTableKeys = [...tableKeys];
+            let nextCustomExportOrder = 10000; // 维持原本"自定义导出"大致优先级区间
+            // [优化] 不允许重复 order：为每个条目分配唯一 order，并整体避开世界书现有 order
+            const CUSTOM_EXPORT_ORDER_GAP = 1;
+            const toIntOrFallback_ACU = (v, fb) => {
+                const n = parseInt(v, 10);
+                return Number.isFinite(n) ? n : fb;
+            };
+            const calcPreferredBlockStart_ACU = (baseOrder, leadingSlots = 0, fallback = 1) => {
+                const o = toIntOrFallback_ACU(baseOrder, fallback);
+                return Math.max(1, o - Math.max(0, toIntOrFallback_ACU(leadingSlots, 0)));
+            };
+            // [新增] 解析注入模板，提取用于前后包裹的常量条目内容
+            const parseWrapperTemplate = (templateStr) => {
+                if (!templateStr || typeof templateStr !== 'string')
+                    return null;
+                const markerIndex = templateStr.indexOf('$1');
+                if (markerIndex === -1)
+                    return null;
+                const before = templateStr.slice(0, markerIndex).trim();
+                const after = templateStr.slice(markerIndex + 2).trim();
+                if (!before && !after)
+                    return null;
+                return { before, after };
+            };
+            // [新增] 统一的条目内容生成器，支持在包裹模式下忽略自定义模板
+            const buildEntryContent = (entryName, tableData, template, ignoreTemplate = false, fallbackTemplate = null, isSplitMode = false) => {
+                let finalTemplate = ignoreTemplate ? null : template;
+                if (!finalTemplate) {
+                    if (fallbackTemplate) {
+                        finalTemplate = fallbackTemplate;
+                    }
+                    else if (isSplitMode) {
+                        // 拆分模式下，不添加条目名称，只保留内容
+                        finalTemplate = `$1`;
+                    }
+                    else if (entryName === '重要人物表' || entryName === '总结表') {
+                        finalTemplate = `# ${entryName}\n\n$1`;
+                    }
+                    else {
+                        finalTemplate = `# ${entryName}\n\n$1`;
+                    }
+                }
+                return finalTemplate.replace('$1', tableData);
+            };
+            const buildMarkdownTableFromRows_ACU = (headerList, rowList) => {
+                if (!Array.isArray(headerList) || headerList.length === 0)
+                    return '';
+                const lines = [];
+                lines.push(`| ${headerList.join(' | ')} |`);
+                lines.push(`|${headerList.map(() => '---').join('|')}|`);
+                (Array.isArray(rowList) ? rowList : []).forEach(row => {
+                    const cells = headerList.map((_, idx) => {
+                        const v = Array.isArray(row) ? row[idx] : '';
+                        return v === null || v === undefined ? '' : String(v);
+                    });
+                    lines.push(`| ${cells.join(' | ')} |`);
+                });
+                return lines.join('\n');
+            };
+            const resolveExtraIndexSpec_ACU = (cfg, originalHeaders, rawRows, defaultName) => {
+                if (!cfg || cfg.extraIndexEnabled !== true)
+                    return null;
+                if (!Array.isArray(originalHeaders) || originalHeaders.length === 0)
+                    return null;
+                const selectedRaw = Array.isArray(cfg.extraIndexColumns) ? cfg.extraIndexColumns : [];
+                const selectedCols = [...new Set(selectedRaw.filter(col => typeof col === 'string' && originalHeaders.includes(col)))];
+                if (selectedCols.length === 0)
+                    return null;
+                const modeMap = (cfg.extraIndexColumnModes && typeof cfg.extraIndexColumnModes === 'object')
+                    ? cfg.extraIndexColumnModes
+                    : {};
+                const selectedMeta = selectedCols.map((col) => {
+                    const idx = originalHeaders.indexOf(col);
+                    const mode = modeMap[col] === 'index_only' ? 'index_only' : 'both';
+                    return { name: col, idx, mode };
+                }).filter(m => m.idx >= 0);
+                if (selectedMeta.length === 0)
+                    return null;
+                const indexCols = selectedMeta.map(m => m.name);
+                const indexColIndexes = selectedMeta.map(m => m.idx);
+                const indexOnlySet = new Set(selectedMeta.filter(m => m.mode === 'index_only').map(m => m.idx));
+                const mainColIndexes = originalHeaders
+                    .map((_, idx) => idx)
+                    .filter(idx => !indexOnlySet.has(idx));
+                const mainCols = mainColIndexes.map(idx => originalHeaders[idx]);
+                const mapRowsByIndexes = (rows, indexes) => {
+                    const safeRows = Array.isArray(rows) ? rows : [];
+                    return safeRows.map(row => indexes.map(i => {
+                        const v = Array.isArray(row) ? row[i] : '';
+                        return v === null || v === undefined ? '' : String(v);
+                    }));
+                };
+                return {
+                    entryName: String(cfg.extraIndexEntryName || `${defaultName}-索引`).trim() || `${defaultName}-索引`,
+                    indexCols,
+                    indexRows: mapRowsByIndexes(rawRows, indexColIndexes),
+                    mainCols,
+                    mainRows: mapRowsByIndexes(rawRows, mainColIndexes),
+                };
+            };
+            const buildExtraIndexEntryBlock_ACU = ({ exportPrefix, extraIndexSpec, templateStr, startOrder, placement, usedOrderSet, enabled = true }) => {
+                if (!extraIndexSpec)
+                    return { entries: [], names: [], plans: [], nextOrder: startOrder, span: 0 };
+                const cursor = allocOrder_ACU(usedOrderSet || usedOrders, startOrder, 1, 99999);
+                const names = [];
+                const plans = [];
+                const entries = [];
+                const fullTable = buildMarkdownTableFromRows_ACU(extraIndexSpec.indexCols, extraIndexSpec.indexRows);
+                const fallbackTemplate = `# ${extraIndexSpec.entryName}\n\n$1`;
+                // 自定义表格导出的附加索引条目：在注释名中加入统一标记，便于在世界书 UI 中识别为"数据库生成条目"并默认隐藏
+                // [修复] 外部导入时只使用"外部导入-"前缀
+                const mainComment = getImportEntryName(extraIndexSpec.entryName);
+                const isCrossfireSummaryEntry = extraIndexSpec.entryName === '纪要索引';
+                let mainContent = buildEntryContent(extraIndexSpec.entryName, fullTable, templateStr, false, fallbackTemplate);
+                if (!isImport && isCrossfireSummaryEntry && summaryVectorIndexModeEnabled && crossfireThresholdMet) {
+                    const existingEntry = allEntries.find(e => e.comment === mainComment);
+                    if (existingEntry?.content) {
+                        mainContent = existingEntry.content;
+                        logDebug_ACU('[CustomExport] 交火模式已启用且已达门槛，保留现有纪要索引召回内容，避免覆盖发送前召回结果。');
+                    }
+                }
+                else if (!isImport && isCrossfireSummaryEntry && summaryVectorIndexModeEnabled && !crossfireThresholdMet) {
+                    logDebug_ACU('[CustomExport] 交火模式已启用但未达门槛，纪要索引条目使用普通填表数据，不保护现有内容。');
+                }
+                names.push(mainComment);
+                const normalizedPlacement = normalizePlacementConfig_ACU(placement, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU);
+                plans.push({ comment: mainComment, order: cursor, placement: normalizedPlacement });
+                // [修复] 0TK 模式仍持续控制"纪要索引"条目的 enabled；交火模式只控制内容保护，不接管 enabled。
+                const finalEnabled = extraIndexSpec.entryName === '纪要索引' ? enabled : true;
+                entries.push(applyPlacementToEntry_ACU({
+                    comment: mainComment,
+                    content: mainContent,
+                    keys: [],
+                    enabled: finalEnabled,
+                    type: 'constant',
+                    prevent_recursion: true,
+                    order: cursor
+                }, normalizedPlacement));
+                return {
+                    entries,
+                    names,
+                    plans,
+                    nextOrder: cursor + 1,
+                    span: entries.length,
+                };
+            };
+            sortedTableKeys.forEach(sheetKey => {
+                const table = mergedData[sheetKey];
+                // Check for exportConfig
+                // [修改] 增加 injectIntoWorldbook === false 的检查，如果被禁用，即使 enabled 为 true 也不导出
+                if (!table || !table.exportConfig || !table.exportConfig.enabled)
+                    return;
+                // [新增] 检查是否只导出索引条目（主条目不注入但索引条目启用）
+                const mainEntryDisabled = table.exportConfig.injectIntoWorldbook === false;
+                const hasExtraIndexEnabled = table.exportConfig.extraIndexEnabled === true;
+                // 如果主条目和索引条目都不导出，则跳过
+                if (mainEntryDisabled && !hasExtraIndexEnabled)
+                    return;
+                const config = ensureExportConfigDefaults_ACU(table.exportConfig, table.name || sheetKey);
+                const tableName = table.name;
+                const entryPlacement = normalizePlacementConfig_ACU(config.entryPlacement, DEFAULT_ENTRY_PLACEMENT_ACU);
+                const extraIndexPlacement = normalizePlacementConfig_ACU(config.extraIndexPlacement, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU);
+                const headers = table.content[0] ? table.content[0].slice(1) : [];
+                const rows = table.content.slice(1).map((row) => row.slice(1));
+                const hasAnyNonEmptyExportCell_ACU = (row) => Array.isArray(row) && row.some((cell) => {
+                    const text = cell === null || cell === undefined ? '' : String(cell);
+                    return text.trim() !== '';
+                });
+                const effectiveRows = rows.filter(hasAnyNonEmptyExportCell_ACU);
+                const extraIndexSpec = resolveExtraIndexSpec_ACU(config, headers, effectiveRows, config.entryName || tableName || '表格');
+                const mainHeaders = extraIndexSpec ? extraIndexSpec.mainCols : headers;
+                const mainRows = extraIndexSpec ? extraIndexSpec.mainRows : effectiveRows;
+                // [新增] 检查是否有有效的索引条目数据
+                const hasExtraIndex = hasExtraIndexEnabled && extraIndexSpec && extraIndexSpec.indexCols.length > 0 && extraIndexSpec.indexRows.length > 0;
+                const wrapperParts = parseWrapperTemplate(config.injectionTemplate);
+                const useWrapperEntries = !!wrapperParts;
+                if (effectiveRows.length === 0 && !hasExtraIndex)
+                    return; // 仅存在空白行时不注入任何表格相关条目
+                // [新增] 如果主条目禁用但索引条目启用，只处理索引条目
+                if (mainEntryDisabled && hasExtraIndex) {
+                    // 只导出索引条目
+                    const extraBlock = buildExtraIndexEntryBlock_ACU({
+                        exportPrefix,
+                        extraIndexSpec,
+                        templateStr: config.extraIndexInjectionTemplate,
+                        startOrder: toIntOrFallback_ACU(extraIndexPlacement.order, nextCustomExportOrder),
+                        placement: extraIndexPlacement,
+                        usedOrderSet: usedOrders,
+                        enabled: extraIndexEntryEnabled,
+                    });
+                    newGeneratedNames.push(...extraBlock.names);
+                    postCreateOrderFixPlan.push(...extraBlock.plans);
+                    entriesToCreate.push(...extraBlock.entries);
+                    nextCustomExportOrder = extraBlock.nextOrder + CUSTOM_EXPORT_ORDER_GAP;
+                    return; // 跳过主条目处理
+                }
+                // 准备表格数据内容 (Common logic)
+                let tableContentMarkdown = "";
+                if (config.splitByRow) {
+                    // Will be handled inside loop
+                }
+                else {
+                    // Whole table content
+                    tableContentMarkdown = buildMarkdownTableFromRows_ACU(mainHeaders, mainRows);
+                }
+                if (config.splitByRow) {
+                    // Split export: One entry per row
+                    const rowEntries = [];
+                    const hasWrapperBefore = !!(wrapperParts && wrapperParts.before);
+                    const hasWrapperAfter = !!(wrapperParts && wrapperParts.after);
+                    const use3DepthWrapperGroup = !!(useWrapperEntries && (hasWrapperBefore || hasWrapperAfter));
+                    const needsHeader = (!use3DepthWrapperGroup && mainHeaders.length > 0);
+                    const hasExtraIndexEntry = !!(extraIndexSpec && extraIndexSpec.indexCols.length > 0);
+                    const blockSpan = (use3DepthWrapperGroup ? 3 : (needsHeader ? 2 : 1));
+                    const leadingSlots = (use3DepthWrapperGroup && hasWrapperBefore) ? 1 : ((!useWrapperEntries && mainHeaders.length > 0) ? 1 : 0);
+                    const preferredMainOrder = toIntOrFallback_ACU(entryPlacement.order, nextCustomExportOrder);
+                    const preferredBlockStart = calcPreferredBlockStart_ACU(preferredMainOrder, leadingSlots, nextCustomExportOrder);
+                    const baseOrder = allocConsecutiveOrderBlock_ACU(usedOrders, Math.max(1, blockSpan), preferredBlockStart, 1, 99999);
+                    let orderCursor = baseOrder;
+                    // 准备表头markdown
+                    const headerMarkdown = mainHeaders.length
+                        ? `# ${tableName}\n\n${buildMarkdownTableFromRows_ACU(mainHeaders, [])}`
+                        : `# ${tableName}`;
+                    // 在拆分模式下，如果存在包裹模板，先追加前置常量条目（包含表头）
+                    if (use3DepthWrapperGroup && hasWrapperBefore) {
+                        const wrapperName = getImportEntryName(`${(config.entryName || tableName)}-包裹-上`);
+                        newGeneratedNames.push(wrapperName);
+                        postCreateOrderFixPlan.push({ comment: wrapperName, order: orderCursor, placement: entryPlacement });
+                        const wrapperContent = [wrapperParts.before, headerMarkdown].filter(Boolean).join('\n\n').trim();
+                        rowEntries.push(applyPlacementToEntry_ACU({
+                            comment: wrapperName, content: wrapperContent, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: orderCursor++
+                        }, entryPlacement));
+                    }
+                    else if (!useWrapperEntries && mainHeaders.length > 0) {
+                        const headerName = getImportEntryName(`${(config.entryName || tableName)}-表头`);
+                        newGeneratedNames.push(headerName);
+                        postCreateOrderFixPlan.push({ comment: headerName, order: orderCursor, placement: entryPlacement });
+                        rowEntries.push(applyPlacementToEntry_ACU({
+                            comment: headerName, content: headerMarkdown, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: orderCursor++
+                        }, entryPlacement));
+                    }
+                    const dataOrder = orderCursor++;
+                    mainRows.forEach((rowData, i) => {
+                        const entryName = config.entryName ? `${config.entryName}-${i + 1}` : `${tableName}-${i + 1}`;
+                        let keys = [];
+                        if (config.keywords) {
+                            const keywordList = splitKeywordsByComma_ACU(config.keywords);
+                            keywordList.forEach((k) => {
+                                const colIndex = headers.indexOf(k);
+                                if (colIndex !== -1) {
+                                    const rawRowData = rows[i] || [];
+                                    const cellContent = rawRowData[colIndex];
+                                    if (cellContent) {
+                                        keys.push(...splitKeywordsByComma_ACU(cellContent));
+                                    }
+                                }
+                                else {
+                                    keys.push(k);
+                                }
+                            });
+                        }
+                        if (config.entryType === 'keyword' && keys.length === 0)
+                            return;
+                        const rowTableMarkdown = mainHeaders.length > 0 ? `| ${rowData.join(' | ')} |\n` : '';
+                        const finalContent = buildEntryContent(entryName, rowTableMarkdown, config.injectionTemplate, useWrapperEntries, null, true);
+                        const fullComment = getImportEntryName(entryName);
+                        newGeneratedNames.push(fullComment);
+                        postCreateOrderFixPlan.push({ comment: fullComment, order: dataOrder, placement: entryPlacement });
+                        rowEntries.push(applyPlacementToEntry_ACU({
+                            comment: fullComment, content: finalContent, keys: keys, enabled: true,
+                            type: config.entryType || 'constant', prevent_recursion: config.preventRecursion !== false, order: dataOrder
+                        }, entryPlacement));
+                    });
+                    if (use3DepthWrapperGroup && hasWrapperAfter) {
+                        const wrapperName = getImportEntryName(`${(config.entryName || tableName)}-包裹-下`);
+                        newGeneratedNames.push(wrapperName);
+                        postCreateOrderFixPlan.push({ comment: wrapperName, order: orderCursor, placement: entryPlacement });
+                        rowEntries.push(applyPlacementToEntry_ACU({
+                            comment: wrapperName, content: wrapperParts.after, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: orderCursor++
+                        }, entryPlacement));
+                    }
+                    if (hasExtraIndexEntry) {
+                        const extraBlock = buildExtraIndexEntryBlock_ACU({
+                            exportPrefix, extraIndexSpec, templateStr: config.extraIndexInjectionTemplate,
+                            startOrder: toIntOrFallback_ACU(extraIndexPlacement.order, orderCursor),
+                            placement: extraIndexPlacement, usedOrderSet: usedOrders, enabled: extraIndexEntryEnabled,
+                        });
+                        newGeneratedNames.push(...extraBlock.names);
+                        postCreateOrderFixPlan.push(...extraBlock.plans);
+                        rowEntries.push(...extraBlock.entries);
+                        orderCursor = extraBlock.nextOrder;
+                    }
+                    entriesToCreate.push(...rowEntries);
+                    nextCustomExportOrder = orderCursor + CUSTOM_EXPORT_ORDER_GAP;
+                }
+                else {
+                    if (extraIndexSpec) {
+                        const entryName = config.entryName || tableName;
+                        let keys = config.keywords ? splitKeywordsByComma_ACU(config.keywords) : [];
+                        if (config.entryType === 'keyword' && keys.length === 0)
+                            return;
+                        const hasWrapperBefore = !!(wrapperParts && wrapperParts.before);
+                        const hasWrapperAfter = !!(wrapperParts && wrapperParts.after);
+                        const useWrapperBlock = !!(useWrapperEntries && (hasWrapperBefore || hasWrapperAfter));
+                        const needsHeader = (!useWrapperBlock && mainHeaders.length > 0);
+                        const blockSize = (useWrapperBlock ? 2 : 0) + (needsHeader ? 1 : 0) + 1;
+                        const leadingSlots = (useWrapperBlock && hasWrapperBefore) ? 1 : ((!useWrapperEntries && mainHeaders.length > 0) ? 1 : 0);
+                        const preferredMainOrder = toIntOrFallback_ACU(entryPlacement.order, nextCustomExportOrder);
+                        const preferredBlockStart = calcPreferredBlockStart_ACU(preferredMainOrder, leadingSlots, nextCustomExportOrder);
+                        const baseOrder = allocConsecutiveOrderBlock_ACU(usedOrders, Math.max(1, blockSize), preferredBlockStart, 1, 99999);
+                        let cursor = baseOrder;
+                        const blockEntries = [];
+                        const tableHeader = mainHeaders.length > 0
+                            ? `# ${tableName}\n\n${buildMarkdownTableFromRows_ACU(mainHeaders, [])}`
+                            : `# ${tableName}`;
+                        if (useWrapperBlock && hasWrapperBefore) {
+                            const wrapperName = getImportEntryName(`${entryName}-包裹-上`);
+                            const wrapperContent = [wrapperParts.before, tableHeader].filter(Boolean).join('\n\n').trim();
+                            newGeneratedNames.push(wrapperName);
+                            postCreateOrderFixPlan.push({ comment: wrapperName, order: cursor, placement: entryPlacement });
+                            blockEntries.push(applyPlacementToEntry_ACU({
+                                comment: wrapperName, content: wrapperContent, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: cursor++
+                            }, entryPlacement));
+                        }
+                        else if (!useWrapperEntries && mainHeaders.length > 0) {
+                            const headerName = getImportEntryName(`${entryName}-表头`);
+                            newGeneratedNames.push(headerName);
+                            postCreateOrderFixPlan.push({ comment: headerName, order: cursor, placement: entryPlacement });
+                            blockEntries.push(applyPlacementToEntry_ACU({
+                                comment: headerName, content: tableHeader, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: cursor++
+                            }, entryPlacement));
+                        }
+                        const mainBody = buildMarkdownTableFromRows_ACU(mainHeaders, mainRows);
+                        const mainContent = buildEntryContent(entryName, mainBody, config.injectionTemplate, useWrapperBlock, '$1');
+                        const fullComment = getImportEntryName(entryName);
+                        newGeneratedNames.push(fullComment);
+                        postCreateOrderFixPlan.push({ comment: fullComment, order: cursor, placement: entryPlacement });
+                        blockEntries.push(applyPlacementToEntry_ACU({
+                            comment: fullComment, content: mainContent, keys: keys, enabled: true,
+                            type: config.entryType || 'constant', prevent_recursion: config.preventRecursion !== false, order: cursor++
+                        }, entryPlacement));
+                        if (useWrapperBlock && hasWrapperAfter) {
+                            const wrapperName = getImportEntryName(`${entryName}-包裹-下`);
+                            newGeneratedNames.push(wrapperName);
+                            postCreateOrderFixPlan.push({ comment: wrapperName, order: cursor, placement: entryPlacement });
+                            blockEntries.push(applyPlacementToEntry_ACU({
+                                comment: wrapperName, content: wrapperParts.after, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: cursor++
+                            }, entryPlacement));
+                        }
+                        const extraBlock = buildExtraIndexEntryBlock_ACU({
+                            exportPrefix, extraIndexSpec, templateStr: config.extraIndexInjectionTemplate,
+                            startOrder: toIntOrFallback_ACU(extraIndexPlacement.order, cursor),
+                            placement: extraIndexPlacement, usedOrderSet: usedOrders, enabled: extraIndexEntryEnabled,
+                        });
+                        newGeneratedNames.push(...extraBlock.names);
+                        postCreateOrderFixPlan.push(...extraBlock.plans);
+                        blockEntries.push(...extraBlock.entries);
+                        cursor = extraBlock.nextOrder;
+                        entriesToCreate.push(...blockEntries);
+                        nextCustomExportOrder = cursor + CUSTOM_EXPORT_ORDER_GAP;
+                        return;
+                    }
+                    // Whole table export
+                    const entryName = config.entryName || tableName;
+                    let keys = config.keywords ? splitKeywordsByComma_ACU(config.keywords) : [];
+                    if (config.entryType === 'keyword' && keys.length === 0)
+                        return;
+                    // [合并逻辑] 检查是否可以合并
+                    const mergeKey = `${entryName}|${config.entryType || 'constant'}|${keys.sort().join(',')}`;
+                    if (!mergedEntriesMap[mergeKey]) {
+                        mergedEntriesMap[mergeKey] = {
+                            entryName: entryName, entryType: config.entryType || 'constant', keywords: keys,
+                            preventRecursion: config.preventRecursion !== false, sheetKeys: [], tableContents: [],
+                            injectionTemplate: config.injectionTemplate, wrapperParts: wrapperParts,
+                            useWrapperEntries: useWrapperEntries, entryPlacement: entryPlacement
+                        };
+                    }
+                    if (!mergedEntriesMap[mergeKey].wrapperParts && wrapperParts) {
+                        mergedEntriesMap[mergeKey].wrapperParts = wrapperParts;
+                        mergedEntriesMap[mergeKey].useWrapperEntries = useWrapperEntries;
+                    }
+                    if (!mergedEntriesMap[mergeKey].injectionTemplate && config.injectionTemplate) {
+                        mergedEntriesMap[mergeKey].injectionTemplate = config.injectionTemplate;
+                    }
+                    if (!mergedEntriesMap[mergeKey].entryPlacement) {
+                        mergedEntriesMap[mergeKey].entryPlacement = entryPlacement;
+                    }
+                    mergedEntriesMap[mergeKey].sheetKeys.push(sheetKey);
+                    if (!mergedEntriesMap[mergeKey].tableHeaders) {
+                        mergedEntriesMap[mergeKey].tableHeaders = [];
+                    }
+                    mergedEntriesMap[mergeKey].tableHeaders.push({ name: tableName, headers: headers });
+                    const rowsOnly = rows.map((row) => `| ${row.join(' | ')} |`).join('\n');
+                    mergedEntriesMap[mergeKey].tableContents.push(rowsOnly);
+                    if (config.preventRecursion === false) {
+                        mergedEntriesMap[mergeKey].preventRecursion = false;
+                    }
+                }
+            });
+            // Process Merged Entries
+            Object.keys(mergedEntriesMap).forEach(key => {
+                const group = mergedEntriesMap[key];
+                const combinedTableData = group.tableContents.join('\n\n');
+                const wrapperParts = group.useWrapperEntries ? group.wrapperParts : null;
+                const useWrapperEntries = !!(group.useWrapperEntries && (wrapperParts?.before || wrapperParts?.after));
+                const groupPlacement = normalizePlacementConfig_ACU(group.entryPlacement, DEFAULT_ENTRY_PLACEMENT_ACU);
+                const blockEntries = [];
+                const allHeadersContent = group.tableHeaders ? group.tableHeaders.map((th) => {
+                    return `# ${th.name}\n\n| ${th.headers.join(' | ')} |\n|${th.headers.map(() => '---').join('|')}|`;
+                }).join('\n\n') : '';
+                const needsHeader = (!useWrapperEntries && !!allHeadersContent);
+                const blockSize = (useWrapperEntries ? 2 : 0) + (needsHeader ? 1 : 0) + 1;
+                const leadingSlots = (useWrapperEntries && wrapperParts?.before) ? 1 : ((!useWrapperEntries && !!allHeadersContent) ? 1 : 0);
+                const preferredMainOrder = toIntOrFallback_ACU(groupPlacement.order, nextCustomExportOrder);
+                const preferredBlockStart = calcPreferredBlockStart_ACU(preferredMainOrder, leadingSlots, nextCustomExportOrder);
+                const baseOrder = allocConsecutiveOrderBlock_ACU(usedOrders, Math.max(1, blockSize), preferredBlockStart, 1, 99999);
+                let cursor = baseOrder;
+                if (useWrapperEntries && wrapperParts?.before) {
+                    const wrapperName = `${exportPrefix}${group.entryName}-包裹-上`;
+                    newGeneratedNames.push(wrapperName);
+                    const wrapperContent = [wrapperParts.before, allHeadersContent].filter(Boolean).join('\n\n').trim();
+                    postCreateOrderFixPlan.push({ comment: wrapperName, order: cursor, placement: groupPlacement });
+                    blockEntries.push(applyPlacementToEntry_ACU({
+                        comment: wrapperName, content: wrapperContent, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: cursor++
+                    }, groupPlacement));
+                }
+                else if (!useWrapperEntries && allHeadersContent) {
+                    const headerName = `${exportPrefix}${group.entryName}-表头`;
+                    newGeneratedNames.push(headerName);
+                    postCreateOrderFixPlan.push({ comment: headerName, order: cursor, placement: groupPlacement });
+                    blockEntries.push(applyPlacementToEntry_ACU({
+                        comment: headerName, content: allHeadersContent, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: cursor++
+                    }, groupPlacement));
+                }
+                const finalContent = buildEntryContent(group.entryName, combinedTableData, group.injectionTemplate, useWrapperEntries, '$1');
+                const fullComment = `${exportPrefix}${group.entryName}`;
+                newGeneratedNames.push(fullComment);
+                postCreateOrderFixPlan.push({ comment: fullComment, order: cursor, placement: groupPlacement });
+                blockEntries.push(applyPlacementToEntry_ACU({
+                    comment: fullComment, content: finalContent, keys: group.keywords, enabled: true,
+                    type: group.entryType, prevent_recursion: group.preventRecursion, order: cursor++
+                }, groupPlacement));
+                if (useWrapperEntries && wrapperParts?.after) {
+                    const wrapperName = `${exportPrefix}${group.entryName}-包裹-下`;
+                    newGeneratedNames.push(wrapperName);
+                    postCreateOrderFixPlan.push({ comment: wrapperName, order: cursor, placement: groupPlacement });
+                    blockEntries.push(applyPlacementToEntry_ACU({
+                        comment: wrapperName, content: wrapperParts.after, keys: [], enabled: true, type: 'constant', prevent_recursion: true, order: cursor++
+                    }, groupPlacement));
+                }
+                entriesToCreate.push(...blockEntries);
+                nextCustomExportOrder = cursor + CUSTOM_EXPORT_ORDER_GAP;
+            });
+            if (entriesToCreate.length > 0) {
+                await createLorebookEntries_ACU(primaryLorebookName, entriesToCreate);
+                logDebug_ACU(`Successfully created ${entriesToCreate.length} new custom export entries.`);
+                // [兜底] 创建完成后强制回写 order（通过 comment 找 uid）
+                if (postCreateOrderFixPlan.length > 0) {
+                    try {
+                        const latest = await getLorebookEntries_ACU(primaryLorebookName);
+                        const byComment = new Map();
+                        latest.forEach((e) => { if (e?.comment)
+                            byComment.set(e.comment, e); });
+                        const updates = [];
+                        postCreateOrderFixPlan.forEach((p) => {
+                            const e = byComment.get(p.comment);
+                            if (e?.uid != null && Number.isFinite(p.order)) {
+                                const fixed = applyPlacementToEntry_ACU({ uid: e.uid, order: p.order }, p.placement || DEFAULT_ENTRY_PLACEMENT_ACU);
+                                updates.push(fixed);
+                            }
+                        });
+                        if (updates.length > 0) {
+                            await setLorebookEntries_ACU(primaryLorebookName, updates);
+                        }
+                    }
+                    catch (e) {
+                        logWarn_ACU('[CustomExportOrderFix] Failed to enforce grouped orders for split exports:', e);
+                    }
+                }
+            }
+            // [新增] 更新并保存 knownCustomEntryNames（外部导入模式不写入，避免绑定第三方世界书）
+            if (!isImport) {
+                settings_ACU.knownCustomEntryNames = [...knownNames, ...newGeneratedNames];
+                settings_ACU.knownCustomEntryNames = [...new Set(settings_ACU.knownCustomEntryNames)];
+                saveSettings_ACU();
+                logDebug_ACU(`Updated knownCustomEntryNames. Count: ${settings_ACU.knownCustomEntryNames.length}`);
+            }
+        }
+        catch (error) {
+            logError_ACU('Failed to update custom table export entries:', error);
+        }
+    }
+
+    /**
+     * service/worldbook/injection-engine.ts — 世界书注入/导出/清理引擎（入口文件）
+     * 原 2,281 行代码已按阶段拆分为以下子模块：
+     *   - injection-engine-config.ts   — 放置配置常量与默认值
+     *   - injection-engine-order.ts    — 注入位置与Order分配工具
+     *   - injection-engine-state.ts    — 状态重置、目标获取、隔离前缀、条目清理、聊天历史清理
+     *   - injection-engine-entries.ts  — 大纲表、总结表、重要人物表注入
+     *   - injection-engine-custom.ts   — 自定义表格导出
+     *
+     * 本文件仅作为统一入口，re-export 所有子模块的公开 API。
+     * 外部文件的 import 路径无需修改。
+     */
+    // ═══ 放置配置常量与默认值 ═══
+
+    /**
+     * service/template/chat-scope/chat-scope-base.ts — 共享基础函数
+     * 被 chat-scope-plot.ts、chat-scope-template.ts、chat-scope-guide.ts、chat-scope-sheet.ts 共同依赖的函数
+     */
+    /**
+     * 规范化聊天作用域配置来源字符串
+     * @param source 原始来源字符串
+     * @param fallback 默认值，默认 'inherit'
+     * @returns 规范化后的来源字符串
+     */
+    function normalizeChatScopedConfigSource_ACU(source, fallback = 'inherit') {
+        if (typeof source !== 'string')
+            return fallback;
+        const normalized = source.trim();
+        return normalized || fallback;
+    }
+    /**
+     * 规范化 sheet guide 数据对象——只保留表头行、sourceData、updateConfig、exportConfig、seedRows
+     * 被 B、D、E 三组广泛使用，提取到 base 层避免循环依赖
+     */
+    function normalizeGuideData_ACU(dataObj) {
+        if (!dataObj || typeof dataObj !== 'object')
+            return null;
+        const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
+        if (dataObj.mate && typeof dataObj.mate === 'object') {
+            out.mate = dataObj.mate;
+        }
+        if (!out.mate || typeof out.mate !== 'object')
+            out.mate = { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU };
+        if (!out.mate.type)
+            out.mate.type = 'chatSheets';
+        if (!Number.isFinite(out.mate.version) || Math.trunc(out.mate.version) < CHAT_SHEET_GUIDE_VERSION_ACU)
+            out.mate.version = CHAT_SHEET_GUIDE_VERSION_ACU;
+        Object.keys(dataObj).forEach(k => {
+            if (!k.startsWith('sheet_'))
+                return;
+            const s = dataObj[k];
+            if (!s || typeof s !== 'object')
+                return;
+            const headerRow = Array.isArray(s.content) && Array.isArray(s.content[0]) ? s.content[0] : [null];
+            const keep = {
+                uid: s.uid || k,
+                name: s.name || k,
+                sourceData: s.sourceData || { note: '', initNode: '', insertNode: '', updateNode: '', deleteNode: '' },
+                content: [headerRow],
+                updateConfig: s.updateConfig || { uiSentinel: -1, contextDepth: -1, updateFrequency: -1, batchSize: -1, skipFloors: -1, sendLatestRows: -1, groupId: -1 },
+                exportConfig: ensureExportConfigDefaults_ACU(s.exportConfig, s.name || k),
+            };
+            if (Array.isArray(s[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU])) {
+                try {
+                    keep[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(s[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU]));
+                }
+                catch (e) {
+                    keep[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = [];
+                }
+            }
+            if (s[TABLE_ORDER_FIELD_ACU] !== undefined)
+                keep[TABLE_ORDER_FIELD_ACU] = s[TABLE_ORDER_FIELD_ACU];
+            out[k] = keep;
+        });
+        return out;
+    }
+
+    /**
+     * service/template/chat-scope/chat-scope-plot.ts — Plot Scope 管理
+     * 从 chat-scope.ts 拆出的 A 组：剧情作用域的读取、构建、设置、清除
+     */
+    function normalizePlotScopeMode_ACU(mode) {
+        return mode === 'chat_override' ? 'chat_override' : 'inherit_global';
+    }
+    function sanitizePlotSettingsSnapshotForChat_ACU(plotSettings) {
+        if (!plotSettings || typeof plotSettings !== 'object')
+            return null;
+        const snapshot = cloneScopedConfigData_ACU(plotSettings, null);
+        if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot))
+            return null;
+        delete snapshot.promptPresets;
+        delete snapshot.lastUsedPresetName;
+        delete snapshot.enabled;
+        ensurePlotPromptsArray_ACU(snapshot);
+        ensureLoopPromptsArray_ACU(snapshot);
+        ensurePlotTasksCompat_ACU(snapshot, { syncLegacy: true });
+        snapshot.plotTasks = stripPlotTaskRuntimeApiPresetFields_ACU(snapshot.plotTasks);
+        snapshot.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(snapshot);
+        setPlotPromptContentByIdForSettings_ACU(snapshot, 'finalSystemDirective', snapshot.finalSystemDirective || '');
+        return snapshot;
+    }
+    function normalizeChatPlotScopeState_ACU(rawState) {
+        const state = (rawState && typeof rawState === 'object' && !Array.isArray(rawState)) ? rawState : {};
+        const snapshot = sanitizePlotSettingsSnapshotForChat_ACU(state.snapshot);
+        return {
+            mode: normalizePlotScopeMode_ACU(state.mode),
+            presetName: normalizePlotPresetSelectionValue_ACU(state.presetName || ''),
+            snapshot,
+            originGlobalName: normalizePlotPresetSelectionValue_ACU(state.originGlobalName || ''),
+            originGlobalRevision: Number.isFinite(state.originGlobalRevision) ? Math.max(0, Math.trunc(state.originGlobalRevision)) : 0,
+            updatedAt: Number.isFinite(state.updatedAt) ? state.updatedAt : 0,
+            source: normalizeChatScopedConfigSource_ACU(state.source, 'inherit'),
+        };
+    }
+    function getCurrentChatPlotScopeState_ACU(chat = getChatArray_ACU()) {
+        const container = getChatScopedConfigContainer_ACU(chat);
+        const rawState = container?.plot;
+        if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState))
+            return null;
+        const normalizedState = normalizeChatPlotScopeState_ACU(rawState);
+        if (normalizedState.mode !== 'chat_override' || !normalizedState.snapshot) {
+            return null;
+        }
+        return normalizedState;
+    }
+    function buildChatPlotScopeStateFromSettings_ACU(plotSettings, { presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now() } = {}) {
+        const snapshot = sanitizePlotSettingsSnapshotForChat_ACU(plotSettings);
+        if (!snapshot)
+            return null;
+        return normalizeChatPlotScopeState_ACU({
+            mode: 'chat_override',
+            presetName,
+            snapshot,
+            originGlobalName,
+            originGlobalRevision,
+            updatedAt,
+            source,
+        });
+    }
+    function setCurrentChatPlotScopeState_ACU(plotState, { reason = '' } = {}) {
+        const chat = getChatArray_ACU();
+        const first = getChatFirstLayerMessage_ACU(chat);
+        if (!first)
+            return null;
+        const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
+        const normalizedState = normalizeChatPlotScopeState_ACU(plotState);
+        if (normalizedState.mode === 'chat_override' && normalizedState.snapshot) {
+            container.plot = {
+                ...normalizedState,
+                reason: String(reason || ''),
+            };
+        }
+        else {
+            delete container.plot;
+        }
+        const hasPayload = Object.keys(container).some(key => key !== 'version');
+        if (hasPayload) {
+            first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
+        }
+        else {
+            delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
+        }
+        return getCurrentChatPlotScopeState_ACU(chat);
+    }
+    function clearCurrentChatPlotScopeState_ACU() {
+        return setCurrentChatPlotScopeState_ACU({ mode: 'inherit_global' }, { reason: 'clear_plot_override' });
+    }
+
+    /**
+     * service/template/chat-scope/chat-scope-sheet.ts
+     * Sheet 排序和清洗（E 组）
+     */
+    function getSortedSheetKeys_ACU(dataObj, { ignoreChatGuide = false, includeMissingFromGuide = false } = {}) {
+        if (!dataObj || typeof dataObj !== 'object')
+            return [];
+        const existingKeys = Object.keys(dataObj).filter(k => k.startsWith('sheet_'));
+        if (existingKeys.length === 0)
+            return [];
+        // [新增] 聊天级空白指导表：一旦存在，则该聊天不再按模板顺序合并/显示，而是按此指导表作为总指导
+        if (!ignoreChatGuide) {
+            try {
+                const isolationKey = (typeof getCurrentIsolationKey_ACU === 'function') ? getCurrentIsolationKey_ACU() : '';
+                const guideData = getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
+                if (guideData && typeof guideData === 'object') {
+                    const guideKeys = Object.keys(guideData).filter(k => k.startsWith('sheet_'));
+                    if (guideKeys.length > 0) {
+                        const sorted = guideKeys.sort((a, b) => {
+                            const ao = Number.isFinite(guideData?.[a]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(guideData[a][TABLE_ORDER_FIELD_ACU]) : Infinity;
+                            const bo = Number.isFinite(guideData?.[b]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(guideData[b][TABLE_ORDER_FIELD_ACU]) : Infinity;
+                            if (ao !== bo)
+                                return ao - bo;
+                            return String(a).localeCompare(String(b));
+                        });
+                        return includeMissingFromGuide ? sorted : sorted.filter(k => dataObj[k]);
+                    }
+                }
+            }
+            catch (e) {
+                // ignore guide failures; fallback to legacy ordering
+            }
+        }
+        // 尝试拿模板做兜底（比如老数据/导入数据缺编号）
+        const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
+        // 先对 dataObj 补齐缺失编号（仅在确实缺失/重复时重建）
+        // baseOrderKeys 的优先级：模板顺序 > 当前对象键顺序（保证"载入模板编好号"后的稳定性）
+        const baseKeys = (() => {
+            const tk = templateObj && typeof templateObj === 'object'
+                ? Object.keys(templateObj).filter(k => k.startsWith('sheet_'))
+                : [];
+            return tk.length ? tk : existingKeys;
+        })();
+        ensureSheetOrderNumbers_ACU(dataObj, { baseOrderKeys: baseKeys, forceRebuild: false });
+        const orderValueOf = (k) => {
+            const v = dataObj?.[k]?.[TABLE_ORDER_FIELD_ACU];
+            if (Number.isFinite(v))
+                return Math.trunc(v);
+            const tv = templateObj?.[k]?.[TABLE_ORDER_FIELD_ACU];
+            if (Number.isFinite(tv))
+                return Math.trunc(tv);
+            return Infinity;
+        };
+        return existingKeys.sort((a, b) => {
+            const ao = orderValueOf(a);
+            const bo = orderValueOf(b);
+            if (ao !== bo)
+                return ao - bo;
+            // 稳定排序：同编号时按名称/键
+            const an = String(dataObj?.[a]?.name || templateObj?.[a]?.name || a);
+            const bn = String(dataObj?.[b]?.name || templateObj?.[b]?.name || b);
+            const c = an.localeCompare(bn);
+            if (c !== 0)
+                return c;
+            return String(a).localeCompare(String(b));
+        });
+    }
+    // [新增] 基于"空白指导表"构建可合并的骨架数据（深拷贝，避免后续修改污染原对象）
+    function buildGuidedBaseDataFromSheetGuide_ACU(guideData) {
+        const normalized = normalizeGuideData_ACU(guideData);
+        if (!normalized)
+            return { mate: { type: 'chatSheets', version: 1 } };
+        try {
+            return JSON.parse(JSON.stringify(normalized));
+        }
+        catch (e) {
+            return normalized;
+        }
+    }
+    // [修复] 按指定顺序重建对象键，避免 Object.keys()/合并/深拷贝导致的顺序漂移
+    function reorderDataBySheetKeys_ACU(dataObj, orderedSheetKeys) {
+        if (!dataObj || typeof dataObj !== 'object')
+            return dataObj;
+        const out = {};
+        // 先保留非 sheet_ 键（mate 等）
+        Object.keys(dataObj).forEach(k => {
+            if (!k.startsWith('sheet_'))
+                out[k] = dataObj[k];
+        });
+        // 再按顺序插入 sheet_ 键
+        const keys = Array.isArray(orderedSheetKeys) ? orderedSheetKeys : getSortedSheetKeys_ACU(dataObj);
+        keys.forEach(k => {
+            if (dataObj[k])
+                out[k] = dataObj[k];
+        });
+        return out;
+    }
+    // =========================
+    // [瘦身/兼容] ChatSheets 表格对象清洗（用于：导出、写入聊天记录、持久化模板）
+    // 目标：
+    // - 与旧模板/旧存档兼容：导入时允许存在冗余字段
+    // - 从现在开始：导出/保存时不再携带历史遗留冗余字段，降低体积
+    // =========================
+    const SHEET_KEEP_KEYS_ACU = new Set([
+        'uid',
+        'name',
+        'sourceData',
+        'content',
+        // [重要] 可视化编辑器/表格配置（更新频率、上下文深度等）依赖该字段
+        'updateConfig',
+        'exportConfig',
+        TABLE_ORDER_FIELD_ACU, // orderNo
+    ]);
+    function sanitizeSheetForStorage_ACU(sheet) {
+        if (!sheet || typeof sheet !== 'object')
+            return sheet;
+        const out = {};
+        SHEET_KEEP_KEYS_ACU.forEach(k => {
+            if (sheet[k] !== undefined)
+                out[k] = sheet[k];
+        });
+        // 兜底：保证结构可被模板导入验证通过
+        if (!out.name && sheet.name)
+            out.name = sheet.name;
+        if (!out.content && Array.isArray(sheet.content))
+            out.content = sheet.content;
+        if (!out.sourceData && sheet.sourceData)
+            out.sourceData = sheet.sourceData;
+        out.exportConfig = ensureExportConfigDefaults_ACU(out.exportConfig, out.name || sheet.name || sheet.uid || '');
+        return out;
+    }
+    function sanitizeChatSheetsObject_ACU(dataObj, { ensureMate = false } = {}) {
+        if (!dataObj || typeof dataObj !== 'object')
+            return dataObj;
+        const out = {};
+        Object.keys(dataObj).forEach(k => {
+            if (k.startsWith('sheet_')) {
+                out[k] = sanitizeSheetForStorage_ACU(dataObj[k]);
+            }
+            else if (k === 'mate') {
+                out.mate = dataObj.mate;
+            }
+            else {
+                // 其它顶层键：为兼容保留
+                out[k] = dataObj[k];
+            }
+        });
+        if (ensureMate) {
+            if (!out.mate || typeof out.mate !== 'object')
+                out.mate = { type: 'chatSheets', version: 1 };
+            if (!out.mate.type)
+                out.mate.type = 'chatSheets';
+            if (!out.mate.version)
+                out.mate.version = 1;
+        }
+        return out;
+    }
+    // [新增] 辅助函数：从上下文中提取指定标签的内容（正文标签提取）
+    // 从 shared/utils.ts 搬来（原函数依赖 service/data 层，不适合放在 shared 层）
+    function getTemplateSheetKeys_ACU() {
+        const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
+        if (!templateObj || typeof templateObj !== 'object')
+            return [];
+        const keys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
+        if (keys.length === 0)
+            return [];
+        const changed = ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: keys, forceRebuild: false });
+        if (changed) {
+            try {
+                const normalizedTemplateStr = JSON.stringify(templateObj);
+                _set_TABLE_TEMPLATE_ACU(normalizedTemplateStr);
+                const currentChatTemplateScope = getCurrentChatTemplateScopeState_ACU() || migrateLegacyTemplateScopeForCurrentChat_ACU();
+                if (currentChatTemplateScope?.templateStr) {
+                    const updatedGuideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: false });
+                    const nextState = buildChatTemplateScopeStateFromCurrent_ACU({
+                        isolationKey: currentChatTemplateScope.isolationKey,
+                        presetName: currentChatTemplateScope.presetName,
+                        source: currentChatTemplateScope.source || 'inherit',
+                        originGlobalName: currentChatTemplateScope.originGlobalName,
+                        originGlobalRevision: currentChatTemplateScope.originGlobalRevision,
+                        updatedAt: currentChatTemplateScope.updatedAt || Date.now(),
+                        templateSource: normalizedTemplateStr,
+                        guideData: updatedGuideData || currentChatTemplateScope.guideData,
+                    });
+                    if (nextState) {
+                        setCurrentChatTemplateScopeState_ACU(nextState, {
+                            isolationKey: currentChatTemplateScope.isolationKey,
+                            reason: 'template_scope_order_no_init',
+                        });
+                    }
+                    logDebug_ACU('[OrderNo] Chat template order numbers initialized and persisted to current chat scope.');
+                }
+                else {
+                    saveCurrentProfileTemplate_ACU(TABLE_TEMPLATE_ACU, settings_ACU);
+                    logDebug_ACU('[OrderNo] Global template order numbers initialized and persisted.');
+                }
+            }
+            catch (e) {
+                logWarn_ACU('[OrderNo] Failed to persist initialized template order numbers:', e);
+            }
+        }
+        return keys.sort((a, b) => {
+            const ao = Number.isFinite(templateObj[a]?.[TABLE_ORDER_FIELD_ACU]) ? templateObj[a][TABLE_ORDER_FIELD_ACU] : Infinity;
+            const bo = Number.isFinite(templateObj[b]?.[TABLE_ORDER_FIELD_ACU]) ? templateObj[b][TABLE_ORDER_FIELD_ACU] : Infinity;
+            if (ao !== bo)
+                return ao - bo;
+            return String(templateObj[a]?.name || a).localeCompare(String(templateObj[b]?.name || b));
+        });
+    }
+
+    /**
+     * service/template/chat-scope/chat-scope-guide.ts
+     * Sheet Guide 数据操作（D 组）
+     */
+    function materializeDataFromSheetGuide_ACU(guideData, { includeSeedRows = true } = {}) {
+        const normalized = normalizeGuideData_ACU(guideData);
+        if (!normalized)
+            return { mate: { type: 'chatSheets', version: 1 } };
+        const out = { mate: normalized.mate || { type: 'chatSheets', version: 1 } };
+        Object.keys(normalized).forEach((k) => {
+            if (!k.startsWith('sheet_'))
+                return;
+            const s = normalized[k];
+            const headerRow = Array.isArray(s?.content?.[0]) ? JSON.parse(JSON.stringify(s.content[0])) : ["row_id"];
+            const next = JSON.parse(JSON.stringify(s));
+            // content: header + (可选) seedRows
+            const seedRows = includeSeedRows && Array.isArray(s?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU])
+                ? JSON.parse(JSON.stringify(s[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU]))
+                : [];
+            next.content = [headerRow, ...seedRows];
+            // 保留 seedRows 字段本身（便于后续再次写回/二次处理），但不会影响表格使用者（他们只看 content）
+            out[k] = next;
+        });
+        return out;
+    }
+    function getLegacyHeaderGuideDataForIsolationKey_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const normalizedKey = String(isolationKey ?? '');
+        try {
+            const first = getChatFirstLayerMessage_ACU(chat);
+            const legacyRaw = first ? first[LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU] : null;
+            const legacyObj = legacyRaw ? ((typeof legacyRaw === 'string') ? safeJsonParse_ACU(legacyRaw, null) : legacyRaw) : null;
+            const legacyTags = legacyObj?.tags;
+            const legacySlot = (legacyTags && typeof legacyTags === 'object') ? legacyTags[normalizedKey] : null;
+            const legacyHeaders = Array.isArray(legacySlot?.headers) ? legacySlot.headers : null;
+            if (!legacyHeaders || legacyHeaders.length === 0)
+                return null;
+            const orderedUids = legacyHeaders
+                .map((h) => h?.uid)
+                .filter((uid) => typeof uid === 'string' && uid.startsWith('sheet_'));
+            if (orderedUids.length === 0)
+                return null;
+            const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
+            const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
+            orderedUids.forEach((uid, idx) => {
+                const base = (templateObj && templateObj[uid])
+                    ? JSON.parse(JSON.stringify(templateObj[uid]))
+                    : { uid, name: uid, content: [["row_id"]], sourceData: {}, updateConfig: {}, exportConfig: {} };
+                if (Array.isArray(base.content) && base.content.length > 1) {
+                    base[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(base.content.slice(1)));
+                    base.content = [base.content[0]];
+                }
+                if (!Array.isArray(base.content) || base.content.length === 0)
+                    base.content = [["row_id"]];
+                base.uid = uid;
+                if (!Number.isFinite(base[TABLE_ORDER_FIELD_ACU]))
+                    base[TABLE_ORDER_FIELD_ACU] = idx;
+                out[uid] = base;
+            });
+            return normalizeGuideData_ACU(out);
+        }
+        catch (e) {
+            return null;
+        }
+    }
+    function getHistoricalTemplateGuideDataForIsolationKey_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        if (!Array.isArray(chat) || chat.length === 0)
+            return null;
+        const historicalData = { mate: { type: 'chatSheets', version: 1 } };
+        const encounteredKeys = [];
+        const encounteredSet = new Set();
+        const appendTables = (dataObj, { summaryOnly = null } = {}) => {
+            if (!dataObj || typeof dataObj !== 'object' || Array.isArray(dataObj))
+                return;
+            Object.keys(dataObj).forEach(key => {
+                if (!key.startsWith('sheet_') || encounteredSet.has(key))
+                    return;
+                const sheet = dataObj[key];
+                if (!sheet || typeof sheet !== 'object' || Array.isArray(sheet))
+                    return;
+                const isSummary = !!sheet.name && isSummaryOrOutlineTable_ACU(sheet.name);
+                if (summaryOnly === true && !isSummary)
+                    return;
+                if (summaryOnly === false && isSummary)
+                    return;
+                historicalData[key] = JSON.parse(JSON.stringify(sheet));
+                encounteredKeys.push(key);
+                encounteredSet.add(key);
+            });
+        };
+        for (let i = chat.length - 1; i >= 0; i--) {
+            const message = chat[i];
+            if (!message || message.is_user)
+                continue;
+            const isolatedTagData = readIsolatedTagData_ACU(message, normalizedKey);
+            appendTables(isolatedTagData?.independentData);
+            const isLegacyMatch = isLegacyMatchForIsolation_ACU(message, {
+                enabled: settings_ACU.dataIsolationEnabled,
+                code: settings_ACU.dataIsolationCode,
+            });
+            if (!isLegacyMatch)
+                continue;
+            appendTables(readLegacyIndependentData_ACU(message));
+            appendTables(readLegacyStandardData_ACU(message), { summaryOnly: false });
+            appendTables(readLegacySummaryData_ACU(message), { summaryOnly: true });
+        }
+        if (encounteredKeys.length === 0)
+            return null;
+        const orderedKeys = encounteredKeys
+            .map((key, index) => ({
+            key,
+            index,
+            order: Number.isFinite(historicalData?.[key]?.[TABLE_ORDER_FIELD_ACU])
+                ? Math.trunc(historicalData[key][TABLE_ORDER_FIELD_ACU])
+                : null,
+        }))
+            .sort((a, b) => {
+            if (a.order !== null && b.order !== null && a.order !== b.order)
+                return a.order - b.order;
+            if (a.order !== null && b.order === null)
+                return -1;
+            if (a.order === null && b.order !== null)
+                return 1;
+            return a.index - b.index;
+        })
+            .map(item => item.key);
+        applySheetOrderNumbers_ACU(historicalData, orderedKeys);
+        return buildChatSheetGuideDataFromData_ACU(historicalData, {
+            preserveSeedRowsFromGuideData: null,
+            seedRowsFromTemplateObj: null,
+            orderedKeys,
+        });
+    }
+    function getLegacyTemplateSnapshotLabel_ACU(source = 'legacy_frozen') {
+        if (source === 'legacy_history_frozen')
+            return '旧对话历史模板快照';
+        if (source === 'legacy_header_frozen')
+            return '旧版表头冻结模板';
+        return '旧版聊天冻结模板';
+    }
+    function buildChatTemplateScopeStateFromGuideData_ACU({ isolationKey = getCurrentIsolationKey_ACU(), presetName = '', source = 'legacy_frozen', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now(), guideData = null } = {}) {
+        const normalizedGuideData = normalizeGuideData_ACU(guideData);
+        if (!normalizedGuideData || !Object.keys(normalizedGuideData).some(k => k.startsWith('sheet_')))
+            return null;
+        const templateObj = materializeDataFromSheetGuide_ACU(normalizedGuideData, { includeSeedRows: true });
+        return buildChatTemplateScopeStateFromCurrent_ACU({
+            isolationKey,
+            presetName,
+            source,
+            originGlobalName,
+            originGlobalRevision,
+            updatedAt,
+            templateSource: templateObj,
+            guideData: normalizedGuideData,
+        });
+    }
+    function migrateLegacyTemplateScopeForCurrentChat_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const existingScopeState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
+        if (existingScopeState)
+            return existingScopeState;
+        const persistMigratedState = (guideData, { source = 'legacy_frozen', updatedAt = Date.now() } = {}) => {
+            const templateState = buildChatTemplateScopeStateFromGuideData_ACU({
+                isolationKey: normalizedKey,
+                presetName: getLegacyTemplateSnapshotLabel_ACU(source),
+                source,
+                originGlobalName: '',
+                originGlobalRevision: 0,
+                updatedAt,
+                guideData,
+            });
+            if (!templateState)
+                return null;
+            return setCurrentChatTemplateScopeState_ACU(templateState, {
+                isolationKey: normalizedKey,
+                reason: `template_scope_${source}`,
+            });
+        };
+        const container = getChatSheetGuideContainer_ACU(chat);
+        const legacySlot = container?.tags?.[normalizedKey];
+        const hasExplicitLegacyScopeMode = typeof legacySlot?.templateScopeMode === 'string' && legacySlot.templateScopeMode.trim() !== '';
+        const legacySlotMode = hasExplicitLegacyScopeMode
+            ? normalizeTemplateScopeMode_ACU(legacySlot.templateScopeMode)
+            : 'chat_override';
+        const legacyGuideData = normalizeGuideData_ACU(legacySlot?.data);
+        if (legacySlotMode === 'chat_override' && legacyGuideData && Object.keys(legacyGuideData).some(k => k.startsWith('sheet_'))) {
+            return persistMigratedState(legacyGuideData, {
+                source: 'legacy_frozen',
+                updatedAt: Number(legacySlot?.updatedAt) || Date.now(),
+            });
+        }
+        const historicalGuideData = getHistoricalTemplateGuideDataForIsolationKey_ACU({ chat, isolationKey: normalizedKey });
+        if (historicalGuideData && Object.keys(historicalGuideData).some(k => k.startsWith('sheet_'))) {
+            return persistMigratedState(historicalGuideData, {
+                source: 'legacy_history_frozen',
+                updatedAt: Date.now(),
+            });
+        }
+        const legacyHeaderGuideData = getLegacyHeaderGuideDataForIsolationKey_ACU({ chat, isolationKey: normalizedKey });
+        if (legacyHeaderGuideData && Object.keys(legacyHeaderGuideData).some(k => k.startsWith('sheet_'))) {
+            return persistMigratedState(legacyHeaderGuideData, {
+                source: 'legacy_header_frozen',
+                updatedAt: Date.now(),
+            });
+        }
+        return null;
+    }
+    function clearChatSheetGuideDataForIsolationKey_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const first = getChatFirstLayerMessage_ACU(chat);
+        if (!first)
+            return false;
+        const container = getChatSheetGuideContainer_ACU(chat);
+        if (!container || typeof container !== 'object' || !container.tags || typeof container.tags !== 'object')
+            return false;
+        const normalizedKey = String(isolationKey ?? '');
+        if (!Object.prototype.hasOwnProperty.call(container.tags, normalizedKey))
+            return false;
+        const nextContainer = cloneScopedConfigData_ACU(container, null) || { version: CHAT_SHEET_GUIDE_VERSION_ACU, tags: {} };
+        if (!nextContainer.tags || typeof nextContainer.tags !== 'object')
+            nextContainer.tags = {};
+        delete nextContainer.tags[normalizedKey];
+        if (Object.keys(nextContainer.tags).length === 0) {
+            delete first[CHAT_SHEET_GUIDE_FIELD_ACU];
+        }
+        else {
+            nextContainer.version = CHAT_SHEET_GUIDE_VERSION_ACU;
+            first[CHAT_SHEET_GUIDE_FIELD_ACU] = nextContainer;
+        }
+        return true;
+    }
+    function getChatSheetGuideDataForIsolationKey_ACU(isolationKey) {
+        const chat = getChatArray_ACU();
+        const normalizedKey = String(isolationKey ?? '');
+        const scopedTemplateState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey })
+            || migrateLegacyTemplateScopeForCurrentChat_ACU({ chat, isolationKey: normalizedKey });
+        const scopedGuideData = normalizeGuideData_ACU(scopedTemplateState?.guideData);
+        if (scopedGuideData && Object.keys(scopedGuideData).some(k => k.startsWith('sheet_'))) {
+            return scopedGuideData;
+        }
+        const buildGuideDataFromTemplateSource_ACU = (templateSource) => {
+            const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateSource);
+            const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateSnapshot?.templateObj, { stripSeedRows: false });
+            return (guideData && Object.keys(guideData).some(k => k.startsWith('sheet_'))) ? guideData : null;
+        };
+        if (scopedTemplateState?.mode === 'chat_override' && scopedTemplateState?.templateStr) {
+            const overrideGuideData = buildGuideDataFromTemplateSource_ACU(scopedTemplateState.templateStr);
+            if (overrideGuideData) {
+                return overrideGuideData;
+            }
+        }
+        if (scopedTemplateState?.mode === 'preset_link') {
+            const linkedPresetName = normalizeTemplatePresetSelectionValue_ACU(scopedTemplateState?.presetName || '');
+            const linkedTemplateSource = linkedPresetName
+                ? (getTemplatePreset_ACU(linkedPresetName)?.templateStr || null)
+                : getDefaultTemplateSnapshot_ACU()?.templateStr;
+            const linkedGuideData = buildGuideDataFromTemplateSource_ACU(linkedTemplateSource);
+            if (linkedGuideData) {
+                return linkedGuideData;
+            }
+        }
+        const activeTemplateGuideData = buildGuideDataFromTemplateSource_ACU(TABLE_TEMPLATE_ACU);
+        if (activeTemplateGuideData) {
+            return activeTemplateGuideData;
+        }
+        const globalSnapshot = getGlobalTemplateSnapshotForCurrentProfile_ACU();
+        const globalGuideData = buildChatSheetGuideDataFromTemplateObj_ACU(globalSnapshot?.templateObj, { stripSeedRows: false });
+        if (globalGuideData && Object.keys(globalGuideData).some(k => k.startsWith('sheet_'))) {
+            return globalGuideData;
+        }
+        return null;
+    }
+    function setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, { reason = '', syncTemplateScope = false, templateSource = null, presetName = '', source = '', updatedAt = Date.now() } = {}) {
+        const chat = getChatArray_ACU();
+        const first = getChatFirstLayerMessage_ACU(chat);
+        if (!first)
+            return false;
+        const normalized = normalizeGuideData_ACU(guideData);
+        if (!normalized || !Object.keys(normalized).some(k => k.startsWith('sheet_')))
+            return false;
+        const normalizedKey = String(isolationKey ?? '');
+        const existingTemplateScopeState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
+        const normalizedScopeMode = normalizeTemplateScopeMode_ACU(existingTemplateScopeState?.mode);
+        const shouldSyncTemplateScope = !!syncTemplateScope || normalizedScopeMode === 'chat_override' || normalizedScopeMode === 'preset_link';
+        const container = getChatSheetGuideContainer_ACU(chat) || { version: CHAT_SHEET_GUIDE_VERSION_ACU, tags: {} };
+        if (!container.tags || typeof container.tags !== 'object')
+            container.tags = {};
+        container.version = CHAT_SHEET_GUIDE_VERSION_ACU;
+        container.tags[normalizedKey] = {
+            data: normalized,
+            updatedAt,
+            reason: String(reason || ''),
+            templateScopeMode: shouldSyncTemplateScope ? 'chat_override' : 'inherit_global',
+        };
+        first[CHAT_SHEET_GUIDE_FIELD_ACU] = container;
+        if (shouldSyncTemplateScope) {
+            const fallbackTemplateSource = existingTemplateScopeState?.templateStr || materializeDataFromSheetGuide_ACU(normalized, { includeSeedRows: true });
+            const resolvedTemplateSource = templateSource || fallbackTemplateSource;
+            const currentGlobalPresetName = normalizeTemplatePresetSelectionValue_ACU(getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }));
+            const resolvedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName || existingTemplateScopeState?.presetName || currentGlobalPresetName);
+            const resolvedSource = normalizeChatScopedConfigSource_ACU(source, existingTemplateScopeState?.source || (syncTemplateScope ? 'ui' : 'inherit'));
+            const templateState = buildChatTemplateScopeStateFromCurrent_ACU({
+                isolationKey: normalizedKey,
+                presetName: resolvedPresetName,
+                source: resolvedSource,
+                originGlobalName: normalizeTemplatePresetSelectionValue_ACU(existingTemplateScopeState?.originGlobalName || currentGlobalPresetName),
+                originGlobalRevision: Number.isFinite(existingTemplateScopeState?.originGlobalRevision)
+                    ? existingTemplateScopeState.originGlobalRevision
+                    : 0,
+                updatedAt,
+                templateSource: resolvedTemplateSource,
+                guideData: normalized,
+            });
+            if (templateState) {
+                setCurrentChatTemplateScopeState_ACU(templateState, {
+                    isolationKey: normalizedKey,
+                    reason: String(reason || `template_scope_${resolvedSource}`),
+                });
+                try {
+                    upsertChatTemplatePresetEntry_ACU(templateState, { isolationKey: normalizedKey });
+                }
+                catch (e) {
+                    logWarn_ACU('[Guide] upsertChatPresetEntry 失败:', e);
+                }
+            }
+        }
+        return true;
+    }
+    // =========================
+    // [新增] seedRows 解析/兜底：用于 $0 注入与"无数据初始化"场景
+    // 目标：
+    // - 新对话首次填表时，即使 currentJsonTableData_ACU 仅有表结构，也能从"内部指导表/模板"取到 seedRows
+    // - 支持隔离标签切换或初始化早期 chat 尚未加载导致的"指导表未命中"情况
+    // 注意：这里只把 seedRows 挂在表对象字段上，不会写入 content（不把模板基础数据当作真实聊天数据）
+    // =========================
+    let _seedRowsTemplateCacheStr_ACU = null;
+    let _seedRowsTemplateCacheObj_ACU = null;
+    function getTemplateObjForSeedRows_ACU() {
+        try {
+            if (_seedRowsTemplateCacheStr_ACU === TABLE_TEMPLATE_ACU && _seedRowsTemplateCacheObj_ACU)
+                return _seedRowsTemplateCacheObj_ACU;
+            const obj = parseTableTemplateJson_ACU({ stripSeedRows: false });
+            _seedRowsTemplateCacheStr_ACU = TABLE_TEMPLATE_ACU;
+            _seedRowsTemplateCacheObj_ACU = obj;
+            return obj;
+        }
+        catch (e) {
+            return null;
+        }
+    }
+    async function ensureChatSheetGuideSeeded_ACU({ reason = 'auto_seed_seedRows', force = false } = {}) {
+        try {
+            const isolationKey = getCurrentIsolationKey_ACU();
+            const existing = getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
+            const hasExisting = !!(existing && typeof existing === 'object' && Object.keys(existing).some(k => k.startsWith('sheet_')));
+            if (hasExisting && !force)
+                return existing;
+            const chat = getChatArray_ACU();
+            if (!chat || !Array.isArray(chat) || chat.length === 0)
+                return existing || null;
+            const templateObj = getTemplateObjForSeedRows_ACU();
+            if (!templateObj)
+                return existing || null;
+            // 用模板构建指导表（content 保留表头；seedRows 写入字段）
+            const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: true });
+            if (!guideData)
+                return existing || null;
+            const ok = setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, { reason });
+            if (ok) {
+                try {
+                    await saveChatToHost_ACU();
+                }
+                catch (e) {
+                    logWarn_ACU('[Guide] saveChatToHost 失败:', e);
+                }
+                logDebug_ACU(`[SheetGuide] Auto-seeded chat sheet guide for tag [${isolationKey || '无标签'}], reason=${reason}`);
+            }
+            return guideData;
+        }
+        catch (e) {
+            return null;
+        }
+    }
+    function pickAnyGuideSeedRowsSlot_ACU(sheetKey) {
+        try {
+            const chat = getChatArray_ACU();
+            let best = null;
+            const applyCandidate = (ts, data) => {
+                const sr = data?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
+                if (!Array.isArray(sr) || sr.length === 0)
+                    return;
+                if (!best || ts > best.ts) {
+                    best = { ts, seedRows: sr };
+                }
+            };
+            const scopedContainer = getChatScopedConfigContainer_ACU(chat);
+            const scopedTemplateSlots = scopedContainer?.template;
+            if (scopedTemplateSlots && typeof scopedTemplateSlots === 'object' && !Array.isArray(scopedTemplateSlots)) {
+                Object.keys(scopedTemplateSlots).forEach((tagKey) => {
+                    const slotState = normalizeChatTemplateScopeState_ACU(scopedTemplateSlots[tagKey], { isolationKey: tagKey });
+                    if (slotState.mode !== 'chat_override')
+                        return;
+                    applyCandidate(Number(slotState.updatedAt) || 0, normalizeGuideData_ACU(slotState.guideData));
+                });
+            }
+            if (best) {
+                return JSON.parse(JSON.stringify(best.seedRows));
+            }
+            const container = getChatSheetGuideContainer_ACU(chat);
+            const tags = container?.tags;
+            if (!tags || typeof tags !== 'object')
+                return null;
+            Object.keys(tags).forEach((tagKey) => {
+                const slot = tags[tagKey];
+                const ts = Number(slot?.updatedAt) || 0;
+                applyCandidate(ts, normalizeGuideData_ACU(slot?.data));
+            });
+            return best ? JSON.parse(JSON.stringify(best.seedRows)) : null;
+        }
+        catch (e) {
+            return null;
+        }
+    }
+    function getEffectiveSeedRowsForSheet_ACU(sheetKey, { guideData = null, allowTemplateFallback = true } = {}) {
+        try {
+            if (!sheetKey || !String(sheetKey).startsWith('sheet_'))
+                return [];
+            const direct = currentJsonTableData_ACU?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
+            if (Array.isArray(direct) && direct.length > 0)
+                return JSON.parse(JSON.stringify(direct));
+            const g = guideData || (() => {
+                const isolationKey = getCurrentIsolationKey_ACU();
+                return getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
+            })();
+            const sr1 = g?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
+            if (Array.isArray(sr1) && sr1.length > 0)
+                return JSON.parse(JSON.stringify(sr1));
+            const any = pickAnyGuideSeedRowsSlot_ACU(sheetKey);
+            if (Array.isArray(any) && any.length > 0)
+                return any;
+            if (!allowTemplateFallback)
+                return [];
+            const templateObj = getTemplateObjForSeedRows_ACU();
+            const tplRows = templateObj?.[sheetKey]?.content;
+            if (Array.isArray(tplRows) && tplRows.length > 1)
+                return JSON.parse(JSON.stringify(tplRows.slice(1)));
+            return [];
+        }
+        catch (e) {
+            return [];
+        }
+    }
+    function attachSeedRowsToCurrentDataFromGuide_ACU(guideData) {
+        try {
+            if (!currentJsonTableData_ACU || typeof currentJsonTableData_ACU !== 'object')
+                return false;
+            const g = normalizeGuideData_ACU(guideData);
+            if (!g)
+                return false;
+            let changed = false;
+            Object.keys(currentJsonTableData_ACU).forEach(k => {
+                if (!k.startsWith('sheet_'))
+                    return;
+                const table = currentJsonTableData_ACU[k];
+                if (!table || typeof table !== 'object')
+                    return;
+                const existing = table?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
+                if (Array.isArray(existing) && existing.length > 0)
+                    return;
+                const sr = g?.[k]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
+                if (Array.isArray(sr) && sr.length > 0) {
+                    table[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(sr));
+                    changed = true;
+                }
+            });
+            return changed;
+        }
+        catch (e) {
+            return false;
+        }
+    }
+    // [新增] 用"当前数据"构建空白指导表：只保留表头行 + 参数（顺序由 getSortedSheetKeys_ACU 的旧逻辑决定，避免递归）
+    function buildChatSheetGuideDataFromData_ACU(dataObj, { preserveSeedRowsFromGuideData = null, seedRowsFromTemplateObj = null, orderedKeys = null } = {}) {
+        if (!dataObj || typeof dataObj !== 'object')
+            return null;
+        const keys = Array.isArray(orderedKeys) && orderedKeys.length
+            ? orderedKeys.filter(k => typeof k === 'string' && k.startsWith('sheet_') && dataObj[k])
+            : getSortedSheetKeys_ACU(dataObj, { ignoreChatGuide: true });
+        const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
+        if (dataObj.mate && typeof dataObj.mate === 'object') {
+            out.mate = JSON.parse(JSON.stringify(dataObj.mate));
+        }
+        out.mate.globalInjectionConfig = ensureGlobalInjectionConfigDefaults_ACU(out.mate.globalInjectionConfig);
+        keys.forEach((k) => {
+            const s = dataObj[k];
+            if (!s)
+                return;
+            const headerRow = Array.isArray(s.content) && Array.isArray(s.content[0]) ? JSON.parse(JSON.stringify(s.content[0])) : ["row_id"];
+            const blank = {
+                uid: s.uid || k,
+                name: s.name || k,
+                sourceData: s.sourceData ? JSON.parse(JSON.stringify(s.sourceData)) : { note: '', initNode: '', insertNode: '', updateNode: '', deleteNode: '' },
+                content: [headerRow],
+                updateConfig: s.updateConfig ? JSON.parse(JSON.stringify(s.updateConfig)) : { uiSentinel: -1, contextDepth: -1, updateFrequency: -1, batchSize: -1, skipFloors: -1, sendLatestRows: -1, groupId: -1 },
+                exportConfig: ensureExportConfigDefaults_ACU(s.exportConfig ? JSON.parse(JSON.stringify(s.exportConfig)) : null, s.name || k),
+            };
+            // 需求4：结构/表名/参数变更时，仅更新指导表元信息，不修改"基础数据(seedRows)"
+            const preserved = preserveSeedRowsFromGuideData?.[k]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
+            if (Array.isArray(preserved)) {
+                blank[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(preserved));
+            }
+            else {
+                // 需求1：首次生成指导表时，把模板预置数据写入 seedRows（仅在未能从既有指导表继承时）
+                const tplRows = seedRowsFromTemplateObj?.[k]?.content;
+                if (Array.isArray(tplRows) && tplRows.length > 1) {
+                    blank[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(tplRows.slice(1)));
+                }
+            }
+            if (Number.isFinite(s?.[TABLE_ORDER_FIELD_ACU]))
+                blank[TABLE_ORDER_FIELD_ACU] = Math.trunc(s[TABLE_ORDER_FIELD_ACU]);
+            out[k] = blank;
+        });
+        return normalizeGuideData_ACU(out);
+    }
+    // [新增] 用"模板对象"构建空白指导表：只保留表头行 + 参数（模板已有顺序编号）
+    function buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows = true } = {}) {
+        if (!templateObj || typeof templateObj !== 'object')
+            return null;
+        const keys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
+        if (keys.length === 0)
+            return null;
+        // 确保模板编号稳定（缺失则补齐）
+        try {
+            ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: keys, forceRebuild: false });
+        }
+        catch (e) {
+            logWarn_ACU('[Guide] ensureSheetOrderNumbers 失败:', e);
+        }
+        const sorted = keys.sort((a, b) => {
+            const ao = Number.isFinite(templateObj?.[a]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(templateObj[a][TABLE_ORDER_FIELD_ACU]) : Infinity;
+            const bo = Number.isFinite(templateObj?.[b]?.[TABLE_ORDER_FIELD_ACU]) ? Math.trunc(templateObj[b][TABLE_ORDER_FIELD_ACU]) : Infinity;
+            if (ao !== bo)
+                return ao - bo;
+            return String(a).localeCompare(String(b));
+        });
+        const out = { mate: { type: 'chatSheets', version: CHAT_SHEET_GUIDE_VERSION_ACU } };
+        if (templateObj.mate && typeof templateObj.mate === 'object') {
+            out.mate = JSON.parse(JSON.stringify(templateObj.mate));
+        }
+        out.mate.globalInjectionConfig = ensureGlobalInjectionConfigDefaults_ACU(out.mate.globalInjectionConfig);
+        sorted.forEach((k, idx) => {
+            const base = JSON.parse(JSON.stringify(templateObj[k] || {}));
+            base.uid = base.uid || k;
+            base.name = base.name || k;
+            if (!Array.isArray(base.content) || base.content.length === 0)
+                base.content = [["row_id"]];
+            // v2: 保存模板预置数据为 seedRows，但指导表本体 content 仍只保留表头
+            if (Array.isArray(base.content) && base.content.length > 1) {
+                base[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU] = JSON.parse(JSON.stringify(base.content.slice(1)));
+            }
+            if (stripSeedRows && Array.isArray(base.content) && base.content.length > 1)
+                base.content = [base.content[0]];
+            if (!Number.isFinite(base[TABLE_ORDER_FIELD_ACU]))
+                base[TABLE_ORDER_FIELD_ACU] = idx;
+            out[k] = base;
+        });
+        return normalizeGuideData_ACU(out);
+    }
+    // [新增] 覆盖式更新：用模板写入当前聊天第一层"空白指导表"
+    async function overwriteChatSheetGuideFromTemplate_ACU(templateObj, { reason = 'template_changed', stripSeedRows = true, presetName = '', source = 'ui', syncTemplateScope = false, registerPreset = false } = {}) {
+        const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows });
+        if (!guideData)
+            return false;
+        const isolationKey = getCurrentIsolationKey_ACU();
+        const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateObj);
+        const normalizedPresetName = deriveTemplatePresetNameForImport_ACU({ presetName });
+        if (registerPreset && normalizedPresetName && templateSnapshot?.templateStr) {
+            try {
+                const savePresetOk = upsertTemplatePreset_ACU(normalizedPresetName, templateSnapshot.templateStr);
+                if (!savePresetOk) {
+                    logWarn_ACU(`[TemplateScope] 保存模板预设失败：${normalizedPresetName}`);
+                }
+            }
+            catch (e) {
+                logWarn_ACU('[TemplateScope] 保存模板预设失败:', e);
+            }
+        }
+        const ok = setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, {
+            reason,
+            syncTemplateScope,
+            templateSource: templateSnapshot?.templateStr || templateObj,
+            presetName: normalizedPresetName,
+            source,
+        });
+        if (!ok)
+            return false;
+        if (syncTemplateScope) {
+            try {
+                applyTemplateScopeForCurrentChat_ACU();
+            }
+            catch (e) {
+                logWarn_ACU('[Guide] applyTemplateScope 失败:', e);
+            }
+        }
+        try {
+            await saveChatToHost_ACU();
+        }
+        catch (e) {
+            logWarn_ACU('[Guide] saveChatToHost 失败:', e);
+        }
+        try {
+            await refreshMergedDataAndNotify_ACU();
+        }
+        catch (e) { }
+        return true;
+    }
+    // [表格顺序新机制] 获取表格 keys：
+    // - 若当前聊天已存在"空白指导表"：优先按指导表的 orderNo 顺序（可过滤不在指导表里的表）
+    // - 否则：按"编号(orderNo)从小到大"排序；缺编号则回退到模板编号/模板顺序
+
+    /**
+     * service/template/chat-scope/chat-scope-template.ts
+     * Template Scope 管理 + Global Template（B+C 组）
+     */
+    function normalizeTemplateScopeMode_ACU(mode) {
+        if (mode === 'chat_override')
+            return 'chat_override';
+        if (mode === 'preset_link')
+            return 'preset_link';
+        return 'inherit_global';
+    }
+    function normalizeTemplateScopeIsolationKey_ACU(isolationKey = getCurrentIsolationKey_ACU()) {
+        return String(isolationKey ?? '');
+    }
+    function sanitizeTemplateSnapshotForChat_ACU(templateSource) {
+        let templateObj = null;
+        if (typeof templateSource === 'string') {
+            templateObj = safeJsonParse_ACU(templateSource, null);
+        }
+        else if (templateSource && typeof templateSource === 'object' && !Array.isArray(templateSource)) {
+            templateObj = cloneScopedConfigData_ACU(templateSource, null);
+        }
+        if (!templateObj || typeof templateObj !== 'object' || Array.isArray(templateObj))
+            return null;
+        try {
+            const sheetKeys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
+            ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: sheetKeys, forceRebuild: false });
+        }
+        catch (e) {
+            logWarn_ACU('[模板作用域] sanitizeTemplateSnapshot: 排序号处理失败:', e);
+        }
+        const sanitized = sanitizeChatSheetsObject_ACU(templateObj, { ensureMate: true });
+        const templateStr = safeJsonStringify_ACU(sanitized, '');
+        if (!templateStr)
+            return null;
+        return {
+            templateStr,
+            templateObj: safeJsonParse_ACU(templateStr, null),
+        };
+    }
+    function normalizeChatTemplateScopeState_ACU(rawState, { isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const state = (rawState && typeof rawState === 'object' && !Array.isArray(rawState)) ? rawState : {};
+        const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(state.templateStr || state.templateObj || state.template || null);
+        const guideData = normalizeGuideData_ACU(state.guideData);
+        return {
+            mode: normalizeTemplateScopeMode_ACU(state.mode),
+            isolationKey: normalizeTemplateScopeIsolationKey_ACU(state.isolationKey ?? isolationKey),
+            presetName: normalizeTemplatePresetSelectionValue_ACU(state.presetName || ''),
+            templateStr: templateSnapshot?.templateStr || '',
+            guideData,
+            originGlobalName: normalizeTemplatePresetSelectionValue_ACU(state.originGlobalName || ''),
+            originGlobalRevision: Number.isFinite(state.originGlobalRevision) ? Math.max(0, Math.trunc(state.originGlobalRevision)) : 0,
+            updatedAt: Number.isFinite(state.updatedAt) ? state.updatedAt : 0,
+            source: normalizeChatScopedConfigSource_ACU(state.source, 'inherit'),
+        };
+    }
+    function buildChatTemplatePresetSlotKey_ACU(presetName) {
+        return normalizeTemplatePresetSelectionValue_ACU(presetName) || DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU;
+    }
+    function listChatTemplatePresetEntries_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const entryMap = new Map();
+        getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).forEach((entry) => {
+            const slotKey = buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '');
+            const previousEntry = entryMap.get(slotKey);
+            const currentTs = Number(entry?.updatedAt) || Number(entry?.archivedAt) || 0;
+            const previousTs = Number(previousEntry?.updatedAt) || Number(previousEntry?.archivedAt) || 0;
+            if (!previousEntry || currentTs >= previousTs) {
+                entryMap.set(slotKey, entry);
+            }
+        });
+        return Array.from(entryMap.values()).sort((a, b) => {
+            const ta = Number(a?.updatedAt) || Number(a?.archivedAt) || 0;
+            const tb = Number(b?.updatedAt) || Number(b?.archivedAt) || 0;
+            return tb - ta;
+        });
+    }
+    function findChatTemplatePresetEntry_ACU(presetName, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const slotKey = buildChatTemplatePresetSlotKey_ACU(presetName);
+        return listChatTemplatePresetEntries_ACU({ chat, isolationKey }).find(entry => buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '') === slotKey) || null;
+    }
+    function upsertChatTemplatePresetEntry_ACU(templateState, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
+        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
+            return null;
+        const slotKey = buildChatTemplatePresetSlotKey_ACU(normalizedState.presetName || '');
+        const archivedAt = Date.now();
+        const nextEntries = [
+            {
+                ...normalizedState,
+                archiveKey: slotKey,
+                archivedAt,
+                updatedAt: normalizedState.updatedAt || archivedAt,
+            },
+            ...getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).filter((entry) => buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '') !== slotKey),
+        ];
+        setChatTemplateArchiveEntries_ACU(nextEntries, { chat, isolationKey: normalizedKey });
+        return findChatTemplatePresetEntry_ACU(normalizedState.presetName || '', { chat, isolationKey: normalizedKey });
+    }
+    function ensureCurrentChatTemplatePresetEntry_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const currentState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ chat, isolationKey: normalizedKey });
+        const normalizedState = normalizeChatTemplateScopeState_ACU(currentState, { isolationKey: normalizedKey });
+        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
+            return null;
+        const existingEntry = findChatTemplatePresetEntry_ACU(normalizedState.presetName || '', { chat, isolationKey: normalizedKey });
+        const currentFingerprint = buildChatTemplateArchiveFingerprint_ACU(normalizedState, { isolationKey: normalizedKey });
+        const existingFingerprint = existingEntry ? buildChatTemplateArchiveFingerprint_ACU(existingEntry, { isolationKey: normalizedKey }) : '';
+        if (existingEntry && currentFingerprint && existingFingerprint === currentFingerprint) {
+            return existingEntry;
+        }
+        return upsertChatTemplatePresetEntry_ACU(normalizedState, { chat, isolationKey: normalizedKey });
+    }
+    function buildChatTemplatePresetLinkState_ACU({ isolationKey = getCurrentIsolationKey_ACU(), presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now() } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        return normalizeChatTemplateScopeState_ACU({
+            mode: 'preset_link',
+            isolationKey: normalizedKey,
+            presetName,
+            originGlobalName,
+            originGlobalRevision,
+            updatedAt,
+            source,
+        }, { isolationKey: normalizedKey });
+    }
+    async function activateChatTemplatePresetSelection_ACU(presetName, { source = 'ui_chat_select', save = true } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(getCurrentIsolationKey_ACU());
+        const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
+        const localEntry = findChatTemplatePresetEntry_ACU(normalizedPresetName, { isolationKey: normalizedKey });
+        const hasGlobalPreset = !normalizedPresetName || !!getTemplatePreset_ACU(normalizedPresetName)?.templateStr;
+        try {
+            ensureCurrentChatTemplatePresetEntry_ACU({ isolationKey: normalizedKey });
+        }
+        catch (e) {
+            logWarn_ACU('[模板作用域] ensureCurrentChatPresetEntry 失败:', e);
+        }
+        if (localEntry?.templateStr) {
+            persistTemplateScopeSelectionState_ACU(normalizedPresetName, {
+                source,
+                updateGlobal: false,
+                save,
+                persistChatScope: true,
+                templateSource: localEntry.templateStr,
+                guideData: localEntry.guideData,
+                scopeMode: 'chat_override',
+                registerChatPresetEntry: false,
+            });
+        }
+        else {
+            if (!hasGlobalPreset)
+                return false;
+            const linkState = buildChatTemplatePresetLinkState_ACU({
+                isolationKey: normalizedKey,
+                presetName: normalizedPresetName,
+                source,
+                originGlobalName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
+                originGlobalRevision: 0,
+                updatedAt: Date.now(),
+            });
+            setCurrentChatTemplateScopeState_ACU(linkState, {
+                isolationKey: normalizedKey,
+                reason: `template_scope_${source}`,
+            });
+            try {
+                clearChatSheetGuideDataForIsolationKey_ACU({ isolationKey: normalizedKey });
+            }
+            catch (e) {
+                logWarn_ACU('[模板作用域] clearChatSheetGuide 失败:', e);
+            }
+            if (save) {
+                try {
+                    await saveChatToHost_ACU();
+                }
+                catch (error) {
+                    logWarn_ACU('[TemplateScope] 保存聊天级模板预设引用失败:', error);
+                }
+            }
+        }
+        applyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
+        try {
+            await refreshMergedDataAndNotify_ACU();
+        }
+        catch (e) { }
+        return {
+            presetName: normalizedPresetName,
+            mode: localEntry?.templateStr ? 'chat_override' : 'preset_link',
+            fromLocalSnapshot: !!localEntry?.templateStr,
+        };
+    }
+    function buildChatTemplateArchiveFingerprint_ACU(templateState, { isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey });
+        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
+            return '';
+        const raw = safeJsonStringify_ACU({
+            presetName: normalizedState.presetName || '',
+            source: normalizedState.source || '',
+            templateStr: normalizedState.templateStr || '',
+            guideData: normalizeGuideData_ACU(normalizedState.guideData),
+        }, '');
+        return raw ? hashUserInput_ACU(raw) : '';
+    }
+    function getChatTemplateArchiveBaseLabel_ACU(templateState, { fallback = '聊天模板快照' } = {}) {
+        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState);
+        if (normalizedState.source === 'legacy_history_frozen')
+            return '旧对话历史模板快照';
+        if (normalizedState.source === 'legacy_header_frozen')
+            return '旧版表头冻结模板';
+        if (normalizedState.source === 'legacy_frozen')
+            return '旧版聊天冻结模板';
+        const presetName = normalizeTemplatePresetSelectionValue_ACU(normalizedState.presetName || '');
+        return presetName ? getTemplatePresetDisplayName_ACU(presetName) : fallback;
+    }
+    function normalizeChatTemplateArchiveEntry_ACU(rawEntry, { isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const normalizedState = normalizeChatTemplateScopeState_ACU(rawEntry, { isolationKey });
+        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr)
+            return null;
+        const archiveKey = String(rawEntry?.archiveKey || buildChatTemplateArchiveFingerprint_ACU(normalizedState, { isolationKey: normalizedState.isolationKey }) || '').trim();
+        if (!archiveKey)
+            return null;
+        return {
+            archiveKey,
+            isolationKey: normalizedState.isolationKey,
+            presetName: normalizedState.presetName,
+            templateStr: normalizedState.templateStr,
+            guideData: normalizedState.guideData,
+            originGlobalName: normalizedState.originGlobalName,
+            originGlobalRevision: normalizedState.originGlobalRevision,
+            updatedAt: normalizedState.updatedAt,
+            archivedAt: Number.isFinite(rawEntry?.archivedAt) ? rawEntry.archivedAt : Date.now(),
+            source: normalizedState.source,
+            mode: 'chat_override',
+        };
+    }
+    function getChatTemplateArchiveEntries_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const container = getChatScopedConfigContainer_ACU(chat);
+        const rawSlots = container?.templateArchives;
+        if (!rawSlots || typeof rawSlots !== 'object' || Array.isArray(rawSlots))
+            return [];
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const rawEntries = Array.isArray(rawSlots[normalizedKey]) ? rawSlots[normalizedKey] : [];
+        return rawEntries
+            .map((entry) => normalizeChatTemplateArchiveEntry_ACU(entry, { isolationKey: normalizedKey }))
+            .filter(Boolean)
+            .sort((a, b) => (Number(b.archivedAt) || 0) - (Number(a.archivedAt) || 0));
+    }
+    function setChatTemplateArchiveEntries_ACU(entries, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const first = getChatFirstLayerMessage_ACU(chat);
+        if (!first)
+            return [];
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
+        const normalizedEntries = (Array.isArray(entries) ? entries : [])
+            .map(entry => normalizeChatTemplateArchiveEntry_ACU(entry, { isolationKey: normalizedKey }))
+            .filter(Boolean)
+            .sort((a, b) => (Number(b.archivedAt) || 0) - (Number(a.archivedAt) || 0))
+            .slice(0, MAX_CHAT_TEMPLATE_ARCHIVES_PER_TAG_ACU);
+        if (normalizedEntries.length > 0) {
+            if (!container.templateArchives || typeof container.templateArchives !== 'object' || Array.isArray(container.templateArchives)) {
+                container.templateArchives = {};
+            }
+            container.templateArchives[normalizedKey] = normalizedEntries;
+        }
+        else if (container.templateArchives && typeof container.templateArchives === 'object' && !Array.isArray(container.templateArchives)) {
+            delete container.templateArchives[normalizedKey];
+            if (Object.keys(container.templateArchives).length === 0)
+                delete container.templateArchives;
+        }
+        const hasPayload = Object.keys(container).some(key => key !== 'version');
+        if (hasPayload) {
+            first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
+        }
+        else {
+            delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
+        }
+        return getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey });
+    }
+    function archiveCurrentChatTemplateScopeState_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU(), nextTemplateState = null, reason = '' } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const currentState = getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey }) || migrateLegacyTemplateScopeForCurrentChat_ACU({ chat, isolationKey: normalizedKey });
+        const normalizedCurrentState = normalizeChatTemplateScopeState_ACU(currentState, { isolationKey: normalizedKey });
+        if (normalizedCurrentState.mode !== 'chat_override' || !normalizedCurrentState.templateStr)
+            return false;
+        const currentArchiveKey = buildChatTemplateArchiveFingerprint_ACU(normalizedCurrentState, { isolationKey: normalizedKey });
+        if (!currentArchiveKey)
+            return false;
+        const normalizedNextState = nextTemplateState
+            ? normalizeChatTemplateScopeState_ACU(nextTemplateState, { isolationKey: normalizedKey })
+            : null;
+        const nextArchiveKey = normalizedNextState?.templateStr
+            ? buildChatTemplateArchiveFingerprint_ACU(normalizedNextState, { isolationKey: normalizedKey })
+            : '';
+        if (nextArchiveKey && currentArchiveKey === nextArchiveKey)
+            return false;
+        const archivedAt = Date.now();
+        const nextEntries = [
+            {
+                ...normalizedCurrentState,
+                archiveKey: currentArchiveKey,
+                archivedAt,
+                updatedAt: normalizedCurrentState.updatedAt || archivedAt,
+                source: normalizedCurrentState.source || normalizeChatScopedConfigSource_ACU(reason, 'inherit'),
+            },
+            ...getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).filter((entry) => entry.archiveKey !== currentArchiveKey),
+        ];
+        setChatTemplateArchiveEntries_ACU(nextEntries, { chat, isolationKey: normalizedKey });
+        return true;
+    }
+    function buildChatTemplateArchiveOptionValue_ACU(archiveKey) {
+        const normalizedKey = String(archiveKey || '').trim();
+        return normalizedKey ? `${CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU}${normalizedKey}` : '';
+    }
+    function isChatTemplateArchiveOptionValue_ACU(value) {
+        return typeof value === 'string' && value.startsWith(CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU);
+    }
+    function parseChatTemplateArchiveOptionValue_ACU(value) {
+        return isChatTemplateArchiveOptionValue_ACU(value)
+            ? String(value.slice(CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU.length)).trim()
+            : '';
+    }
+    function getChatTemplateArchiveOptionLabel_ACU(entry) {
+        const normalizedEntry = normalizeChatTemplateArchiveEntry_ACU(entry);
+        if (!normalizedEntry)
+            return '聊天历史模板快照';
+        const baseLabel = getChatTemplateArchiveBaseLabel_ACU(normalizedEntry);
+        const archivedAtText = (typeof formatPlotScopeUpdatedAt_ACU$1 === 'function') ? formatPlotScopeUpdatedAt_ACU$1(normalizedEntry.archivedAt || normalizedEntry.updatedAt) : '';
+        return archivedAtText
+            ? `${baseLabel}（聊天历史快照，${archivedAtText}）`
+            : `${baseLabel}（聊天历史快照）`;
+    }
+    async function restoreChatTemplateArchiveEntry_ACU(archiveKey, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU(), save = true } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const normalizedArchiveKey = String(archiveKey || '').trim();
+        if (!normalizedArchiveKey)
+            return false;
+        const entry = getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).find((item) => item.archiveKey === normalizedArchiveKey);
+        if (!entry?.templateStr)
+            return false;
+        persistTemplateScopeSelectionState_ACU(entry.presetName, {
+            source: entry.source || 'ui_chat_archive_restore',
+            updateGlobal: false,
+            save,
+            persistChatScope: true,
+            templateSource: entry.templateStr,
+            guideData: entry.guideData,
+            archivePreviousChatScope: true,
+        });
+        applyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
+        try {
+            await refreshMergedDataAndNotify_ACU();
+        }
+        catch (e) { }
+        return {
+            archiveKey: normalizedArchiveKey,
+            presetName: entry.presetName || '',
+            label: getChatTemplateArchiveOptionLabel_ACU(entry),
+            templateStr: entry.templateStr,
+        };
+    }
+    function getCurrentChatTemplateScopeState_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const container = getChatScopedConfigContainer_ACU(chat);
+        const rawSlots = container?.template;
+        if (!rawSlots || typeof rawSlots !== 'object' || Array.isArray(rawSlots))
+            return null;
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const rawState = rawSlots[normalizedKey];
+        if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState))
+            return null;
+        const normalizedState = normalizeChatTemplateScopeState_ACU(rawState, { isolationKey: normalizedKey });
+        if (normalizedState.mode === 'preset_link') {
+            return normalizedState;
+        }
+        if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr) {
+            return null;
+        }
+        return normalizedState;
+    }
+    function buildChatTemplateScopeStateFromCurrent_ACU({ isolationKey = getCurrentIsolationKey_ACU(), presetName = '', source = 'ui', originGlobalName = '', originGlobalRevision = 0, updatedAt = Date.now(), templateSource = TABLE_TEMPLATE_ACU, guideData = null } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateSource);
+        if (!templateSnapshot?.templateStr)
+            return null;
+        const resolvedGuideData = normalizeGuideData_ACU(guideData || getChatSheetGuideDataForIsolationKey_ACU(normalizedKey));
+        return normalizeChatTemplateScopeState_ACU({
+            mode: 'chat_override',
+            isolationKey: normalizedKey,
+            presetName,
+            templateStr: templateSnapshot.templateStr,
+            guideData: resolvedGuideData,
+            originGlobalName,
+            originGlobalRevision,
+            updatedAt,
+            source,
+        }, { isolationKey: normalizedKey });
+    }
+    function setCurrentChatTemplateScopeState_ACU(templateState, { isolationKey = getCurrentIsolationKey_ACU(), reason = '' } = {}) {
+        const chat = getChatArray_ACU();
+        const first = getChatFirstLayerMessage_ACU(chat);
+        if (!first)
+            return null;
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
+        const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
+        if (!container.template || typeof container.template !== 'object' || Array.isArray(container.template)) {
+            container.template = {};
+        }
+        if (normalizedState.mode === 'chat_override' && normalizedState.templateStr) {
+            container.template[normalizedKey] = {
+                ...normalizedState,
+                reason: String(reason || ''),
+            };
+        }
+        else if (normalizedState.mode === 'preset_link') {
+            container.template[normalizedKey] = {
+                ...normalizedState,
+                templateStr: '',
+                guideData: null,
+                reason: String(reason || ''),
+            };
+        }
+        else {
+            delete container.template[normalizedKey];
+            if (Object.keys(container.template).length === 0) {
+                delete container.template;
+            }
+        }
+        const hasPayload = Object.keys(container).some(key => key !== 'version');
+        if (hasPayload) {
+            first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
+        }
+        else {
+            delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
+        }
+        return getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
+    }
+    function clearCurrentChatTemplateScopeState_ACU({ isolationKey = getCurrentIsolationKey_ACU(), clearGuide = true, archiveCurrent = true } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        if (archiveCurrent) {
+            try {
+                archiveCurrentChatTemplateScopeState_ACU({ isolationKey: normalizedKey, reason: 'clear_template_override' });
+            }
+            catch (e) {
+                logWarn_ACU('[模板作用域] archiveTemplateScopeState 失败:', e);
+            }
+        }
+        const result = setCurrentChatTemplateScopeState_ACU({ mode: 'inherit_global' }, {
+            isolationKey: normalizedKey,
+            reason: 'clear_template_override',
+        });
+        if (clearGuide) {
+            try {
+                clearChatSheetGuideDataForIsolationKey_ACU({ isolationKey: normalizedKey });
+            }
+            catch (e) {
+                logWarn_ACU('[模板作用域] clearChatSheetGuide 失败:', e);
+            }
+        }
+        return result;
+    }
+    function getGlobalTemplateSnapshotForCurrentProfile_ACU() {
+        const code = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || '');
+        const previousTemplate = TABLE_TEMPLATE_ACU;
+        const savedTemplate = readProfileTemplateFromStorage_ACU(code);
+        let snapshot = sanitizeTemplateSnapshotForChat_ACU(savedTemplate || previousTemplate);
+        if (snapshot?.templateStr) {
+            return snapshot;
+        }
+        try {
+            _set_TABLE_TEMPLATE_ACU(savedTemplate || DEFAULT_TABLE_TEMPLATE_ACU);
+            const parsedTemplate = parseTableTemplateJson_ACU({ stripSeedRows: false });
+            snapshot = sanitizeTemplateSnapshotForChat_ACU(parsedTemplate);
+        }
+        catch (e) {
+            snapshot = null;
+        }
+        finally {
+            _set_TABLE_TEMPLATE_ACU(previousTemplate);
+        }
+        return snapshot || sanitizeTemplateSnapshotForChat_ACU(previousTemplate);
+    }
+
+    /**
+     * service/template/chat-scope/index.ts — 统一 re-export
+     * 保持外部 import { xxx } from '.../chat-scope' 路径不变
+     */
+    // 共享基础函数
+
+    /**
+     * service/plot/plot-logic.ts — 剧情推进纯逻辑函数
+     *
+     * 从 presentation/components/optimization-ui.ts 真正搬入的纯数据/逻辑函数。
+     * 不操作 DOM，不引用 $popupInstance_ACU / jQuery_API_ACU 等 UI 对象。
+     */
+    // ═══ 循环提示词/提示词组兼容 ═══
+    function ensureLoopPromptsArray_ACU(plotSettings) {
+        if (!plotSettings || !plotSettings.loopSettings)
+            return;
+        const ls = plotSettings.loopSettings;
+        if (typeof ls.quickReplyContent === 'string') {
+            const oldContent = ls.quickReplyContent.trim();
+            ls.quickReplyContent = oldContent ? [oldContent] : [];
+            ls.currentPromptIndex = 0;
+            logDebug_ACU('[剧情推进] 已迁移旧版循环提示词格式（字符串 -> 数组）');
+        }
+        if (!Array.isArray(ls.quickReplyContent)) {
+            ls.quickReplyContent = [];
+        }
+        if (typeof ls.currentPromptIndex !== 'number' || ls.currentPromptIndex < 0) {
+            ls.currentPromptIndex = 0;
+        }
+        if (ls.quickReplyContent.length > 0 && ls.currentPromptIndex >= ls.quickReplyContent.length) {
+            ls.currentPromptIndex = 0;
+        }
+    }
+    function ensureTagRulesCompat_ACU(targetSettings) {
+        if (!targetSettings || typeof targetSettings !== 'object')
+            return;
+        targetSettings.tableContextExtractRules = normalizeExtractRules_ACU(targetSettings.tableContextExtractRules, targetSettings.tableContextExtractTags || '');
+        targetSettings.tableContextExcludeRules = normalizeExcludeRules_ACU(targetSettings.tableContextExcludeRules, targetSettings.tableContextExcludeTags || '');
+        const plot = targetSettings.plotSettings;
+        if (!plot || typeof plot !== 'object')
+            return;
+        plot.contextExtractRules = normalizeExtractRules_ACU(plot.contextExtractRules, plot.contextExtractTags || '');
+        plot.contextExcludeRules = normalizeExcludeRules_ACU(plot.contextExcludeRules, plot.contextExcludeTags || '');
+        if ((!Array.isArray(plot.contextExtractRules) || plot.contextExtractRules.length === 0)
+            && (plot.contextExtractTags || '').trim() === '') {
+            plot.contextExtractRules = normalizeExtractRules_ACU(DEFAULT_PLOT_SETTINGS_ACU.contextExtractRules, DEFAULT_PLOT_SETTINGS_ACU.contextExtractTags || '');
+        }
+        if ((!Array.isArray(plot.contextExcludeRules) || plot.contextExcludeRules.length === 0)
+            && (plot.contextExcludeTags || '').trim() === '') {
+            plot.contextExcludeRules = normalizeExcludeRules_ACU(DEFAULT_PLOT_SETTINGS_ACU.contextExcludeRules, DEFAULT_PLOT_SETTINGS_ACU.contextExcludeTags || '');
+        }
+        ensurePlotTasksCompat_ACU(plot);
+        if (Array.isArray(plot.promptPresets)) {
+            plot.promptPresets = plot.promptPresets.map((preset) => normalizePlotPresetExcludeRules_ACU(preset));
+        }
+    }
+    // ═══ Prompt 辅助 ═══
+    function getLegacyPromptFromThree_ACU(prompts, id) {
+        if (!prompts)
+            return '';
+        if (Array.isArray(prompts))
+            return (prompts.find(item => item && item.id === id)?.content) || '';
+        if (typeof prompts === 'object')
+            return prompts[id] || '';
+        return '';
+    }
+    function looksLikePromptGroupSegments_ACU(arr) {
+        if (!Array.isArray(arr) || arr.length === 0)
+            return false;
+        const first = arr[0];
+        return first && typeof first === 'object' && 'role' in first && 'content' in first && !('id' in first);
+    }
+    function getMainSlotFromPlotSegment_ACU(segment) {
+        if (!segment)
+            return '';
+        const slot = String(segment.mainSlot || '').toUpperCase();
+        if (slot === 'A' || slot === 'B')
+            return slot;
+        if (segment.isMain)
+            return 'A';
+        if (segment.isMain2)
+            return 'B';
+        return '';
+    }
+    function getLegacyPromptTextsFromPromptGroup_ACU(promptGroup) {
+        const segments = Array.isArray(promptGroup) ? promptGroup : [];
+        return {
+            mainPrompt: (segments.find((segment) => getMainSlotFromPlotSegment_ACU(segment) === 'A')?.content) || '',
+            systemPrompt: (segments.find((segment) => getMainSlotFromPlotSegment_ACU(segment) === 'B')?.content) || '',
+        };
+    }
+    function getPlotPromptGroupFromSource_ACU(source, { fallbackPromptGroup = null } = {}) {
+        if (Array.isArray(source?.promptGroup) && source.promptGroup.length > 0) {
+            return JSON.parse(JSON.stringify(source.promptGroup));
+        }
+        if (looksLikePromptGroupSegments_ACU(source?.prompts)) {
+            return JSON.parse(JSON.stringify(source.prompts));
+        }
+        const fallbackTexts = getLegacyPromptTextsFromPromptGroup_ACU(fallbackPromptGroup);
+        const legacyMain = source?.mainPrompt || getLegacyPromptFromThree_ACU(source?.prompts, 'mainPrompt') || fallbackTexts.mainPrompt || '';
+        const legacySystem = source?.systemPrompt || getLegacyPromptFromThree_ACU(source?.prompts, 'systemPrompt') || fallbackTexts.systemPrompt || '';
+        return buildDefaultPlotPromptGroup_ACU({ mainAContent: legacyMain, mainBContent: legacySystem });
+    }
+    function getPlotFinalDirectiveFromSource_ACU(source) {
+        if (!source || typeof source !== 'object')
+            return '';
+        return source.finalSystemDirective
+            || source.finalDirective
+            || getPlotPromptContentByIdFromSettings_ACU(source, 'finalSystemDirective')
+            || getLegacyPromptFromThree_ACU(source.prompts, 'finalSystemDirective')
+            || '';
+    }
+    // ═══ 任务规范化 ═══
+    function normalizePlotTask_ACU(task, { index = 0, fallbackTask = null } = {}) {
+        const cloned = task && typeof task === 'object' ? JSON.parse(JSON.stringify(task)) : {};
+        const fallback = fallbackTask && typeof fallbackTask === 'object' ? fallbackTask : null;
+        const defaultId = `plotTask${index + 1}`;
+        const rawId = String(cloned.id || cloned.name || fallback?.id || defaultId).trim();
+        const taskId = rawId.replace(/[^\w-]+/g, '_') || defaultId;
+        const taskName = String(cloned.name || fallback?.name || `剧情任务${index + 1}`).trim() || `剧情任务${index + 1}`;
+        const promptGroup = getPlotPromptGroupFromSource_ACU(cloned, { fallbackPromptGroup: fallback?.promptGroup || null });
+        return {
+            id: taskId,
+            name: taskName,
+            enabled: cloned.enabled !== false,
+            promptGroup,
+            extractTags: typeof cloned.extractTags === 'string' ? cloned.extractTags : (fallback?.extractTags || ''),
+            extractInjectTags: typeof cloned.extractInjectTags === 'string' ? cloned.extractInjectTags : (fallback?.extractInjectTags || ''),
+            finalDirectiveTemplate: typeof cloned.finalDirectiveTemplate === 'string' ? cloned.finalDirectiveTemplate : (fallback?.finalDirectiveTemplate || ''),
+            minLength: normalizeNonNegativeInteger_ACU$1(cloned.minLength, fallback?.minLength ?? 0),
+            maxRetries: normalizePositiveInteger_ACU$1(cloned.maxRetries ?? cloned.loopSettings?.maxRetries, fallback?.maxRetries ?? DEFAULT_PLOT_SETTINGS_ACU.loopSettings?.maxRetries ?? 3),
+            mergeStrategy: typeof cloned.mergeStrategy === 'string' && cloned.mergeStrategy.trim()
+                ? cloned.mergeStrategy.trim()
+                : (fallback?.mergeStrategy || 'append'),
+            stage: normalizePositiveInteger_ACU$1(cloned.stage, fallback?.stage ?? 1),
+            order: normalizeNonNegativeInteger_ACU$1(cloned.order, fallback?.order ?? index),
+        };
+    }
+    function buildLegacyWrappedPlotTask_ACU(source, { taskId = 'defaultPlotTask', taskName = '默认任务', order = 0 } = {}) {
+        return normalizePlotTask_ACU({
+            id: taskId,
+            name: taskName,
+            enabled: true,
+            promptGroup: getPlotPromptGroupFromSource_ACU(source),
+            extractTags: typeof source?.extractTags === 'string' ? source.extractTags : '',
+            minLength: source?.minLength,
+            maxRetries: source?.loopSettings?.maxRetries,
+            mergeStrategy: 'append',
+            stage: 1,
+            order,
+        }, { index: order });
+    }
+    function normalizePlotTasks_ACU(source, { fallbackTaskId = 'defaultPlotTask', fallbackTaskName = '默认任务' } = {}) {
+        const baseSource = source && typeof source === 'object' ? source : {};
+        const fallbackTask = buildLegacyWrappedPlotTask_ACU(baseSource, {
+            taskId: fallbackTaskId,
+            taskName: fallbackTaskName,
+            order: 0,
+        });
+        const rawTasks = Array.isArray(baseSource.plotTasks) && baseSource.plotTasks.length > 0
+            ? baseSource.plotTasks
+            : [fallbackTask];
+        return rawTasks
+            .map((task, index) => normalizePlotTask_ACU(task, {
+            index,
+            fallbackTask: { ...fallbackTask, order: index },
+        }))
+            .sort((a, b) => a.order - b.order);
+    }
+    function syncLegacyPlotSettingsFromTask_ACU(plotSettings, task) {
+        if (!plotSettings || !task)
+            return;
+        ensurePlotPromptsArray_ACU(plotSettings);
+        const normalizedPromptGroup = getPlotPromptGroupFromSource_ACU(task);
+        plotSettings.promptGroup = JSON.parse(JSON.stringify(normalizedPromptGroup));
+        plotSettings.extractTags = typeof task.extractTags === 'string' ? task.extractTags : '';
+        plotSettings.minLength = normalizeNonNegativeInteger_ACU$1(task.minLength, 0);
+        const legacyPromptTexts = getLegacyPromptTextsFromPromptGroup_ACU(normalizedPromptGroup);
+        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'mainPrompt', legacyPromptTexts.mainPrompt || '');
+        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'systemPrompt', legacyPromptTexts.systemPrompt || '');
+    }
+    function syncPrimaryPlotTaskFromLegacySettings_ACU(plotSettings) {
+        if (!plotSettings || typeof plotSettings !== 'object')
+            return;
+        ensurePlotPromptGroup_ACU(plotSettings);
+        ensurePlotPromptsArray_ACU(plotSettings);
+        const legacyPromptTexts = getLegacyPromptTextsFromPromptGroup_ACU(plotSettings.promptGroup || []);
+        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'mainPrompt', legacyPromptTexts.mainPrompt || '');
+        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'systemPrompt', legacyPromptTexts.systemPrompt || '');
+        const normalizedTasks = normalizePlotTasks_ACU(plotSettings);
+        const primaryTaskIndex = normalizedTasks.findIndex((task) => task && task.enabled !== false);
+        const targetIndex = primaryTaskIndex >= 0 ? primaryTaskIndex : 0;
+        const currentTask = normalizedTasks[targetIndex] || buildLegacyWrappedPlotTask_ACU(plotSettings, { order: targetIndex });
+        normalizedTasks[targetIndex] = normalizePlotTask_ACU({
+            ...currentTask,
+            promptGroup: JSON.parse(JSON.stringify(plotSettings.promptGroup || [])),
+            extractTags: plotSettings.extractTags,
+            minLength: plotSettings.minLength,
+            maxRetries: plotSettings.loopSettings?.maxRetries,
+            order: currentTask.order ?? targetIndex,
+        }, {
+            index: targetIndex,
+            fallbackTask: currentTask,
+        });
+        plotSettings.plotTasks = normalizedTasks;
+    }
+    function ensurePlotTasksCompat_ACU(plotSettings, { persist = false, syncLegacy = true } = {}) {
+        if (!plotSettings || typeof plotSettings !== 'object')
+            return;
+        const normalizedTasks = normalizePlotTasks_ACU(plotSettings);
+        plotSettings.plotTasks = normalizedTasks;
+        if (syncLegacy && normalizedTasks.length > 0) {
+            const primaryTask = normalizedTasks.find((task) => task && task.enabled !== false) || normalizedTasks[0];
+            syncLegacyPlotSettingsFromTask_ACU(plotSettings, primaryTask);
+        }
+        if (persist) {
+            try {
+                saveSettings_ACU();
+            }
+            catch (e) { }
+        }
+    }
+    // ═══ 预设选择值规范化 ═══
+    const DEFAULT_PRESET_OPTION_VALUE_ACU = '__ACU_DEFAULT_PRESET__';
+    function normalizePlotPresetSelectionValue_ACU(presetName) {
+        const normalizedName = String(presetName ?? '').trim();
+        return normalizedName === DEFAULT_PRESET_OPTION_VALUE_ACU ? '' : normalizedName;
+    }
+    function isDefaultPlotPresetSelection_ACU(presetName) {
+        return normalizePlotPresetSelectionValue_ACU(presetName) === '';
+    }
+    // ═══ 预设绑定存储 ═══
+    function ensurePlotPresetBindingsStore_ACU() {
+        if (!settings_ACU || typeof settings_ACU !== 'object')
+            return {};
+        if (!settings_ACU.plotPresetBindings || typeof settings_ACU.plotPresetBindings !== 'object' || Array.isArray(settings_ACU.plotPresetBindings)) {
+            settings_ACU.plotPresetBindings = {};
+        }
+        return settings_ACU.plotPresetBindings;
+    }
+    function normalizePlotPresetBindingChatId_ACU(chatId = currentChatFileIdentifier_ACU) {
+        const normalizedChatId = cleanChatName_ACU(String(chatId ?? '').trim());
+        return (normalizedChatId && normalizedChatId !== 'unknown_chat_source') ? normalizedChatId : '';
+    }
+    function hasPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
+        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
+        if (!normalizedChatId)
+            return false;
+        return Object.prototype.hasOwnProperty.call(ensurePlotPresetBindingsStore_ACU(), normalizedChatId);
+    }
+    function getPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
+        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
+        if (!normalizedChatId)
+            return null;
+        const bindingStore = ensurePlotPresetBindingsStore_ACU();
+        if (!Object.prototype.hasOwnProperty.call(bindingStore, normalizedChatId))
+            return null;
+        const rawBinding = bindingStore[normalizedChatId] || {};
+        const normalizedSource = ['inherit', 'ui', 'api'].includes(rawBinding.source) ? rawBinding.source : 'inherit';
+        const normalizedBinding = {
+            presetName: normalizePlotPresetSelectionValue_ACU(rawBinding.presetName),
+            source: normalizedSource,
+            isExplicit: rawBinding.isExplicit === true,
+            updatedAt: Number.isFinite(rawBinding.updatedAt) ? rawBinding.updatedAt : 0,
+        };
+        bindingStore[normalizedChatId] = normalizedBinding;
+        return normalizedBinding;
+    }
+    function setPlotPresetBindingForChat_ACU(chatId, presetName, { source = 'inherit', isExplicit = false } = {}) {
+        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
+        if (!normalizedChatId)
+            return null;
+        const normalizedSource = ['inherit', 'ui', 'api'].includes(source) ? source : 'inherit';
+        const binding = {
+            presetName: normalizePlotPresetSelectionValue_ACU(presetName),
+            source: normalizedSource,
+            isExplicit: isExplicit === true,
+            updatedAt: Date.now(),
+        };
+        ensurePlotPresetBindingsStore_ACU()[normalizedChatId] = binding;
+        return binding;
+    }
+    function clearPlotPresetBindingForChat_ACU(chatId = currentChatFileIdentifier_ACU) {
+        const normalizedChatId = normalizePlotPresetBindingChatId_ACU(chatId);
+        if (!normalizedChatId)
+            return false;
+        const bindingStore = ensurePlotPresetBindingsStore_ACU();
+        if (!Object.prototype.hasOwnProperty.call(bindingStore, normalizedChatId))
+            return false;
+        delete bindingStore[normalizedChatId];
+        return true;
+    }
+    function findPlotPresetByName_ACU(presetName) {
+        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
+        if (!normalizedPresetName)
+            return null;
+        const presets = settings_ACU?.plotSettings?.promptPresets || [];
+        const targetPresetRaw = presets.find((p) => p.name === normalizedPresetName);
+        return targetPresetRaw ? normalizePlotPresetExcludeRules_ACU(targetPresetRaw) : null;
+    }
+    function resolveActivePlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
+        const chatScopeState = getCurrentChatPlotScopeState_ACU();
+        if (chatScopeState) {
+            return normalizePlotPresetSelectionValue_ACU(chatScopeState.presetName || '');
+        }
+        const binding = getPlotPresetBindingForChat_ACU();
+        if (binding) {
+            if (isDefaultPlotPresetSelection_ACU(binding.presetName))
+                return '';
+            const boundPreset = findPlotPresetByName_ACU(binding.presetName);
+            if (boundPreset)
+                return boundPreset.name;
+        }
+        if (!fallbackToGlobal)
+            return '';
+        const globalPresetName = normalizePlotPresetSelectionValue_ACU(settings_ACU?.plotSettings?.lastUsedPresetName || '');
+        if (isDefaultPlotPresetSelection_ACU(globalPresetName))
+            return '';
+        const globalPreset = findPlotPresetByName_ACU(globalPresetName);
+        return globalPreset ? globalPreset.name : '';
+    }
+    function getCurrentRuntimePlotPresetName_ACU({ fallbackToGlobal = true } = {}) {
+        return normalizePlotPresetSelectionValue_ACU(resolveActivePlotPresetName_ACU({ fallbackToGlobal }));
+    }
+    // ═══ 编辑器设置 ═══
+    function normalizePlotEditorScope_ACU(scope = 'resolved') {
+        if (scope === 'chat')
+            return 'chat';
+        if (scope === 'global')
+            return 'global';
+        return 'resolved';
+    }
+    function setCurrentEditablePlotPresetState_ACU(presetName, { scope = 'resolved', source = '' } = {}) {
+        _set_currentEditablePlotPresetState_ACU({
+            initialized: true,
+            presetName: normalizePlotPresetSelectionValue_ACU(presetName),
+            scope: normalizePlotEditorScope_ACU(scope),
+            source: String(source || ''),
+        });
+        return currentEditablePlotPresetState_ACU;
+    }
+    function syncCurrentEditablePlotPresetState_ACU({ source = 'runtime_sync' } = {}) {
+        const chatScopeState = getCurrentChatPlotScopeState_ACU();
+        const binding = getPlotPresetBindingForChat_ACU();
+        const resolvedPresetName = resolveActivePlotPresetName_ACU({ fallbackToGlobal: true });
+        const scope = (chatScopeState || binding) ? 'chat' : 'global';
+        return setCurrentEditablePlotPresetState_ACU(resolvedPresetName, { scope, source });
+    }
+    function getActivePlotEditorSettings_ACU({ fallbackToRuntime = true } = {}) {
+        const activeSettings = activePlotEditorSettings_ACU || (fallbackToRuntime ? settings_ACU?.plotSettings : null);
+        return activeSettings && typeof activeSettings === 'object' ? activeSettings : null;
+    }
+    function setActivePlotEditorSettings_ACU(plotSettings) {
+        if (!plotSettings || typeof plotSettings !== 'object') {
+            _set_activePlotEditorSettings_ACU(null);
+            return null;
+        }
+        _set_activePlotEditorSettings_ACU(plotSettings);
+        ensurePlotPromptsArray_ACU(activePlotEditorSettings_ACU);
+        ensureLoopPromptsArray_ACU(activePlotEditorSettings_ACU);
+        ensurePlotTasksCompat_ACU(activePlotEditorSettings_ACU, { syncLegacy: true });
+        activePlotEditorSettings_ACU.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(activePlotEditorSettings_ACU);
+        setPlotPromptContentByIdForSettings_ACU(activePlotEditorSettings_ACU, 'finalSystemDirective', activePlotEditorSettings_ACU.finalSystemDirective || '');
+        return activePlotEditorSettings_ACU;
+    }
+    function getPlotGlobalRevision_ACU() {
+        const rawRevision = settings_ACU?.plotSettings?.globalRevision;
+        return Number.isFinite(rawRevision) ? Math.max(0, Math.trunc(rawRevision)) : 0;
+    }
+    // ═══ 预设应用/重置 ═══
+    function cloneDefaultPlotSettingsForPreset_ACU() {
+        const defaults = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
+        ensurePlotPromptsArray_ACU(defaults);
+        ensureLoopPromptsArray_ACU(defaults);
+        ensurePlotTasksCompat_ACU(defaults, { syncLegacy: true });
+        return defaults;
+    }
+    function applyPlotPresetToSettings_ACU(plotSettings, preset) {
+        if (!plotSettings || !preset) {
+            return { normalizedPreset: null, promptGroup: [], finalDirective: '' };
+        }
+        const preservedEnabled = plotSettings.enabled === true;
+        const normalizedPreset = normalizePlotPresetExcludeRules_ACU(preset);
+        const finalDirective = getPlotFinalDirectiveFromSource_ACU(normalizedPreset);
+        ensurePlotPromptsArray_ACU(plotSettings);
+        ensureLoopPromptsArray_ACU(plotSettings);
+        plotSettings.enabled = preservedEnabled;
+        plotSettings.plotTasks = normalizePlotTasks_ACU(normalizedPreset);
+        plotSettings.promptGroup = JSON.parse(JSON.stringify(getPlotPromptGroupFromSource_ACU(normalizedPreset)));
+        plotSettings.finalSystemDirective = finalDirective || '';
+        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'finalSystemDirective', finalDirective || '');
+        plotSettings.rateMain = normalizedPreset.rateMain ?? 1.0;
+        plotSettings.ratePersonal = normalizedPreset.ratePersonal ?? 1.0;
+        plotSettings.rateErotic = normalizedPreset.rateErotic ?? 0;
+        plotSettings.rateCuckold = normalizedPreset.rateCuckold ?? 1.0;
+        plotSettings.recallCount = normalizedPreset.recallCount ?? 20;
+        plotSettings.extractTags = normalizedPreset.extractTags || '';
+        plotSettings.contextExtractRules = normalizeExtractRules_ACU(normalizedPreset.contextExtractRules, normalizedPreset.contextExtractTags || '');
+        plotSettings.contextExcludeRules = normalizeExcludeRules_ACU(normalizedPreset.contextExcludeRules, normalizedPreset.contextExcludeTags || '');
+        plotSettings.minLength = normalizedPreset.minLength ?? 0;
+        plotSettings.contextTurnCount = normalizedPreset.contextTurnCount ?? 3;
+        if (normalizedPreset.loopSettings) {
+            plotSettings.loopSettings = { ...plotSettings.loopSettings, ...normalizedPreset.loopSettings };
+        }
+        ensureLoopPromptsArray_ACU(plotSettings);
+        ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
+        plotSettings.finalSystemDirective = getPlotPromptContentByIdFromSettings_ACU(plotSettings, 'finalSystemDirective') || plotSettings.finalSystemDirective || '';
+        return {
+            normalizedPreset,
+            promptGroup: JSON.parse(JSON.stringify(plotSettings.promptGroup || [])),
+            finalDirective: getPlotPromptContentByIdFromSettings_ACU(plotSettings, 'finalSystemDirective') || '',
+        };
+    }
+    function resetPlotSettingsToDefault_ACU(plotSettings) {
+        if (!plotSettings || typeof plotSettings !== 'object')
+            return null;
+        const preservedEnabled = plotSettings.enabled === true;
+        const preservedPromptPresets = Array.isArray(plotSettings.promptPresets)
+            ? JSON.parse(JSON.stringify(plotSettings.promptPresets))
+            : [];
+        const preservedLastUsedPresetName = normalizePlotPresetSelectionValue_ACU(plotSettings.lastUsedPresetName || '');
+        const preservedGlobalRevision = Number.isFinite(plotSettings.globalRevision)
+            ? Math.max(0, Math.trunc(plotSettings.globalRevision))
+            : 0;
+        const defaults = cloneDefaultPlotSettingsForPreset_ACU();
+        Object.keys(plotSettings).forEach((key) => { delete plotSettings[key]; });
+        Object.assign(plotSettings, defaults);
+        plotSettings.enabled = preservedEnabled;
+        plotSettings.promptPresets = preservedPromptPresets;
+        plotSettings.lastUsedPresetName = preservedLastUsedPresetName;
+        plotSettings.globalRevision = preservedGlobalRevision;
+        ensurePlotPromptsArray_ACU(plotSettings);
+        ensureLoopPromptsArray_ACU(plotSettings);
+        ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
+        return plotSettings;
+    }
+    function replaceCurrentPlotSettingsWithSnapshot_ACU(plotSettings, snapshot) {
+        if (!plotSettings || typeof plotSettings !== 'object')
+            return null;
+        const normalizedSnapshot = sanitizePlotSettingsSnapshotForChat_ACU(snapshot);
+        if (!normalizedSnapshot)
+            return null;
+        const preservedEnabled = plotSettings.enabled === true;
+        const preservedPromptPresets = Array.isArray(plotSettings.promptPresets)
+            ? JSON.parse(JSON.stringify(plotSettings.promptPresets))
+            : [];
+        const preservedLastUsedPresetName = normalizePlotPresetSelectionValue_ACU(plotSettings.lastUsedPresetName || '');
+        const preservedGlobalRevision = Number.isFinite(plotSettings.globalRevision)
+            ? Math.max(0, Math.trunc(plotSettings.globalRevision))
+            : 0;
+        const defaults = cloneDefaultPlotSettingsForPreset_ACU();
+        Object.keys(plotSettings).forEach((key) => { delete plotSettings[key]; });
+        Object.assign(plotSettings, defaults, normalizedSnapshot);
+        plotSettings.enabled = preservedEnabled;
+        plotSettings.promptPresets = preservedPromptPresets;
+        plotSettings.lastUsedPresetName = preservedLastUsedPresetName;
+        plotSettings.globalRevision = preservedGlobalRevision;
+        ensurePlotPromptsArray_ACU(plotSettings);
+        ensureLoopPromptsArray_ACU(plotSettings);
+        ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
+        plotSettings.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(plotSettings);
+        setPlotPromptContentByIdForSettings_ACU(plotSettings, 'finalSystemDirective', plotSettings.finalSystemDirective || '');
+        return plotSettings;
+    }
+    // ═══ 排除规则 ═══
+    function stripPlotTaskRuntimeApiPresetFields_ACU(tasks) {
+        if (!Array.isArray(tasks))
+            return [];
+        return tasks.map((task) => {
+            if (!task || typeof task !== 'object')
+                return task;
+            const clonedTask = { ...task };
+            delete clonedTask.taskApiPreset;
+            return clonedTask;
+        });
+    }
+    function normalizePlotPresetExcludeRules_ACU(preset) {
+        if (!preset || typeof preset !== 'object')
+            return preset;
+        const cloned = JSON.parse(JSON.stringify(preset));
+        cloned.contextExtractRules = normalizeExtractRules_ACU(cloned.contextExtractRules, cloned.contextExtractTags || '');
+        cloned.contextExcludeRules = normalizeExcludeRules_ACU(cloned.contextExcludeRules, cloned.contextExcludeTags || '');
+        cloned.plotTasks = stripPlotTaskRuntimeApiPresetFields_ACU(normalizePlotTasks_ACU(cloned));
+        cloned.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(cloned);
+        ensurePlotTasksCompat_ACU(cloned, { syncLegacy: true });
+        cloned.plotTasks = stripPlotTaskRuntimeApiPresetFields_ACU(normalizePlotTasks_ACU(cloned));
+        setPlotPromptContentByIdForSettings_ACU(cloned, 'finalSystemDirective', cloned.finalSystemDirective || '');
+        delete cloned.contextExtractTags;
+        delete cloned.contextExcludeTags;
+        return cloned;
+    }
+    function stripPlotPresetWorldbookEntrySelectionForExport_ACU(preset) {
+        const normalizedPreset = normalizePlotPresetExcludeRules_ACU(preset);
+        if (!normalizedPreset || typeof normalizedPreset !== 'object')
+            return normalizedPreset;
+        const exportPreset = JSON.parse(JSON.stringify(normalizedPreset));
+        if (exportPreset.plotWorldbookConfig && typeof exportPreset.plotWorldbookConfig === 'object') {
+            delete exportPreset.plotWorldbookConfig.enabledEntries;
+        }
+        return exportPreset;
+    }
+    // ═══ Prompt 内容读写 ═══
+    function ensurePlotPromptsArray_ACU(plotSettings) {
+        if (!plotSettings)
+            return;
+        const p = plotSettings.prompts;
+        if (Array.isArray(p)) {
+            const required = [
+                { id: 'mainPrompt', role: 'system', name: '主系统提示词 (通用)' },
+                { id: 'systemPrompt', role: 'user', name: '拦截任务详细指令' },
+                { id: 'finalSystemDirective', role: 'system', name: '最终注入指令 (Storyteller Directive)' },
+            ];
+            required.forEach((req) => {
+                if (!p.some((x) => x && x.id === req.id)) {
+                    p.push({ ...req, content: '', deletable: false });
+                }
+            });
+            return;
+        }
+        const legacy = (p && typeof p === 'object') ? p : {};
+        plotSettings.prompts = [
+            { id: 'mainPrompt', name: '主系统提示词 (通用)', role: 'system', content: legacy.mainPrompt || '', deletable: false },
+            { id: 'systemPrompt', name: '拦截任务详细指令', role: 'user', content: legacy.systemPrompt || '', deletable: false },
+            { id: 'finalSystemDirective', name: '最终注入指令 (Storyteller Directive)', role: 'system', content: legacy.finalSystemDirective || '', deletable: false },
+        ];
+    }
+    function getPlotPromptContentByIdFromSettings_ACU(plotSettings, promptId) {
+        if (!plotSettings)
+            return '';
+        ensurePlotPromptsArray_ACU(plotSettings);
+        const arr = plotSettings.prompts || [];
+        const item = arr.find((p) => p && p.id === promptId);
+        return item?.content || '';
+    }
+    function setPlotPromptContentByIdForSettings_ACU(plotSettings, promptId, content) {
+        if (!plotSettings)
+            return;
+        ensurePlotPromptsArray_ACU(plotSettings);
+        const arr = plotSettings.prompts || [];
+        const item = arr.find((p) => p && p.id === promptId);
+        if (item)
+            item.content = content ?? '';
+    }
+    // ═══ 拦截标记 ═══
+    let lastPlotInterception_ACU = { text: '', ts: 0 };
+    function markPlotIntercept_ACU(text) {
+        lastPlotInterception_ACU = { text: String(text || ''), ts: Date.now() };
+    }
+    function shouldSkipPlotIntercept_ACU(text, windowMs = 5000) {
+        const t = String(text || '');
+        if (!t)
+            return false;
+        const age = Date.now() - (lastPlotInterception_ACU?.ts || 0);
+        if (age < 0 || age > windowMs)
+            return false;
+        return t === String(lastPlotInterception_ACU?.text || '');
+    }
+    // ═══ 预设持久化（纯数据操作） ═══
+    function queueSaveCurrentChatPlotScope_ACU(source = 'ui_plot_scope') {
+        Promise.resolve()
+            .then(() => saveChatToHost_ACU())
+            .catch(error => logWarn_ACU(`[剧情推进] 保存聊天级预设快照失败(${source}):`, error));
+    }
+    function persistCurrentChatPlotEditorSnapshot_ACU({ source = 'ui_task_edit', save = true } = {}) {
+        if (!settings_ACU?.plotSettings)
+            return null;
+        const normalizedPresetName = getCurrentRuntimePlotPresetName_ACU({ fallbackToGlobal: true });
+        const plotScopeState = buildChatPlotScopeStateFromSettings_ACU(settings_ACU.plotSettings, {
+            presetName: normalizedPresetName,
+            source,
+            originGlobalName: normalizePlotPresetSelectionValue_ACU(settings_ACU.plotSettings.lastUsedPresetName || ''),
+            originGlobalRevision: getPlotGlobalRevision_ACU(),
+            updatedAt: Date.now(),
+        });
+        if (!plotScopeState)
+            return null;
+        setCurrentChatPlotScopeState_ACU(plotScopeState, { reason: `plot_scope_${source}` });
+        setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, normalizedPresetName, {
+            source,
+            isExplicit: source !== 'inherit',
+        });
+        if (save) {
+            saveSettings_ACU();
+            queueSaveCurrentChatPlotScope_ACU(source);
+        }
+        return plotScopeState;
+    }
+    function persistPlotPresetSelectionState_ACU(presetName, options = {}) {
+        const { source = 'ui', updateGlobal = false, save = true, persistChatScope = !updateGlobal } = options;
+        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
+        let shouldSaveChat = false;
+        if (updateGlobal && settings_ACU?.plotSettings) {
+            settings_ACU.plotSettings.lastUsedPresetName = normalizedPresetName;
+        }
+        else if (persistChatScope && settings_ACU?.plotSettings) {
+            const plotScopeState = buildChatPlotScopeStateFromSettings_ACU(settings_ACU.plotSettings, {
+                presetName: normalizedPresetName,
+                source,
+                originGlobalName: normalizePlotPresetSelectionValue_ACU(settings_ACU.plotSettings.lastUsedPresetName || ''),
+                originGlobalRevision: getPlotGlobalRevision_ACU(),
+                updatedAt: Date.now(),
+            });
+            if (plotScopeState) {
+                setCurrentChatPlotScopeState_ACU(plotScopeState, { reason: `plot_scope_${source}` });
+                shouldSaveChat = true;
+            }
+            setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, normalizedPresetName, {
+                source,
+                isExplicit: source !== 'inherit',
+            });
+        }
+        else {
+            setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, normalizedPresetName, {
+                source,
+                isExplicit: source !== 'inherit',
+            });
+        }
+        if (save) {
+            saveSettings_ACU();
+            if (shouldSaveChat) {
+                Promise.resolve()
+                    .then(() => saveChatToHost_ACU())
+                    .catch(error => logWarn_ACU('[剧情推进] 保存聊天级预设快照失败:', error));
+            }
+        }
+        return normalizedPresetName;
+    }
+    // ═══ 预设切换（纯业务逻辑，去掉 refreshUi） ═══
+    function switchCurrentChatPlotPreset_ACU(presetName, { source = 'ui', save = true } = {}) {
+        if (!settings_ACU?.plotSettings)
+            return false;
+        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
+        const hadLegacyChatScopeSnapshot = !!getCurrentChatPlotScopeState_ACU();
+        if (hadLegacyChatScopeSnapshot) {
+            clearCurrentChatPlotScopeState_ACU();
+        }
+        const bindingSource = String(source || '').startsWith('api') ? 'api' : 'ui';
+        let result = null;
+        if (isDefaultPlotPresetSelection_ACU(normalizedPresetName)) {
+            clearPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU);
+            const inheritedGlobalPresetName = normalizePlotPresetSelectionValue_ACU(settings_ACU.plotSettings.lastUsedPresetName || '');
+            const inheritedGlobalPreset = findPlotPresetByName_ACU(inheritedGlobalPresetName);
+            if (inheritedGlobalPreset) {
+                applyPlotPresetToSettings_ACU(settings_ACU.plotSettings, inheritedGlobalPreset);
+            }
+            else {
+                resetPlotSettingsToDefault_ACU(settings_ACU.plotSettings);
+            }
+            _set_currentPlotTaskEditorId_ACU('');
+            setCurrentEditablePlotPresetState_ACU(inheritedGlobalPresetName, { scope: 'chat', source });
+            result = {
+                presetName: '',
+                isDefault: true,
+                followsGlobal: true,
+                preset: inheritedGlobalPreset || null,
+                activePresetName: inheritedGlobalPresetName,
+            };
+        }
+        else {
+            const targetPreset = findPlotPresetByName_ACU(normalizedPresetName);
+            if (!targetPreset)
+                return false;
+            applyPlotPresetToSettings_ACU(settings_ACU.plotSettings, targetPreset);
+            setPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU, targetPreset.name, {
+                source: bindingSource,
+                isExplicit: true,
+            });
+            _set_currentPlotTaskEditorId_ACU('');
+            setCurrentEditablePlotPresetState_ACU(targetPreset.name, { scope: 'chat', source });
+            result = {
+                presetName: targetPreset.name,
+                isDefault: false,
+                followsGlobal: false,
+                preset: targetPreset,
+                activePresetName: targetPreset.name,
+            };
+        }
+        if (save) {
+            saveSettings_ACU();
+            if (hadLegacyChatScopeSnapshot) {
+                queueSaveCurrentChatPlotScope_ACU(`${bindingSource}_clear_legacy_plot_scope`);
+            }
+        }
+        return result;
+    }
+    function buildPlotSettingsPreviewFromPreset_ACU(presetName) {
+        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
+        const previewSettings = cloneDefaultPlotSettingsForPreset_ACU();
+        if (isDefaultPlotPresetSelection_ACU(normalizedPresetName)) {
+            resetPlotSettingsToDefault_ACU(previewSettings);
+        }
+        else {
+            const targetPreset = findPlotPresetByName_ACU(normalizedPresetName);
+            if (!targetPreset)
+                return null;
+            applyPlotPresetToSettings_ACU(previewSettings, targetPreset);
+        }
+        previewSettings.lastUsedPresetName = normalizedPresetName;
+        ensurePlotPromptsArray_ACU(previewSettings);
+        ensureLoopPromptsArray_ACU(previewSettings);
+        ensurePlotTasksCompat_ACU(previewSettings, { syncLegacy: true });
+        previewSettings.finalSystemDirective = getPlotFinalDirectiveFromSource_ACU(previewSettings);
+        setPlotPromptContentByIdForSettings_ACU(previewSettings, 'finalSystemDirective', previewSettings.finalSystemDirective || '');
+        return previewSettings;
+    }
+    function applyGlobalPlotPresetSelectionForEditor_ACU(presetName, { source = 'ui', save = true } = {}) {
+        if (!settings_ACU?.plotSettings)
+            return false;
+        const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
+        const previewSettings = buildPlotSettingsPreviewFromPreset_ACU(normalizedPresetName);
+        if (!previewSettings)
+            return false;
+        _set_currentPlotTaskEditorId_ACU('');
+        setCurrentEditablePlotPresetState_ACU(normalizedPresetName, { scope: 'global', source });
+        persistPlotPresetSelectionState_ACU(normalizedPresetName, {
+            source,
+            updateGlobal: true,
+            save,
+            persistChatScope: false,
+        });
+        return {
+            presetName: normalizedPresetName,
+            isDefault: isDefaultPlotPresetSelection_ACU(normalizedPresetName),
+            previewSettings,
+        };
+    }
+    // ═══ 全局修订 ═══ (resolveActivePlotPresetName_ACU 已在上方定义为内部函数)
+    // ═══ 优化相关 ═══
+    function getLastOptimizedMessageIndex_ACU() {
+        const chat = getChatArray_ACU();
+        const cachedBase = getLastOptimizationBase_ACU();
+        if (cachedBase?.messageId != null) {
+            const runtimeIndex = chat.findIndex((msg) => msg && !msg.is_user && msg.message_id === cachedBase.messageId);
+            if (runtimeIndex >= 0)
+                return runtimeIndex;
+        }
+        if (Number.isInteger(cachedBase?.messageIndex) && cachedBase.messageIndex >= 0 && chat[cachedBase.messageIndex] && !chat[cachedBase.messageIndex].is_user) {
+            return cachedBase.messageIndex;
+        }
+        let latestIndex = -1;
+        let latestTimestamp = -1;
+        for (let i = 0; i < chat.length; i++) {
+            const msg = chat[i];
+            if (!msg || msg.is_user)
+                continue;
+            const extra = msg.extra || {};
+            const ts = Number(extra._acu_last_optimized_at || 0);
+            if (extra._acu_original_content && ts >= latestTimestamp) {
+                latestTimestamp = ts;
+                latestIndex = i;
+            }
+        }
+        if (latestIndex >= 0) {
+            const latestMessage = chat[latestIndex];
+            const latestExtra = latestMessage?.extra || {};
+            setLastOptimizationBase_ACU({
+                messageIndex: latestIndex,
+                messageId: latestMessage?.message_id ?? null,
+                baseContent: latestExtra._acu_original_content || latestMessage?.mes || ''
+            });
+        }
+        return latestIndex;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // service/settings/settings-service.ts — 设置加载/保存编排
+    // 从 04_shared_helpers.js 迁入
+    //
+    // 这两个函数混合了数据读写 + UI 同步 + 运行时状态操作，
+    // 属于 service 层（业务编排），不是纯 data 层。
+    // ═══════════════════════════════════════════════════════════════
+    let settingsStorageReadyForSave_ACU = false;
+    let settingsReloadAfterIdbScheduled_ACU = false;
+    function scheduleSettingsReloadAfterIdbReady_ACU(reason) {
+        if (settingsReloadAfterIdbScheduled_ACU)
+            return;
+        settingsReloadAfterIdbScheduled_ACU = true;
+        _set_pendingSettingsReloadFromIdb_ACU(true);
+        logDebug_ACU(`[设置加载] IndexedDB 配置缓存尚未就绪，暂停本轮加载并等待重载：${reason}`);
+        void ensureConfigIdbCacheLoaded_ACU().then(() => {
+            settingsReloadAfterIdbScheduled_ACU = false;
+            if (pendingSettingsReloadFromIdb_ACU) {
+                _set_pendingSettingsReloadFromIdb_ACU(false);
+                loadSettings_ACU();
+            }
+        });
+    }
+    function applyGlobalPlotEnabledSetting_ACU() {
+        if (!settings_ACU.plotSettings || typeof settings_ACU.plotSettings !== 'object' || Array.isArray(settings_ACU.plotSettings)) {
+            settings_ACU.plotSettings = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
+        }
+        if (typeof globalMeta_ACU.plotEnabledGlobal !== 'boolean') {
+            globalMeta_ACU.plotEnabledGlobal = settings_ACU.plotSettings.enabled === false ? false : true;
+            saveGlobalMeta_ACU();
+        }
+        settings_ACU.plotSettings.enabled = globalMeta_ACU.plotEnabledGlobal === true;
+        return settings_ACU.plotSettings.enabled;
+    }
+    function saveSettings_ACU() {
+        if (!settingsStorageReadyForSave_ACU) {
+            if (isIndexedDbAvailable_ACU() && !configIdbCacheLoaded_ACU) {
+                scheduleSettingsReloadAfterIdbReady_ACU('save_before_config_cache_ready');
+            }
+            else {
+                void initTavernSettingsBridge_ACU();
+            }
+            logWarn_ACU('[设置保存] 设置尚未完成可靠加载，已拒绝本次保存以避免默认配置覆盖真实配置。');
+            return {
+                saved: false,
+                storageType: 'memory',
+                code: 'settings_loading',
+                warning: '设置仍在加载中，本次保存已被阻止以避免覆盖原配置。请稍后重试。',
+            };
+        }
+        // 业务编排：同步隔离码到 globalMeta + 持久化
+        const code = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || '');
+        if (globalMeta_ACU && typeof globalMeta_ACU === 'object') {
+            globalMeta_ACU.activeIsolationCode = code;
+            if (code)
+                addDataIsolationHistory_ACU(code, { save: false });
+            normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
+            saveGlobalMeta_ACU();
+        }
+        // 数据层：纯存储持久化
+        persistSettingsToStorage_ACU(settings_ACU, code);
+        try {
+            const store = (getConfigStorage_ACU)();
+            if (store && !store._isTavern) {
+                if ((isIndexedDbAvailable_ACU)()) {
+                    void (initTavernSettingsBridge_ACU)();
+                    return { saved: true, storageType: 'indexeddb', code: 'tavern_unavailable', warning: '当前未连接酒馆设置：已保存到 IndexedDB（仅本浏览器可用）。' };
+                }
+                else {
+                    void (initTavernSettingsBridge_ACU)();
+                    return { saved: true, storageType: 'memory', code: 'tavern_unavailable', warning: '⚠️ 当前未连接酒馆设置且 IndexedDB 不可用，本次修改刷新后会丢失。' };
+                }
+            }
+            return { saved: true, storageType: 'tavern' };
+        }
+        catch (error) {
+            logError_ACU('Failed to save settings:', error);
+            return { saved: false, storageType: 'memory', code: 'storage_error', error: '保存设置时发生浏览器存储错误。' };
+        }
+    }
+    function loadSettings_ACU() {
+        // 确保酒馆设置桥接已就绪（best-effort，不阻塞）
+        void initTavernSettingsBridge_ACU();
+        if (!configIdbCacheLoaded_ACU && isIndexedDbAvailable_ACU()) {
+            scheduleSettingsReloadAfterIdbReady_ACU('load_before_config_cache_ready');
+            return;
+        }
+        _set_pendingSettingsReloadFromIdb_ACU(false);
+        // 可选迁移：把旧 localStorage 的设置/模板搬迁到酒馆设置（迁移开关默认为 false）
+        migrateKeyToTavernStorageIfNeeded_ACU(STORAGE_KEY_ALL_SETTINGS_ACU);
+        migrateKeyToTavernStorageIfNeeded_ACU(STORAGE_KEY_CUSTOM_TEMPLATE_ACU);
+        // 1) 读取全局元信息（跨标识共享：标识列表/当前标识）
+        loadGlobalMeta_ACU();
+        const store = getConfigStorage_ACU();
+        const legacySettingsJson = store?.getItem?.(STORAGE_KEY_ALL_SETTINGS_ACU);
+        const legacySettingsObj = legacySettingsJson ? safeJsonParse_ACU(legacySettingsJson, null) : null;
+        const legacyCode = normalizeIsolationCode_ACU(legacySettingsObj?.dataIsolationCode || '');
+        // 2) 一次性迁移：旧版"单份设置/单份模板" -> 当前标识对应 profile
+        if (!globalMeta_ACU.migratedLegacySingleStore && (legacySettingsObj || store?.getItem?.(STORAGE_KEY_CUSTOM_TEMPLATE_ACU))) {
+            const targetCode = legacyCode; // 旧版 code 就是当时的隔离标识
+            const hasProfileSettings = !!readProfileSettingsFromStorage_ACU(targetCode);
+            const hasProfileTemplate = !!readProfileTemplateFromStorage_ACU(targetCode);
+            try {
+                if (!hasProfileSettings && legacySettingsObj) {
+                    const toSave = sanitizeSettingsForProfileSave_ACU(legacySettingsObj);
+                    toSave.dataIsolationCode = targetCode;
+                    writeProfileSettingsToStorage_ACU(targetCode, toSave);
+                }
+                if (!hasProfileTemplate) {
+                    const legacyTemplate = store?.getItem?.(STORAGE_KEY_CUSTOM_TEMPLATE_ACU);
+                    if (legacyTemplate && String(legacyTemplate).trim()) {
+                        writeProfileTemplateToStorage_ACU(targetCode, legacyTemplate);
+                    }
+                }
+                // 同步迁移"标识列表"到 globalMeta（跨标识共享）
+                if (Array.isArray(legacySettingsObj?.dataIsolationHistory)) {
+                    globalMeta_ACU.isolationCodeList = legacySettingsObj.dataIsolationHistory;
+                }
+                if (targetCode) {
+                    globalMeta_ACU.activeIsolationCode = targetCode;
+                    // 确保 active 在列表里
+                    globalMeta_ACU.isolationCodeList = [targetCode, ...(globalMeta_ACU.isolationCodeList || [])];
+                }
+                normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
+                globalMeta_ACU.migratedLegacySingleStore = true;
+                saveGlobalMeta_ACU();
+                // 迁移完成后移除 legacy 键，避免后续反复读取造成混乱
+                try {
+                    store?.removeItem?.(STORAGE_KEY_ALL_SETTINGS_ACU);
+                }
+                catch (e) { }
+                try {
+                    store?.removeItem?.(STORAGE_KEY_CUSTOM_TEMPLATE_ACU);
+                }
+                catch (e) { }
+                logDebug_ACU(`[Profile] Migrated legacy single-store -> profile: ${targetCode || '(default)'}`);
+            }
+            catch (e) {
+                logWarn_ACU('[Profile] Legacy migration failed (will keep legacy keys):', e);
+            }
+        }
+        // 3) 决定本次启动要加载的标识 code（优先 globalMeta.active，其次 legacyCode）
+        const activeCode = normalizeIsolationCode_ACU(globalMeta_ACU.activeIsolationCode || legacyCode || '');
+        globalMeta_ACU.activeIsolationCode = activeCode;
+        if (activeCode)
+            addDataIsolationHistory_ACU(activeCode, { save: false });
+        normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
+        saveGlobalMeta_ACU();
+        // 4) 加载模板（按标识 profile）
+        loadTemplateFromStorage_ACU(activeCode);
+        // 5) 加载设置（按标识 profile）
+        const defaultSettings = buildDefaultSettings_ACU();
+        try {
+            const savedSettings = readProfileSettingsFromStorage_ACU(activeCode);
+            if (savedSettings) {
+                // [迁移逻辑] 检查旧的顶层 worldbookConfig
+                if (savedSettings.worldbookConfig) {
+                    logDebug_ACU('Migrating legacy worldbookConfig to character-specific settings.');
+                    // 如果存在，并且没有 characterSettings，则创建一个
+                    if (!savedSettings.characterSettings) {
+                        savedSettings.characterSettings = {};
+                    }
+                    // 将旧配置迁移到 'default' 或一个通用的键下，以便初次加载时使用
+                    // 这里我们假设它应该成为所有未配置角色的基础，但为了简单起见，我们只处理当前角色
+                    const charId = currentChatFileIdentifier_ACU || 'default';
+                    if (!savedSettings.characterSettings[charId]) {
+                        savedSettings.characterSettings[charId] = { worldbookConfig: savedSettings.worldbookConfig };
+                    }
+                    // 删除顶层配置
+                    delete savedSettings.worldbookConfig;
+                }
+                // Deep merge saved settings into defaults to ensure new properties are added
+                _set_settings_ACU(deepMerge_ACU(defaultSettings, savedSettings));
+                // [剧情推进] 迁移/兜底：确保 plotWorldbookConfig 存在且结构完整
+                if (!settings_ACU.plotSettings)
+                    settings_ACU.plotSettings = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
+                if (!settings_ACU.plotSettings.plotWorldbookConfig) {
+                    // 兼容旧字段迁移：worldbookSource/selectedWorldbooks -> plotWorldbookConfig
+                    const legacySource = settings_ACU.plotSettings.worldbookSource || 'character';
+                    const legacyBooks = Array.isArray(settings_ACU.plotSettings.selectedWorldbooks) ? settings_ACU.plotSettings.selectedWorldbooks : [];
+                    settings_ACU.plotSettings.plotWorldbookConfig = buildDefaultPlotWorldbookConfig_ACU();
+                    settings_ACU.plotSettings.plotWorldbookConfig.source = (legacySource === 'manual') ? 'manual' : 'character';
+                    settings_ACU.plotSettings.plotWorldbookConfig.manualSelection = legacyBooks;
+                }
+                applyGlobalPlotEnabledSetting_ACU();
+                if (!settings_ACU.plotPresetBindings || typeof settings_ACU.plotPresetBindings !== 'object' || Array.isArray(settings_ACU.plotPresetBindings)) {
+                    settings_ACU.plotPresetBindings = {};
+                }
+                if (!settings_ACU.plotTaskApiPresetOverridesById || typeof settings_ACU.plotTaskApiPresetOverridesById !== 'object' || Array.isArray(settings_ACU.plotTaskApiPresetOverridesById)) {
+                    settings_ACU.plotTaskApiPresetOverridesById = {};
+                }
+                settings_ACU.currentTemplatePresetName = normalizeTemplatePresetSelectionValue_ACU(settings_ACU.currentTemplatePresetName || '');
+                if (typeof settings_ACU.plotSettings.lastUsedPresetName !== 'string') {
+                    settings_ACU.plotSettings.lastUsedPresetName = '';
+                }
+                // [Profile] 强制以 globalMeta.activeIsolationCode 作为当前标识
+                settings_ACU.dataIsolationCode = activeCode;
+                settings_ACU.dataIsolationEnabled = (activeCode !== '');
+                // 0TK / 纪要向量索引全局偏好：两者独立读取、独立写入，不再互斥投影
+                if (typeof globalMeta_ACU.zeroTkOccupyModeGlobal === 'boolean') {
+                    settings_ACU.zeroTkOccupyModeDefault = (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
+                }
+                else {
+                    globalMeta_ACU.zeroTkOccupyModeGlobal = (settings_ACU.zeroTkOccupyModeDefault === true);
+                    saveGlobalMeta_ACU();
+                }
+                if (typeof globalMeta_ACU.summaryVectorIndexModeGlobal === 'boolean') {
+                    settings_ACU.summaryVectorIndexModeDefault = (globalMeta_ACU.summaryVectorIndexModeGlobal === true);
+                }
+                else {
+                    globalMeta_ACU.summaryVectorIndexModeGlobal = (settings_ACU.summaryVectorIndexModeDefault === true);
+                    saveGlobalMeta_ACU();
+                }
+                // 确保当前角色有配置
+                getCurrentCharSettings_ACU();
+                if (!settings_ACU.characterSettings || typeof settings_ACU.characterSettings !== 'object') {
+                    settings_ACU.characterSettings = {};
+                }
+                const defaultWorldbookConfig = JSON.parse(JSON.stringify(defaultWorldbookConfig_ACU));
+                Object.keys(settings_ACU.characterSettings).forEach((charId) => {
+                    const charSettings = settings_ACU.characterSettings[charId];
+                    if (!charSettings || typeof charSettings !== 'object')
+                        return;
+                    const worldbookConfig = charSettings.worldbookConfig;
+                    if (!worldbookConfig || typeof worldbookConfig !== 'object' || Array.isArray(worldbookConfig)) {
+                        charSettings.worldbookConfig = JSON.parse(JSON.stringify(defaultWorldbookConfig));
+                        return;
+                    }
+                    charSettings.worldbookConfig = deepMerge_ACU(JSON.parse(JSON.stringify(defaultWorldbookConfig)), worldbookConfig);
+                });
+            }
+            else {
+                // No saved settings, use the defaults
+                _set_settings_ACU(defaultSettings);
+                // [剧情推进] 默认兜底
+                if (!settings_ACU.plotSettings.plotWorldbookConfig) {
+                    settings_ACU.plotSettings.plotWorldbookConfig = buildDefaultPlotWorldbookConfig_ACU();
+                }
+                applyGlobalPlotEnabledSetting_ACU();
+                // [Profile] 强制以 globalMeta.activeIsolationCode 作为当前标识
+                settings_ACU.dataIsolationCode = activeCode;
+                settings_ACU.dataIsolationEnabled = (activeCode !== '');
+                if (typeof globalMeta_ACU.zeroTkOccupyModeGlobal === 'boolean') {
+                    settings_ACU.zeroTkOccupyModeDefault = (globalMeta_ACU.zeroTkOccupyModeGlobal === true);
+                }
+                else {
+                    globalMeta_ACU.zeroTkOccupyModeGlobal = (settings_ACU.zeroTkOccupyModeDefault === true);
+                    saveGlobalMeta_ACU();
+                }
+                if (typeof globalMeta_ACU.summaryVectorIndexModeGlobal === 'boolean') {
+                    settings_ACU.summaryVectorIndexModeDefault = (globalMeta_ACU.summaryVectorIndexModeGlobal === true);
+                }
+                else {
+                    globalMeta_ACU.summaryVectorIndexModeGlobal = (settings_ACU.summaryVectorIndexModeDefault === true);
+                    saveGlobalMeta_ACU();
+                }
+            }
+        }
+        catch (error) {
+            logError_ACU('Failed to load or parse settings, using defaults:', error);
+            _set_settings_ACU(buildDefaultSettings_ACU());
+            settings_ACU.dataIsolationCode = activeCode;
+            settings_ACU.dataIsolationEnabled = (activeCode !== '');
+        }
+        // [兼容] 旧标签排除字段自动迁移为新规则组结构
+        ensureTagRulesCompat_ACU(settings_ACU);
+        settingsStorageReadyForSave_ACU = true;
+        // [交火模式配置] 权威配置存放在 globalMeta.vectorMemoryConfigGlobal（跨 profile 全局）。
+        // settings_ACU.vectorMemoryConfig 只保留为运行时投影，兼容旧调用方。
+        if (!globalMeta_ACU.vectorMemoryConfigGlobal || typeof globalMeta_ACU.vectorMemoryConfigGlobal !== 'object' || Array.isArray(globalMeta_ACU.vectorMemoryConfigGlobal)) {
+            let bestSource = null;
+            if (settings_ACU.vectorMemoryConfig && typeof settings_ACU.vectorMemoryConfig === 'object' && !Array.isArray(settings_ACU.vectorMemoryConfig)) {
+                bestSource = settings_ACU.vectorMemoryConfig;
+            }
+            const charSettings = settings_ACU.characterSettings;
+            if (!bestSource && charSettings && typeof charSettings === 'object') {
+                for (const charId of Object.keys(charSettings)) {
+                    const vm = charSettings[charId]?.worldbookConfig?.vectorMemory;
+                    if (vm && typeof vm === 'object' && !Array.isArray(vm)) {
+                        // 优先选择 enabled=true 的配置
+                        if (vm.enabled === true) {
+                            bestSource = vm;
+                            break;
+                        }
+                        // 其次选择第一个非空配置
+                        if (!bestSource) {
+                            bestSource = vm;
+                        }
+                    }
+                }
+            }
+            globalMeta_ACU.vectorMemoryConfigGlobal = bestSource
+                ? JSON.parse(JSON.stringify(bestSource))
+                : JSON.parse(JSON.stringify(defaultVectorMemoryConfig_ACU));
+            saveGlobalMeta_ACU();
+            logDebug_ACU(bestSource
+                ? '[交火模式配置] 已从旧 profile/角色配置迁移到全局 globalMeta.vectorMemoryConfigGlobal'
+                : '[交火模式配置] 已初始化全局 globalMeta.vectorMemoryConfigGlobal');
+        }
+        settings_ACU.vectorMemoryConfig = globalMeta_ACU.vectorMemoryConfigGlobal;
+        // [交火模式] 一次性补齐默认归档/召回/关键词提示词参数。
+        // 只能补缺失字段，绝不能在版本刷新时覆盖用户已经填写的模型、API、召回参数或提示词。
+        let shouldPersistSettingsAfterLoad_ACU = false;
+        if (globalMeta_ACU.vectorMemoryConfigGlobal && typeof globalMeta_ACU.vectorMemoryConfigGlobal === 'object' && !Array.isArray(globalMeta_ACU.vectorMemoryConfigGlobal)) {
+            const vectorConfig = globalMeta_ACU.vectorMemoryConfigGlobal;
+            if (vectorConfig.defaultsRefreshVersion !== VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU) {
+                const cloneDefaultValue_ACU = (value) => JSON.parse(JSON.stringify(value));
+                const fillMissing_ACU = (key, value) => {
+                    if (typeof vectorConfig[key] === 'undefined' || vectorConfig[key] === null || vectorConfig[key] === '') {
+                        vectorConfig[key] = cloneDefaultValue_ACU(value);
+                        shouldPersistSettingsAfterLoad_ACU = true;
+                    }
+                };
+                const fillMissingPromptGroup_ACU = (key, value) => {
+                    if (!Array.isArray(vectorConfig[key]) || vectorConfig[key].length === 0) {
+                        vectorConfig[key] = cloneDefaultValue_ACU(value || []);
+                        shouldPersistSettingsAfterLoad_ACU = true;
+                    }
+                };
+                const fillMissingOrLegacyDefault_ACU = (key, value, legacyValues) => {
+                    const currentValue = vectorConfig[key];
+                    const isMissing = typeof currentValue === 'undefined' || currentValue === null || currentValue === '';
+                    const isLegacyDefault = legacyValues.some((legacyValue) => currentValue === legacyValue);
+                    if (isMissing || isLegacyDefault) {
+                        vectorConfig[key] = cloneDefaultValue_ACU(value);
+                        shouldPersistSettingsAfterLoad_ACU = true;
+                    }
+                };
+                fillMissing_ACU('archiveTriggerCount', defaultVectorMemoryConfig_ACU.archiveTriggerCount);
+                fillMissing_ACU('archiveBatchSize', defaultVectorMemoryConfig_ACU.archiveBatchSize);
+                fillMissing_ACU('archiveMaxConcurrency', defaultVectorMemoryConfig_ACU.archiveMaxConcurrency);
+                fillMissing_ACU('summaryIndexArchiveMaxConcurrency', defaultVectorMemoryConfig_ACU.summaryIndexArchiveMaxConcurrency || 30);
+                // [spv3.5.21] 一次性覆盖：topK / recallCandidateLimit / summaryIndexKeywordMinRows 强制更新到新默认值
+                const forceOverride_ACU = (key, newValue, legacyValues) => {
+                    const current = vectorConfig[key];
+                    const isLegacy = legacyValues.some((v) => current === v);
+                    if (isLegacy) {
+                        vectorConfig[key] = cloneDefaultValue_ACU(newValue);
+                        shouldPersistSettingsAfterLoad_ACU = true;
+                    }
+                };
+                fillMissingOrLegacyDefault_ACU('topK', defaultVectorMemoryConfig_ACU.topK, [10, 100]);
+                forceOverride_ACU('topK', defaultVectorMemoryConfig_ACU.topK, [100]);
+                fillMissingOrLegacyDefault_ACU('minScore', defaultVectorMemoryConfig_ACU.minScore, [0.4, 0.6]);
+                fillMissingOrLegacyDefault_ACU('recallCandidateLimit', defaultVectorMemoryConfig_ACU.recallCandidateLimit, [100]);
+                forceOverride_ACU('recallCandidateLimit', defaultVectorMemoryConfig_ACU.recallCandidateLimit, [100, 500]);
+                fillMissingOrLegacyDefault_ACU('summaryIndexKeywordMinRows', defaultVectorMemoryConfig_ACU.summaryIndexKeywordMinRows, [100]);
+                forceOverride_ACU('summaryIndexKeywordMinRows', defaultVectorMemoryConfig_ACU.summaryIndexKeywordMinRows, [100]);
+                fillMissing_ACU('recentFixedInjectCount', defaultVectorMemoryConfig_ACU.recentFixedInjectCount || 50);
+                fillMissingPromptGroup_ACU('summaryPromptGroup', defaultVectorMemoryConfig_ACU.summaryPromptGroup || []);
+                // [spv3.6.3] 关键词提示词：版本变更时无条件覆盖为最新默认值
+                // 不做签名匹配——签名匹配在用户微调过提示词后必然失效，导致覆盖永远不触发
+                vectorConfig.keywordPromptGroup = cloneDefaultValue_ACU(defaultVectorMemoryConfig_ACU.keywordPromptGroup || []);
+                shouldPersistSettingsAfterLoad_ACU = true;
+                logDebug_ACU('[交火模式配置] 已一次性覆盖关键词生成提示词为最新默认版本');
+                fillMissing_ACU('keywordGenerationMaxAttempts', defaultVectorMemoryConfig_ACU.keywordGenerationMaxAttempts || 3);
+                vectorConfig.defaultsRefreshVersion = VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU;
+                shouldPersistSettingsAfterLoad_ACU = true;
+                logDebug_ACU(`[交火模式配置] 已补齐缺失默认参数并记录版本: ${VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU}`);
+            }
+        }
+        settings_ACU.vectorMemoryConfig = globalMeta_ACU.vectorMemoryConfigGlobal;
+        settingsStorageReadyForSave_ACU = true;
+        refreshDefaultTableTemplateOnce_ACU(activeCode);
+        if (shouldPersistSettingsAfterLoad_ACU) {
+            saveGlobalMeta_ACU();
+            persistSettingsToStorage_ACU(settings_ACU, activeCode);
+            logDebug_ACU(`[交火模式配置] 已持久化全局默认参数刷新版本: ${VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU}`);
+        }
+        if (!Number.isFinite(settings_ACU.maxConcurrentGroups) || settings_ACU.maxConcurrentGroups < 1) {
+            settings_ACU.maxConcurrentGroups = 1;
+        }
+        logDebug_ACU('Settings loaded:', settings_ACU);
+    }
+    // loadSettingsAndRefreshUI_ACU 已搬到 presentation/components/settings-ui-helpers.ts
+    function loadTemplateFromStorage_ACU(codeOverride = null) {
+        const code = normalizeIsolationCode_ACU((codeOverride !== null && typeof codeOverride !== 'undefined')
+            ? codeOverride
+            : (settings_ACU?.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || ''));
+        // [更新参数哨兵迁移] 旧版本：0 表示"沿用UI"；新版本：-1 表示"沿用UI"，0 表示"禁用/不参与"（仅 updateFrequency 参与禁用语义）
+        function migrateTemplateUpdateConfigSentinel_ACU(templateObj) {
+            if (!templateObj || typeof templateObj !== 'object')
+                return { changed: false, obj: templateObj };
+            const mate = (templateObj.mate && typeof templateObj.mate === 'object') ? templateObj.mate : null;
+            const alreadyMigrated = !!(mate && mate.updateConfigUiSentinel === -1);
+            if (alreadyMigrated)
+                return { changed: false, obj: templateObj };
+            let changed = false;
+            const sheetKeys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
+            for (const k of sheetKeys) {
+                const sheet = templateObj[k];
+                if (!sheet || typeof sheet !== 'object')
+                    continue;
+                const uc = sheet.updateConfig;
+                if (!uc || typeof uc !== 'object')
+                    continue;
+                // sheet 级标记：用于聊天记录里的表格对象（没有 mate）也能识别新语义
+                if (uc.uiSentinel !== -1) {
+                    uc.uiSentinel = -1;
+                    changed = true;
+                }
+                for (const field of ['contextDepth', 'updateFrequency', 'batchSize', 'skipFloors']) {
+                    if (Object.prototype.hasOwnProperty.call(uc, field) && uc[field] === 0) {
+                        uc[field] = -1;
+                        changed = true;
+                    }
+                }
+            }
+            // 写入标记，避免后续把用户显式设置的 0(禁用) 再次误迁移
+            if (!templateObj.mate || typeof templateObj.mate !== 'object') {
+                templateObj.mate = { type: 'chatSheets', version: 1 };
+                changed = true;
+            }
+            else {
+                if (!templateObj.mate.type)
+                    templateObj.mate.type = 'chatSheets';
+                if (!templateObj.mate.version)
+                    templateObj.mate.version = 1;
+            }
+            if (templateObj.mate.updateConfigUiSentinel !== -1) {
+                templateObj.mate.updateConfigUiSentinel = -1;
+                changed = true;
+            }
+            return { changed, obj: templateObj };
+        }
+        try {
+            const savedTemplate = readProfileTemplateFromStorage_ACU(code);
+            if (savedTemplate) {
+                // [修复] 使用 safeJsonParse_ACU 静默处理解析失败，避免误报错误提示
+                const parsedTemplate = safeJsonParse_ACU(savedTemplate, null);
+                if (parsedTemplate && parsedTemplate.mate && Object.keys(parsedTemplate).some(k => k.startsWith('sheet_'))) {
+                    // [迁移] 0(沿用UI) -> -1(沿用UI)，并写入标记
+                    migrateTemplateUpdateConfigSentinel_ACU(parsedTemplate);
+                    // [Profile] 模板载入时先补齐/修复顺序编号，并回写（编号可随导出/导入迁移）
+                    const sheetKeys = Object.keys(parsedTemplate).filter(k => k.startsWith('sheet_'));
+                    ensureSheetOrderNumbers_ACU(parsedTemplate, { baseOrderKeys: sheetKeys, forceRebuild: false });
+                    // [瘦身] 无论是否 changed，都清洗模板（去掉 domain/type/enable/triggerSend*/config/customStyles 等冗余字段）
+                    const sanitizedTemplate = sanitizeChatSheetsObject_ACU(parsedTemplate, { ensureMate: true });
+                    _set_TABLE_TEMPLATE_ACU(JSON.stringify(sanitizedTemplate));
+                    writeProfileTemplateToStorage_ACU(code, TABLE_TEMPLATE_ACU);
+                    logDebug_ACU(`[Profile] Template loaded for code: ${code || '(default)'}`);
+                    return;
+                }
+                else if (parsedTemplate) {
+                    // 解析成功但格式不正确，静默回退到默认模板
+                    logDebug_ACU(`[Profile] Template format invalid for code: ${code || '(default)'}, using default.`);
+                }
+                // parsedTemplate 为 null 时表示解析失败，静默跳过（可能是旧的/其他标识的损坏数据）
+            }
+        }
+        catch (error) {
+            // 静默处理异常，避免误报错误提示困扰用户
+            logDebug_ACU('[Profile] Template load skipped due to error, using default.', error?.message || error);
+        }
+        // No valid template found -> default
+        _set_TABLE_TEMPLATE_ACU(DEFAULT_TABLE_TEMPLATE_ACU);
+        // [新机制] 默认模板也补齐一次编号（仅写入当前 profile，不改源码常量）
+        try {
+            const obj = JSON.parse(TABLE_TEMPLATE_ACU);
+            // 默认模板也写入哨兵标记（便于后续识别新语义）
+            try {
+                migrateTemplateUpdateConfigSentinel_ACU(obj);
+            }
+            catch (e) { }
+            const sheetKeys = Object.keys(obj).filter(k => k.startsWith('sheet_'));
+            if (ensureSheetOrderNumbers_ACU(obj, { baseOrderKeys: sheetKeys, forceRebuild: false })) {
+                const sanitizedTemplate = sanitizeChatSheetsObject_ACU(obj, { ensureMate: true });
+                _set_TABLE_TEMPLATE_ACU(JSON.stringify(sanitizedTemplate));
+            }
+        }
+        catch (e) {
+            // ignore
+        }
+        try {
+            writeProfileTemplateToStorage_ACU(code, TABLE_TEMPLATE_ACU);
+        }
+        catch (e) { }
+        logDebug_ACU(`[Profile] No valid template found, default persisted for code: ${code || '(default)'}`);
+    }
+    function refreshDefaultTableTemplateOnce_ACU(activeCode) {
+        try {
+            if (!settings_ACU || typeof settings_ACU !== 'object')
+                return;
+            if (settings_ACU.tableTemplateDefaultsRefreshVersion === TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU)
+                return;
+            const currentPresetName = normalizeTemplatePresetSelectionValue_ACU(settings_ACU.currentTemplatePresetName || '');
+            if (currentPresetName) {
+                settings_ACU.tableTemplateDefaultsRefreshVersion = TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU;
+                saveSettings_ACU();
+                logDebug_ACU(`[模板默认值] 当前全局模板使用命名预设，跳过默认模板刷新并记录版本: ${TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU}`);
+                return;
+            }
+            const defaultSnapshot = getDefaultTemplateSnapshot_ACU();
+            if (!defaultSnapshot?.templateStr) {
+                logWarn_ACU('[模板默认值] 默认表格模板快照无效，跳过一次性刷新。');
+                return;
+            }
+            const code = normalizeIsolationCode_ACU(activeCode || settings_ACU.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || '');
+            _set_TABLE_TEMPLATE_ACU(defaultSnapshot.templateStr);
+            writeProfileTemplateToStorage_ACU(code, TABLE_TEMPLATE_ACU);
+            settings_ACU.tableTemplateDefaultsRefreshVersion = TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU;
+            saveSettings_ACU();
+            logDebug_ACU(`[模板默认值] 已刷新当前 profile 默认表格模板: ${TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU}`);
+        }
+        catch (error) {
+            logWarn_ACU('[模板默认值] 默认表格模板一次性刷新失败:', error);
+        }
+    }
+    function buildDefaultSettings_ACU() {
+        return {
+            apiConfig: { url: '', apiKey: '', model: '', useMainApi: true, max_tokens: 60000, temperature: 1.0 },
+            apiMode: 'custom',
+            tavernProfile: '',
+            streamingEnabled: false, // [新增] 流式传输开关（默认关闭）
+            apiPresets: [],
+            tableApiPreset: '',
+            plotApiPreset: '',
+            // [剧情推进] 按剧情任务ID保存的任务级 API 预设覆盖（key=taskId, value=presetName）
+            // 不保存入聊天记录或剧情推进预设，只写进插件全局设置。
+            plotTaskApiPresetOverridesById: {},
+            // [新增] 按表格名称保存的表级 API 预设覆盖（key=标准化表名, value=presetName）
+            // 不保存入模板，只写进数据库插件设置；同名表跨模板复用
+            tableApiPresetOverridesByName: {},
+            charCardPrompt: DEFAULT_CHAR_CARD_PROMPT_ACU,
+            autoUpdateThreshold: DEFAULT_AUTO_UPDATE_THRESHOLD_ACU,
+            autoUpdateFrequency: DEFAULT_AUTO_UPDATE_FREQUENCY_ACU,
+            autoUpdateTokenThreshold: DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU,
+            updateBatchSize: 3,
+            maxConcurrentGroups: 1,
+            autoUpdateEnabled: true,
+            standardizedTableFillEnabled: true, // [新增] 规范填表功能
+            toastMuteEnabled: false,
+            // [剧情推进] 设置
+            plotSettings: JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU)),
+            plotPresetBindings: {}, // [剧情推进] 按聊天记录绑定剧情推进预设
+            currentTemplatePresetName: '', // [模板预设] 当前模板预设名，空表示默认预设
+            tableTemplateDefaultsRefreshVersion: '', // [模板预设] 默认表格模板一次性刷新版本
+            // [填表功能] 正文标签提取，从上下文中提取指定标签的内容发送给AI，User回复不受影响
+            tableContextExtractTags: '',
+            tableContextExtractRules: [],
+            // [填表功能] 正文标签排除：将指定标签内容从上下文中移除
+            tableContextExcludeTags: '',
+            tableContextExcludeRules: [],
+            // [填表功能] 仅识别最后一对 <tableEdit> 标签
+            tableEditLastPairOnly: true,
+            removeTags: '',
+            importSplitSize: 10000,
+            importPromptExcludeImportedWorldbookEntries: true, // [新增] 仅外部导入时，填表提示词中的世界书占位符屏蔽所有带"外部导入-"标签的条目
+            skipUpdateFloors: 0, // 跳过更新楼层（全局）
+            retainRecentLayers: 100, // [新增] 保留最近N层本地数据 (0或空=全部保留)
+            manualSelectedTables: [],
+            // [新增] 表格更新锁定（按聊天+隔离标签存储；仅对 updateRow 生效）
+            tableUpdateLocks: {},
+            // [新增] 总结表/总体大纲"编码索引列"特殊锁定（默认锁定）
+            specialIndexLocks: {},
+            // [新增] 0TK占用模式全局默认值：新对话会继承这个值
+            zeroTkOccupyModeDefault: false,
+            // [新增] 向量混合增强交火方案全局默认值：新对话会继承这个值
+            summaryVectorIndexModeDefault: false,
+            // [Profile] dataIsolationEnabled/code 由当前 profile 决定；history 走 globalMeta
+            dataIsolationCode: '',
+            dataIsolationHistory: [], // legacy 字段保留但不再持久化
+            characterSettings: {}, // Start with an empty object
+            knownCustomEntryNames: [], // [新增] 记录已创建的自定义条目名称，用于清理
+            mergeSummaryPrompt: DEFAULT_MERGE_SUMMARY_PROMPT_ACU, // [新增] 合并总结提示词
+            mergeTargetCount: 1, // [新增] 合并目标条数
+            mergeBatchSize: 5, // [新增] 合并批次大小
+            mergeStartIndex: 1, // [新增] 合并起始条数
+            mergeEndIndex: null, // [新增] 合并终止条数
+            autoMergeEnabled: false, // [新增] 是否开启自动合并总结
+            autoMergeThreshold: 20, // [新增] 自动合并总结楼层数
+            autoMergeReserve: 0, // [新增] 保留固定楼层数
+            deleteStartFloor: null, // [新增] 删除起始楼层 (null表示从头开始)
+            deleteEndFloor: null, // [新增] 删除终止楼层 (null表示到末尾)
+            // [新增] 酒馆提示词模板功能
+            promptTemplateSettings: {
+                enabled: true, // 总开关
+                maxNestingDepth: 10, // 最大嵌套深度
+                debugMode: false // 调试模式
+            },
+            // [新增] 存储模式（默认原生模式，用户可切换到 SQLite）
+            storageMode: 'native',
+            // [新增] 正文优化功能
+            contentOptimizationSettings: {
+                enabled: false, // 是否启用正文优化
+                apiPreset: '', // 优化使用的API预设（为空则使用当前配置）
+                seamlessMode: true, // 无感替换模式：显示遮罩，优化完成后直接显示结果
+                autoApply: true, // 是否自动应用优化结果（关闭时显示对比让用户选择）
+                showDiff: true, // 是否显示优化对比（非无感模式下有效）
+                parallelMode: false, // 填表与正文替换并行执行（默认关闭）
+                minLength: 100, // 最小优化长度阈值
+                maxOptimizations: 10, // 单次最大优化项数
+                loopCount: 1, // 循环优化次数
+                retryCount: 3, // 自动重试次数（API调用失败时自动重试，默认3次）
+                extractTags: '', // 正文标签提取（从正文中提取指定标签内容进行优化）
+                extractRules: [], // 正文标签提取规则（结构化）
+                excludeTags: '', // 标签排除（优化时排除指定标签内容）
+                excludeRules: [], // 标签排除规则（结构化）
+                promptGroup: buildDefaultContentOptimizationPromptGroup_ACU(), // 提示词组（段落编辑器）
+                promptPresets: [], // 提示词组预设列表
+            },
+            // [向量记忆] 全局配置，跟随数据库设置而非角色/对话
+            vectorMemoryConfig: null,
+        };
+    }
+    function applyTemplateScopeForCurrentChat_ACU({ isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+        const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+        const migratedScopeState = migrateLegacyTemplateScopeForCurrentChat_ACU({ isolationKey: normalizedKey });
+        const scopeState = getCurrentChatTemplateScopeState_ACU({ isolationKey: normalizedKey }) || migratedScopeState;
+        const selectedPresetName = normalizeTemplatePresetSelectionValue_ACU(scopeState?.presetName || '');
+        let targetSnapshot = null;
+        if (scopeState?.mode === 'chat_override' && scopeState?.templateStr) {
+            targetSnapshot = sanitizeTemplateSnapshotForChat_ACU(scopeState.templateStr);
+        }
+        else if (scopeState?.mode === 'preset_link') {
+            if (selectedPresetName) {
+                targetSnapshot = sanitizeTemplateSnapshotForChat_ACU(getTemplatePreset_ACU(selectedPresetName)?.templateStr || null);
+            }
+            else {
+                targetSnapshot = getDefaultTemplateSnapshot_ACU();
+            }
+        }
+        if (!targetSnapshot?.templateStr) {
+            targetSnapshot = getGlobalTemplateSnapshotForCurrentProfile_ACU();
+        }
+        if (!targetSnapshot?.templateStr)
+            return null;
+        _set_TABLE_TEMPLATE_ACU(targetSnapshot.templateStr);
+        if (scopeState?.mode === 'chat_override' && scopeState?.templateStr) {
+            logDebug_ACU(`[TemplateScope] Applied chat template override for key [${normalizedKey || '默认'}].`);
+            return {
+                mode: 'chat_override',
+                isolationKey: normalizedKey,
+                presetName: scopeState.presetName || '',
+            };
+        }
+        if (scopeState?.mode === 'preset_link') {
+            logDebug_ACU(`[TemplateScope] Applied linked global preset for key [${normalizedKey || '默认'}]: ${selectedPresetName || '默认预设'}.`);
+            return {
+                mode: 'preset_link',
+                isolationKey: normalizedKey,
+                presetName: selectedPresetName,
+            };
+        }
+        logDebug_ACU(`[TemplateScope] Applied global template for key [${normalizedKey || '默认'}].`);
+        return {
+            mode: 'inherit_global',
+            isolationKey: normalizedKey,
+            presetName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
+        };
+    }
+    // [从 data/repositories/isolation-repo.ts 移入] 切换隔离 Profile（业务编排，不属于 data 层）
+    async function switchIsolationProfile_ACU(newCodeRaw) {
+        const newCode = normalizeIsolationCode_ACU(newCodeRaw);
+        const oldCode = normalizeIsolationCode_ACU(settings_ACU?.dataIsolationCode || '');
+        persistSettingsToStorage_ACU(settings_ACU, oldCode);
+        loadGlobalMeta_ACU();
+        if (oldCode)
+            addDataIsolationHistory_ACU(oldCode, { save: false });
+        if (newCode)
+            addDataIsolationHistory_ACU(newCode, { save: false });
+        globalMeta_ACU.activeIsolationCode = newCode;
+        normalizeDataIsolationHistory_ACU(globalMeta_ACU.isolationCodeList);
+        saveGlobalMeta_ACU();
+        ensureProfileExists_ACU(newCode, { seedFromCurrent: true, settings: settings_ACU });
+        loadSettings_ACU();
+        applyTemplateScopeForCurrentChat_ACU({ isolationKey: newCode });
+    }
+    // [从 data/repositories/template-preset-repo.ts 移入] 修改当前模板预设名 + 可选持久化
+    function persistCurrentTemplatePresetName_ACU(settingsObj, presetName, { save = true } = {}) {
+        if (!settingsObj || typeof settingsObj !== 'object')
+            return '';
+        const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
+        settingsObj.currentTemplatePresetName = normalizedPresetName;
+        if (save) {
+            const code = normalizeIsolationCode_ACU(settingsObj?.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || '');
+            persistSettingsToStorage_ACU(settingsObj, code);
+        }
+        return normalizedPresetName;
+    }
+    // getCurrentCharSettings_ACU 和 getCurrentWorldbookConfig_ACU 已移至 settings-readers.ts
+    function setGlobalPlotEnabled_ACU(modeEnabled) {
+        const enabled = !!modeEnabled;
+        if (!settings_ACU.plotSettings || typeof settings_ACU.plotSettings !== 'object' || Array.isArray(settings_ACU.plotSettings)) {
+            settings_ACU.plotSettings = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
+        }
+        settings_ACU.plotSettings.enabled = enabled;
+        globalMeta_ACU.plotEnabledGlobal = enabled;
+        saveGlobalMeta_ACU();
+        return enabled;
+    }
+    // [从 popup-bindings.ts / api-registry.ts 提取] 切换 0TK 占用模式的完整业务流程
+    function setZeroTkOccupyMode_ACU(modeEnabled) {
+        const enabled = !!modeEnabled;
+        settings_ACU.zeroTkOccupyModeDefault = enabled;
+        globalMeta_ACU.zeroTkOccupyModeGlobal = enabled;
+        // 0TK 只控制大纲注入条目本身，不再强制关闭交火模式。
+        const cfg = getCurrentWorldbookConfig_ACU();
+        cfg.zeroTkOccupyMode = enabled;
+        cfg.outlineEntryEnabled = !enabled;
+        saveGlobalMeta_ACU();
+        saveSettings_ACU();
+    }
+    function setSummaryVectorIndexMode_ACU(modeEnabled) {
+        const enabled = !!modeEnabled;
+        settings_ACU.summaryVectorIndexModeDefault = enabled;
+        globalMeta_ACU.summaryVectorIndexModeGlobal = enabled;
+        // 向量混合增强交火方案会复用普通向量模型/API/rerank 配置；启停交火时必须同步启停普通向量开关。
+        // 这里只改 enabled，不覆盖模型、API、rerank、namespace 等用户配置。
+        const vectorMemoryConfig = getCurrentVectorMemoryConfig_ACU();
+        vectorMemoryConfig.enabled = enabled;
+        // 交火模式只控制纪要索引条目本身，不再强制关闭 0TK。
+        const cfg = getCurrentWorldbookConfig_ACU();
+        cfg.summaryVectorIndexModeEnabled = enabled;
+        cfg.outlineEntryEnabled = !cfg.zeroTkOccupyMode;
+        saveGlobalMeta_ACU();
+        saveSettings_ACU();
+    }
+    // ============================================================
+    // 合并配置导入
+    // ============================================================
+    /**
+     * 导入合并配置中的 settings 字段
+     * 纯业务逻辑：将 combinedData 中的各字段赋值到 settings 对象
+     * 不涉及 UI（toast、DOM 更新由 presentation 层负责）
+     *
+     * @returns 被修改的字段名列表（供 presentation 层更新对应的 UI 元素）
+     */
+    function applyCombinedSettingsImport_ACU(combinedData) {
+        const modifiedFields = [];
+        // 导入提示词
+        if (Array.isArray(combinedData.prompt)) {
+            settings_ACU.charCardPrompt = combinedData.prompt;
+            modifiedFields.push('charCardPrompt');
+        }
+        // 导入合并提示词
+        if (combinedData.mergeSummaryPrompt) {
+            settings_ACU.mergeSummaryPrompt = combinedData.mergeSummaryPrompt;
+            modifiedFields.push('mergeSummaryPrompt');
+        }
+        // 导入合并设置
+        if (typeof combinedData.mergeSummaryPrompt !== 'undefined' ||
+            typeof combinedData.autoMergeEnabled !== 'undefined') {
+            // 手动合并设置
+            settings_ACU.mergeTargetCount = combinedData.mergeTargetCount || 1;
+            settings_ACU.mergeBatchSize = combinedData.mergeBatchSize || 5;
+            settings_ACU.mergeStartIndex = combinedData.mergeStartIndex || 1;
+            settings_ACU.mergeEndIndex = combinedData.mergeEndIndex || null;
+            modifiedFields.push('mergeTargetCount', 'mergeBatchSize', 'mergeStartIndex', 'mergeEndIndex');
+            // 自动合并设置
+            settings_ACU.autoMergeEnabled = combinedData.autoMergeEnabled || false;
+            settings_ACU.autoMergeThreshold = combinedData.autoMergeThreshold || 20;
+            settings_ACU.autoMergeReserve = combinedData.autoMergeReserve || 0;
+            modifiedFields.push('autoMergeEnabled', 'autoMergeThreshold', 'autoMergeReserve');
+            // 删除楼层范围设置
+            settings_ACU.deleteStartFloor = combinedData.deleteStartFloor || null;
+            settings_ACU.deleteEndFloor = combinedData.deleteEndFloor || null;
+            modifiedFields.push('deleteStartFloor', 'deleteEndFloor');
+        }
+        saveSettings_ACU();
+        return modifiedFields;
+    }
+
+    // merge-logic.ts
+    // ═══ 自动合并纪要：触发检查 ═══
+    function checkAutoMergeTrigger_ACU() {
+        if (!settings_ACU.autoMergeEnabled)
+            return { shouldTrigger: false };
+        const summaryKey = Object.keys(currentJsonTableData_ACU).find(k => currentJsonTableData_ACU[k].name === '纪要表' ||
+            currentJsonTableData_ACU[k].name === '总结表');
+        if (!summaryKey)
+            return { shouldTrigger: false };
+        const summaryCount = (currentJsonTableData_ACU[summaryKey].content || [])
+            .slice(1)
+            .filter((row) => !row || row[row.length - 1] !== 'auto_merged')
+            .length;
+        const threshold = settings_ACU.autoMergeThreshold || 20;
+        const reserve = settings_ACU.autoMergeReserve || 0;
+        const triggerThreshold = threshold + reserve;
+        if (summaryCount < triggerThreshold)
+            return { shouldTrigger: false };
+        const mergeCount = summaryCount - reserve;
+        if (mergeCount <= 0)
+            return { shouldTrigger: false };
+        return { shouldTrigger: true, mergeCount, summaryCount, reserve };
+    }
+    function prepareAutoMergeBatches_ACU(options) {
+        const { startIndex, endIndex, targetCount, batchSize, promptTemplate, isAutoMode } = options;
+        const summaryKey = Object.keys(currentJsonTableData_ACU).find(k => currentJsonTableData_ACU[k].name === '纪要表' ||
+            currentJsonTableData_ACU[k].name === '总结表');
+        if (!summaryKey)
+            throw new Error('未找到纪要表');
+        let allSummaryRows = (currentJsonTableData_ACU[summaryKey].content || [])
+            .slice(1)
+            .filter((row) => !row || row[row.length - 1] !== 'auto_merged');
+        allSummaryRows = allSummaryRows.slice(startIndex, endIndex);
+        const batches = [];
+        for (let i = 0; i < allSummaryRows.length; i += batchSize) {
+            batches.push({
+                batchIndex: batches.length,
+                batchRows: allSummaryRows.slice(i, i + batchSize),
+                globalStartOffset: (startIndex + 1) + i,
+            });
+        }
+        return { summaryKey, batches, targetCount, promptTemplate, isAutoMode, startIndex, endIndex };
+    }
+    // ═══ 自动合并纪要：执行单个批次 ═══
+    async function executeAutoMergeBatch_ACU(prepared, batch, accumulatedSummary) {
+        const { summaryKey, targetCount, promptTemplate, isAutoMode } = prepared;
+        const { batchRows, globalStartOffset, batchIndex } = batch;
+        const summaryTableObj = currentJsonTableData_ACU[summaryKey];
+        const formatRows = (rows, globalStartIndex) => rows.map((r, idx) => `[${globalStartIndex + idx}] ${r.slice(1).join(', ')}`).join('\n');
+        const textA = batchRows.length > 0 ? formatRows(batchRows, globalStartOffset) : "(本批次无新增纪要数据)";
+        let textBase = "";
+        const formatTableStructure = (tableName, currentRows, originalTableObj) => {
+            let str = `[0:${tableName}]\n`;
+            const headers = originalTableObj.content[0] ? originalTableObj.content[0].slice(1).map((h, i) => `[${i}:${h}]`).join(', ') : 'No Headers';
+            str += `  Columns: ${headers}\n`;
+            if (originalTableObj.sourceData) {
+                str += `  - Note: ${originalTableObj.sourceData.note || 'N/A'}\n`;
+            }
+            if (currentRows && currentRows.length > 0) {
+                currentRows.forEach((row, rIdx) => { str += `  [${rIdx}] ${row.join(', ')}\n`; });
+            }
+            else {
+                str += `  (Table Empty - No rows yet)\n`;
+            }
+            return str + "\n";
+        };
+        const getExistingAutoMergedRows = (tableObj, count = 1) => {
+            if (!tableObj || !tableObj.content)
+                return [];
+            const allRows = tableObj.content.slice(1);
+            const autoMergedRows = allRows.filter((row) => row && row[row.length - 1] === 'auto_merged');
+            if (!autoMergedRows.length)
+                return [];
+            const n = Number.isFinite(count) ? Math.max(0, count) : 0;
+            if (n <= 0)
+                return [];
+            const parseAmNumber = (row) => {
+                if (!Array.isArray(row))
+                    return null;
+                const candidates = row.slice(1).filter((v) => typeof v === 'string');
+                for (let i = candidates.length - 1; i >= 0; i--) {
+                    const m = candidates[i].trim().match(/^AM(\d+)\b/i);
+                    if (m)
+                        return parseInt(m[1], 10);
+                }
+                const joined = row.slice(1).join(' ');
+                const m2 = joined.match(/AM(\d+)/i);
+                return m2 ? parseInt(m2[1], 10) : null;
+            };
+            const withAm = autoMergedRows
+                .map((r) => ({ row: r, am: parseAmNumber(r) }))
+                .filter((x) => Number.isFinite(x.am));
+            if (withAm.length) {
+                withAm.sort((a, b) => a.am - b.am);
+                return withAm.slice(-n).map((x) => x.row);
+            }
+            const autoMergedOrder = settings_ACU.autoMergedOrder && settings_ACU.autoMergedOrder[summaryKey] ? settings_ACU.autoMergedOrder[summaryKey] : [];
+            const sortedAutoMergedRows = [];
+            autoMergedOrder.forEach((rowIndex) => {
+                const row = autoMergedRows.find((r) => r && r[0] === rowIndex);
+                if (row)
+                    sortedAutoMergedRows.push(row);
+            });
+            autoMergedRows.forEach((row) => {
+                if (row && !sortedAutoMergedRows.some((r) => r && r[0] === row[0])) {
+                    sortedAutoMergedRows.push(row);
+                }
+            });
+            const fallbackBase = sortedAutoMergedRows.length ? sortedAutoMergedRows : autoMergedRows;
+            return fallbackBase.slice(-n);
+        };
+        const existingSummaryAutoMerged = summaryTableObj ? getExistingAutoMergedRows(summaryTableObj, 1) : [];
+        const summaryBaseData = [...existingSummaryAutoMerged, ...accumulatedSummary];
+        if (summaryTableObj)
+            textBase += formatTableStructure(summaryTableObj.name, summaryBaseData, summaryTableObj);
+        let currentPrompt = promptTemplate.replace('$TARGET_COUNT', String(targetCount)).replace('$A', textA).replace('$BASE_DATA', textBase);
+        let aiResponseText = "";
+        const maxRetries = 3;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const messagesToUse = JSON.parse(JSON.stringify(settings_ACU.charCardPrompt || [isSqliteMode() ? DEFAULT_CHAR_CARD_PROMPT_SQL_ACU : DEFAULT_CHAR_CARD_PROMPT_ACU]));
+                const mainPromptSegment = messagesToUse.find((m) => (String(m?.mainSlot || '').toUpperCase() === 'A') || m?.isMain) ||
+                    messagesToUse.find((m) => m && m.content && m.content.includes("你接下来需要扮演一个填表用的美杜莎"));
+                if (mainPromptSegment) {
+                    mainPromptSegment.content = currentPrompt;
+                }
+                else {
+                    messagesToUse.push({ role: 'USER', content: currentPrompt });
+                }
+                const finalMessages = messagesToUse.map((m) => ({ role: m.role.toLowerCase(), content: m.content }));
+                if (settings_ACU.apiMode === 'tavern') {
+                    const result = await sendConnectionManagerRequest_ACU(settings_ACU.tavernProfile, finalMessages, settings_ACU.apiConfig.max_tokens || 4096);
+                    if (result && result.ok)
+                        aiResponseText = result.result.choices[0].message.content;
+                    else
+                        throw new Error('API请求返回不成功状态');
+                }
+                else {
+                    if (settings_ACU.apiConfig.useMainApi) {
+                        aiResponseText = isGenerateRawAvailable_ACU()
+                            ? await generateRaw_ACU({ ordered_prompts: finalMessages, should_stream: settings_ACU.streamingEnabled || false })
+                            : '';
+                    }
+                    else {
+                        const res = await fetch(`/api/backends/chat-completions/generate`, {
+                            method: 'POST',
+                            headers: { ...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                "messages": finalMessages, "model": settings_ACU.apiConfig.model, "temperature": settings_ACU.apiConfig.temperature,
+                                "max_tokens": settings_ACU.apiConfig.max_tokens || 4096, "stream": settings_ACU.streamingEnabled || false, "chat_completion_source": "custom",
+                                "reverse_proxy": settings_ACU.apiConfig.url, "custom_url": settings_ACU.apiConfig.url,
+                                "custom_include_headers": settings_ACU.apiConfig.apiKey ? `Authorization: Bearer ${settings_ACU.apiConfig.apiKey}` : ""
+                            })
+                        });
+                        if (!res.ok)
+                            throw new Error(`API请求失败: ${res.status} ${await res.text()}`);
+                        aiResponseText = await handleApiResponse_ACU(res);
+                        if (!aiResponseText)
+                            throw new Error('API返回的数据格式不正确');
+                    }
+                }
+                const extractResult = extractTableEditInner_ACU(aiResponseText, { allowNoTableEditTags: true });
+                if (!extractResult || !extractResult.inner) {
+                    throw new Error('AI未返回有效的 <tableEdit> 块');
+                }
+                const editsString = extractResult.inner;
+                const newSummaryRows = [];
+                editsString.split('\n').forEach((line) => {
+                    const match = line.trim().match(/insertRow\s*\(\s*(\d+)\s*,\s*(\{.*?\}|\[.*?\])\s*\)/);
+                    if (match) {
+                        try {
+                            const tableIdx = parseInt(match[1], 10);
+                            let rowData = JSON.parse(match[2].replace(/'/g, '"'));
+                            if (typeof rowData === 'object' && !Array.isArray(rowData)) {
+                                const sortedKeys = Object.keys(rowData).sort((a, b) => parseInt(a) - parseInt(b));
+                                const dataColumns = sortedKeys.map((k) => rowData[k]);
+                                rowData = [null, ...dataColumns]; // 行号占位，由 migrateContentNullToRowId 统一处理
+                            }
+                            if (isAutoMode) {
+                                rowData.push('auto_merged');
+                            }
+                            if (tableIdx === 0 && summaryKey)
+                                newSummaryRows.push(rowData);
+                        }
+                        catch (e) {
+                            logWarn_ACU('解析行失败:', line, e);
+                        }
+                    }
+                });
+                if (newSummaryRows.length === 0) {
+                    throw new Error('AI返回了内容，但未能解析出任何有效的数据行。');
+                }
+                return { accumulatedSummary: accumulatedSummary.concat(newSummaryRows) };
+            }
+            catch (e) {
+                logWarn_ACU(`自动合并批次 ${batchIndex + 1} 尝试 ${attempt} 失败: ${e.message}`);
+                if (attempt < maxRetries)
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+        }
+        throw new Error(`批次 ${batchIndex + 1} 在 ${maxRetries} 次尝试后均失败`);
+    }
+    // ═══ 自动合并纪要：写回结果 ═══
+    async function finalizeAutoMerge_ACU(prepared, accumulatedSummary) {
+        const { summaryKey, endIndex } = prepared;
+        if (!summaryKey || accumulatedSummary.length === 0)
+            return { mergedRows: 0 };
+        const table = currentJsonTableData_ACU[summaryKey];
+        const originalContent = table.content.slice(1);
+        let actualEndIndex = 0;
+        let foundCount = 0;
+        for (let i = 0; i < originalContent.length; i++) {
+            const row = originalContent[i];
+            if (!row || row[row.length - 1] !== 'auto_merged') {
+                foundCount++;
+                if (foundCount === endIndex) {
+                    actualEndIndex = i + 1;
+                    break;
+                }
+            }
+        }
+        const existingAutoMergedRows = originalContent.filter((row) => row && row[row.length - 1] === 'auto_merged');
+        const remainingRows = originalContent.slice(actualEndIndex);
+        const newSummaryContent = [
+            ...existingAutoMergedRows,
+            ...accumulatedSummary,
+            ...remainingRows.filter((row) => !row || row[row.length - 1] !== 'auto_merged')
+        ];
+        table.content = [table.content[0], ...newSummaryContent];
+        if (!settings_ACU.autoMergedOrder)
+            settings_ACU.autoMergedOrder = {};
+        if (!settings_ACU.autoMergedOrder[summaryKey])
+            settings_ACU.autoMergedOrder[summaryKey] = [];
+        const orderList = settings_ACU.autoMergedOrder[summaryKey];
+        accumulatedSummary.forEach((row) => {
+            if (row && row[row.length - 1] === 'auto_merged' && row[0] !== null && row[0] !== undefined && !orderList.includes(row[0])) {
+                orderList.push(row[0]);
+            }
+        });
+        const keysToSave = [summaryKey];
+        await saveIndependentTableToChatHistory_ACU(getLastMessageIndex_ACU(), keysToSave, keysToSave);
+        await updateReadableLorebookEntry_ACU(true);
+        return { mergedRows: accumulatedSummary.length };
+    }
+
+    var mergeLogic = /*#__PURE__*/Object.freeze({
+        __proto__: null,
+        checkAutoMergeTrigger_ACU: checkAutoMergeTrigger_ACU,
+        executeAutoMergeBatch_ACU: executeAutoMergeBatch_ACU,
+        finalizeAutoMerge_ACU: finalizeAutoMerge_ACU,
+        prepareAutoMergeBatches_ACU: prepareAutoMergeBatches_ACU
+    });
 
     // toast.ts — presentation 层 toast 通知（含主题样式注入+消息过滤+去重）
     // 核心逻辑原位于 service/runtime/toast-service.ts，已搬回 presentation 层

@@ -13,6 +13,8 @@ import { DEFAULT_ENTRY_PLACEMENT_ACU, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU, ensureE
 import { buildUsedOrderSet_ACU, allocOrder_ACU, allocConsecutiveOrderBlock_ACU } from './injection-engine-order';
 import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './injection-engine-state';
 import { splitKeywordsByComma_ACU } from './injection-engine-entries';
+import { getLatestSummaryVectorIndexSnapshotState_ACU } from '../vector/summary-vector-index-state-service';
+import { getEffectiveSummaryVectorIndexConfig_ACU } from '../vector/vector-memory-config';
 
   // [新增] 处理自定义表格导出逻辑
   // [修复] 当 mergedData 为空/null 时，仍需执行"清理旧自定义导出条目"逻辑，
@@ -39,6 +41,26 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
       const summaryVectorIndexModeEnabled = worldbookConfig?.summaryVectorIndexModeEnabled === true;
       const extraIndexEntryEnabled = !zeroTkOccupyMode;
       logDebug_ACU(`[CustomExport] 0TK模式=${zeroTkOccupyMode}, 交火纪要索引=${summaryVectorIndexModeEnabled}, 纪要索引条目enabled=${extraIndexEntryEnabled}`);
+
+      // [spv3.6.4] 计算交火索引是否已达门槛：未达门槛时内容保护补丁不生效，让普通填表正常更新纪要索引条目
+      let crossfireThresholdMet = false;
+      if (summaryVectorIndexModeEnabled) {
+          try {
+              const snapshot = getLatestSummaryVectorIndexSnapshotState_ACU();
+              const state = snapshot?.summaryVectorIndexState || null;
+              if (state) {
+                  const activeRowKeys = new Set((state as any).manifest?.snapshot?.activeRowKeys || []);
+                  const indexedRowCount = Array.isArray((state as any).rows)
+                      ? (state as any).rows.filter((row: any) => row.status !== 'removed' && (activeRowKeys.size === 0 || activeRowKeys.has(row.rowKey))).length
+                      : 0;
+                  const config = getEffectiveSummaryVectorIndexConfig_ACU();
+                  crossfireThresholdMet = indexedRowCount >= config.summaryIndexKeywordMinRows;
+              }
+          } catch (e) {
+              logWarn_ACU('[CustomExport] 无法获取交火索引状态，默认不保护纪要索引条目内容:', e);
+          }
+      }
+      logDebug_ACU(`[CustomExport] 交火门槛已达标=${crossfireThresholdMet}`);
 
       try {
           const allEntries = await getLorebookEntries_ACU(primaryLorebookName);
@@ -232,12 +254,14 @@ import { splitKeywordsByComma_ACU } from './injection-engine-entries';
                   false,
                   fallbackTemplate
               );
-              if (!isImport && isCrossfireSummaryEntry && summaryVectorIndexModeEnabled) {
+              if (!isImport && isCrossfireSummaryEntry && summaryVectorIndexModeEnabled && crossfireThresholdMet) {
                   const existingEntry = allEntries.find(e => e.comment === mainComment);
                   if (existingEntry?.content) {
                       mainContent = existingEntry.content;
-                      logDebug_ACU('[CustomExport] 交火模式已启用，普通刷新保留现有纪要索引召回内容，避免覆盖发送前召回结果。');
+                      logDebug_ACU('[CustomExport] 交火模式已启用且已达门槛，保留现有纪要索引召回内容，避免覆盖发送前召回结果。');
                   }
+              } else if (!isImport && isCrossfireSummaryEntry && summaryVectorIndexModeEnabled && !crossfireThresholdMet) {
+                  logDebug_ACU('[CustomExport] 交火模式已启用但未达门槛，纪要索引条目使用普通填表数据，不保护现有内容。');
               }
               names.push(mainComment);
               const normalizedPlacement = normalizePlacementConfig_ACU(placement, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU);
