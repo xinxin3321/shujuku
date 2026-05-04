@@ -95,12 +95,22 @@ function stripThinkingBlocks_ACU(text: string): string {
 
 function parseKeywords_ACU(text: string): string[] {
     const normalized = normalizeText_ACU(text);
-    const explicitKeywords = extractTaggedContent_ACU(normalized, 'keywords');
-    if (!explicitKeywords) {
-        logWarn_ACU('[交火模式纪要索引] AI 回复中未找到 <keywords> 标签，跳过关键词提取。');
+    // 优先：从 <keywords> 标签提取
+    let keywordContent = extractTaggedContent_ACU(normalized, 'keywords');
+    // 回退：从 "关键词：" 前缀提取（兼容不遵循 XML 标签的 AI 输出）
+    if (!keywordContent) {
+        const stripped = stripThinkingBlocks_ACU(normalized);
+        const fallbackMatch = stripped.match(/关键词[：:]\s*([\s\S]+?)$/i);
+        if (fallbackMatch) {
+            keywordContent = fallbackMatch[1].trim();
+            logDebug_ACU('[交火模式纪要索引] AI 未使用 <keywords> 标签，已从"关键词："前缀回退提取。');
+        }
+    }
+    if (!keywordContent) {
+        logWarn_ACU('[交火模式纪要索引] AI 回复中未找到 <keywords> 标签或"关键词："前缀，跳过关键词提取。');
         return [];
     }
-    return Array.from(new Set(explicitKeywords
+    return Array.from(new Set(keywordContent
         .replace(/<[^>]+>/g, '')
         .split(/[，,、\n;；|]/g)
         .map((item) => item.replace(/^[-*\d.、\s]+/, '').trim())

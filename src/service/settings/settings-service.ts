@@ -460,6 +460,34 @@ export   function loadSettings_ACU() {
                           content: '<thinking>\n交火关键词检索思维：我将逐步分析当前输入需要召回的纪要索引关键词。',
                       },
                   ],
+                  // [spv3.5.21] 旧版 <keywords> 标签提示词（assistant prefill 过长，AI 不遵循）
+                  [
+                      {
+                          role: 'system',
+                          content: '你负责为交火模式纪要索引召回生成检索关键词。\n'
+                              + '你会看到最近对话上下文和当前用户输入。\n'
+                              + '目标：输出最相关的 12 个简洁关键词或短语，用于纪要索引召回与重排序。\n'
+                              + '优先级：人物、地点、时间、事件、目标、冲突、道具、组织、关系变化、未解决问题。\n'
+                              + '输出必须严格使用以下 XML 结构：\n'
+                              + '<thinking>\n'
+                              + '逐步分析最近上下文、当前用户输入、涉及人物、地点、时间、事件、目标、冲突、道具、组织、关系变化和未解决问题。\n'
+                              + '</thinking>\n'
+                              + '<keywords>关键词1，关键词2，关键词3</keywords>\n'
+                              + '硬性要求：\n'
+                              + '- <keywords> 标签内只放关键词或短语，不要放解释句、编号、前后缀说明。\n'
+                              + '- 多个关键词必须使用中文逗号分隔。\n'
+                              + '- 尽量输出 12 个，最多 24 个。\n'
+                              + '- <keywords> 标签外的任何内容都不会被用于检索匹配。',
+                      },
+                      {
+                          role: 'user',
+                          content: '最近上下文：\n$RECENT_CONTEXT\n\n当前用户输入：\n$USER_INPUT\n\n请根据以上内容生成交火模式纪要索引召回关键词。先在 <thinking> 中显示你的检索分析，然后在 <keywords> 标签中输出关键词。',
+                      },
+                      {
+                          role: 'assistant',
+                          content: '<thinking>\n交火关键词检索思维：我将逐步分析当前输入需要召回的纪要索引关键词。\n</thinking>\n<keywords>',
+                      },
+                  ],
               ];
               const isLegacyKeywordPromptGroupV2_ACU = legacyKeywordPromptGroupsV2_ACU
                   .some((legacyGroup) => currentKeywordPromptSignature_ACU === normalizePromptGroupForCompare_ACU(legacyGroup));
