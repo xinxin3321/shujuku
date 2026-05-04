@@ -17562,6 +17562,28 @@ $CONTENT
     function normalizePathSegment_ACU(value) {
         return normalizeFileNamePart_ACU(value);
     }
+    /**
+     * [spv3.6.8] 角色名路径段规范化
+     * 保留 Unicode 字符（中文、日文等）以保持可读性，
+     * 仅移除文件系统不安全字符（/ \ : * ? " < > | 和控制字符）。
+     * 空格替换为下划线，连续下划线合并，前后下划线去除。
+     * 截断到 64 字符（按 Unicode 码点计数）。
+     * 清洗后为空则返回空字符串（调用方据此降级到无角色名格式）。
+     */
+    function normalizeChatNameSegment_ACU(value) {
+        const cleaned = String(value || '')
+            // 移除文件系统不安全字符和控制字符
+            .replace(/[\\/:\*?"<>|\x00-\x1F\x7F]/g, '')
+            // 空白字符替换为下划线
+            .replace(/\s+/g, '_')
+            // 合并连续下划线
+            .replace(/_+/g, '_')
+            // 去除前后下划线
+            .replace(/^_+|_+$/g, '')
+            // 截断到 64 字符
+            .slice(0, 64);
+        return cleaned;
+    }
     function buildVectorIndexFileName_ACU(parts) {
         const chatKey = normalizeFileNamePart_ACU(parts.chatKey);
         const isolationKey = normalizeFileNamePart_ACU(parts.isolationKey || 'default');
@@ -17598,9 +17620,13 @@ $CONTENT
         return `${scope}_${indexId}_${role}`;
     }
     function buildVectorIndexSingleSnapshotFilePath_ACU(parts) {
-        // [spv3.6.7] 简化外置快照路径：只用 chatKey，与聊天记录一对一
-        // 同一个聊天 = 同一个文件路径 = 覆盖写入，不再因 isolationKey/sourceTableKey 变化而丢失
         const chatKey = normalizePathSegment_ACU(parts.chatKey);
+        // [spv3.6.8] 角色名前缀：清洗后非空则加入路径，提高文件可识别性
+        const chatName = normalizeChatNameSegment_ACU(parts.chatName || '');
+        if (chatName) {
+            return `TavernDB_ACU_vector_${chatName}_${chatKey}_snapshot`;
+        }
+        // [spv3.6.7] 无角色名时降级到只用 chatKey 的格式
         return `TavernDB_ACU_vector_${chatKey}_snapshot`;
     }
     /**
@@ -19366,7 +19392,9 @@ $CONTENT
         });
         const replacedRowKeys = Array.from(new Set(options.replacedRowKeys || []));
         const parentIndexIds = Array.from(new Set([...(options.parentIndexIds || []), ...(options.previousManifest?.indexId ? [options.previousManifest.indexId] : [])].filter(Boolean)));
-        const snapshotPath = buildVectorIndexSingleSnapshotFilePath_ACU({ chatKey, isolationKey, sourceTableKey: options.sourceTableKey });
+        // [spv3.6.8] 传入角色名，使外置快照文件名包含可识别的角色名前缀
+        const chatName = getCurrentCharacterCardName_ACU();
+        const snapshotPath = buildVectorIndexSingleSnapshotFilePath_ACU({ chatKey, isolationKey, sourceTableKey: options.sourceTableKey, chatName });
         const checkpoint = {
             version: SUMMARY_VECTOR_INDEX_MANIFEST_VERSION_ACU,
             checkpointId: `checkpoint_${hashUserInput_ACU(`${indexId}\n${options.snapshotMessageId}\n${indexedAt}`)}`,
@@ -39809,14 +39837,22 @@ $CONTENT
                 }
             }
         }
+        // [spv3.6.8] 获取当前角色名用于恢复时尝试新格式路径
+        const chatName = getCurrentCharacterCardName_ACU();
         for (const sourceTableKey of candidateTableKeys) {
             try {
-                // [spv3.6.7] 先尝试简化路径（只用 chatKey），再回退旧路径（含 isolationKey + sourceTableKey）
-                const snapshotPath = buildVectorIndexSingleSnapshotFilePath_ACU({ chatKey, isolationKey, sourceTableKey });
-                let loaded = await readVectorIndexJsonFile_ACU(snapshotPath);
+                // [spv3.6.8] 三层回退：新格式（含角色名）→ spv3.6.7 格式（无角色名）→ 旧版格式（含 isolationKey + sourceTableKey）
+                const namedPath = buildVectorIndexSingleSnapshotFilePath_ACU({ chatKey, isolationKey, sourceTableKey, chatName });
+                const unnamedPath = buildVectorIndexSingleSnapshotFilePath_ACU({ chatKey, isolationKey, sourceTableKey });
+                let loaded = await readVectorIndexJsonFile_ACU(namedPath);
+                // 回退1：spv3.6.7 格式（无角色名前缀）
+                if ((!loaded.ok || !loaded.data || loaded.data.schema !== 'single_file_snapshot') && namedPath !== unnamedPath) {
+                    loaded = await readVectorIndexJsonFile_ACU(unnamedPath);
+                }
+                // 回退2：旧版格式（含 isolationKey + sourceTableKey）
                 if (!loaded.ok || !loaded.data || loaded.data.schema !== 'single_file_snapshot') {
                     const legacyPath = buildLegacyVectorIndexSingleSnapshotFilePath_ACU({ chatKey, isolationKey, sourceTableKey });
-                    if (legacyPath !== snapshotPath) {
+                    if (legacyPath !== namedPath && legacyPath !== unnamedPath) {
                         loaded = await readVectorIndexJsonFile_ACU(legacyPath);
                     }
                 }

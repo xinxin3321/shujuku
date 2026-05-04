@@ -45,6 +45,29 @@ function normalizePathSegment_ACU(value: string): string {
     return normalizeFileNamePart_ACU(value);
 }
 
+/**
+ * [spv3.6.8] 角色名路径段规范化
+ * 保留 Unicode 字符（中文、日文等）以保持可读性，
+ * 仅移除文件系统不安全字符（/ \ : * ? " < > | 和控制字符）。
+ * 空格替换为下划线，连续下划线合并，前后下划线去除。
+ * 截断到 64 字符（按 Unicode 码点计数）。
+ * 清洗后为空则返回空字符串（调用方据此降级到无角色名格式）。
+ */
+function normalizeChatNameSegment_ACU(value: string): string {
+    const cleaned = String(value || '')
+        // 移除文件系统不安全字符和控制字符
+        .replace(/[\\/:\*?"<>|\x00-\x1F\x7F]/g, '')
+        // 空白字符替换为下划线
+        .replace(/\s+/g, '_')
+        // 合并连续下划线
+        .replace(/_+/g, '_')
+        // 去除前后下划线
+        .replace(/^_+|_+$/g, '')
+        // 截断到 64 字符
+        .slice(0, 64);
+    return cleaned;
+}
+
 export function buildVectorIndexFileName_ACU(parts: {
     chatKey: string;
     isolationKey: string;
@@ -111,10 +134,16 @@ export function buildVectorIndexSingleSnapshotFilePath_ACU(parts: {
     chatKey: string;
     isolationKey: string;
     sourceTableKey: string;
+    /** [spv3.6.8] 可选角色名前缀，用于提高文件可读性。为空时降级到 chatKey-only 格式 */
+    chatName?: string;
 }): string {
-    // [spv3.6.7] 简化外置快照路径：只用 chatKey，与聊天记录一对一
-    // 同一个聊天 = 同一个文件路径 = 覆盖写入，不再因 isolationKey/sourceTableKey 变化而丢失
     const chatKey = normalizePathSegment_ACU(parts.chatKey);
+    // [spv3.6.8] 角色名前缀：清洗后非空则加入路径，提高文件可识别性
+    const chatName = normalizeChatNameSegment_ACU(parts.chatName || '');
+    if (chatName) {
+        return `TavernDB_ACU_vector_${chatName}_${chatKey}_snapshot`;
+    }
+    // [spv3.6.7] 无角色名时降级到只用 chatKey 的格式
     return `TavernDB_ACU_vector_${chatKey}_snapshot`;
 }
 

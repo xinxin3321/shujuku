@@ -2,7 +2,7 @@
 // 数据管理标签页事件绑定（数据隔离 + 外部导入 + 模板预设 + 数据管理按钮）
 
 import { DEFAULT_MERGE_SUMMARY_PROMPT_ACU, DEFAULT_MERGE_SUMMARY_PROMPT_SQL_ACU, TABLE_TEMPLATE_ACU } from '../../shared/defaults-json.js';
-import { deriveTemplatePresetNameForImport_ACU, getCurrentTemplatePresetName_ACU, isDefaultTemplatePresetSelection_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
+import { deriveTemplatePresetNameForImport_ACU, getCurrentCharacterCardName_ACU, getCurrentTemplatePresetName_ACU, isDefaultTemplatePresetSelection_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
 import { showToastr_ACU } from '../theme/toast';
 import { ACU_TOAST_CATEGORY_ACU, SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { topLevelWindow_ACU } from '../../shared/env';
@@ -113,19 +113,33 @@ async function tryRecoverSummaryVectorIndexFromExternalSnapshot_ACU(): Promise<b
         }
     }
 
+    // [spv3.6.8] 获取当前角色名用于恢复时尝试新格式路径
+    const chatName = getCurrentCharacterCardName_ACU();
+
     for (const sourceTableKey of candidateTableKeys) {
         try {
-            // [spv3.6.7] 先尝试简化路径（只用 chatKey），再回退旧路径（含 isolationKey + sourceTableKey）
-            const snapshotPath = buildVectorIndexSingleSnapshotFilePath_ACU({ chatKey, isolationKey, sourceTableKey });
+            // [spv3.6.8] 三层回退：新格式（含角色名）→ spv3.6.7 格式（无角色名）→ 旧版格式（含 isolationKey + sourceTableKey）
+            const namedPath = buildVectorIndexSingleSnapshotFilePath_ACU({ chatKey, isolationKey, sourceTableKey, chatName });
+            const unnamedPath = buildVectorIndexSingleSnapshotFilePath_ACU({ chatKey, isolationKey, sourceTableKey });
             let loaded = await readVectorIndexJsonFile_ACU<{
                 schema: string;
                 manifest: any;
                 rows: any[];
                 chunks: any[];
-            }>(snapshotPath);
+            }>(namedPath);
+            // 回退1：spv3.6.7 格式（无角色名前缀）
+            if ((!loaded.ok || !loaded.data || loaded.data.schema !== 'single_file_snapshot') && namedPath !== unnamedPath) {
+                loaded = await readVectorIndexJsonFile_ACU<{
+                    schema: string;
+                    manifest: any;
+                    rows: any[];
+                    chunks: any[];
+                }>(unnamedPath);
+            }
+            // 回退2：旧版格式（含 isolationKey + sourceTableKey）
             if (!loaded.ok || !loaded.data || loaded.data.schema !== 'single_file_snapshot') {
                 const legacyPath = buildLegacyVectorIndexSingleSnapshotFilePath_ACU({ chatKey, isolationKey, sourceTableKey });
-                if (legacyPath !== snapshotPath) {
+                if (legacyPath !== namedPath && legacyPath !== unnamedPath) {
                     loaded = await readVectorIndexJsonFile_ACU<{
                         schema: string;
                         manifest: any;

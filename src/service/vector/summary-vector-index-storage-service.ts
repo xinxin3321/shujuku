@@ -1,5 +1,6 @@
 import { getCurrentIsolationKey_ACU, currentChatFileIdentifier_ACU } from '../runtime/state-manager';
 import { hashUserInput_ACU, logDebug_ACU, logWarn_ACU } from '../../shared/utils';
+import { getCurrentCharacterCardName_ACU } from '../../shared/template-preset-utils';
 import {
     buildVectorIndexFileName_ACU,
     buildVectorIndexSingleSnapshotFilePath_ACU,
@@ -997,7 +998,9 @@ export async function persistSummaryVectorIndexSnapshot_ACU(
     });
     const replacedRowKeys = Array.from(new Set(options.replacedRowKeys || []));
     const parentIndexIds = Array.from(new Set([...(options.parentIndexIds || []), ...(options.previousManifest?.indexId ? [options.previousManifest.indexId] : [])].filter(Boolean)));
-    const snapshotPath = buildVectorIndexSingleSnapshotFilePath_ACU({ chatKey, isolationKey, sourceTableKey: options.sourceTableKey });
+    // [spv3.6.8] 传入角色名，使外置快照文件名包含可识别的角色名前缀
+    const chatName = getCurrentCharacterCardName_ACU();
+    const snapshotPath = buildVectorIndexSingleSnapshotFilePath_ACU({ chatKey, isolationKey, sourceTableKey: options.sourceTableKey, chatName });
     const checkpoint = {
         version: SUMMARY_VECTOR_INDEX_MANIFEST_VERSION_ACU,
         checkpointId: `checkpoint_${hashUserInput_ACU(`${indexId}\n${options.snapshotMessageId}\n${indexedAt}`)}`,
