@@ -32512,8 +32512,17 @@ $CONTENT
                             if (!queueResult.queued && !queueResult.skipped) {
                                 logWarn_ACU('[交火模式纪要索引] 填表完成后加入防抖归档队列失败:', queueResult.reason || 'unknown_error');
                             }
+                            else if (queueResult.queued && queueResult.scopeKey) {
+                                const flushResult = await flushSummaryVectorIndexTaskNow_ACU(queueResult.scopeKey);
+                                if (!flushResult.success) {
+                                    logWarn_ACU('[交火模式纪要索引] 填表完成后立即归档失败:', flushResult.error || flushResult.reason || 'unknown_error');
+                                }
+                                else {
+                                    logDebug_ACU(`[交火模式纪要索引] 填表完成后已立即归档：skipped=${flushResult.skipped}, reason=${flushResult.reason || ''}`);
+                                }
+                            }
                             else {
-                                logDebug_ACU(`[交火模式纪要索引] 填表完成后已加入防抖归档队列：queued=${queueResult.queued}, skipped=${queueResult.skipped}, reason=${queueResult.reason || ''}`);
+                                logDebug_ACU(`[交火模式纪要索引] 填表完成后归档入队跳过：queued=${queueResult.queued}, skipped=${queueResult.skipped}, reason=${queueResult.reason || ''}`);
                             }
                         }
                         catch (archiveError) {
