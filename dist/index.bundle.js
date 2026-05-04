@@ -39868,57 +39868,77 @@ $CONTENT
     /**
      * 当 tag data 中没有向量索引 state 时，尝试从外部单文件快照恢复。
      * 恢复成功后会将 state 写回最新非用户消息的 tag data 并保存聊天。
+     * 会尝试多种 sourceTableKey 以应对表键变化的情况。
      */
     async function tryRecoverSummaryVectorIndexFromExternalSnapshot_ACU() {
         const chatKey = String(currentChatFileIdentifier_ACU || '').trim();
         const isolationKey = String(getCurrentIsolationKey_ACU() || '').trim();
-        const sourceTableKey = getCurrentSummaryVectorIndexSourceTableKey_ACU();
         if (!chatKey || !isolationKey)
             return false;
-        const snapshotPath = buildVectorIndexSingleSnapshotFilePath_ACU({ chatKey, isolationKey, sourceTableKey });
-        const loaded = await readVectorIndexJsonFile_ACU(snapshotPath);
-        if (!loaded.ok || !loaded.data || loaded.data.schema !== 'single_file_snapshot')
-            return false;
-        const blob = loaded.data;
-        const manifest = blob.manifest;
-        if (!manifest?.indexId || manifest.status !== 'ready')
-            return false;
-        const chat = getChatArray_ACU();
-        if (!Array.isArray(chat) || chat.length === 0)
-            return false;
-        // 找到最新的非用户消息
-        let targetIndex = -1;
-        for (let i = chat.length - 1; i >= 0; i--) {
-            if (chat[i] && !chat[i].is_user) {
-                targetIndex = i;
-                break;
+        // 收集候选 sourceTableKey：当前值 + 所有纪要/大纲表键 + 兜底 'summary'
+        const candidateTableKeys = new Set();
+        const currentTableKey = getCurrentSummaryVectorIndexSourceTableKey_ACU();
+        candidateTableKeys.add(currentTableKey);
+        candidateTableKeys.add('summary');
+        const tables = currentJsonTableData_ACU && typeof currentJsonTableData_ACU === 'object' ? currentJsonTableData_ACU : null;
+        if (tables) {
+            for (const key of Object.keys(tables)) {
+                const table = tables[key];
+                if (table?.name && isSummaryOrOutlineTable_ACU(String(table.name || ''))) {
+                    candidateTableKeys.add(key);
+                }
             }
         }
-        if (targetIndex < 0)
-            return false;
-        const message = chat[targetIndex];
-        const tagData = readIsolatedTagData_ACU(message, isolationKey) || { independentData: {}, modifiedKeys: {}, updateGroupKeys: {} };
-        if (tagData.summaryVectorIndexState?.manifest?.indexId)
-            return false; // 已有 state，不覆盖
-        const rows = Array.isArray(blob.rows) ? blob.rows : [];
-        const chunks = Array.isArray(blob.chunks) ? blob.chunks : [];
-        const recoveredState = {
-            manifest,
-            rows,
-            chunks,
-            rowCount: rows.filter((r) => r.status !== 'removed').length,
-            chunkCount: chunks.length,
-            snapshotMessageId: String(manifest.snapshotMessageId || message.mesId || ''),
-            sourceTableKey: String(manifest.sourceTableKey || sourceTableKey),
-            sourceTableName: String(manifest.sourceTableName || sourceTableKey),
-            indexedAt: String(manifest.indexedAt || new Date().toISOString()),
-            skippedRowCount: 0,
-        };
-        assignSummaryVectorIndexStateToTagData_ACU(tagData, recoveredState);
-        writeIsolatedTagData_ACU(message, isolationKey, tagData);
-        await saveChatToHost_ACU();
-        console.log(`[ACU交火向量索引] 已从外部快照自动恢复 state 到消息 #${targetIndex}（indexId=${manifest.indexId}，${rows.length} 行，${chunks.length} 块）`);
-        return true;
+        for (const sourceTableKey of candidateTableKeys) {
+            try {
+                const snapshotPath = buildVectorIndexSingleSnapshotFilePath_ACU({ chatKey, isolationKey, sourceTableKey });
+                const loaded = await readVectorIndexJsonFile_ACU(snapshotPath);
+                if (!loaded.ok || !loaded.data || loaded.data.schema !== 'single_file_snapshot')
+                    continue;
+                const blob = loaded.data;
+                const manifest = blob.manifest;
+                if (!manifest?.indexId || manifest.status !== 'ready')
+                    continue;
+                const chat = getChatArray_ACU();
+                if (!Array.isArray(chat) || chat.length === 0)
+                    continue;
+                // 找到最新的非用户消息
+                let targetIndex = -1;
+                for (let i = chat.length - 1; i >= 0; i--) {
+                    if (chat[i] && !chat[i].is_user) {
+                        targetIndex = i;
+                        break;
+                    }
+                }
+                if (targetIndex < 0)
+                    continue;
+                const message = chat[targetIndex];
+                const tagData = readIsolatedTagData_ACU(message, isolationKey) || { independentData: {}, modifiedKeys: {}, updateGroupKeys: {} };
+                if (tagData.summaryVectorIndexState?.manifest?.indexId)
+                    return false; // 已有 state，不覆盖
+                const rows = Array.isArray(blob.rows) ? blob.rows : [];
+                const chunks = Array.isArray(blob.chunks) ? blob.chunks : [];
+                const recoveredState = {
+                    manifest,
+                    rows,
+                    chunks,
+                    rowCount: rows.filter((r) => r.status !== 'removed').length,
+                    chunkCount: chunks.length,
+                    snapshotMessageId: String(manifest.snapshotMessageId || message.mesId || ''),
+                    sourceTableKey: String(manifest.sourceTableKey || sourceTableKey),
+                    sourceTableName: String(manifest.sourceTableName || sourceTableKey),
+                    indexedAt: String(manifest.indexedAt || new Date().toISOString()),
+                    skippedRowCount: 0,
+                };
+                assignSummaryVectorIndexStateToTagData_ACU(tagData, recoveredState);
+                writeIsolatedTagData_ACU(message, isolationKey, tagData);
+                await saveChatToHost_ACU();
+                console.log(`[ACU交火向量索引] 已从外部快照自动恢复 state 到消息 #${targetIndex}（indexId=${manifest.indexId}，${rows.length} 行，${chunks.length} 块，sourceTableKey=${sourceTableKey}）`);
+                return true;
+            }
+            catch { /* 尝试下一个 sourceTableKey */ }
+        }
+        return false;
     }
     function getCurrentSummaryVectorIndexSourceTableKey_ACU() {
         const tables = currentJsonTableData_ACU && typeof currentJsonTableData_ACU === 'object'
