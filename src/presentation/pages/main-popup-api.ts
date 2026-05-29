@@ -65,6 +65,21 @@ export function generateApiTabHTML(): string {
                                 <select id="${SCRIPT_ID_PREFIX_ACU}-api-model-select" class="text_pole">
                                     <option value="">-- 请先加载模型列表 --</option>
                                 </select>
+                                <div style="margin-top: 12px;">
+                                    <label for="${SCRIPT_ID_PREFIX_ACU}-api-body-params">附加 Body 参数 (JSON):</label>
+                                    <textarea id="${SCRIPT_ID_PREFIX_ACU}-api-body-params" rows="3" placeholder='{"top_p": 0.9, "frequency_penalty": 0.5}' style="width: 100%; resize: vertical; font-family: monospace;"></textarea>
+                                    <small class="notes">JSON 格式，会合并到请求 body 中（覆盖同名字段）。留空不附加。</small>
+                                </div>
+                                <div style="margin-top: 8px;">
+                                    <label for="${SCRIPT_ID_PREFIX_ACU}-api-exclude-body-params">排除 Body 参数:</label>
+                                    <textarea id="${SCRIPT_ID_PREFIX_ACU}-api-exclude-body-params" rows="2" placeholder='["stream", "top_p"]' style="width: 100%; resize: vertical; font-family: monospace;"></textarea>
+                                    <small class="notes">JSON 数组格式，列出的字段会从请求 body 中移除。留空不排除。</small>
+                                </div>
+                                <div style="margin-top: 8px;">
+                                    <label for="${SCRIPT_ID_PREFIX_ACU}-api-request-headers">附加请求头 (JSON):</label>
+                                    <textarea id="${SCRIPT_ID_PREFIX_ACU}-api-request-headers" rows="2" placeholder='{"X-Custom-Header": "value"}' style="width: 100%; resize: vertical; font-family: monospace;"></textarea>
+                                    <small class="notes">JSON 格式，会合并到请求 headers 中。留空不附加。</small>
+                                </div>
                             </div>
                             <div id="${SCRIPT_ID_PREFIX_ACU}-api-status" class="notes" style="margin-top:12px;">状态: 未配置</div>
                             <div class="button-group">

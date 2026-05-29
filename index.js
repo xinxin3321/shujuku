@@ -2773,6 +2773,7 @@ $CONTENT
         rerankEndpoint: '',
         rerankApiKey: '',
         rerankModel: '',
+        rerankInstruction: '请根据当前用户输入及关键词，判断每个候选纪要条目的相关性，并将最相关的条目按相关性从高到低降序排列。优先选择能够直接回答、延续或补全当前用户输入意图的条目。',
         vectorNamespace: 'chat',
         entryComment: 'TavernDB-ACU-VectorMemory',
         entryKey: 'TavernDB-ACU-VectorMemory-Key',
@@ -3635,6 +3636,8 @@ $CONTENT
             rerankEndpoint: normalizeTextField_ACU(source.rerankEndpoint, defaults.rerankEndpoint),
             rerankApiKey: normalizeTextField_ACU(source.rerankApiKey, defaults.rerankApiKey),
             rerankModel: normalizeTextField_ACU(source.rerankModel, defaults.rerankModel),
+            rerankInstruction: typeof source.rerankInstruction === 'string'
+                ? source.rerankInstruction.trim() : defaults.rerankInstruction,
             vectorNamespace: normalizeTextField_ACU(source.vectorNamespace, defaults.vectorNamespace) || defaults.vectorNamespace,
             entryComment: normalizeTextField_ACU(source.entryComment, defaults.entryComment) || defaults.entryComment,
             entryKey: normalizeTextField_ACU(source.entryKey, defaults.entryKey) || defaults.entryKey,
@@ -13414,6 +13417,90 @@ $CONTENT
     // service/ai/api-call.ts — AI 调用编排（剧情推进用）
     // 从 04_shared_helpers.js 迁入
     /**
+     * 解析 "key=value\nkey=value" 格式字符串为 Record<string, string>
+     */
+    function parseKeyValueLines(raw) {
+        const result = {};
+        if (!raw || typeof raw !== 'string')
+            return result;
+        const lines = raw.split(/\n/);
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#'))
+                continue;
+            const eqIndex = trimmed.indexOf(':');
+            if (eqIndex <= 0)
+                continue;
+            const key = trimmed.slice(0, eqIndex).trim();
+            const value = trimmed.slice(eqIndex + 1).trim();
+            if (key)
+                result[key] = value;
+        }
+        return result;
+    }
+    /**
+     * 构建 Chat Completions 自定义 API 请求体（支持 bodyParams / excludeBodyParams / requestHeaders）
+     */
+    function buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, overrides) {
+        const opts = overrides || {};
+        const model = opts.stripModelPrefix !== false
+            ? (effectiveApiConfig.model || '').replace(/^models\//, '')
+            : (effectiveApiConfig.model || '');
+        const maxTokens = opts.maxTokens || effectiveApiConfig.max_tokens || effectiveApiConfig.maxTokens || 20000;
+        const temperature = opts.temperature ?? effectiveApiConfig.temperature ?? 1.0;
+        const topP = opts.topP ?? effectiveApiConfig.top_p ?? effectiveApiConfig.topP ?? 0.95;
+        // 基础 Authorization 头
+        let headers = effectiveApiConfig.apiKey ? `Authorization: Bearer ${effectiveApiConfig.apiKey}` : '';
+        // 追加 requestHeaders
+        if (effectiveApiConfig.requestHeaders) {
+            const extra = effectiveApiConfig.requestHeaders.trim();
+            if (extra) {
+                headers = headers ? `${headers}\n${extra}` : extra;
+            }
+        }
+        const body = {
+            messages,
+            model,
+            max_tokens: maxTokens,
+            temperature,
+            top_p: topP,
+            stream: settings_ACU.streamingEnabled || false,
+            chat_completion_source: 'custom',
+            group_names: [],
+            include_reasoning: false,
+            reasoning_effort: 'medium',
+            enable_web_search: false,
+            request_images: false,
+            custom_prompt_post_processing: 'strict',
+            reverse_proxy: effectiveApiConfig.url,
+            proxy_password: '',
+            custom_url: effectiveApiConfig.url,
+            custom_include_headers: headers,
+        };
+        // 合并 bodyParams
+        if (effectiveApiConfig.bodyParams) {
+            const extra = parseKeyValueLines(effectiveApiConfig.bodyParams);
+            for (const [k, v] of Object.entries(extra)) {
+                if (v === 'true')
+                    body[k] = true;
+                else if (v === 'false')
+                    body[k] = false;
+                else if (v !== '' && !isNaN(Number(v)))
+                    body[k] = Number(v);
+                else
+                    body[k] = v;
+            }
+        }
+        // 删除 excludeBodyParams 指定的字段
+        if (effectiveApiConfig.excludeBodyParams) {
+            const keys = effectiveApiConfig.excludeBodyParams.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
+            for (const k of keys) {
+                delete body[k];
+            }
+        }
+        return body;
+    }
+    /**
      * 剧情推进任务级 API 调用 — 接受显式预设名称
      * 调用优先级：presetName 参数 > 全局 plotApiPreset > 当前 API 配置
      */
@@ -13441,25 +13528,7 @@ $CONTENT
             if (!effectiveApiConfig.url || !effectiveApiConfig.model) {
                 throw new Error('自定义API的URL或模型未配置。');
             }
-            const requestBody = {
-                messages: messages,
-                model: effectiveApiConfig.model.replace(/^models\//, ''),
-                max_tokens: effectiveApiConfig.maxTokens || effectiveApiConfig.max_tokens || 20000,
-                temperature: effectiveApiConfig.temperature || 0.7,
-                top_p: effectiveApiConfig.topP || effectiveApiConfig.top_p || 0.95,
-                stream: settings_ACU.streamingEnabled || false,
-                chat_completion_source: 'custom',
-                group_names: [],
-                include_reasoning: false,
-                reasoning_effort: 'medium',
-                enable_web_search: false,
-                request_images: false,
-                custom_prompt_post_processing: 'strict',
-                reverse_proxy: effectiveApiConfig.url,
-                proxy_password: '',
-                custom_url: effectiveApiConfig.url,
-                custom_include_headers: effectiveApiConfig.apiKey ? `Authorization: Bearer ${effectiveApiConfig.apiKey}` : '',
-            };
+            const requestBody = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { temperature: 0.7, topP: 0.95 });
             const response = await fetch('/api/backends/chat-completions/generate', {
                 method: 'POST',
                 headers: { ...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json' },
@@ -13503,25 +13572,7 @@ $CONTENT
             if (!effectiveApiConfig.url || !effectiveApiConfig.model) {
                 throw new Error('自定义API的URL或模型未配置。');
             }
-            const requestBody = {
-                messages: messages,
-                model: effectiveApiConfig.model.replace(/^models\//, ''),
-                max_tokens: effectiveApiConfig.maxTokens || effectiveApiConfig.max_tokens || 20000,
-                temperature: effectiveApiConfig.temperature || 0.7,
-                top_p: effectiveApiConfig.topP || effectiveApiConfig.top_p || 0.95,
-                stream: settings_ACU.streamingEnabled || false,
-                chat_completion_source: 'custom',
-                group_names: [],
-                include_reasoning: false,
-                reasoning_effort: 'medium',
-                enable_web_search: false,
-                request_images: false,
-                custom_prompt_post_processing: 'strict',
-                reverse_proxy: effectiveApiConfig.url,
-                proxy_password: '',
-                custom_url: effectiveApiConfig.url,
-                custom_include_headers: effectiveApiConfig.apiKey ? `Authorization: Bearer ${effectiveApiConfig.apiKey}` : '',
-            };
+            const requestBody = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { temperature: 0.7, topP: 0.95 });
             const response = await fetch('/api/backends/chat-completions/generate', {
                 method: 'POST',
                 headers: { ...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json' },
@@ -13581,19 +13632,8 @@ $CONTENT
                 return await generateRaw_ACU({ ordered_prompts: messages, should_stream: settings_ACU.streamingEnabled || false });
             }
             else {
-                const url = `/api/backends/chat-completions/generate`;
-                const body = JSON.stringify({
-                    messages: messages,
-                    model: settings_ACU.apiConfig.model,
-                    max_tokens: settings_ACU.apiConfig.max_tokens,
-                    stream: settings_ACU.streamingEnabled || false,
-                    chat_completion_source: "custom",
-                    // ... other params
-                    reverse_proxy: settings_ACU.apiConfig.url,
-                    custom_url: settings_ACU.apiConfig.url,
-                    custom_include_headers: settings_ACU.apiConfig.apiKey ? `Authorization: Bearer ${settings_ACU.apiConfig.apiKey}` : ""
-                });
-                const res = await fetch(url, { method: 'POST', headers: { ...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json' }, body });
+                const requestBody = buildCustomApiRequestBody_ACU(messages, settings_ACU.apiConfig, { stripModelPrefix: false });
+                const res = await fetch('/api/backends/chat-completions/generate', { method: 'POST', headers: { ...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
                 // 根据streamingEnabled设置选择响应处理方式
                 const content = await handleApiResponse_ACU(res);
                 return content;
@@ -13643,25 +13683,7 @@ $CONTENT
         if (!effectiveApiConfig.url || !effectiveApiConfig.model) {
             throw new Error('自定义API的URL或模型未配置。');
         }
-        const body = JSON.stringify({
-            messages,
-            model: effectiveApiConfig.model,
-            temperature: effectiveApiConfig.temperature || 1.0,
-            top_p: effectiveApiConfig.top_p || 0.9,
-            max_tokens: maxTokens,
-            stream: settings_ACU.streamingEnabled || false,
-            chat_completion_source: 'custom',
-            group_names: [],
-            include_reasoning: false,
-            reasoning_effort: 'medium',
-            enable_web_search: false,
-            request_images: false,
-            custom_prompt_post_processing: 'strict',
-            reverse_proxy: effectiveApiConfig.url,
-            proxy_password: '',
-            custom_url: effectiveApiConfig.url,
-            custom_include_headers: effectiveApiConfig.apiKey ? `Authorization: Bearer ${effectiveApiConfig.apiKey}` : '',
-        });
+        const body = JSON.stringify(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens, temperature: effectiveApiConfig.temperature || 1.0, topP: effectiveApiConfig.top_p || 0.9, stripModelPrefix: false }));
         const res = await fetch('/api/backends/chat-completions/generate', {
             method: 'POST',
             headers: { ...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json' },
@@ -20288,6 +20310,83 @@ $CONTENT
             return;
         }
         logDebug_ACU(`[数据清理] 将清理 ${indicesToPurge.length} 层消息的本地数据（保留最近 ${retainCount} 层）...`);
+        // ── [兜底快照] 在删除旧楼层之前，迁移冷表数据到边界保留楼层 ──
+        const anchorIndex = dataMessageIndices[cutoffIndex];
+        const retainedSet = new Set(dataMessageIndices.slice(cutoffIndex));
+        // 确认边界楼层有效且不是 chat[0]
+        if (anchorIndex !== undefined && anchorIndex >= 1 && chat[anchorIndex]) {
+            const dataIsolationEnabled = settings_ACU.dataIsolationEnabled || false;
+            const dataIsolationCode = settings_ACU.dataIsolationCode || null;
+            // orphanedData: Map<isolationKey, Map<sheetKey, SheetData>>
+            const orphanedData = new Map();
+            // 按索引从小到大遍历待清理楼层（从旧到新，后面的覆盖前面的 → 取最新版本）
+            for (const idx of indicesToPurge) {
+                const msg = chat[idx];
+                if (!msg || msg.is_user)
+                    continue;
+                const sheetDataMap = collectAllSheetDataFromMessage_ACU(msg, dataIsolationEnabled, dataIsolationCode);
+                if (sheetDataMap.size === 0)
+                    continue;
+                for (const [isoKey, sheetMap] of sheetDataMap) {
+                    for (const [sheetKey, sheetData] of sheetMap) {
+                        // 检查该表是否在任何保留楼层中已有数据
+                        if (isSheetRetainedInAnyFloor_ACU(sheetKey, isoKey, retainedSet, chat, dataIsolationEnabled, dataIsolationCode)) {
+                            continue; // 已有保留数据，无需兜底
+                        }
+                        // 记录到 orphanedData（后面的覆盖前面的，实现取最新版本）
+                        if (!orphanedData.has(isoKey)) {
+                            orphanedData.set(isoKey, new Map());
+                        }
+                        orphanedData.get(isoKey).set(sheetKey, sheetData);
+                    }
+                }
+            }
+            // 将 orphaned 数据写入边界保留楼层
+            if (orphanedData.size > 0) {
+                let totalSheets = 0;
+                for (const [, sheetMap] of orphanedData) {
+                    totalSheets += sheetMap.size;
+                }
+                logDebug_ACU(`[数据清理] 检测到 ${totalSheets} 张表（${orphanedData.size} 个隔离标签）仅存在于待清理楼层，将写入边界保留楼层 #${anchorIndex} 作为兜底...`);
+                const anchorMsg = chat[anchorIndex];
+                // 初始化 IsolatedData 容器
+                if (!anchorMsg.TavernDB_ACU_IsolatedData || typeof anchorMsg.TavernDB_ACU_IsolatedData !== 'object' || Array.isArray(anchorMsg.TavernDB_ACU_IsolatedData)) {
+                    anchorMsg.TavernDB_ACU_IsolatedData = {};
+                }
+                for (const [isoKey, sheetMap] of orphanedData) {
+                    // 初始化该 isolationKey 槽（如果不存在）
+                    if (!anchorMsg.TavernDB_ACU_IsolatedData[isoKey]) {
+                        anchorMsg.TavernDB_ACU_IsolatedData[isoKey] = {
+                            independentData: {},
+                            modifiedKeys: [],
+                            updateGroupKeys: [],
+                        };
+                    }
+                    const anchorTagData = anchorMsg.TavernDB_ACU_IsolatedData[isoKey];
+                    if (!anchorTagData.independentData || typeof anchorTagData.independentData !== 'object') {
+                        anchorTagData.independentData = {};
+                    }
+                    // 写入表数据（不修改 modifiedKeys/updateGroupKeys，避免干扰自动更新门禁）
+                    for (const [sheetKey, sheetData] of sheetMap) {
+                        anchorTagData.independentData[sheetKey] = JSON.parse(JSON.stringify(sheetData));
+                    }
+                }
+                // 立即持久化兜底数据，再继续删除循环
+                try {
+                    await saveChatToHost_ACU();
+                    logDebug_ACU(`[数据清理] 已将 ${totalSheets} 张表（${orphanedData.size} 个隔离标签）的兜底数据写入楼层 #${anchorIndex}，聊天已保存。`);
+                }
+                catch (e) {
+                    logWarn_ACU('[数据清理] 写入兜底数据失败，继续清理流程:', e);
+                }
+            }
+            else {
+                logDebug_ACU('[数据清理] 未检测到需要兜底的表数据。');
+            }
+        }
+        else {
+            logWarn_ACU(`[数据清理] 边界保留楼层索引无效（anchorIndex=${anchorIndex}），跳过兜底快照。`);
+        }
         let purgedCount = 0;
         const keysToDelete = [
             'TavernDB_ACU_Data',
@@ -20330,6 +20429,119 @@ $CONTENT
         else {
             logDebug_ACU('[数据清理] 目标楼层中未发现需要清理的数据字段。');
         }
+    }
+    /**
+     * 检查指定表是否在任何保留楼层中存在数据。
+     * 同时检查新版 IsolatedData 路径和旧版兼容路径。
+     */
+    function isSheetRetainedInAnyFloor_ACU(sheetKey, isolationKey, retainedSet, chat, dataIsolationEnabled, dataIsolationCode) {
+        for (const idx of retainedSet) {
+            const msg = chat[idx];
+            if (!msg || msg.is_user)
+                continue;
+            // 新版 IsolatedData 路径
+            const tagData = msg?.TavernDB_ACU_IsolatedData?.[isolationKey];
+            if (tagData?.independentData?.[sheetKey]) {
+                return true;
+            }
+            // 旧版兼容路径：仅当 isolationKey 与当前隔离配置匹配时检查
+            if (!dataIsolationEnabled) {
+                // 无隔离模式：检查旧版字段中是否存在
+                const legacyIdentity = msg?.TavernDB_ACU_Identity;
+                if (!legacyIdentity && (msg?.TavernDB_ACU_IndependentData?.[sheetKey] || msg?.TavernDB_ACU_Data?.[sheetKey] || msg?.TavernDB_ACU_SummaryData?.[sheetKey])) {
+                    return true;
+                }
+            }
+            else {
+                // 隔离模式：检查 identity 是否匹配
+                if (msg?.TavernDB_ACU_Identity === dataIsolationCode) {
+                    if (msg?.TavernDB_ACU_IndependentData?.[sheetKey] || msg?.TavernDB_ACU_Data?.[sheetKey] || msg?.TavernDB_ACU_SummaryData?.[sheetKey]) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    /**
+     * 从消息中收集所有表数据（新版 IsolatedData + 旧版兼容路径）。
+     * 返回按 isolationKey 分组的 Map。
+     *
+     * @param msg 聊天消息对象
+     * @param dataIsolationEnabled 当前隔离配置
+     * @param dataIsolationCode 当前隔离码
+     * @returns Map<isolationKey, Map<sheetKey, Sheet_ACU>>
+     */
+    function collectAllSheetDataFromMessage_ACU(msg, dataIsolationEnabled, dataIsolationCode) {
+        const result = new Map();
+        // 新版 IsolatedData 路径：遍历所有 isolationKey
+        const isolatedData = msg?.TavernDB_ACU_IsolatedData;
+        if (isolatedData && typeof isolatedData === 'object' && !Array.isArray(isolatedData)) {
+            for (const [isoKey, tagData] of Object.entries(isolatedData)) {
+                const independentData = tagData?.independentData;
+                if (!independentData || typeof independentData !== 'object')
+                    continue;
+                const sheetMap = new Map();
+                for (const [sheetKey, sheetData] of Object.entries(independentData)) {
+                    if (sheetKey.startsWith('sheet_') && sheetData && typeof sheetData === 'object') {
+                        sheetMap.set(sheetKey, sheetData);
+                    }
+                }
+                if (sheetMap.size > 0) {
+                    result.set(isoKey, sheetMap);
+                }
+            }
+        }
+        // 旧版兼容路径：归入对应的 isolationKey
+        const legacyIsoKey = dataIsolationEnabled ? (dataIsolationCode || '') : '';
+        // 判断该消息的旧版数据是否属于当前隔离上下文
+        const msgLegacyIdentity = msg?.TavernDB_ACU_Identity;
+        let legacyBelongsHere = false;
+        if (!dataIsolationEnabled) {
+            legacyBelongsHere = !msgLegacyIdentity;
+        }
+        else {
+            legacyBelongsHere = msgLegacyIdentity === dataIsolationCode;
+        }
+        if (legacyBelongsHere) {
+            const legacySheets = new Map();
+            const legacyIndependent = msg?.TavernDB_ACU_IndependentData;
+            if (legacyIndependent && typeof legacyIndependent === 'object') {
+                for (const [sheetKey, sheetData] of Object.entries(legacyIndependent)) {
+                    if (sheetKey.startsWith('sheet_') && sheetData && typeof sheetData === 'object') {
+                        legacySheets.set(sheetKey, sheetData);
+                    }
+                }
+            }
+            const legacyStandard = msg?.TavernDB_ACU_Data;
+            if (legacyStandard && typeof legacyStandard === 'object') {
+                for (const [sheetKey, sheetData] of Object.entries(legacyStandard)) {
+                    if (sheetKey.startsWith('sheet_') && sheetData && typeof sheetData === 'object' && !legacySheets.has(sheetKey)) {
+                        legacySheets.set(sheetKey, sheetData);
+                    }
+                }
+            }
+            const legacySummary = msg?.TavernDB_ACU_SummaryData;
+            if (legacySummary && typeof legacySummary === 'object') {
+                for (const [sheetKey, sheetData] of Object.entries(legacySummary)) {
+                    if (sheetKey.startsWith('sheet_') && sheetData && typeof sheetData === 'object' && !legacySheets.has(sheetKey)) {
+                        legacySheets.set(sheetKey, sheetData);
+                    }
+                }
+            }
+            if (legacySheets.size > 0) {
+                const existing = result.get(legacyIsoKey);
+                if (existing) {
+                    for (const [k, v] of legacySheets) {
+                        existing.set(k, v);
+                    }
+                }
+                else {
+                    result.set(legacyIsoKey, legacySheets);
+                }
+            }
+        }
+        return result;
     }
     /**
      * 删除聊天记录中的本地数据（核心业务逻辑）
@@ -26639,6 +26851,9 @@ $CONTENT
         bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-rerank-api-key`, 'input change', ($input) => {
             updateVectorMemoryField_ACU('rerankApiKey', String($input.val() ?? '').trim());
         });
+        bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-rerank-instruction`, 'input change', ($input) => {
+            updateVectorMemoryField_ACU('rerankInstruction', String($input.val() ?? ''));
+        });
         bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-overview-sentence-limit`, 'input change', ($input) => {
             const defaults = getDefaultVectorMemoryConfig_ACU();
             updateVectorMemoryField_ACU('summaryChunkSentenceCount', parseIntegerField_ACU($input.val(), defaults.summaryChunkSentenceCount));
@@ -27220,6 +27435,9 @@ $CONTENT
             model,
             max_tokens: isNaN(max_tokens) ? 120000 : max_tokens,
             temperature: isNaN(temperature) ? 0.9 : temperature,
+            bodyParams: String($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-body-params`).val() ?? ''),
+            excludeBodyParams: String($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-exclude-body-params`).val() ?? ''),
+            requestHeaders: String($popupInstance_ACU.find(`#${SCRIPT_ID_PREFIX_ACU}-api-request-headers`).val() ?? ''),
         });
         // 将新保存的模型添加到select中（如果不存在）
         if ($customApiModelSelect_ACU && $customApiModelSelect_ACU.find(`option[value="${escapeHtml_ACU$1(model)}"]`).length === 0) {
@@ -27230,7 +27448,7 @@ $CONTENT
         loadSettingsAndRefreshUI_ACU();
     }
     function clearApiConfig_ACU() {
-        Object.assign(settings_ACU.apiConfig, { url: '', apiKey: '', model: '', max_tokens: 120000, temperature: 0.9 });
+        Object.assign(settings_ACU.apiConfig, { url: '', apiKey: '', model: '', max_tokens: 120000, temperature: 0.9, bodyParams: '', excludeBodyParams: '', requestHeaders: '' });
         saveSettingsAndNotify_ACU();
         showToastr_ACU('info', 'API配置已清除！');
         loadSettingsAndRefreshUI_ACU();
@@ -43513,6 +43731,21 @@ $CONTENT
                                 <select id="${SCRIPT_ID_PREFIX_ACU}-api-model-select" class="text_pole">
                                     <option value="">-- 请先加载模型列表 --</option>
                                 </select>
+                                <div style="margin-top: 12px;">
+                                    <label for="${SCRIPT_ID_PREFIX_ACU}-api-body-params">附加 Body 参数 (JSON):</label>
+                                    <textarea id="${SCRIPT_ID_PREFIX_ACU}-api-body-params" rows="3" placeholder='{"top_p": 0.9, "frequency_penalty": 0.5}' style="width: 100%; resize: vertical; font-family: monospace;"></textarea>
+                                    <small class="notes">JSON 格式，会合并到请求 body 中（覆盖同名字段）。留空不附加。</small>
+                                </div>
+                                <div style="margin-top: 8px;">
+                                    <label for="${SCRIPT_ID_PREFIX_ACU}-api-exclude-body-params">排除 Body 参数:</label>
+                                    <textarea id="${SCRIPT_ID_PREFIX_ACU}-api-exclude-body-params" rows="2" placeholder='["stream", "top_p"]' style="width: 100%; resize: vertical; font-family: monospace;"></textarea>
+                                    <small class="notes">JSON 数组格式，列出的字段会从请求 body 中移除。留空不排除。</small>
+                                </div>
+                                <div style="margin-top: 8px;">
+                                    <label for="${SCRIPT_ID_PREFIX_ACU}-api-request-headers">附加请求头 (JSON):</label>
+                                    <textarea id="${SCRIPT_ID_PREFIX_ACU}-api-request-headers" rows="2" placeholder='{"X-Custom-Header": "value"}' style="width: 100%; resize: vertical; font-family: monospace;"></textarea>
+                                    <small class="notes">JSON 格式，会合并到请求 headers 中。留空不附加。</small>
+                                </div>
                             </div>
                             <div id="${SCRIPT_ID_PREFIX_ACU}-api-status" class="notes" style="margin-top:12px;">状态: 未配置</div>
                             <div class="button-group">
@@ -43759,6 +43992,12 @@ $CONTENT
                                             <input type="password" id="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-rerank-api-key" placeholder="留空表示不附带 Authorization">
                                             <small class="notes">可与 Embedding 使用不同鉴权；若服务不需要鉴权可留空。</small>
                                         </div>
+                                        <div class="acu-col-sm" style="grid-column: 1 / -1;">
+                                            <label for="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-rerank-instruction">Rerank Instruction（重排指令）</label>
+                                            <textarea id="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-rerank-instruction" rows="3" placeholder="可选：传递给 Rerank API 的 instruction / query 参数，用于引导重排方向。留空则不附带。" style="width: 100%; resize: vertical;"></textarea>
+                                            <small class="notes">部分 Rerank 模型支持 instruction 参数（如 bge-reranker-v2-m3）；填写后会作为 query/instruction 字段发送。</small>
+                                        </div>
+
                                     </div>
                                     <small class="notes" style="display: block; margin-top: 8px;">启用真实 Rerank 后，Embedding 仍负责召回预筛，TopK 仍控制最终注入数量；这三者不是互相替代关系。</small>
                                 </div>
@@ -46929,14 +47168,18 @@ $CONTENT
             const apiKey = normalizeText_ACU(config.rerankApiKey);
             if (apiKey)
                 headers.Authorization = `Bearer ${apiKey}`;
+            const instruction = normalizeText_ACU(config.rerankInstruction);
+            const body = {
+                model,
+                query,
+                documents: candidates.map((candidate) => candidate.chunk.text),
+            };
+            if (instruction)
+                body.instruction = instruction;
             const response = await fetch(endpoint, {
                 method: 'POST',
                 headers,
-                body: JSON.stringify({
-                    model,
-                    query,
-                    documents: candidates.map((candidate) => candidate.chunk.text),
-                }),
+                body: JSON.stringify(body),
             });
             if (!response.ok)
                 throw new Error(await response.text().catch(() => response.statusText));

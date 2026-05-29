@@ -162,6 +162,9 @@ import { getCurrentVectorMemoryConfig_ACU } from '../../../service/vector/vector
         model,
         max_tokens: isNaN(max_tokens) ? 120000 : max_tokens,
         temperature: isNaN(temperature) ? 0.9 : temperature,
+        bodyParams: String($popupInstance_ACU!.find(`#${SCRIPT_ID_PREFIX_ACU}-api-body-params`).val() ?? ''),
+        excludeBodyParams: String($popupInstance_ACU!.find(`#${SCRIPT_ID_PREFIX_ACU}-api-exclude-body-params`).val() ?? ''),
+        requestHeaders: String($popupInstance_ACU!.find(`#${SCRIPT_ID_PREFIX_ACU}-api-request-headers`).val() ?? ''),
     });
     // 将新保存的模型添加到select中（如果不存在）
     if ($customApiModelSelect_ACU && $customApiModelSelect_ACU.find(`option[value="${escapeHtml_ACU(model)}"]`).length === 0) {
@@ -173,7 +176,7 @@ import { getCurrentVectorMemoryConfig_ACU } from '../../../service/vector/vector
   }
 
   export function clearApiConfig_ACU() {
-    Object.assign(settings_ACU.apiConfig, { url: '', apiKey: '', model: '', max_tokens: 120000, temperature: 0.9 });
+    Object.assign(settings_ACU.apiConfig, { url: '', apiKey: '', model: '', max_tokens: 120000, temperature: 0.9, bodyParams: '', excludeBodyParams: '', requestHeaders: '' });
     saveSettingsAndNotify_ACU();
     showToastr_ACU('info', 'API配置已清除！');
     loadSettingsAndRefreshUI_ACU();

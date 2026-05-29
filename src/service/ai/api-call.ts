@@ -7,6 +7,93 @@ import { isGenerateRawAvailable_ACU, generateRaw_ACU, sendConnectionManagerReque
 import { logDebug_ACU, logWarn_ACU } from '../../shared/utils';
 
 /**
+ * 解析 "key=value\nkey=value" 格式字符串为 Record<string, string>
+ */
+function parseKeyValueLines(raw: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!raw || typeof raw !== 'string') return result;
+  const lines = raw.split(/\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIndex = trimmed.indexOf(':');
+    if (eqIndex <= 0) continue;
+    const key = trimmed.slice(0, eqIndex).trim();
+    const value = trimmed.slice(eqIndex + 1).trim();
+    if (key) result[key] = value;
+  }
+  return result;
+}
+
+/**
+ * 构建 Chat Completions 自定义 API 请求体（支持 bodyParams / excludeBodyParams / requestHeaders）
+ */
+function buildCustomApiRequestBody_ACU(
+  messages: any[],
+  effectiveApiConfig: any,
+  overrides?: { maxTokens?: number; temperature?: number; topP?: number; stripModelPrefix?: boolean }
+): Record<string, any> {
+  const opts = overrides || {};
+  const model = opts.stripModelPrefix !== false
+    ? (effectiveApiConfig.model || '').replace(/^models\//, '')
+    : (effectiveApiConfig.model || '');
+  const maxTokens = opts.maxTokens || effectiveApiConfig.max_tokens || effectiveApiConfig.maxTokens || 20000;
+  const temperature = opts.temperature ?? effectiveApiConfig.temperature ?? 1.0;
+  const topP = opts.topP ?? effectiveApiConfig.top_p ?? effectiveApiConfig.topP ?? 0.95;
+
+  // 基础 Authorization 头
+  let headers = effectiveApiConfig.apiKey ? `Authorization: Bearer ${effectiveApiConfig.apiKey}` : '';
+  // 追加 requestHeaders
+  if (effectiveApiConfig.requestHeaders) {
+    const extra = effectiveApiConfig.requestHeaders.trim();
+    if (extra) {
+      headers = headers ? `${headers}\n${extra}` : extra;
+    }
+  }
+
+  const body: Record<string, any> = {
+    messages,
+    model,
+    max_tokens: maxTokens,
+    temperature,
+    top_p: topP,
+    stream: settings_ACU.streamingEnabled || false,
+    chat_completion_source: 'custom',
+    group_names: [],
+    include_reasoning: false,
+    reasoning_effort: 'medium',
+    enable_web_search: false,
+    request_images: false,
+    custom_prompt_post_processing: 'strict',
+    reverse_proxy: effectiveApiConfig.url,
+    proxy_password: '',
+    custom_url: effectiveApiConfig.url,
+    custom_include_headers: headers,
+  };
+
+  // 合并 bodyParams
+  if (effectiveApiConfig.bodyParams) {
+    const extra = parseKeyValueLines(effectiveApiConfig.bodyParams);
+    for (const [k, v] of Object.entries(extra)) {
+      if (v === 'true') body[k] = true;
+      else if (v === 'false') body[k] = false;
+      else if (v !== '' && !isNaN(Number(v))) body[k] = Number(v);
+      else body[k] = v;
+    }
+  }
+
+  // 删除 excludeBodyParams 指定的字段
+  if (effectiveApiConfig.excludeBodyParams) {
+    const keys = effectiveApiConfig.excludeBodyParams.split(/[,\n]/).map((s: string) => s.trim()).filter(Boolean);
+    for (const k of keys) {
+      delete body[k];
+    }
+  }
+
+  return body;
+}
+
+/**
  * 剧情推进任务级 API 调用 — 接受显式预设名称
  * 调用优先级：presetName 参数 > 全局 plotApiPreset > 当前 API 配置
  */
@@ -16,7 +103,9 @@ export async function callApiWithPlotPreset_ACU(messages: any[], presetName: str
     const effectiveApiMode = apiPresetConfig.apiMode ?? settings_ACU.apiMode;
     const effectiveApiConfig = apiPresetConfig.apiConfig || settings_ACU.apiConfig || {};
 
+
     logDebug_ACU(`[剧情推进] 任务级API调用，预设: ${effectivePresetName || '当前配置'}, 模式: ${effectiveApiMode}`);
+
 
     if (effectiveApiMode === 'tavern' || effectiveApiConfig.useMainApi) {
       logDebug_ACU('[剧情推进] 通过酒馆主API发送请求（流式传输）...');
@@ -36,25 +125,8 @@ export async function callApiWithPlotPreset_ACU(messages: any[], presetName: str
         throw new Error('自定义API的URL或模型未配置。');
       }
 
-      const requestBody = {
-        messages: messages,
-        model: effectiveApiConfig.model.replace(/^models\//, ''),
-        max_tokens: effectiveApiConfig.maxTokens || effectiveApiConfig.max_tokens || 20000,
-        temperature: effectiveApiConfig.temperature || 0.7,
-        top_p: effectiveApiConfig.topP || effectiveApiConfig.top_p || 0.95,
-        stream: settings_ACU.streamingEnabled || false,
-        chat_completion_source: 'custom',
-        group_names: [] as string[],
-        include_reasoning: false,
-        reasoning_effort: 'medium',
-        enable_web_search: false,
-        request_images: false,
-        custom_prompt_post_processing: 'strict',
-        reverse_proxy: effectiveApiConfig.url,
-        proxy_password: '',
-        custom_url: effectiveApiConfig.url,
-        custom_include_headers: effectiveApiConfig.apiKey ? `Authorization: Bearer ${effectiveApiConfig.apiKey}` : '',
-      };
+      const requestBody = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { temperature: 0.7, topP: 0.95 });
+
 
       const response = await fetch('/api/backends/chat-completions/generate', {
         method: 'POST',
@@ -77,12 +149,13 @@ export async function callApiWithPlotPreset_ACU(messages: any[], presetName: str
     }
 }
 
-export   async function callApi_ACU(messages: any[], apiSettings: any, abortSignal: AbortSignal | null = null) {
+export async function callApi_ACU(messages: any[], apiSettings: any, abortSignal: AbortSignal | null = null) {
     // [新增] 获取剧情推进使用的API配置（支持API预设）
     const apiPresetConfig = getApiConfigByPreset_ACU(settings_ACU.plotApiPreset);
     const effectiveApiMode = apiPresetConfig.apiMode;
     const effectiveApiConfig = apiPresetConfig.apiConfig;
-    
+
+
     logDebug_ACU(`[剧情推进] 使用API预设: ${settings_ACU.plotApiPreset || '当前配置'}, 模式: ${effectiveApiMode}`);
 
     if (effectiveApiMode === 'tavern' || effectiveApiConfig.useMainApi) {
@@ -105,25 +178,7 @@ export   async function callApi_ACU(messages: any[], apiSettings: any, abortSign
         throw new Error('自定义API的URL或模型未配置。');
       }
 
-      const requestBody = {
-        messages: messages,
-        model: effectiveApiConfig.model.replace(/^models\//, ''),
-        max_tokens: effectiveApiConfig.maxTokens || effectiveApiConfig.max_tokens || 20000,
-        temperature: effectiveApiConfig.temperature || 0.7,
-        top_p: effectiveApiConfig.topP || effectiveApiConfig.top_p || 0.95,
-        stream: settings_ACU.streamingEnabled || false,
-        chat_completion_source: 'custom',
-        group_names: [] as string[],
-        include_reasoning: false,
-        reasoning_effort: 'medium',
-        enable_web_search: false,
-        request_images: false,
-        custom_prompt_post_processing: 'strict',
-        reverse_proxy: effectiveApiConfig.url,
-        proxy_password: '',
-        custom_url: effectiveApiConfig.url,
-        custom_include_headers: effectiveApiConfig.apiKey ? `Authorization: Bearer ${effectiveApiConfig.apiKey}` : '',
-      };
+      const requestBody = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { temperature: 0.7, topP: 0.95 });
 
       const response = await fetch('/api/backends/chat-completions/generate', {
         method: 'POST',
@@ -131,6 +186,7 @@ export   async function callApi_ACU(messages: any[], apiSettings: any, abortSign
         body: JSON.stringify(requestBody),
         signal: abortSignal,
       });
+
 
       if (!response.ok) {
         const errTxt = await response.text();
@@ -143,12 +199,13 @@ export   async function callApi_ACU(messages: any[], apiSettings: any, abortSign
         return content.trim();
       }
 
+
       throw new Error(`API调用返回无效响应`);
     }
-  }
+}
 
 
-export   function getApiConfigByPreset_ACU(presetName: string) {
+export function getApiConfigByPreset_ACU(presetName: string) {
     if (!presetName) {
       // 使用当前配置
       return {
@@ -157,7 +214,7 @@ export   function getApiConfigByPreset_ACU(presetName: string) {
         tavernProfile: settings_ACU.tavernProfile
       };
     }
-    
+
     const preset = settings_ACU.apiPresets.find((p: any) => p.name === presetName);
     if (preset) {
       return {
@@ -166,7 +223,7 @@ export   function getApiConfigByPreset_ACU(presetName: string) {
         tavernProfile: preset.tavernProfile
       };
     }
-    
+
     // 预设不存在，回退到当前配置
     logWarn_ACU(`API预设 "${presetName}" 不存在，使用当前配置。`);
     return {
@@ -174,15 +231,15 @@ export   function getApiConfigByPreset_ACU(presetName: string) {
       apiConfig: settings_ACU.apiConfig,
       tavernProfile: settings_ACU.tavernProfile
     };
-  }
+}
 
 
-export   async function callCustomOpenAI_ACU_Direct(messages: any[]) {
+export async function callCustomOpenAI_ACU_Direct(messages: any[]) {
       // Reuse the logic from callCustomOpenAI_ACU but bypass the prompt replacement part
       // ... For brevity, I will just call callCustomOpenAI_ACU with a hacked dynamicContent?
       // No, callCustomOpenAI_ACU relies on settings_ACU.charCardPrompt.
       // I should refactor callCustomOpenAI_ACU to accept direct messages, or duplicate the API calling part.
-      
+
       // Duplicating API calling logic for safety and isolation
       if (settings_ACU.apiMode === 'tavern') {
           const profileId = settings_ACU.tavernProfile;
@@ -194,19 +251,8 @@ export   async function callCustomOpenAI_ACU_Direct(messages: any[]) {
           if (settings_ACU.apiConfig.useMainApi) {
              return await generateRaw_ACU({ ordered_prompts: messages, should_stream: settings_ACU.streamingEnabled || false });
           } else {
-             const url = `/api/backends/chat-completions/generate`;
-             const body = JSON.stringify({
-                 messages: messages,
-                 model: settings_ACU.apiConfig.model,
-                 max_tokens: settings_ACU.apiConfig.max_tokens,
-                 stream: settings_ACU.streamingEnabled || false,
-                 chat_completion_source: "custom",
-                 // ... other params
-                 reverse_proxy: settings_ACU.apiConfig.url,
-                 custom_url: settings_ACU.apiConfig.url,
-                 custom_include_headers: settings_ACU.apiConfig.apiKey ? `Authorization: Bearer ${settings_ACU.apiConfig.apiKey}` : ""
-             });
-             const res = await fetch(url, { method: 'POST', headers: {...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json'}, body });
+             const requestBody = buildCustomApiRequestBody_ACU(messages, settings_ACU.apiConfig, { stripModelPrefix: false });
+             const res = await fetch('/api/backends/chat-completions/generate', { method: 'POST', headers: {...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json'}, body: JSON.stringify(requestBody) });
              // 根据streamingEnabled设置选择响应处理方式
              const content = await handleApiResponse_ACU(res);
              return content;
@@ -233,6 +279,7 @@ export async function callAIWithPreset_ACU(messages: any[], presetName: string =
     const effectiveApiConfig = apiPresetConfig.apiConfig || {} as any;
     const effectiveTavernProfile = apiPresetConfig.tavernProfile;
     const maxTokens = effectiveApiConfig.max_tokens || effectiveApiConfig.maxTokens || 4096;
+
 
     logDebug_ACU(`[callAIWithPreset] 调用 AI，消息数=${messages.length}，预设=${presetName || '当前配置'}，模式=${effectiveApiMode}`);
 
@@ -264,25 +311,7 @@ export async function callAIWithPreset_ACU(messages: any[], presetName: string =
         throw new Error('自定义API的URL或模型未配置。');
     }
 
-    const body = JSON.stringify({
-        messages,
-        model: effectiveApiConfig.model,
-        temperature: effectiveApiConfig.temperature || 1.0,
-        top_p: effectiveApiConfig.top_p || 0.9,
-        max_tokens: maxTokens,
-        stream: settings_ACU.streamingEnabled || false,
-        chat_completion_source: 'custom',
-        group_names: [],
-        include_reasoning: false,
-        reasoning_effort: 'medium',
-        enable_web_search: false,
-        request_images: false,
-        custom_prompt_post_processing: 'strict',
-        reverse_proxy: effectiveApiConfig.url,
-        proxy_password: '',
-        custom_url: effectiveApiConfig.url,
-        custom_include_headers: effectiveApiConfig.apiKey ? `Authorization: Bearer ${effectiveApiConfig.apiKey}` : '',
-    });
+    const body = JSON.stringify(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens, temperature: effectiveApiConfig.temperature || 1.0, topP: effectiveApiConfig.top_p || 0.9, stripModelPrefix: false }));
 
     const res = await fetch('/api/backends/chat-completions/generate', {
         method: 'POST',

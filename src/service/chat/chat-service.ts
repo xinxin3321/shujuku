@@ -265,6 +265,93 @@ export async function purgeOldLayerData_ACU() {
 
     logDebug_ACU(`[数据清理] 将清理 ${indicesToPurge.length} 层消息的本地数据（保留最近 ${retainCount} 层）...`);
 
+    // ── [兜底快照] 在删除旧楼层之前，迁移冷表数据到边界保留楼层 ──
+    const anchorIndex = dataMessageIndices[cutoffIndex];
+    const retainedSet = new Set<number>(dataMessageIndices.slice(cutoffIndex));
+
+    // 确认边界楼层有效且不是 chat[0]
+    if (anchorIndex !== undefined && anchorIndex >= 1 && chat[anchorIndex]) {
+        const dataIsolationEnabled = settings_ACU.dataIsolationEnabled || false;
+        const dataIsolationCode = settings_ACU.dataIsolationCode || null;
+
+        // orphanedData: Map<isolationKey, Map<sheetKey, SheetData>>
+        const orphanedData = new Map<string, Map<string, any>>();
+
+        // 按索引从小到大遍历待清理楼层（从旧到新，后面的覆盖前面的 → 取最新版本）
+        for (const idx of indicesToPurge) {
+            const msg = chat[idx];
+            if (!msg || msg.is_user) continue;
+
+            const sheetDataMap = collectAllSheetDataFromMessage_ACU(msg, dataIsolationEnabled, dataIsolationCode);
+            if (sheetDataMap.size === 0) continue;
+
+            for (const [isoKey, sheetMap] of sheetDataMap) {
+                for (const [sheetKey, sheetData] of sheetMap) {
+                    // 检查该表是否在任何保留楼层中已有数据
+                    if (isSheetRetainedInAnyFloor_ACU(sheetKey, isoKey, retainedSet, chat, dataIsolationEnabled, dataIsolationCode)) {
+                        continue; // 已有保留数据，无需兜底
+                    }
+
+                    // 记录到 orphanedData（后面的覆盖前面的，实现取最新版本）
+                    if (!orphanedData.has(isoKey)) {
+                        orphanedData.set(isoKey, new Map<string, any>());
+                    }
+                    orphanedData.get(isoKey)!.set(sheetKey, sheetData);
+                }
+            }
+        }
+
+        // 将 orphaned 数据写入边界保留楼层
+        if (orphanedData.size > 0) {
+            let totalSheets = 0;
+            for (const [, sheetMap] of orphanedData) {
+                totalSheets += sheetMap.size;
+            }
+
+            logDebug_ACU(`[数据清理] 检测到 ${totalSheets} 张表（${orphanedData.size} 个隔离标签）仅存在于待清理楼层，将写入边界保留楼层 #${anchorIndex} 作为兜底...`);
+
+            const anchorMsg = chat[anchorIndex];
+
+            // 初始化 IsolatedData 容器
+            if (!anchorMsg.TavernDB_ACU_IsolatedData || typeof anchorMsg.TavernDB_ACU_IsolatedData !== 'object' || Array.isArray(anchorMsg.TavernDB_ACU_IsolatedData)) {
+                anchorMsg.TavernDB_ACU_IsolatedData = {};
+            }
+
+            for (const [isoKey, sheetMap] of orphanedData) {
+                // 初始化该 isolationKey 槽（如果不存在）
+                if (!anchorMsg.TavernDB_ACU_IsolatedData[isoKey]) {
+                    anchorMsg.TavernDB_ACU_IsolatedData[isoKey] = {
+                        independentData: {},
+                        modifiedKeys: [],
+                        updateGroupKeys: [],
+                    };
+                }
+
+                const anchorTagData = anchorMsg.TavernDB_ACU_IsolatedData[isoKey];
+                if (!anchorTagData.independentData || typeof anchorTagData.independentData !== 'object') {
+                    anchorTagData.independentData = {};
+                }
+
+                // 写入表数据（不修改 modifiedKeys/updateGroupKeys，避免干扰自动更新门禁）
+                for (const [sheetKey, sheetData] of sheetMap) {
+                    anchorTagData.independentData[sheetKey] = JSON.parse(JSON.stringify(sheetData));
+                }
+            }
+
+            // 立即持久化兜底数据，再继续删除循环
+            try {
+                await saveChatToHost_ACU();
+                logDebug_ACU(`[数据清理] 已将 ${totalSheets} 张表（${orphanedData.size} 个隔离标签）的兜底数据写入楼层 #${anchorIndex}，聊天已保存。`);
+            } catch (e) {
+                logWarn_ACU('[数据清理] 写入兜底数据失败，继续清理流程:', e);
+            }
+        } else {
+            logDebug_ACU('[数据清理] 未检测到需要兜底的表数据。');
+        }
+    } else {
+        logWarn_ACU(`[数据清理] 边界保留楼层索引无效（anchorIndex=${anchorIndex}），跳过兜底快照。`);
+    }
+
     let purgedCount = 0;
     const keysToDelete = [
         'TavernDB_ACU_Data',
@@ -309,6 +396,137 @@ export async function purgeOldLayerData_ACU() {
     } else {
         logDebug_ACU('[数据清理] 目标楼层中未发现需要清理的数据字段。');
     }
+}
+
+/**
+ * 检查指定表是否在任何保留楼层中存在数据。
+ * 同时检查新版 IsolatedData 路径和旧版兼容路径。
+ */
+function isSheetRetainedInAnyFloor_ACU(
+    sheetKey: string,
+    isolationKey: string,
+    retainedSet: Set<number>,
+    chat: any[],
+    dataIsolationEnabled: boolean,
+    dataIsolationCode: string | null,
+): boolean {
+    for (const idx of retainedSet) {
+        const msg = chat[idx];
+        if (!msg || msg.is_user) continue;
+
+        // 新版 IsolatedData 路径
+        const tagData = msg?.TavernDB_ACU_IsolatedData?.[isolationKey];
+        if (tagData?.independentData?.[sheetKey]) {
+            return true;
+        }
+
+        // 旧版兼容路径：仅当 isolationKey 与当前隔离配置匹配时检查
+        if (!dataIsolationEnabled) {
+            // 无隔离模式：检查旧版字段中是否存在
+            const legacyIdentity = msg?.TavernDB_ACU_Identity;
+            if (!legacyIdentity && (msg?.TavernDB_ACU_IndependentData?.[sheetKey] || msg?.TavernDB_ACU_Data?.[sheetKey] || msg?.TavernDB_ACU_SummaryData?.[sheetKey])) {
+                return true;
+            }
+        } else {
+            // 隔离模式：检查 identity 是否匹配
+            if (msg?.TavernDB_ACU_Identity === dataIsolationCode) {
+                if (msg?.TavernDB_ACU_IndependentData?.[sheetKey] || msg?.TavernDB_ACU_Data?.[sheetKey] || msg?.TavernDB_ACU_SummaryData?.[sheetKey]) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/**
+ * 从消息中收集所有表数据（新版 IsolatedData + 旧版兼容路径）。
+ * 返回按 isolationKey 分组的 Map。
+ *
+ * @param msg 聊天消息对象
+ * @param dataIsolationEnabled 当前隔离配置
+ * @param dataIsolationCode 当前隔离码
+ * @returns Map<isolationKey, Map<sheetKey, Sheet_ACU>>
+ */
+function collectAllSheetDataFromMessage_ACU(
+    msg: any,
+    dataIsolationEnabled: boolean,
+    dataIsolationCode: string | null,
+): Map<string, Map<string, any>> {
+    const result = new Map<string, Map<string, any>>();
+
+    // 新版 IsolatedData 路径：遍历所有 isolationKey
+    const isolatedData = msg?.TavernDB_ACU_IsolatedData;
+    if (isolatedData && typeof isolatedData === 'object' && !Array.isArray(isolatedData)) {
+        for (const [isoKey, tagData] of Object.entries(isolatedData) as [string, any][]) {
+            const independentData = tagData?.independentData;
+            if (!independentData || typeof independentData !== 'object') continue;
+            const sheetMap = new Map<string, any>();
+            for (const [sheetKey, sheetData] of Object.entries(independentData)) {
+                if (sheetKey.startsWith('sheet_') && sheetData && typeof sheetData === 'object') {
+                    sheetMap.set(sheetKey, sheetData);
+                }
+            }
+            if (sheetMap.size > 0) {
+                result.set(isoKey, sheetMap);
+            }
+        }
+    }
+
+    // 旧版兼容路径：归入对应的 isolationKey
+    const legacyIsoKey = dataIsolationEnabled ? (dataIsolationCode || '') : '';
+    // 判断该消息的旧版数据是否属于当前隔离上下文
+    const msgLegacyIdentity = msg?.TavernDB_ACU_Identity;
+    let legacyBelongsHere = false;
+    if (!dataIsolationEnabled) {
+        legacyBelongsHere = !msgLegacyIdentity;
+    } else {
+        legacyBelongsHere = msgLegacyIdentity === dataIsolationCode;
+    }
+
+    if (legacyBelongsHere) {
+        const legacySheets = new Map<string, any>();
+
+        const legacyIndependent = msg?.TavernDB_ACU_IndependentData;
+        if (legacyIndependent && typeof legacyIndependent === 'object') {
+            for (const [sheetKey, sheetData] of Object.entries(legacyIndependent)) {
+                if (sheetKey.startsWith('sheet_') && sheetData && typeof sheetData === 'object') {
+                    legacySheets.set(sheetKey, sheetData);
+                }
+            }
+        }
+
+        const legacyStandard = msg?.TavernDB_ACU_Data;
+        if (legacyStandard && typeof legacyStandard === 'object') {
+            for (const [sheetKey, sheetData] of Object.entries(legacyStandard)) {
+                if (sheetKey.startsWith('sheet_') && sheetData && typeof sheetData === 'object' && !legacySheets.has(sheetKey)) {
+                    legacySheets.set(sheetKey, sheetData);
+                }
+            }
+        }
+
+        const legacySummary = msg?.TavernDB_ACU_SummaryData;
+        if (legacySummary && typeof legacySummary === 'object') {
+            for (const [sheetKey, sheetData] of Object.entries(legacySummary)) {
+                if (sheetKey.startsWith('sheet_') && sheetData && typeof sheetData === 'object' && !legacySheets.has(sheetKey)) {
+                    legacySheets.set(sheetKey, sheetData);
+                }
+            }
+        }
+
+        if (legacySheets.size > 0) {
+            const existing = result.get(legacyIsoKey);
+            if (existing) {
+                for (const [k, v] of legacySheets) {
+                    existing.set(k, v);
+                }
+            } else {
+                result.set(legacyIsoKey, legacySheets);
+            }
+        }
+    }
+
+    return result;
 }
 
 /**

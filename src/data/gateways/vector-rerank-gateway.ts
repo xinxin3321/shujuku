@@ -11,6 +11,7 @@ export interface VectorRerankRequest_ACU {
     model: string;
     query: string;
     documents: string[];
+    instruction?: string;
 }
 
 function normalizeEndpoint_ACU(endpoint: string): string {
@@ -37,6 +38,7 @@ function normalizeRerankItem_ACU(item: any, fallbackIndex: number): VectorRerank
     const rawScore = item.relevance_score ?? item.relevanceScore ?? item.score;
     const index = Number.isFinite(Number(rawIndex)) ? Math.floor(Number(rawIndex)) : fallbackIndex;
     const relevanceScore = Number(rawScore);
+
 
     if (!Number.isFinite(index) || index < 0 || !Number.isFinite(relevanceScore)) {
         return null;
@@ -83,20 +85,20 @@ export async function createRerankScores_ACU(request: VectorRerankRequest_ACU): 
         return [];
     }
 
+    const instruction = String(request.instruction ?? '').trim();
+    const payload: Record<string, any> = { model, query, documents };
+    if (instruction) payload.instruction = instruction;
+
     const response = await fetch(endpoint, {
         method: 'POST',
         headers: buildRerankHeaders_ACU(request.apiKey),
-        body: JSON.stringify({
-            model,
-            query,
-            documents,
-        }),
+        body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
         throw new Error(`Rerank 请求失败: ${response.status} ${await response.text()}`);
     }
 
-    const payload = await response.json();
-    return extractRerankResults_ACU(payload);
+    const responsePayload = await response.json();
+    return extractRerankResults_ACU(responsePayload);
 }
