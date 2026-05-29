@@ -175,6 +175,7 @@ import { $popupInstance_ACU, $statusMessageSpan_ACU, $manualUpdateCardButton_ACU
       setVal('worldbook-vector-memory-rerank-endpoint', (vectorMemoryConfig as any).rerankEndpoint || '');
       setVal('worldbook-vector-memory-rerank-model', (vectorMemoryConfig as any).rerankModel || '');
       setVal('worldbook-vector-memory-rerank-api-key', (vectorMemoryConfig as any).rerankApiKey || '');
+      setVal('worldbook-vector-memory-rerank-instruction', vectorMemoryConfig.rerankInstruction || '');
       setVal('worldbook-vector-memory-overview-sentence-limit', vectorMemoryConfig.summaryChunkSentenceCount);
       setChecked('worldbook-vector-memory-archive-without-summary', (vectorMemoryConfig as any).archiveWithoutSummary === true);
       setVal('worldbook-vector-memory-recall-candidate-limit', vectorMemoryConfig.recallCandidateLimit);

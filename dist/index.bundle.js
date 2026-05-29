@@ -30751,6 +30751,7 @@ $CONTENT
         setVal('worldbook-vector-memory-rerank-endpoint', vectorMemoryConfig.rerankEndpoint || '');
         setVal('worldbook-vector-memory-rerank-model', vectorMemoryConfig.rerankModel || '');
         setVal('worldbook-vector-memory-rerank-api-key', vectorMemoryConfig.rerankApiKey || '');
+        setVal('worldbook-vector-memory-rerank-instruction', vectorMemoryConfig.rerankInstruction || '');
         setVal('worldbook-vector-memory-overview-sentence-limit', vectorMemoryConfig.summaryChunkSentenceCount);
         setChecked('worldbook-vector-memory-archive-without-summary', vectorMemoryConfig.archiveWithoutSummary === true);
         setVal('worldbook-vector-memory-recall-candidate-limit', vectorMemoryConfig.recallCandidateLimit);
