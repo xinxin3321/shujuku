@@ -156,7 +156,7 @@ let themeMenuCloseTimer: ReturnType<typeof setTimeout> | undefined;
 let mobileNavCloseTimer: ReturnType<typeof setTimeout> | undefined;
 
 const shellTitle = computed(() =>
-  visualizer.isActive ? "数据库编辑器" : router.activePage?.title || "SP·数据库 IV",
+  visualizer.isActive ? "数据库编辑器" : router.activePage?.title || "SP·数据库 III",
 );
 
 function toggleThemeMenu(): void {

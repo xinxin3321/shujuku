@@ -76,7 +76,7 @@ describe('mount — 当前文档场景', () => {
     expect(styles.length).toBeGreaterThan(0);
 
     const text = root!.textContent || '';
-    expect(text).toContain('SP·数据库 IV');
+    expect(text).toContain('SP·数据库 III');
     // 高手模式默认页是 dashboard，sidebar 有"概览/配置/功能/工具"四组标题
     expect(text).toContain('仪表盘');
     expect(text).toContain('概览');
@@ -167,7 +167,7 @@ describe('mount — 当前文档场景', () => {
     expect(drawer).not.toBeNull();
     expect(menuButton!.getAttribute('aria-expanded')).toBe('true');
     expect(drawer!.querySelector('.acu-v2-app__mobile-nav-header')).toBeNull();
-    expect(drawer!.textContent).toContain('SP·数据库 IV');
+    expect(drawer!.textContent).toContain('SP·数据库 III');
 
     const formFillButton = drawer!.querySelector('[data-page-id="form-fill"]') as HTMLButtonElement | null;
     expect(formFillButton).not.toBeNull();

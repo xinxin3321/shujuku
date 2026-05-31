@@ -7,9 +7,8 @@
  *
  * 阶段 0 仅覆盖：theme（批次 C）+ router.activePageId（批次 D）。
  */
+import { ACU_V2_STORAGE_KEY } from '../../shared/v2-ui-state';
 import { logWarn_ACU } from '../../shared/utils';
-
-export const ACU_V2_STORAGE_KEY = 'acu_v2_ui_state';
 
 type UiState = Record<string, unknown>;
 

@@ -8,7 +8,7 @@ import { useDevOptionsStore } from '../stores/dev-options-store';
 
 export function useDevOptions() {
   const store = useDevOptionsStore();
-  const { developerOptionsEnabled, plotAdvanced, vectorIndexAdvanced } = storeToRefs(store);
+  const { developerOptionsEnabled, plotAdvanced, vectorIndexAdvanced, legacyUiMenuVisible } = storeToRefs(store);
   return {
     developerOptionsEnabled,
     setDeveloperOptionsEnabled: (enabled: boolean) => store.setDeveloperOptionsEnabled(enabled),
@@ -16,6 +16,8 @@ export function useDevOptions() {
     setPlotAdvanced: (enabled: boolean) => store.setPlotAdvanced(enabled),
     vectorIndexAdvanced,
     setVectorIndexAdvanced: (enabled: boolean) => store.setVectorIndexAdvanced(enabled),
+    legacyUiMenuVisible,
+    setLegacyUiMenuVisible: (enabled: boolean) => store.setLegacyUiMenuVisible(enabled),
     refresh: () => store.refresh(),
   };
 }
