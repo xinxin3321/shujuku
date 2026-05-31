@@ -13,15 +13,10 @@
           v-for="(item, index) in sheetItems"
           :key="item.key"
           class="acu-viz-table-management__item"
-          :class="{ 'is-current': item.key === currentSheetKey }"
-          :aria-current="item.key === currentSheetKey ? 'true' : undefined"
         >
           <div class="acu-viz-table-management__copy">
             <h3>
               <span>{{ item.name }}</span>
-              <AcuBadge v-if="item.key === currentSheetKey" variant="accent">
-                当前表
-              </AcuBadge>
             </h3>
             <p>{{ item.rowCount }} 行 · {{ item.columnCount }} 列</p>
           </div>
@@ -54,7 +49,7 @@
         </article>
 
         <p v-if="sheetItems.length === 0" class="acu-viz-table-management__empty">
-          当前数据库还没有表格。可以先新增表格，再回到当前表编辑数据、结构和 AI 助手。
+          当前数据库还没有表格。可以先新增表格，再进入表格编辑数据、结构和 AI 助手。
         </p>
       </div>
 
@@ -77,7 +72,6 @@ import type { VisualizerSheetItem } from '../../stores/visualizer-store';
 
 defineProps<{
   sheetItems: VisualizerSheetItem[];
-  currentSheetKey: string | null;
 }>();
 
 defineEmits<{
@@ -114,12 +108,6 @@ defineEmits<{
     background 0.15s ease,
     border-color 0.15s ease,
     box-shadow 0.15s ease;
-}
-
-.acu-viz-table-management__item.is-current {
-  border-color: color-mix(in srgb, var(--acu-accent) 45%, var(--acu-border));
-  background: color-mix(in srgb, var(--acu-accent) 7%, var(--acu-bg-0));
-  box-shadow: inset 0 0 0 1px var(--acu-accent-glow);
 }
 
 .acu-viz-table-management__copy {

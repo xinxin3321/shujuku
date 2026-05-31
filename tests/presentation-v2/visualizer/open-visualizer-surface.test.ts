@@ -126,6 +126,11 @@ describe('openVisualizerSurface_ACU', () => {
     expect(dataToolbar.textContent).not.toContain('角色状态');
     expect(dataToolbar.textContent).not.toContain('卡片视图会直接修改当前编辑草稿');
 
+    const statusPreview = Array.from(surface.querySelectorAll<HTMLElement>('[role="button"]'))
+      .find(item => item.textContent?.trim() === '平静')!;
+    statusPreview.click();
+    await new Promise(r => setTimeout(r, 0));
+
     const textareas = Array.from(surface.querySelectorAll<HTMLTextAreaElement>('textarea'));
     const statusTextarea = textareas.find(item => item.value === '平静')!;
     statusTextarea.value = '紧张';
@@ -149,6 +154,48 @@ describe('openVisualizerSurface_ACU', () => {
 
     expect(document.getElementById('acu-app-v2')?.style.display).toBe('');
     expect(document.querySelector('[data-acu-visualizer-surface]')).not.toBeNull();
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('新增行后保留数据工作区滚动位置', async () => {
+    persistAdvancedMode();
+    const rows = Array.from({ length: 20 }, (_, index) => [
+      null,
+      `角色 ${index + 1}`,
+      `状态 ${index + 1}`,
+    ]);
+    const state = await import('../../../src/service/runtime/state-manager');
+    state._set_currentJsonTableData_ACU({
+      mate: { type: 'chatSheets', version: 1 },
+      sheet_a: {
+        uid: 'sheet_a',
+        name: '滚动验证',
+        orderNo: 0,
+        content: [[null, '姓名', '状态'], ...rows],
+      },
+    });
+    const bridge = await import('../../../src/presentation-v2/surfaces/visualizer/open-visualizer-surface');
+    const mount = await import('../../../src/presentation-v2/bootstrap/mount');
+    const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
+
+    await bridge.openVisualizerSurface_ACU({ source: 'external-api' });
+    await new Promise(r => setTimeout(r, 0));
+
+    const workspace = document.querySelector<HTMLElement>('.acu-visualizer-surface__workspace')!;
+    workspace.scrollTop = 240;
+    workspace.scrollLeft = 12;
+
+    const addButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+      .find(button => button.textContent?.includes('新增行'))!;
+    addButton.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(workspace.scrollTop).toBe(240);
+    expect(workspace.scrollLeft).toBe(12);
+
+    const pinia = mount.getAcuV2PiniaForBridge();
+    const visualizer = useVisualizerStore(pinia!);
+    expect(visualizer.currentSheet.content).toHaveLength(22);
     mount.__resetAcuV2MountForTests();
   });
 
@@ -223,9 +270,13 @@ describe('openVisualizerSurface_ACU', () => {
     await new Promise(r => setTimeout(r, 0));
 
     const surface = document.querySelector('[data-acu-visualizer-surface]') as HTMLElement;
+    const statusPreview = Array.from(surface.querySelectorAll<HTMLElement>('[role="button"]'))
+      .find(item => item.textContent?.trim() === '平静')!;
+    statusPreview.click();
+    await new Promise(r => setTimeout(r, 0));
+
     const statusTextarea = Array.from(surface.querySelectorAll<HTMLTextAreaElement>('textarea'))
       .find(item => item.value === '平静')!;
-    statusTextarea.focus();
     expect(document.activeElement).toBe(statusTextarea);
 
     statusTextarea.value = '这是一段超过二十四个字符的状态描述，用来触发布局切换';
@@ -235,6 +286,156 @@ describe('openVisualizerSurface_ACU', () => {
     expect(document.activeElement).toBe(statusTextarea);
     expect(surface.contains(statusTextarea)).toBe(true);
     mount.__resetAcuV2MountForTests();
+  });
+
+  it('大表数据区只渲染当前页，单元格点击后才挂载 textarea', async () => {
+    persistAdvancedMode();
+    const rows = Array.from({ length: 120 }, (_, index) => {
+      const rowNo = index + 1;
+      return [null, `A${rowNo}`, `状态 ${rowNo}`];
+    });
+    const state = await import('../../../src/service/runtime/state-manager');
+    state._set_currentJsonTableData_ACU({
+      mate: { type: 'chatSheets', version: 1 },
+      sheet_a: {
+        uid: 'sheet_a',
+        name: '大表验证',
+        orderNo: 0,
+        content: [[null, '姓名', '状态'], ...rows],
+      },
+    });
+    const bridge = await import('../../../src/presentation-v2/surfaces/visualizer/open-visualizer-surface');
+    const mount = await import('../../../src/presentation-v2/bootstrap/mount');
+    const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
+
+    await bridge.openVisualizerSurface_ACU({ source: 'external-api' });
+    await new Promise(r => setTimeout(r, 0));
+
+    const surface = document.querySelector('[data-acu-visualizer-surface]') as HTMLElement;
+    let cards = Array.from(surface.querySelectorAll<HTMLElement>('.acu-visualizer-surface__data-card'));
+    expect(cards).toHaveLength(50);
+    expect(cards[0].textContent).toContain('#1');
+    expect(cards[49].textContent).toContain('#50');
+    expect(surface.querySelectorAll('textarea')).toHaveLength(0);
+    expect(surface.textContent).toContain('第 1-50 行 / 共 120 行');
+    expect(surface.textContent).not.toContain('上一页');
+    expect(surface.textContent).not.toContain('下一页');
+
+    const secondPageButton = Array.from(surface.querySelectorAll<HTMLButtonElement>('.acu-visualizer-surface__page-button'))
+      .find(button => button.textContent?.trim() === '2')!;
+    secondPageButton.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    cards = Array.from(surface.querySelectorAll<HTMLElement>('.acu-visualizer-surface__data-card'));
+    expect(cards).toHaveLength(50);
+    expect(cards[0].textContent).toContain('#51');
+    expect(cards[49].textContent).toContain('#100');
+    expect(surface.textContent).toContain('第 51-100 行 / 共 120 行');
+    expect(surface.querySelectorAll('textarea')).toHaveLength(0);
+
+    const jumpInput = surface.querySelector<HTMLInputElement>('.acu-visualizer-surface__page-jump input')!;
+    jumpInput.value = '3';
+    jumpInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 0));
+
+    cards = Array.from(surface.querySelectorAll<HTMLElement>('.acu-visualizer-surface__data-card'));
+    expect(cards).toHaveLength(20);
+    expect(cards[0].textContent).toContain('#101');
+    expect(cards[19].textContent).toContain('#120');
+    expect(surface.textContent).toContain('第 101-120 行 / 共 120 行');
+
+    jumpInput.value = '2';
+    jumpInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 0));
+
+    const statusPreview = Array.from(surface.querySelectorAll<HTMLElement>('[role="button"]'))
+      .find(item => item.textContent?.trim() === '状态 51')!;
+    statusPreview.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const statusTextarea = Array.from(surface.querySelectorAll<HTMLTextAreaElement>('textarea'))
+      .find(item => item.value === '状态 51')!;
+    expect(document.activeElement).toBe(statusTextarea);
+    statusTextarea.value = '已更新';
+    statusTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+    await Promise.resolve();
+
+    const pinia = mount.getAcuV2PiniaForBridge();
+    const visualizer = useVisualizerStore(pinia!);
+    expect(visualizer.currentSheet.content[51][2]).toBe('已更新');
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('窄宽度分页只显示当前页相邻一页，保留跳转输入框在同一组', async () => {
+    persistAdvancedMode();
+    const originalResizeObserver = globalThis.ResizeObserver;
+    class MockResizeObserver {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        this.callback([
+          {
+            target,
+            contentRect: { width: 390 } as DOMRectReadOnly,
+          } as ResizeObserverEntry,
+        ], this as unknown as ResizeObserver);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      configurable: true,
+      value: MockResizeObserver,
+    });
+
+    try {
+      const rows = Array.from({ length: 1050 }, (_, index) => {
+        const rowNo = index + 1;
+        return [null, `A${rowNo}`, `状态 ${rowNo}`];
+      });
+      const state = await import('../../../src/service/runtime/state-manager');
+      state._set_currentJsonTableData_ACU({
+        mate: { type: 'chatSheets', version: 1 },
+        sheet_a: {
+          uid: 'sheet_a',
+          name: '窄分页验证',
+          orderNo: 0,
+          content: [[null, '姓名', '状态'], ...rows],
+        },
+      });
+      const bridge = await import('../../../src/presentation-v2/surfaces/visualizer/open-visualizer-surface');
+      const mount = await import('../../../src/presentation-v2/bootstrap/mount');
+
+      await bridge.openVisualizerSurface_ACU({ source: 'external-api' });
+      await new Promise(r => setTimeout(r, 0));
+
+      const surface = document.querySelector('[data-acu-visualizer-surface]') as HTMLElement;
+      const jumpInput = surface.querySelector<HTMLInputElement>('.acu-visualizer-surface__page-jump input')!;
+      jumpInput.value = '5';
+      jumpInput.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 0));
+
+      const buttonLabels = Array.from(surface.querySelectorAll<HTMLButtonElement>('.acu-visualizer-surface__page-button'))
+        .map(button => button.textContent?.trim());
+      expect(buttonLabels).toEqual(['1', '...', '4', '5', '6', '...', '21']);
+      expect(jumpInput.value).toBe('5');
+
+      const ellipsisButtons = Array.from(surface.querySelectorAll<HTMLButtonElement>('.acu-visualizer-surface__page-button'))
+        .filter(button => button.textContent?.trim() === '...');
+      ellipsisButtons[1].click();
+      await new Promise(r => setTimeout(r, 0));
+
+      const nextGroupLabels = Array.from(surface.querySelectorAll<HTMLButtonElement>('.acu-visualizer-surface__page-button'))
+        .map(button => button.textContent?.trim());
+      expect(nextGroupLabels).toEqual(['1', '...', '7', '8', '9', '...', '21']);
+      expect(jumpInput.value).toBe('8');
+
+      mount.__resetAcuV2MountForTests();
+    } finally {
+      Object.defineProperty(globalThis, 'ResizeObserver', {
+        configurable: true,
+        value: originalResizeObserver,
+      });
+    }
   });
 
   it('数据卡片按表格字段顺序布局，仅连续两个短字段双列显示', async () => {
@@ -466,6 +667,11 @@ describe('openVisualizerSurface_ACU', () => {
 
     const surface = document.querySelector('[data-acu-visualizer-surface]') as HTMLElement;
     expect(surface.textContent).toContain('自动编号');
+    const indexPreview = Array.from(surface.querySelectorAll<HTMLElement>('[role="button"]'))
+      .find(item => item.textContent?.trim() === 'AM0001')!;
+    indexPreview.click();
+    await new Promise(r => setTimeout(r, 0));
+
     const indexTextarea = Array.from(surface.querySelectorAll<HTMLTextAreaElement>('textarea'))
       .find(item => item.value === 'AM0001');
     expect(indexTextarea?.disabled).toBe(false);

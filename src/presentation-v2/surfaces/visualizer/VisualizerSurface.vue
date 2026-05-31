@@ -98,6 +98,7 @@
       </AcuInfoBanner>
 
       <section
+        ref="workspaceRef"
         class="acu-visualizer-surface__workspace"
         aria-label="数据库编辑工作区"
       >
@@ -143,7 +144,6 @@
           </div>
           <VisualizerTableManagementPanel
             :sheet-items="visualizer.sheetItems"
-            :current-sheet-key="visualizer.currentSheetKey"
             @move-sheet="moveSheet"
             @request-add-sheet="requestAddSheet"
             @request-delete-sheet="requestDeleteSheet"
@@ -153,11 +153,57 @@
 
         <template v-else>
           <template v-if="visualizer.mode === 'data'">
-            <p v-if="rows.length === 0" class="acu-visualizer-surface__empty">
+            <p v-if="rowCount === 0" class="acu-visualizer-surface__empty">
               当前表还没有数据行。可以先新增行，再逐个字段填写内容。
             </p>
 
-            <div v-else class="acu-visualizer-surface__card-grid">
+            <div
+              v-if="isDataPaginated"
+              ref="paginationRef"
+              class="acu-visualizer-surface__pagination"
+              aria-label="数据分页"
+            >
+              <div
+                class="acu-visualizer-surface__pagination-pages"
+                aria-label="页码"
+              >
+                <AcuButton
+                  v-for="item in dataPaginationItems"
+                  :key="item.key"
+                  class="acu-visualizer-surface__page-button"
+                  :class="{
+                    'acu-visualizer-surface__page-button--active': item.active,
+                  }"
+                  :variant="item.active ? 'primary' : 'default'"
+                  size="md"
+                  :aria-label="
+                    item.targetPage
+                      ? `跳转到第 ${item.targetPage} 页`
+                      : item.page
+                        ? `第 ${item.page} 页`
+                        : '省略的页码'
+                  "
+                  @click="item.targetPage && setDataPage(item.targetPage)"
+                >
+                  {{ item.label }}
+                </AcuButton>
+              </div>
+              <AcuInput
+                class="acu-visualizer-surface__page-jump"
+                :model-value="dataPageJumpValue"
+                type="number"
+                size="md"
+                :min="1"
+                :max="dataPageCount"
+                :step="1"
+                autocomplete="off"
+                aria-label="跳转到页码"
+                @update:model-value="updateDataPageJumpValue"
+                @change="commitDataPageJumpValue"
+              />
+            </div>
+
+            <div v-if="rowCount > 0" class="acu-visualizer-surface__card-grid">
               <article
                 v-for="row in rows"
                 :key="row.index"
@@ -274,6 +320,8 @@
                         </span>
                       </span>
                       <AcuTextarea
+                        v-if="isDataCellEditing(row.index, field.columnIndex)"
+                        :ref="setActiveDataTextareaRef"
                         :model-value="field.value"
                         :rows="1"
                         :max-rows="12"
@@ -293,6 +341,25 @@
                             )
                         "
                       />
+                      <div
+                        v-else
+                        class="acu-visualizer-surface__field-preview"
+                        :class="{ 'is-empty': !field.value }"
+                        role="button"
+                        tabindex="0"
+                        title="点击编辑该字段"
+                        @click="
+                          startDataCellEditing(row.index, field.columnIndex)
+                        "
+                        @keydown.enter.prevent="
+                          startDataCellEditing(row.index, field.columnIndex)
+                        "
+                        @keydown.space.prevent="
+                          startDataCellEditing(row.index, field.columnIndex)
+                        "
+                      >
+                        {{ field.value || "未填写" }}
+                      </div>
                     </label>
                   </div>
                 </div>
@@ -300,10 +367,15 @@
             </div>
 
             <div class="acu-visualizer-surface__data-toolbar">
-              <AcuButton size="sm" variant="primary" @click="addRow">
-                <i class="fa-solid fa-plus"></i>
-                新增行
-              </AcuButton>
+              <span class="acu-visualizer-surface__data-range">
+                {{ dataRangeText }}
+              </span>
+              <div class="acu-visualizer-surface__data-toolbar-actions">
+                <AcuButton size="sm" variant="primary" @click="addRow">
+                  <i class="fa-solid fa-plus"></i>
+                  新增行
+                </AcuButton>
+              </div>
             </div>
           </template>
 
@@ -368,11 +440,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import AcuBadge from "../../components/_lib/AcuBadge.vue";
 import AcuButton from "../../components/_lib/AcuButton.vue";
 import AcuIconButton from "../../components/_lib/AcuIconButton.vue";
 import AcuInfoBanner from "../../components/_lib/AcuInfoBanner.vue";
+import AcuInput from "../../components/_lib/AcuInput.vue";
 import AcuPanel from "../../components/_lib/AcuPanel.vue";
 import AcuSegmentedControl from "../../components/_lib/AcuSegmentedControl.vue";
 import AcuTextarea from "../../components/_lib/AcuTextarea.vue";
@@ -397,8 +470,12 @@ const emit = defineEmits<{
 }>();
 const isMobileNavRendered = ref(false);
 const isMobileNavClosing = ref(false);
+const workspaceRef = ref<HTMLElement | null>(null);
+const paginationRef = ref<HTMLElement | null>(null);
 const VISUALIZER_MOBILE_NAV_LEAVE_MS = 150;
+const VISUALIZER_DATA_PAGE_SIZE = 50;
 let mobileNavCloseTimer: ReturnType<typeof setTimeout> | undefined;
+let paginationResizeObserver: ResizeObserver | undefined;
 
 const save = useVisualizerSave({
   requestGlobalPresetName(defaultName) {
@@ -509,7 +586,176 @@ const VISUALIZER_SHORT_FIELD_CHAR_LIMIT = 24;
 const activeDataCell = ref<{ rowIndex: number; columnIndex: number } | null>(
   null,
 );
+const activeDataTextareaRef = ref<HTMLTextAreaElement | null>(null);
 const editingColumnLayoutSnapshot = ref<boolean[] | null>(null);
+const currentDataPage = ref(1);
+const dataPageJumpValue = ref<string | number>(1);
+const paginationWidth = ref<number | null>(null);
+
+const rowCount = computed(() => {
+  const content = visualizer.currentSheet?.content;
+  return Array.isArray(content) ? Math.max(0, content.length - 1) : 0;
+});
+
+const dataPageSize = VISUALIZER_DATA_PAGE_SIZE;
+
+const dataPageCount = computed(() =>
+  Math.max(1, Math.ceil(rowCount.value / dataPageSize)),
+);
+
+const isDataPaginated = computed(() => rowCount.value > dataPageSize);
+
+const dataPaginationSiblingWindow = computed(() => {
+  const width = paginationWidth.value;
+  if (width == null) return 2;
+  if (width < 330) return 0;
+  if (width < 430) return 1;
+  return 2;
+});
+
+interface DataPaginationItem {
+  key: string;
+  label: string;
+  page: number | null;
+  targetPage: number | null;
+  active: boolean;
+  ellipsis: boolean;
+}
+
+const dataPaginationItems = computed<DataPaginationItem[]>(() => {
+  const total = dataPageCount.value;
+  const current = currentDataPage.value;
+  const pages = new Set<number>([1, current, total]);
+  const siblingWindow = dataPaginationSiblingWindow.value;
+  const groupSize = Math.max(1, siblingWindow * 2 + 1);
+  const edgeWindow =
+    siblingWindow >= 2 ? 5 : siblingWindow === 1 ? 3 : 1;
+  const maxDirectPages =
+    siblingWindow >= 2 ? 7 : siblingWindow === 1 ? 5 : 3;
+
+  if (total <= maxDirectPages) {
+    for (let page = 1; page <= total; page += 1) pages.add(page);
+  } else if (current <= edgeWindow - 1) {
+    for (let page = 1; page <= edgeWindow; page += 1) pages.add(page);
+  } else if (current >= total - edgeWindow + 2) {
+    for (let page = total - edgeWindow + 1; page <= total; page += 1) {
+      pages.add(page);
+    }
+  } else {
+    for (
+      let page = current - siblingWindow;
+      page <= current + siblingWindow;
+      page += 1
+    ) {
+      pages.add(page);
+    }
+  }
+
+  const sortedPages = Array.from(pages)
+    .filter((page) => page >= 1 && page <= total)
+    .sort((a, b) => a - b);
+  const items: DataPaginationItem[] = [];
+
+  sortedPages.forEach((page, index) => {
+    const previous = sortedPages[index - 1];
+    if (previous && page - previous > 1) {
+      const targetPage =
+        page <= current
+          ? Math.max(1, current - groupSize)
+          : Math.min(total, current + groupSize);
+      items.push({
+        key: `ellipsis-${previous}-${page}`,
+        label: "...",
+        page: null,
+        targetPage,
+        active: false,
+        ellipsis: true,
+      });
+    }
+    items.push({
+      key: `page-${page}`,
+      label: String(page),
+      page,
+      targetPage: page,
+      active: page === current,
+      ellipsis: false,
+    });
+  });
+
+  return items;
+});
+
+const dataPageStartIndex = computed(() =>
+  Math.min(
+    rowCount.value,
+    Math.max(0, (currentDataPage.value - 1) * dataPageSize),
+  ),
+);
+
+const dataPageEndIndex = computed(() =>
+  Math.min(rowCount.value, dataPageStartIndex.value + dataPageSize),
+);
+
+const dataRangeText = computed(() => {
+  if (rowCount.value === 0) return "共 0 行";
+  return `第 ${dataPageStartIndex.value + 1}-${dataPageEndIndex.value} 行 / 共 ${rowCount.value} 行`;
+});
+
+const visibleDataRows = computed<any[][]>(() => {
+  const content = visualizer.currentSheet?.content;
+  if (!Array.isArray(content)) return [];
+  return content.slice(dataPageStartIndex.value + 1, dataPageEndIndex.value + 1);
+});
+
+function scrollWorkspaceToTop(): void {
+  void nextTick(() => {
+    if (workspaceRef.value) workspaceRef.value.scrollTop = 0;
+  });
+}
+
+function preserveWorkspaceScrollPosition(action: () => void): void {
+  const scrollTop = workspaceRef.value?.scrollTop ?? 0;
+  const scrollLeft = workspaceRef.value?.scrollLeft ?? 0;
+  action();
+  void nextTick(() => {
+    const workspace = workspaceRef.value;
+    if (!workspace) return;
+    workspace.scrollTop = scrollTop;
+    workspace.scrollLeft = scrollLeft;
+  });
+}
+
+function setDataPage(page: number): void {
+  const requestedPage = Math.trunc(Number(page));
+  if (!Number.isFinite(requestedPage)) return;
+  const nextPage = Math.min(
+    dataPageCount.value,
+    Math.max(1, requestedPage),
+  );
+  if (nextPage === currentDataPage.value) {
+    dataPageJumpValue.value = currentDataPage.value;
+    return;
+  }
+  currentDataPage.value = nextPage;
+  dataPageJumpValue.value = nextPage;
+  clearDataCellEditing();
+  scrollWorkspaceToTop();
+}
+
+function updateDataPageJumpValue(value: string | number): void {
+  dataPageJumpValue.value = value;
+  if (value === "" || value === "-") return;
+  setDataPage(Number(value));
+}
+
+function commitDataPageJumpValue(value: string | number): void {
+  if (value === "" || value === "-") {
+    dataPageJumpValue.value = currentDataPage.value;
+    return;
+  }
+  setDataPage(Number(value));
+  dataPageJumpValue.value = currentDataPage.value;
+}
 
 function isShortDataField(value: string): boolean {
   const normalized = String(value || "").trim();
@@ -520,20 +766,18 @@ function isShortDataField(value: string): boolean {
   );
 }
 
-function getColumnIsShort(content: any[]): boolean[] {
+function getColumnIsShort(dataRows: any[][]): boolean[] {
   return headers.value.map((_, columnIndex) =>
-    content
-      .slice(1)
-      .every((row: any[]) =>
-        isShortDataField(
-          String(Array.isArray(row) ? (row[columnIndex + 1] ?? "") : ""),
-        ),
+    dataRows.every((row: any[]) =>
+      isShortDataField(
+        String(Array.isArray(row) ? (row[columnIndex + 1] ?? "") : ""),
       ),
+    ),
   );
 }
 
-function getEffectiveColumnIsShort(content: any[]): boolean[] {
-  const columnIsShort = getColumnIsShort(content);
+function getEffectiveColumnIsShort(dataRows: any[][]): boolean[] {
+  const columnIsShort = getColumnIsShort(dataRows);
   const active = activeDataCell.value;
   const snapshot = editingColumnLayoutSnapshot.value;
   if (!active || !snapshot || snapshot.length !== columnIsShort.length) {
@@ -574,15 +818,41 @@ function buildFieldLayoutRows<T extends { columnIndex: number }>(
   return result;
 }
 
-function startDataCellEditing(rowIndex: number, columnIndex: number): void {
+function asTextarea(el: unknown): HTMLTextAreaElement | null {
+  if (el instanceof HTMLTextAreaElement) return el;
+  const root = (el as { $el?: unknown } | null)?.$el;
+  if (root instanceof HTMLTextAreaElement) return root;
+  if (root instanceof HTMLElement) return root.querySelector("textarea");
+  return null;
+}
+
+function setActiveDataTextareaRef(el: unknown): void {
+  activeDataTextareaRef.value = asTextarea(el);
+}
+
+function isDataCellEditing(rowIndex: number, columnIndex: number): boolean {
+  const active = activeDataCell.value;
+  return (
+    !!active &&
+    active.rowIndex === Math.trunc(Number(rowIndex)) &&
+    active.columnIndex === Math.trunc(Number(columnIndex))
+  );
+}
+
+async function startDataCellEditing(
+  rowIndex: number,
+  columnIndex: number,
+): Promise<void> {
   activeDataCell.value = {
     rowIndex: Math.trunc(Number(rowIndex)),
     columnIndex: Math.trunc(Number(columnIndex)),
   };
-  const content = visualizer.currentSheet?.content;
-  editingColumnLayoutSnapshot.value = Array.isArray(content)
-    ? getColumnIsShort(content)
-    : null;
+  editingColumnLayoutSnapshot.value = getColumnIsShort(visibleDataRows.value);
+  await nextTick();
+  const textarea = activeDataTextareaRef.value;
+  if (!textarea) return;
+  textarea.focus();
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 }
 
 function stopDataCellEditing(rowIndex: number, columnIndex: number): void {
@@ -595,43 +865,50 @@ function stopDataCellEditing(rowIndex: number, columnIndex: number): void {
     return;
   }
   activeDataCell.value = null;
+  activeDataTextareaRef.value = null;
   editingColumnLayoutSnapshot.value = null;
 }
 
 function clearDataCellEditing(): void {
   activeDataCell.value = null;
+  activeDataTextareaRef.value = null;
   editingColumnLayoutSnapshot.value = null;
 }
 
 const rows = computed(() => {
-  const content = visualizer.currentSheet?.content;
-  if (!Array.isArray(content)) return [];
   const sheetKey = visualizer.currentSheetKey;
   const specialIndexInfo = config.specialIndex.value;
-  const columnIsShort = getEffectiveColumnIsShort(content);
-  return content.slice(1).map((row: any[], index: number) => {
+  const columnIsShort = getEffectiveColumnIsShort(visibleDataRows.value);
+  const lockDraft = sheetKey ? visualizer.getLockDraft(sheetKey) : null;
+  const lockedRows = new Set(lockDraft?.rows || []);
+  const lockedColumns = new Set(lockDraft?.cols || []);
+  const lockedCells = new Set(lockDraft?.cells || []);
+  const specialIndexLocked = lockDraft?.specialIndexLocked !== false;
+  return visibleDataRows.value.map((row: any[], visibleIndex: number) => {
+    const index = dataPageStartIndex.value + visibleIndex;
+    const rowLocked = lockedRows.has(index);
     const fields = headers.value.map((header, columnIndex) => ({
       header,
       columnIndex,
       value: String(Array.isArray(row) ? (row[columnIndex + 1] ?? "") : ""),
-      rowLocked: visualizer.isRowLocked(sheetKey, index),
-      columnLocked: visualizer.isColumnLocked(sheetKey, columnIndex),
-      cellLocked: visualizer.isCellLocked(sheetKey, index, columnIndex),
+      rowLocked,
+      columnLocked: lockedColumns.has(columnIndex),
+      cellLocked: lockedCells.has(`${index}:${columnIndex}`),
       specialIndexLocked:
         specialIndexInfo.enabled &&
         specialIndexInfo.index === columnIndex &&
-        visualizer.isSpecialIndexLocked(sheetKey),
+        specialIndexLocked,
       locked:
-        visualizer.isRowLocked(sheetKey, index) ||
-        visualizer.isColumnLocked(sheetKey, columnIndex) ||
-        visualizer.isCellLocked(sheetKey, index, columnIndex) ||
+        rowLocked ||
+        lockedColumns.has(columnIndex) ||
+        lockedCells.has(`${index}:${columnIndex}`) ||
         (specialIndexInfo.enabled &&
           specialIndexInfo.index === columnIndex &&
-          visualizer.isSpecialIndexLocked(sheetKey)),
+          specialIndexLocked),
     }));
     return {
       index,
-      locked: visualizer.isRowLocked(sheetKey, index),
+      locked: rowLocked,
       fields,
       fieldRows: buildFieldLayoutRows(fields, columnIsShort),
     };
@@ -689,11 +966,19 @@ async function deleteRow(rowIndex: number): Promise<void> {
   if (!confirmed) return;
   visualizer.deleteRow(rowIndex);
   refreshSpecialIndexColumnDraft();
+  if (currentDataPage.value > dataPageCount.value) {
+    currentDataPage.value = dataPageCount.value;
+  }
+  clearDataCellEditing();
 }
 
 function addRow(): void {
-  visualizer.addRow();
-  refreshSpecialIndexColumnDraft();
+  preserveWorkspaceScrollPosition(() => {
+    visualizer.addRow();
+    refreshSpecialIndexColumnDraft();
+    currentDataPage.value = dataPageCount.value;
+    clearDataCellEditing();
+  });
 }
 
 function refreshSpecialIndexColumnDraft(): void {
@@ -779,6 +1064,34 @@ function openConfirmDialog(options: {
   });
 }
 
+function updatePaginationWidth(): void {
+  const el = paginationRef.value;
+  if (!el) {
+    paginationWidth.value = null;
+    return;
+  }
+  if (el.clientWidth > 0) paginationWidth.value = el.clientWidth;
+}
+
+function observePaginationWidth(el: HTMLElement | null): void {
+  paginationResizeObserver?.disconnect();
+  paginationResizeObserver = undefined;
+
+  if (!el) {
+    paginationWidth.value = null;
+    return;
+  }
+
+  paginationWidth.value = el.clientWidth || null;
+  if (typeof ResizeObserver !== "function") return;
+
+  paginationResizeObserver = new ResizeObserver((entries) => {
+    const entry = entries[0];
+    paginationWidth.value = entry?.contentRect.width || el.clientWidth || null;
+  });
+  paginationResizeObserver.observe(el);
+}
+
 function openCloseDirtyDialog(): Promise<"save" | "discard" | "cancel"> {
   return dialogStore.choose({
     title: "关闭数据库编辑器",
@@ -795,11 +1108,22 @@ function openCloseDirtyDialog(): Promise<"save" | "discard" | "cancel"> {
 
 onMounted(() => {
   void data.loadFromCurrentContext();
+  void nextTick(updatePaginationWidth);
 });
 
 onBeforeUnmount(() => {
   clearMobileNavCloseTimer();
+  paginationResizeObserver?.disconnect();
+  paginationResizeObserver = undefined;
 });
+
+watch(
+  paginationRef,
+  (el) => {
+    observePaginationWidth(el);
+  },
+  { flush: "post" },
+);
 
 watch(
   () => visualizer.externalRefreshTick,
@@ -812,9 +1136,29 @@ watch(
 watch(
   () => visualizer.currentSheetKey,
   () => {
+    currentDataPage.value = 1;
     clearDataCellEditing();
   },
 );
+
+watch(
+  () => visualizer.mode,
+  () => {
+    clearDataCellEditing();
+  },
+);
+
+watch(currentDataPage, (page) => {
+  dataPageJumpValue.value = page;
+});
+
+watch(rowCount, () => {
+  if (currentDataPage.value > dataPageCount.value) {
+    currentDataPage.value = dataPageCount.value;
+  }
+  if (currentDataPage.value < 1) currentDataPage.value = 1;
+  clearDataCellEditing();
+});
 </script>
 
 <style scoped>
@@ -949,7 +1293,10 @@ watch(
 }
 
 .acu-visualizer-surface__data-toolbar,
+.acu-visualizer-surface__data-toolbar-actions,
 .acu-visualizer-surface__database-toolbar,
+.acu-visualizer-surface__pagination,
+.acu-visualizer-surface__pagination-pages,
 .acu-visualizer-surface__card-header {
   display: flex;
   align-items: center;
@@ -1001,10 +1348,86 @@ watch(
 
 .acu-visualizer-surface__data-toolbar {
   flex: 0 0 auto;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: 4px 0 0;
   color: var(--acu-text-3);
   font-size: var(--acu-font-size-body, 12px);
+}
+
+.acu-visualizer-surface__data-toolbar-actions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.acu-visualizer-surface__pagination {
+  flex: 0 0 auto;
+  justify-content: center;
+  gap: 14px;
+  padding: 6px 0;
+  color: var(--acu-text-2);
+  font-size: var(--acu-font-size-body-lg, 13px);
+}
+
+.acu-visualizer-surface__pagination-pages {
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.acu-visualizer-surface__page-button {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--acu-border);
+  background: var(--acu-bg-0);
+  color: var(--acu-text-1);
+  font-size: var(--acu-font-size-body-lg, 13px);
+  font-weight: 500;
+}
+
+.acu-visualizer-surface__page-button:hover:not(:disabled) {
+  border-color: var(--acu-accent);
+  color: var(--acu-accent);
+}
+
+.acu-visualizer-surface__page-button--active,
+.acu-visualizer-surface__page-button--active:hover:not(:disabled) {
+  border-color: var(--acu-accent);
+  background: var(--acu-accent);
+  color: var(--acu-on-accent);
+}
+
+.acu-visualizer-surface__page-button:disabled:not(
+    .acu-visualizer-surface__page-button--active
+  ) {
+  border-color: var(--acu-border);
+  background: var(--acu-bg-0);
+  color: var(--acu-text-2);
+  opacity: 1;
+  cursor: default;
+}
+
+.acu-visualizer-surface__page-jump {
+  flex: 0 0 64px;
+  width: 64px;
+}
+
+.acu-visualizer-surface__page-jump :deep(.acu-input) {
+  min-height: 34px;
+  border: 1px solid var(--acu-border) !important;
+  background: var(--acu-bg-0) !important;
+  text-align: center;
+  font-size: var(--acu-font-size-body-lg, 13px) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.acu-visualizer-surface__data-range {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .acu-visualizer-surface__database-toolbar {
@@ -1125,6 +1548,40 @@ watch(
 
 .acu-visualizer-surface__field :deep(.acu-textarea) {
   flex: 1 1 auto;
+}
+
+.acu-visualizer-surface__field-preview {
+  min-height: 34px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: var(--acu-radius-sm);
+  background: var(--acu-bg-2);
+  color: var(--acu-text-1);
+  cursor: text;
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--acu-font-size-body, 12px);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.acu-visualizer-surface__field-preview:hover,
+.acu-visualizer-surface__field-preview:focus-visible {
+  outline: none;
+  background:
+    linear-gradient(var(--acu-hover-overlay), var(--acu-hover-overlay)),
+    var(--acu-bg-2);
+  box-shadow: 0 0 0 2px var(--acu-accent-glow);
+}
+
+.acu-visualizer-surface__field-preview.is-empty {
+  color: var(--acu-text-3);
 }
 
 .acu-visualizer-surface__field-label {
@@ -1411,6 +1868,39 @@ watch(
   .acu-visualizer-surface__data-toolbar :deep(.acu-btn),
   .acu-visualizer-surface__database-toolbar :deep(.acu-btn) {
     width: 100%;
+  }
+
+  .acu-visualizer-surface__data-toolbar-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .acu-visualizer-surface__pagination {
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 2px 0 6px;
+  }
+
+  .acu-visualizer-surface__pagination-pages {
+    flex: 0 1 auto;
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .acu-visualizer-surface__page-button {
+    width: 36px;
+    min-width: 36px;
+    height: 34px;
+    flex: 0 0 36px;
+  }
+
+  .acu-visualizer-surface__page-jump {
+    flex: 0 0 54px;
+    width: 54px;
   }
 
   .acu-visualizer-surface__footer {
