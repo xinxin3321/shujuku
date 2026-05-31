@@ -11,7 +11,7 @@ import { isSqliteMode } from '../../../service/table/storage-mode';
 import {
   DEFAULT_ENTRY_PLACEMENT_ACU,
   DEFAULT_EXTRA_INDEX_PLACEMENT_ACU,
-  ensureSheetExportConfigDefaults_ACU,
+  ensureExportConfigDefaults_ACU,
   getFixedPlacementDefaultsForTable_ACU,
   getGlobalInjectionConfigFromData_ACU,
   isImportantPersonsTableName_ACU,
@@ -59,6 +59,29 @@ function clonePlacement(value: any, fallback: any): VisualizerPlacementDraft {
   };
 }
 
+function getPlacementFallback(key: PlacementKey, tableName: string): VisualizerPlacementDraft {
+  const fixedDefaults = getFixedPlacementDefaultsForTable_ACU(tableName);
+  const fallback = key === 'extraIndexPlacement'
+    ? DEFAULT_EXTRA_INDEX_PLACEMENT_ACU
+    : key === 'fixedEntryPlacement'
+      ? fixedDefaults.entry
+      : key === 'fixedIndexPlacement'
+        ? fixedDefaults.index
+        : DEFAULT_ENTRY_PLACEMENT_ACU;
+  return clonePlacement(fallback, fallback);
+}
+
+function ensureEditableExportConfig(sheet: any): any {
+  if (!sheet || typeof sheet !== 'object') return {};
+  if (!sheet.exportConfig || typeof sheet.exportConfig !== 'object') sheet.exportConfig = {};
+  const target = sheet.exportConfig;
+  const normalized = ensureExportConfigDefaults_ACU(target, sheet.name || sheet.uid || '');
+  Object.keys(normalized).forEach(key => {
+    target[key] = normalized[key];
+  });
+  return target;
+}
+
 export function useVisualizerConfigEditing() {
   const visualizer = useVisualizerStore();
   const toastStore = useToastStore();
@@ -73,7 +96,12 @@ export function useVisualizerConfigEditing() {
   });
 
   const exportConfig = computed(() =>
-    currentSheet.value ? ensureSheetExportConfigDefaults_ACU(currentSheet.value) : null,
+    currentSheet.value
+      ? ensureExportConfigDefaults_ACU(
+        currentSheet.value.exportConfig,
+        currentSheet.value.name || currentSheet.value.uid || '',
+      )
+      : null,
   );
 
   const fixedConfigEnabled = computed(() => {
@@ -147,7 +175,7 @@ export function useVisualizerConfigEditing() {
 
   function withExportConfig(mutator: (config: any, sheet: any) => void): void {
     withSheet(sheet => {
-      const config = ensureSheetExportConfigDefaults_ACU(sheet);
+      const config = ensureEditableExportConfig(sheet);
       mutator(config, sheet);
     });
   }
@@ -158,7 +186,7 @@ export function useVisualizerConfigEditing() {
     withSheet(sheet => {
       const previousName = stringValue(sheet.name).trim();
       sheet.name = nextName;
-      const config = ensureSheetExportConfigDefaults_ACU(sheet);
+      const config = ensureEditableExportConfig(sheet);
       if (!config.entryName || config.entryName === previousName) config.entryName = nextName;
       if (!config.extraIndexEntryName || config.extraIndexEntryName === `${previousName}-索引`) {
         config.extraIndexEntryName = `${nextName}-索引`;
@@ -266,20 +294,13 @@ export function useVisualizerConfigEditing() {
   function getPlacement(key: PlacementKey): VisualizerPlacementDraft {
     const config = exportConfig.value || {};
     const sheetName = stringValue(currentSheet.value?.name);
-    const fixedDefaults = getFixedPlacementDefaultsForTable_ACU(sheetName);
-    const fallback = key === 'extraIndexPlacement'
-      ? DEFAULT_EXTRA_INDEX_PLACEMENT_ACU
-      : key === 'fixedEntryPlacement'
-        ? fixedDefaults.entry
-        : key === 'fixedIndexPlacement'
-          ? fixedDefaults.index
-          : DEFAULT_ENTRY_PLACEMENT_ACU;
+    const fallback = getPlacementFallback(key, sheetName);
     return clonePlacement(config[key], fallback);
   }
 
   function updatePlacement(key: PlacementKey, field: keyof VisualizerPlacementDraft, value: string | number): void {
-    withExportConfig(config => {
-      const current = getPlacement(key);
+    withExportConfig((config, sheet) => {
+      const current = clonePlacement(config[key], getPlacementFallback(key, stringValue(sheet.name)));
       const next = {
         ...current,
         [field]: field === 'position'

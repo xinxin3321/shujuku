@@ -525,15 +525,36 @@ describe('openVisualizerSurface_ACU', () => {
     expect(configPanel?.textContent).not.toContain('条目名称');
     expect(configPanel?.textContent).not.toContain('主条目位置');
 
+    const updateDepthInput = Array.from(configPanel.querySelectorAll<HTMLInputElement>('input[type="number"]'))[0];
+    updateDepthInput.value = '9';
+    updateDepthInput.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    await Promise.resolve();
+
     const enableCustomExportButton = Array.from(configPanel.querySelectorAll<HTMLButtonElement>('button[role="checkbox"]'))
       .find(button => button.textContent?.includes('启用独立导出'));
     expect(enableCustomExportButton).not.toBeUndefined();
     enableCustomExportButton!.click();
-    await Promise.resolve();
+    await new Promise(r => setTimeout(r, 0));
 
     expect(configPanel?.textContent).toContain('条目名称');
     expect(configPanel?.textContent).toContain('条目类型');
     expect(configPanel?.textContent).toContain('主条目位置');
+
+    const mainPlacement = Array.from(configPanel.querySelectorAll<HTMLElement>('.acu-viz-placement'))
+      .find(item => item.textContent?.includes('主条目位置'))!;
+    const [depthInput, orderInput] = Array.from(mainPlacement.querySelectorAll<HTMLInputElement>('input[type="number"]'));
+    expect(depthInput.outerHTML).toContain('class="acu-input');
+    depthInput.value = '7';
+    depthInput.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    orderInput.value = '12345';
+    orderInput.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 0));
+
+    const pinia = mount.getAcuV2PiniaForBridge();
+    const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
+    const visualizer = useVisualizerStore(pinia!);
+    expect(visualizer.currentSheet.updateConfig.contextDepth).toBe(9);
+    const placementAfterNumberInput = visualizer.currentSheet.exportConfig.entryPlacement;
 
     const addColumnButton = Array.from(configPanel.querySelectorAll<HTMLButtonElement>('button'))
       .find(button => button.textContent?.includes('新增列'));
@@ -547,6 +568,12 @@ describe('openVisualizerSurface_ACU', () => {
     firstHeaderInput.dispatchEvent(new Event('input', { bubbles: true }));
     await Promise.resolve();
 
+    expect(visualizer.currentSheet.content[0][1]).toBe('姓');
+    expect(placementAfterNumberInput).toEqual({
+      position: 'at_depth_as_system',
+      depth: 7,
+      order: 12345,
+    });
     expect(document.activeElement).toBe(firstHeaderInput);
     expect(configPanel.querySelector<HTMLInputElement>('.acu-viz-config__column-row input')).toBe(firstHeaderInput);
 

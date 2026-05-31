@@ -116,14 +116,15 @@ function saveLockDrafts(drafts: Record<string, VisualizerLockDraft>): void {
   });
 }
 
-function syncChatSheetGuide(saveToTemplate: boolean): void {
+function syncChatSheetGuide(orderedData: Record<string, any>, orderedKeys: string[], saveToTemplate: boolean): void {
   try {
     const guideIsolationKey = getCurrentIsolationKey_ACU();
     const existingGuide = getChatSheetGuideDataForIsolationKey_ACU(guideIsolationKey);
     const templateObjForSeed = parseTableTemplateJson_ACU({ stripSeedRows: false });
-    const guideData = buildChatSheetGuideDataFromData_ACU(currentJsonTableData_ACU, {
+    const guideData = buildChatSheetGuideDataFromData_ACU(orderedData, {
       preserveSeedRowsFromGuideData: existingGuide,
       seedRowsFromTemplateObj: templateObjForSeed,
+      orderedKeys,
     });
     if (guideData && Object.keys(guideData).some(key => key.startsWith('sheet_'))) {
       const syncTemplateScope = !saveToTemplate;
@@ -351,7 +352,7 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
       }
 
       _set_currentJsonTableData_ACU(cloneData(orderedData));
-      syncChatSheetGuide(target === 'global');
+      syncChatSheetGuide(orderedData, [...visualizer.sheetOrder], target === 'global');
 
       const chatResult = await saveCurrentDataToChat(
         [...visualizer.sheetOrder],

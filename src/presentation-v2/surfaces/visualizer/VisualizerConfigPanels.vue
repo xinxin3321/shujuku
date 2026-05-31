@@ -251,7 +251,7 @@
           title="主条目位置"
           :placement="config.getPlacement('entryPlacement')"
           :options="config.placementOptions"
-          @update="(field, value) => config.updatePlacement('entryPlacement', field, value)"
+          :update-field="(field, value) => config.updatePlacement('entryPlacement', field, value)"
         />
 
         <div class="acu-viz-config__subsection">
@@ -300,7 +300,7 @@
               title="索引条目位置"
               :placement="config.getPlacement('extraIndexPlacement')"
               :options="config.placementOptions"
-              @update="(field, value) => config.updatePlacement('extraIndexPlacement', field, value)"
+              :update-field="(field, value) => config.updatePlacement('extraIndexPlacement', field, value)"
             />
           </template>
         </div>
@@ -316,14 +316,14 @@
         title="固定主条目位置"
         :placement="config.getPlacement('fixedEntryPlacement')"
         :options="config.placementOptions"
-        @update="(field, value) => config.updatePlacement('fixedEntryPlacement', field, value)"
+        :update-field="(field, value) => config.updatePlacement('fixedEntryPlacement', field, value)"
       />
       <PlacementEditor
         v-if="config.importantPersonsFixedIndexEnabled.value"
         title="固定索引条目位置"
         :placement="config.getPlacement('fixedIndexPlacement')"
         :options="config.placementOptions"
-        @update="(field, value) => config.updatePlacement('fixedIndexPlacement', field, value)"
+        :update-field="(field, value) => config.updatePlacement('fixedIndexPlacement', field, value)"
       />
     </AcuPanel>
 

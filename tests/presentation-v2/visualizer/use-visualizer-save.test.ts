@@ -200,6 +200,49 @@ describe('useVisualizerSave', () => {
     expect(store.lastSavedTarget).toBe('global');
   });
 
+  it('保存独立导出位置时用本次草稿同步聊天指导表', async () => {
+    const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
+    const { useVisualizerSave } = await import('../../../src/presentation-v2/composables/visualizer/useVisualizerSave');
+    const store = useVisualizerStore();
+    store.loadSnapshot({
+      mate: { type: 'chatSheets', version: 1 },
+      sheet_test_vz2: {
+        ...sheet('独立导出表'),
+        exportConfig: {
+          enabled: true,
+          entryPlacement: { position: 'at_depth_as_system', depth: 2, order: 10000 },
+        },
+      },
+    }, ['sheet_test_vz2']);
+    store.currentSheet.exportConfig.entryPlacement = {
+      position: 'at_depth_as_system',
+      depth: 7,
+      order: 12345,
+    };
+    store.setDirty(true);
+
+    const saved = await useVisualizerSave().saveToChat();
+
+    expect(saved).toBe(true);
+    expect(runtimeMock.getCurrentData().sheet_test_vz2.exportConfig.entryPlacement).toEqual({
+      position: 'at_depth_as_system',
+      depth: 7,
+      order: 12345,
+    });
+    expect(serviceMock.buildChatSheetGuideDataFromData_ACU).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sheet_test_vz2: expect.objectContaining({
+          exportConfig: expect.objectContaining({
+            entryPlacement: { position: 'at_depth_as_system', depth: 7, order: 12345 },
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        orderedKeys: ['sheet_test_vz2'],
+      }),
+    );
+  });
+
   it('保存时提交 AI 助手暂存的锁变化并在成功后清空队列', async () => {
     const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
     const { useVisualizerSave } = await import('../../../src/presentation-v2/composables/visualizer/useVisualizerSave');

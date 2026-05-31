@@ -6,7 +6,7 @@
         <AcuSelect
           :model-value="placement.position"
           :options="options"
-          @update:model-value="value => emit('update', 'position', value)"
+          @update:model-value="value => updateField('position', value)"
         />
       </AcuFormRow>
       <AcuFormRow label="Depth">
@@ -15,7 +15,7 @@
           type="number"
           :model-value="placement.depth"
           :step="1"
-          @update:model-value="value => emit('update', 'depth', value)"
+          @update:model-value="value => updateField('depth', value)"
         />
       </AcuFormRow>
       <AcuFormRow label="Order">
@@ -25,7 +25,7 @@
           :model-value="placement.order"
           :min="1"
           :step="1"
-          @update:model-value="value => emit('update', 'order', value)"
+          @update:model-value="value => updateField('order', value)"
         />
       </AcuFormRow>
     </div>
@@ -38,15 +38,16 @@ import AcuInput from '../../components/_lib/AcuInput.vue';
 import AcuSelect from '../../components/_lib/AcuSelect.vue';
 import type { VisualizerPlacementDraft } from '../../composables/visualizer/useVisualizerConfigEditing';
 
-defineProps<{
+const props = defineProps<{
   title: string;
   placement: VisualizerPlacementDraft;
   options: Array<{ value: string; label: string }>;
+  updateField: (field: keyof VisualizerPlacementDraft, value: string | number) => void;
 }>();
 
-const emit = defineEmits<{
-  (e: 'update', field: keyof VisualizerPlacementDraft, value: string | number): void;
-}>();
+function updateField(field: keyof VisualizerPlacementDraft, value: string | number): void {
+  props.updateField(field, value);
+}
 </script>
 
 <style scoped>

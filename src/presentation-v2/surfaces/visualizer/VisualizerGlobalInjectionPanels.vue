@@ -8,14 +8,14 @@
         title="可读数据条目位置"
         :placement="config.getGlobalPlacement('readableEntryPlacement')"
         :options="config.placementOptions"
-        @update="(field, value) => config.updateGlobalPlacement('readableEntryPlacement', field, value)"
+        :update-field="(field, value) => config.updateGlobalPlacement('readableEntryPlacement', field, value)"
       />
 
       <PlacementEditor
         title="包裹条目位置"
         :placement="config.getGlobalPlacement('wrapperPlacement')"
         :options="config.placementOptions"
-        @update="(field, value) => config.updateGlobalPlacement('wrapperPlacement', field, value)"
+        :update-field="(field, value) => config.updateGlobalPlacement('wrapperPlacement', field, value)"
       />
     </AcuPanel>
   </div>
