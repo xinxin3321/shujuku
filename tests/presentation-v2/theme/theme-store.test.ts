@@ -467,6 +467,9 @@ describe('theme-injector', () => {
     expect(style1!.textContent).toContain('scrollbar-color: color-mix(in srgb, var(--acu-text-3) 55%, transparent) transparent;');
     expect(style1!.textContent).toContain(`#${APP_ROOT_ID} ::-webkit-scrollbar-thumb`);
     expect(style1!.textContent).toContain('background: color-mix(in srgb, var(--acu-accent) 62%, var(--acu-text-3));');
+    expect(style1!.textContent).toContain(`#${APP_ROOT_ID} :is(.acu-input, .acu-textarea)::placeholder`);
+    expect(style1!.textContent).toContain('-webkit-text-fill-color: var(--acu-text-3) !important;');
+    expect(style1!.textContent).toContain('opacity: 1 !important;');
     expect(style1!.textContent).toContain(`#${APP_ROOT_ID} :is(.fa, .fas, .far, .fab, .fa-solid, .fa-regular, .fa-brands, [class^="fa-"], [class*=" fa-"])`);
     expect(style1!.textContent).toContain('color: var(--acu-icon-color, currentColor) !important;');
 

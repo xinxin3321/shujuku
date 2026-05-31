@@ -52,6 +52,12 @@ ${lines.join('\n')}
   background: transparent;
 }
 
+#${APP_ROOT_ID} :is(.acu-input, .acu-textarea)::placeholder {
+  color: var(--acu-text-3) !important;
+  -webkit-text-fill-color: var(--acu-text-3) !important;
+  opacity: 1 !important;
+}
+
 /* Keep Font Awesome icons tied to v2 component colors despite host CSS injection. */
 #${APP_ROOT_ID} :is(.fa, .fas, .far, .fab, .fa-solid, .fa-regular, .fa-brands, [class^="fa-"], [class*=" fa-"]) {
   color: var(--acu-icon-color, currentColor) !important;
