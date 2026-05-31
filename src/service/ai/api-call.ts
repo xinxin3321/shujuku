@@ -52,7 +52,7 @@ function parseKeyValueLines(raw: string): Record<string, any> {
 /**
  * 构建 Chat Completions 自定义 API 请求体（支持 bodyParams / excludeBodyParams / requestHeaders）
  */
-function buildCustomApiRequestBody_ACU(
+export function buildCustomApiRequestBody_ACU(
   messages: any[],
   effectiveApiConfig: any,
   overrides?: { maxTokens?: number; temperature?: number; topP?: number; stripModelPrefix?: boolean }
