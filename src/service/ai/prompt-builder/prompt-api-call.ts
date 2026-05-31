@@ -4,7 +4,7 @@
  * 从 prompt-builder.ts 拆出（L195-L501 + L1519-L1604）
  */
 import { currentAbortController_ACU, trackAbortController_ACU, untrackAbortController_ACU, _set_currentAbortController_ACU } from '../../runtime/state-manager';
-import { getApiConfigByPreset_ACU } from '../api-call';
+import { getApiConfigByPreset_ACU, buildCustomApiRequestBody_ACU } from '../api-call';
 import { currentJsonTableData_ACU, settings_ACU } from '../../runtime/state-manager';
 import { getPersonaDescription_ACU, getCharDescription_ACU } from '../../../data/gateways/host-state-gateway';
 import { isGenerateRawAvailable_ACU, generateRaw_ACU, sendConnectionManagerRequest_ACU, triggerSlash_ACU, getConnectionManagerProfiles_ACU, getHostRequestHeaders_ACU } from '../../../data/gateways/ai-gateway';
@@ -248,25 +248,7 @@ import { replaceDbSqlVariables } from '../../runtime/template-vars/sql-query-var
             
             const headers = { ...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json' };
             
-            const body = JSON.stringify({
-              "messages": messages,
-              "model": effectiveApiConfig.model,
-              "temperature": effectiveApiConfig.temperature,
-              "top_p": effectiveApiConfig.top_p || 0.9,
-              "max_tokens": effectiveApiConfig.max_tokens,
-              "stream": settings_ACU.streamingEnabled || false,
-              "chat_completion_source": "custom",
-              "group_names": [],
-              "include_reasoning": false,
-              "reasoning_effort": "medium",
-              "enable_web_search": false,
-              "request_images": false,
-              "custom_prompt_post_processing": "strict",
-              "reverse_proxy": effectiveApiConfig.url,
-              "proxy_password": "",
-              "custom_url": effectiveApiConfig.url,
-              "custom_include_headers": effectiveApiConfig.apiKey ? `Authorization: Bearer ${effectiveApiConfig.apiKey}` : ""
-            });
+            const body = JSON.stringify(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens: effectiveApiConfig.max_tokens, temperature: effectiveApiConfig.temperature, topP: effectiveApiConfig.top_p, stripModelPrefix: false }));
             
             logDebug_ACU('ACU: 调用新的后端生成API:', generateUrl, 'Model:', effectiveApiConfig.model);
             const response = await fetch(generateUrl, { method: 'POST', headers, body, signal: abortSignal });
