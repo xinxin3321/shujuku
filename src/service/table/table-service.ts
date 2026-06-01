@@ -19,7 +19,7 @@ import {
 import { deleteAllGeneratedEntries_ACU } from '../worldbook/pipeline';
 import { mergeAllIndependentTables_ACU } from '../runtime/helpers-remaining';
 import { cloneIsolatedData_ACU, writeIsolatedTagData_ACU, writeMessageIdentity_ACU, readIsolatedTagData_ACU, readLegacyIndependentData_ACU, isLegacyMatchForIsolation_ACU } from '../../data/repositories/chat-message-data-repo';
-import { buildTableDelta_ACU } from './table-delta';
+import { applyTableDelta_ACU, buildTableDelta_ACU, isDeltaTagData_ACU } from './table-delta';
 
 export interface TableChatPersistOptions_ACU {
   targetMessageIndex?: number;
@@ -125,7 +125,21 @@ export async function persistTablesToChatMessage_ACU(
   }
 
   let currentTagData = isolatedData[currentIsolationKey];
-  let independentData = currentTagData.independentData || {};
+  let independentData: Record<string, any> = {};
+
+  if (isDeltaTagData_ACU(currentTagData) && prevTagData?.independentData && currentTagData.incrementalData) {
+    independentData = JSON.parse(JSON.stringify(prevTagData.independentData));
+    for (const [sheetKey, delta] of Object.entries(currentTagData.incrementalData)) {
+      const baseSheet = independentData[sheetKey];
+      if (!baseSheet) {
+        logWarn_ACU(`[表格增量] 楼层 #${finalIndex} 既有 delta 表 ${sheetKey} 缺少 base，跳过同楼层重建`);
+        continue;
+      }
+      independentData[sheetKey] = applyTableDelta_ACU(baseSheet, delta, sheetKey);
+    }
+  } else {
+    independentData = JSON.parse(JSON.stringify(currentTagData.independentData || {}));
+  }
 
   let keysToSave: string[] = targetSheetKeys as string[];
 
@@ -151,11 +165,12 @@ export async function persistTablesToChatMessage_ACU(
 
   // ── 增量/checkpoint 模式判定 ──
   if (prevTagData && prevTagData.independentData) {
-    // 尝试对每个要保存的表构建 delta
+    // 尝试对目标楼层已合并后的表构建 delta。
+    // 同一楼层可能由多个更新组分批写入，必须保留此前组已写入的 incrementalData。
     const incrementalData: Record<string, import('../../data/models/chat-message-data').TableIncrementalUpdate_ACU> = {};
     let anyDegraded = false;
 
-    for (const sheetKey of keysToSave) {
+    for (const sheetKey of Object.keys(independentData).filter(k => k.startsWith('sheet_'))) {
       const nextSheet = independentData[sheetKey];
       if (!nextSheet) continue;
       const baseSheet = prevTagData.independentData[sheetKey];
@@ -179,12 +194,14 @@ export async function persistTablesToChatMessage_ACU(
       logDebug_ACU(`[表格增量] 楼层 #${finalIndex} 使用 delta 模式，${Object.keys(incrementalData).length} 张表有变更`);
     } else {
       // checkpoint 模式：退化，写完整快照
+      delete currentTagData.incrementalData;
       currentTagData._acu_storage_mode = 'checkpoint';
       currentTagData._acu_storage_version = 1;
       logDebug_ACU(`[表格Checkpoint] 楼层 #${finalIndex} 使用 checkpoint 模式`);
     }
   } else {
     // 无上一楼层 base → checkpoint 模式（首楼层或首次出现该标签）
+    delete currentTagData.incrementalData;
     currentTagData._acu_storage_mode = 'checkpoint';
     currentTagData._acu_storage_version = 1;
     logDebug_ACU(`[表格Checkpoint] 楼层 #${finalIndex} 无 base，使用 checkpoint 模式`);

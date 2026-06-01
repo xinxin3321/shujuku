@@ -158,6 +158,81 @@ describe('I2: 增量存储端到端链路', () => {
     expect(isCheckpointTagData_ACU(td2)).toBe(false);
   });
 
+  it('同一楼层多组分批保存时合并 incrementalData，不丢失先写入的表', async () => {
+    mockChat.push({ is_user: false, mes: 'AI回复1' });
+    mockCurrentJsonTableDataRef.value = {
+      sheet_a: { name: '表A', content: [['row_id', 'A'], ['a1', '旧A']] },
+      sheet_b: { name: '表B', content: [['row_id', 'B'], ['b1', '旧B']] },
+    };
+    await saveIndependentTableToChatHistory_ACU();
+
+    mockChat.push({ is_user: true, mes: '用户' });
+    mockChat.push({ is_user: false, mes: 'AI回复2' });
+
+    mockCurrentJsonTableDataRef.value = {
+      sheet_a: { name: '表A', content: [['row_id', 'A'], ['a1', '新A']] },
+      sheet_b: { name: '表B', content: [['row_id', 'B'], ['b1', '旧B']] },
+    };
+    await saveIndependentTableToChatHistory_ACU(2, ['sheet_a'], ['sheet_a'], false, ['sheet_a']);
+
+    mockCurrentJsonTableDataRef.value = {
+      sheet_a: { name: '表A', content: [['row_id', 'A'], ['a1', '新A']] },
+      sheet_b: { name: '表B', content: [['row_id', 'B'], ['b1', '新B']] },
+    };
+    await saveIndependentTableToChatHistory_ACU(2, ['sheet_b'], ['sheet_b'], false, ['sheet_b']);
+
+    const td2 = mockChat[2].TavernDB_ACU_IsolatedData[''];
+    expect(td2._acu_storage_mode).toBe('delta');
+    expect(Object.keys(td2.independentData).filter((k: string) => k.startsWith('sheet_'))).toHaveLength(0);
+    expect(td2.incrementalData.sheet_a).toBeDefined();
+    expect(td2.incrementalData.sheet_b).toBeDefined();
+    expect(td2.modifiedKeys.sort()).toEqual(['sheet_a', 'sheet_b']);
+    expect(td2.updateGroupKeys.sort()).toEqual(['sheet_a', 'sheet_b']);
+
+    const sheetADelta = td2.incrementalData.sheet_a.rowDeltas.find((d: any) => d.row_id === 'a1');
+    const sheetBDelta = td2.incrementalData.sheet_b.rowDeltas.find((d: any) => d.row_id === 'b1');
+    expect(sheetADelta?.cells).toEqual(['a1', '新A']);
+    expect(sheetBDelta?.cells).toEqual(['b1', '新B']);
+
+    const rebuiltA = applyTableDelta_ACU(mockChat[0].TavernDB_ACU_IsolatedData[''].independentData.sheet_a, td2.incrementalData.sheet_a, 'sheet_a');
+    const rebuiltB = applyTableDelta_ACU(mockChat[0].TavernDB_ACU_IsolatedData[''].independentData.sheet_b, td2.incrementalData.sheet_b, 'sheet_b');
+    expect(rebuiltA.content).toEqual([['row_id', 'A'], ['a1', '新A']]);
+    expect(rebuiltB.content).toEqual([['row_id', 'B'], ['b1', '新B']]);
+  });
+
+  it('同一楼层后续分组退化为 checkpoint 时不丢失先写入的表', async () => {
+    mockChat.push({ is_user: false, mes: 'AI回复1' });
+    mockCurrentJsonTableDataRef.value = {
+      sheet_a: { name: '表A', content: [['row_id', 'A'], ['a1', '旧A']] },
+      sheet_b: { name: '表B', content: [['row_id', 'B'], ['b1', '旧B']] },
+    };
+    await saveIndependentTableToChatHistory_ACU();
+
+    mockChat.push({ is_user: true, mes: '用户' });
+    mockChat.push({ is_user: false, mes: 'AI回复2' });
+
+    mockCurrentJsonTableDataRef.value = {
+      sheet_a: { name: '表A', content: [['row_id', 'A'], ['a1', '新A']] },
+      sheet_b: { name: '表B', content: [['row_id', 'B'], ['b1', '旧B']] },
+    };
+    await saveIndependentTableToChatHistory_ACU(2, ['sheet_a'], ['sheet_a'], false, ['sheet_a']);
+    expect(mockChat[2].TavernDB_ACU_IsolatedData['']._acu_storage_mode).toBe('delta');
+
+    mockCurrentJsonTableDataRef.value = {
+      sheet_a: { name: '表A', content: [['row_id', 'A'], ['a1', '新A']] },
+      sheet_b: { name: '表B', content: [['row_id', 'B'], ['', '坏行1'], ['', '坏行2']] },
+    };
+    await saveIndependentTableToChatHistory_ACU(2, ['sheet_b'], ['sheet_b'], false, ['sheet_b']);
+
+    const td2 = mockChat[2].TavernDB_ACU_IsolatedData[''];
+    expect(td2._acu_storage_mode).toBe('checkpoint');
+    expect(td2.incrementalData).toBeUndefined();
+    expect(td2.independentData.sheet_a.content).toEqual([['row_id', 'A'], ['a1', '新A']]);
+    expect(td2.independentData.sheet_b.content).toEqual([['row_id', 'B'], ['', '坏行1'], ['', '坏行2']]);
+    expect(td2.modifiedKeys.sort()).toEqual(['sheet_a', 'sheet_b']);
+    expect(td2.updateGroupKeys.sort()).toEqual(['sheet_a', 'sheet_b']);
+  });
+
   it('buildTableDelta + applyTableDelta 往返一致性', () => {
     const base = { name: 'T', content: [['row_id', 'A', 'B'], ['r1', '铁剑', '3'], ['r2', '药水', '5']] } as any;
     const next = { name: 'T', content: [['row_id', 'A', 'B'], ['r1', '铁剑', '10'], ['r3', '盾牌', '1']] } as any;
