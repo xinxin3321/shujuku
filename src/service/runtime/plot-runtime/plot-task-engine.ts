@@ -292,6 +292,10 @@ import { abortableDelay } from '../../../shared/abortable-delay';
   async function renderPlotTaskMessages_ACU(task: Record<string, any>, sharedContext: Record<string, any>, runtimeOptions: any = {}) {
     const promptGroup = JSON.parse(JSON.stringify(task?.promptGroup || []));
     const messagesToUse = Array.isArray(promptGroup) ? promptGroup : [];
+    const historyTagMap = runtimeOptions.historyTagMap instanceof Map
+      ? runtimeOptions.historyTagMap
+      : buildPlotTagMapFromText_ACU(sharedContext.lastPlotContent, null);
+    const relayTagMap = runtimeOptions.relayTagMap instanceof Map ? runtimeOptions.relayTagMap : new Map();
 
     // 构建 $1 的任务级覆盖值（任务级世界书内容）
     const replacementOverrides: Record<string, any> = {};
@@ -304,10 +308,7 @@ import { abortableDelay } from '../../../shared/abortable-delay';
       let c = seg.content;
       c = await tryRenderPlotTemplateWithEjs_ACU(c);
       c = sharedContext.performReplacements(c, replacementOverrides);
-      const relayTagMap = runtimeOptions.useHistoryRelay
-        ? buildPlotTagMapFromText_ACU(sharedContext.lastPlotContent, getPlotPlaceholderTagNames_ACU(c))
-        : (runtimeOptions.relayTagMap instanceof Map ? runtimeOptions.relayTagMap : new Map());
-      c = replacePlotTagPlaceholders_ACU(c, relayTagMap);
+      c = replacePlotTagPlaceholders_ACU(c, relayTagMap, historyTagMap);
       c = renderPlotTaskContentWithIsolatedVariables_ACU(c, sharedContext);
       seg.__renderedContent = c;
     }
@@ -330,16 +331,16 @@ import { abortableDelay } from '../../../shared/abortable-delay';
     // 任务级世界书计算：基于当前任务实际使用的 {{tag}} 注入内容 + 本轮上下文触发，
     // 而不是固定使用整段上一轮剧情内容。
     // 标签来源与 renderPlotTaskMessages_ACU 一致：
-    // - 第一阶段（useHistoryRelay=true）：relayTagMap 为空，走 lastPlotContent
-    // - 后续阶段（useHistoryRelay=false）：relayTagMap 含本轮先前阶段结果
+    // - 若本轮已完成任务产出目标标签：优先用本轮 relayTagMap
+    // - 否则回退到 historyTagMap / lastPlotContent（上一轮历史）
     let taskWorldbookContent = '';
     try {
       const taskPlotContent = String(sharedContext.lastPlotContent || '');
-      const effectiveRelayTagMap = runtimeOptions.useHistoryRelay
-        ? undefined  // 第一阶段：从 lastPlotContent 提取
-        : (runtimeOptions.relayTagMap instanceof Map ? runtimeOptions.relayTagMap : undefined);
+      const effectiveRelayTagMap = runtimeOptions.relayTagMap instanceof Map
+        ? runtimeOptions.relayTagMap
+        : undefined;
       // 从任务 prompt 中提取 {{tag}}，按实际标签来源取对应内容，构造触发文本
-      const worldbookTriggerText = buildTaskWorldbookTriggerText_ACU(normalizedTask.promptGroup, taskPlotContent, effectiveRelayTagMap);
+      const worldbookTriggerText = buildTaskWorldbookTriggerText_ACU(normalizedTask.promptGroup, taskPlotContent, effectiveRelayTagMap, runtimeOptions.historyTagMap);
       if (worldbookTriggerText) {
         logDebug_ACU(`[剧情推进] [任务:${taskLabel}] 基于 {{tag}} 注入内容构造世界书触发文本，长度: ${worldbookTriggerText.length}`);
       } else {
@@ -497,12 +498,12 @@ import { abortableDelay } from '../../../shared/abortable-delay';
     }
 
     const stageGroups = groupPlotTasksByStage_ACU(enabledTasks);
-
     const sharedContext = await buildPlotSharedContext_ACU(plotSettings, userMessage, {
       inputForHash,
       hasExistingUserMessage,
     });
     checkPlotAbortRequested_ACU();
+    const historyTagMap = buildPlotTagMapFromText_ACU(sharedContext.lastPlotContent || '', null);
 
     // 构建历史检索选项，供任务级历史回溯使用
     const historyAnchorText = String(inputForHash ?? userMessage ?? '');
@@ -516,28 +517,51 @@ import { abortableDelay } from '../../../shared/abortable-delay';
     const successfulResults: any[] = [];
     const failedResults: any[] = [];
     let aggregatedTags = new Map();
+    let completedSuccessfulResults: any[] = [];
     let aggregatedInjectOnlyTagNames = new Set<string>();
 
     for (let stageIndex = 0; stageIndex < stageGroups.length; stageIndex++) {
       const stageGroup = stageGroups[stageIndex];
 
+      let stageEffectivePreset = String(settings_ACU.plotApiPreset || '').trim();
+      for (const stageTask of stageGroup.tasks) {
+        const taskId = String(stageTask?.id || '').trim();
+        const mappedPreset = taskId ? String(getPlotTaskApiPresetOverrides_ACU()[taskId] || '').trim() : '';
+        const legacyTaskPreset = String(stageTask?.taskApiPreset || '').trim();
+        const explicitTaskPreset = mappedPreset || legacyTaskPreset;
+        if (explicitTaskPreset) {
+          stageEffectivePreset = explicitTaskPreset;
+          break;
+        }
+      }
+
       logDebug_ACU(`[剧情推进] 阶段 ${stageGroup.stage} 开始执行，任务级API预设将按各任务独立决议。`);
 
-      const stageResults = await Promise.all(
-        stageGroup.tasks.map((task: any) =>
-          executeSinglePlotTask_ACU(task, sharedContext, {
-            relayTagMap: aggregatedTags,
-            useHistoryRelay: stageIndex === 0,
-            historyLookupOptions,
-          }),
-        ),
-      );
+      const stageResults: any[] = [];
+      for (const task of stageGroup.tasks) {
+        const stageTask = stageEffectivePreset
+          ? { ...task, taskApiPreset: stageEffectivePreset }
+          : task;
+        const result = await executeSinglePlotTask_ACU(stageTask, sharedContext, {
+          relayTagMap: aggregatedTags,
+          historyTagMap,
+          historyLookupOptions,
+        });
+        stageResults.push(result);
+        if (result?.success) {
+          completedSuccessfulResults = [...completedSuccessfulResults, result];
+          const { aggregated: stageAggregated, injectOnlyTagNames: stageInjectOnly } = aggregatePlotTaskTags_ACU(completedSuccessfulResults);
+          aggregatedTags = stageAggregated;
+          stageInjectOnly.forEach((name: string) => aggregatedInjectOnlyTagNames.add(name));
+        }
+      }
       checkPlotAbortRequested_ACU();
 
       const stageSuccessfulResults = stageResults.filter((result: any) => result?.success);
       const stageFailedResults = stageResults.filter((result: any) => result && !result.success);
       successfulResults.push(...stageSuccessfulResults);
       failedResults.push(...stageFailedResults);
+      completedSuccessfulResults = [...successfulResults];
 
       if (stageFailedResults.length > 0) {
         stageFailedResults.forEach((result: any) => {
@@ -558,10 +582,6 @@ import { abortableDelay } from '../../../shared/abortable-delay';
         };
       }
 
-      const { aggregated: stageAggregated, injectOnlyTagNames: stageInjectOnly } = aggregatePlotTaskTags_ACU(successfulResults);
-      aggregatedTags = stageAggregated;
-      // 合并 injectOnly 标签名
-      stageInjectOnly.forEach((name: string) => aggregatedInjectOnlyTagNames.add(name));
       logDebug_ACU(`[剧情推进] 阶段 ${stageGroup.stage} 已完成，成功任务数: ${stageSuccessfulResults.length}`);
     }
 

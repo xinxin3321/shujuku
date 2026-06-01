@@ -41,6 +41,7 @@ import {
   buildPlotTagMapFromText_ACU,
   buildPlotTagBlock_ACU,
   replacePlotTagPlaceholders_ACU,
+  buildTaskWorldbookTriggerText_ACU,
   sortPlotTaskResults_ACU,
   aggregatePlotTaskTags_ACU,
   buildAggregatedPlotTagBlocks_ACU,
@@ -134,11 +135,48 @@ describe('replacePlotTagPlaceholders_ACU', () => {
     const result = replacePlotTagPlaceholders_ACU('指令：{{plot}}', map);
     expect(result).toContain('<plot>剧情内容</plot>');
   });
+  it('同一文本内重复占位符全部替换，且重复读取不消费内容', () => {
+    const map = new Map([['recall', ['历史剧情']]]);
+    const text = 'A={{recall}};B={{recall}}';
+    const first = replacePlotTagPlaceholders_ACU(text, map);
+    const second = replacePlotTagPlaceholders_ACU(text, map);
+    expect(first).toBe('A=<recall>历史剧情</recall>;B=<recall>历史剧情</recall>');
+    expect(second).toBe(first);
+  });
+  it('大小写不一致时仍可命中', () => {
+    const map = new Map([['Recall', ['大小写稳健']]]);
+    const result = replacePlotTagPlaceholders_ACU('命中={{recall}}', map);
+    expect(result).toContain('<recall>大小写稳健</recall>');
+  });
+  it('本轮无有效内容时回退历史标签', () => {
+    const current = new Map([['recall', ['   ']]]);
+    const history = new Map([['recall', ['上一轮内容']]]);
+    const result = replacePlotTagPlaceholders_ACU('内容={{recall}}', current, history);
+    expect(result).toContain('<recall>上一轮内容</recall>');
+  });
   it('无匹配占位符返回标签块（空内容）', () => {
     const map = new Map();
     const result = replacePlotTagPlaceholders_ACU('{{unknown}}', map);
     // buildPlotTagBlock_ACU 对 undefined 内容返回 '<unknown></unknown>'
     expect(result).toBe('<unknown></unknown>');
+  });
+});
+
+describe('buildTaskWorldbookTriggerText_ACU', () => {
+  it('优先使用本轮 relayTagMap，缺失时回退 historyTagMap', () => {
+    const promptGroup = [
+      { role: 'user', content: 'A={{recall}}' },
+      { role: 'assistant', content: 'B={{directive}}' },
+    ];
+    const relay = new Map<string, any>([['recall', ['本轮内容']]]);
+    const history = new Map<string, any>([
+      ['recall', ['历史内容']],
+      ['directive', ['历史指令']],
+    ]);
+
+    const result = buildTaskWorldbookTriggerText_ACU(promptGroup, 'unused', relay, history);
+    expect(result).toContain('<recall>本轮内容</recall>');
+    expect(result).toContain('<directive>历史指令</directive>');
   });
 });
 
@@ -174,7 +212,7 @@ describe('aggregatePlotTaskTags_ACU', () => {
       { success: true, stage: 1, order: 0, extractedTags: { plot: '剧情1' } },
       { success: true, stage: 2, order: 0, extractedTags: { plot: '剧情2' } },
     ];
-    const aggregated = aggregatePlotTaskTags_ACU(results);
+    const { aggregated } = aggregatePlotTaskTags_ACU(results);
     expect(aggregated.get('plot')).toEqual(['剧情1', '剧情2']);
   });
   it('跳过失败的任务', () => {
@@ -182,7 +220,7 @@ describe('aggregatePlotTaskTags_ACU', () => {
       { success: false, stage: 1, order: 0, extractedTags: { plot: '失败' } },
       { success: true, stage: 2, order: 0, extractedTags: { plot: '成功' } },
     ];
-    const aggregated = aggregatePlotTaskTags_ACU(results);
+    const { aggregated } = aggregatePlotTaskTags_ACU(results);
     expect(aggregated.get('plot')).toEqual(['成功']);
   });
 });
@@ -320,6 +358,21 @@ describe('buildFinalPlotInjectionMessage_ACU', () => {
     const result = buildFinalPlotInjectionMessage_ACU('{{plot}}指令', [], tags);
     expect(result).toContain('<plot>剧情内容</plot>');
     expect(result).not.toContain('{{plot}}');
+  });
+  it('重复占位符均替换，且 injectOnly 大小写不敏感不追加', () => {
+    const tags = new Map<string, any>();
+    tags.set('Plot', ['剧情内容']);
+    tags.set('Directive', ['额外指令']);
+    const result = buildFinalPlotInjectionMessage_ACU('{{plot}} + {{plot}}', [], tags, new Set(['directive']));
+    expect(result).toContain('<plot>剧情内容</plot> + <plot>剧情内容</plot>');
+    expect(result).not.toContain('<Directive>额外指令</Directive>');
+  });
+  it('空白内容标签不注入占位符', () => {
+    const tags = new Map<string, any>();
+    tags.set('plot', ['   ']);
+    const result = buildFinalPlotInjectionMessage_ACU('前{{plot}}后', [], tags);
+    expect(result).toContain('前后');
+    expect(result).not.toContain('<plot>');
   });
   it('有占位符无标签时移除占位符', () => {
     const result = buildFinalPlotInjectionMessage_ACU('{{plot}}指令', [{ rawText: '内容' }], new Map());

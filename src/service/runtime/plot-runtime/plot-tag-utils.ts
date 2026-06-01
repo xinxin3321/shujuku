@@ -248,14 +248,57 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     return `<${normalizedTagName}>${normalizedContents.join('\n\n')}</${normalizedTagName}>`;
   }
 
-  export function replacePlotTagPlaceholders_ACU(text: string, tagSourceMap: Map<string, any>) {
+  function hasMeaningfulTagContents_ACU(contents: any) {
+    if (Array.isArray(contents)) {
+      return contents.some((content: any) => String(content ?? '').trim() !== '');
+    }
+    return String(contents ?? '').trim() !== '';
+  }
+
+  export function getPlotTagMapValue_ACU(tagSourceMap: Map<string, any>, rawTagName: string) {
+    const normalizedTagName = String(rawTagName || '').trim();
+    if (!(tagSourceMap instanceof Map) || !normalizedTagName) {
+      return { found: false, value: undefined, actualTagName: '' };
+    }
+
+    if (tagSourceMap.has(normalizedTagName)) {
+      return {
+        found: true,
+        value: tagSourceMap.get(normalizedTagName),
+        actualTagName: normalizedTagName,
+      };
+    }
+
+    const loweredTagName = normalizedTagName.toLowerCase();
+    for (const [candidateTagName, candidateValue] of tagSourceMap.entries()) {
+      if (String(candidateTagName || '').trim().toLowerCase() === loweredTagName) {
+        return {
+          found: true,
+          value: candidateValue,
+          actualTagName: String(candidateTagName || '').trim(),
+        };
+      }
+    }
+
+    return { found: false, value: undefined, actualTagName: '' };
+  }
+
+  function resolvePlotTagValueWithFallback_ACU(primaryTagMap: Map<string, any>, fallbackTagMap: Map<string, any>, rawTagName: string) {
+    const primaryValue = getPlotTagMapValue_ACU(primaryTagMap, rawTagName);
+    if (primaryValue.found && hasMeaningfulTagContents_ACU(primaryValue.value)) {
+      return primaryValue;
+    }
+    return getPlotTagMapValue_ACU(fallbackTagMap, rawTagName);
+  }
+
+  export function replacePlotTagPlaceholders_ACU(text: string, tagSourceMap: Map<string, any>, fallbackTagSourceMap: Map<string, any> = new Map()) {
     const sourceText = String(text || '');
     if (!sourceText) return '';
     const placeholderPattern = /\{\{(\w+)\}\}/g;
 
     return sourceText.replace(placeholderPattern, (placeholder, tagName) => {
-      if (!(tagSourceMap instanceof Map)) return '';
-      return buildPlotTagBlock_ACU(tagName, tagSourceMap.get(tagName));
+      const resolvedValue = resolvePlotTagValueWithFallback_ACU(tagSourceMap, fallbackTagSourceMap, tagName);
+      return buildPlotTagBlock_ACU(tagName, resolvedValue.value);
     });
   }
 
@@ -278,7 +321,7 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
    * @param relayTagMap - 本轮先前阶段的聚合标签结果（Map<string, string[]>），可选
    * @returns 拼接后的世界书触发文本；无匹配标签时返回空字符串
    */
-  export function buildTaskWorldbookTriggerText_ACU(taskPromptGroup: any[], plotContent: string, relayTagMap?: Map<string, any>): string {
+  export function buildTaskWorldbookTriggerText_ACU(taskPromptGroup: any[], plotContent: string, relayTagMap?: Map<string, any>, fallbackTagMap?: Map<string, any>): string {
     const messages = Array.isArray(taskPromptGroup) ? taskPromptGroup : [];
     const sourcePlotContent = String(plotContent || '');
 
@@ -304,21 +347,15 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     //    否则从上轮剧情历史文本中提取
     const blocks: string[] = [];
 
-    if (relayTagMap instanceof Map && relayTagMap.size > 0) {
-      // 本轮先前阶段的聚合结果
-      for (const tagName of allTagNames) {
-        if (relayTagMap.has(tagName)) {
-          const block = buildPlotTagBlock_ACU(tagName, relayTagMap.get(tagName));
-          if (block) blocks.push(block);
-        }
-      }
-    } else if (sourcePlotContent.trim()) {
-      // 上轮剧情历史
-      const tagMap = buildPlotTagMapFromText_ACU(sourcePlotContent, allTagNames);
-      tagMap.forEach((contents, tagName) => {
-        const block = buildPlotTagBlock_ACU(tagName, contents);
-        if (block) blocks.push(block);
-      });
+    const historyTagMap = fallbackTagMap instanceof Map
+      ? fallbackTagMap
+      : buildPlotTagMapFromText_ACU(sourcePlotContent, allTagNames);
+
+    for (const tagName of allTagNames) {
+      const resolvedValue = resolvePlotTagValueWithFallback_ACU(relayTagMap instanceof Map ? relayTagMap : new Map(), historyTagMap, tagName);
+      if (!resolvedValue.found || !hasMeaningfulTagContents_ACU(resolvedValue.value)) continue;
+      const block = buildPlotTagBlock_ACU(tagName, resolvedValue.value);
+      if (block) blocks.push(block);
     }
 
     return blocks.join('\n');
@@ -396,20 +433,27 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
     if (aggregatedTags instanceof Map && aggregatedTags.size > 0) {
       if (placeholderNames.length > 0) {
         const matchedTags = new Set();
+        const injectOnlyTagNamesLower = new Set(Array.from(injectOnlyTagNames).map((name: string) => String(name || '').toLowerCase()));
         const finalDirectiveWithTags = baseDirective.replace(placeholderPattern, (placeholder, tagName) => {
-          matchedTags.add(tagName);
-          const contents = aggregatedTags.get(tagName);
-          if (Array.isArray(contents) && contents.length > 0) {
-            return `<${tagName}>${contents.map(content => content ?? '').join('\n\n')}</${tagName}>`;
+          const resolvedValue = getPlotTagMapValue_ACU(aggregatedTags, tagName);
+          matchedTags.add(String(tagName || '').toLowerCase());
+          if (resolvedValue.found) {
+            matchedTags.add(String(resolvedValue.actualTagName || '').toLowerCase());
+          }
+          const contents = resolvedValue.value;
+          if (hasMeaningfulTagContents_ACU(contents)) {
+            return `<${tagName}>${(Array.isArray(contents) ? contents : [contents]).map(content => content ?? '').join('\n\n')}</${tagName}>`;
           }
           return '';
         });
 
         const unusedTagBlocks: string[] = [];
         aggregatedTags.forEach((contents, tagName) => {
-          if (matchedTags.has(tagName)) return;
+          const loweredTagName = String(tagName || '').toLowerCase();
+          if (matchedTags.has(loweredTagName)) return;
           // injectOnly 标签（extractInjectTags 提取的）即使未使用也不追加到末尾
-          if (injectOnlyTagNames.has(tagName)) return;
+          if (injectOnlyTagNamesLower.has(loweredTagName)) return;
+          if (!hasMeaningfulTagContents_ACU(contents)) return;
           unusedTagBlocks.push(`<${tagName}>${(Array.isArray(contents) ? contents : [contents]).map(content => content ?? '').join('\n\n')}</${tagName}>`);
         });
 
@@ -420,8 +464,9 @@ import { getTemplateVariableStores_ACU, setTemplateVariableStores_ACU, parseRand
 
       // 没有占位符时：只追加非 injectOnly 的标签块
       const filteredTags = new Map();
+      const injectOnlyTagNamesLower = new Set(Array.from(injectOnlyTagNames).map((name: string) => String(name || '').toLowerCase()));
       aggregatedTags.forEach((contents, tagName) => {
-        if (!injectOnlyTagNames.has(tagName)) {
+        if (!injectOnlyTagNamesLower.has(String(tagName || '').toLowerCase()) && hasMeaningfulTagContents_ACU(contents)) {
           filteredTags.set(tagName, contents);
         }
       });

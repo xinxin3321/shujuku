@@ -630,6 +630,81 @@ describe('runPlotTasksRuntime_ACU', () => {
     expect(mockPlanningGuard.ignoreNextGenerationEndedCount).toBe(2);
   });
 
+  it('标签来源按任务执行顺序切换：T1/T2/T3 用历史，T3 产出后 T4/T5 用本轮', async () => {
+    const plotSettings = {
+      tasks: [
+        { id: 't1', name: '任务1', stage: 1, order: 1, maxRetries: 1, extractTags: 'recall', promptGroup: [{ role: 'user', content: 'T1 {{recall}}' }] },
+        { id: 't2', name: '任务2', stage: 1, order: 2, maxRetries: 1, extractTags: 'recall', promptGroup: [{ role: 'user', content: 'T2 {{recall}}' }] },
+        { id: 't3', name: '任务3', stage: 1, order: 3, maxRetries: 1, extractTags: 'recall', promptGroup: [{ role: 'user', content: 'T3 {{recall}}' }] },
+        { id: 't4', name: '任务4', stage: 1, order: 4, maxRetries: 1, extractTags: 'recall', promptGroup: [{ role: 'user', content: 'T4 {{recall}}' }] },
+        { id: 't5', name: '任务5', stage: 1, order: 5, maxRetries: 1, extractTags: 'recall', promptGroup: [{ role: 'user', content: 'T5 {{recall}}' }] },
+      ],
+    };
+
+    const historyTagMap = new Map<string, any>([['recall', ['上一轮标签']]]);
+    mockBuildPlotTagMapFromText.mockReturnValue(historyTagMap);
+
+    mockAggregatePlotTaskTags.mockImplementation((results: any[]) => {
+      const aggregated = new Map<string, any>();
+      for (const result of results) {
+        if (!result?.success || !result?.extractedTags) continue;
+        for (const [tagName, tagContent] of Object.entries(result.extractedTags)) {
+          if (!aggregated.has(tagName)) aggregated.set(tagName, []);
+          aggregated.get(tagName).push(tagContent);
+        }
+      }
+      return { aggregated, injectOnlyTagNames: new Set<string>() };
+    });
+
+    mockReplacePlotTagPlaceholders.mockImplementation((text: string) => text);
+    mockCallApiWithPlotPreset
+      .mockResolvedValueOnce('R1')
+      .mockResolvedValueOnce('R2')
+      .mockResolvedValueOnce('<recall>本轮新标签</recall>')
+      .mockResolvedValueOnce('R4')
+      .mockResolvedValueOnce('R5');
+
+    mockExtractPlotTagsFromResponse.mockImplementation((rawText: string) => {
+      if (String(rawText).includes('<recall>')) {
+        return {
+          tagNames: ['recall'],
+          extractedTags: { recall: '本轮新标签' },
+          injectedFragments: ['<recall>本轮新标签</recall>'],
+          injectOnlyTags: {},
+          injectOnlyFragments: [],
+          injectOnlyTagNames: [],
+        };
+      }
+      return {
+        tagNames: [],
+        extractedTags: {},
+        injectedFragments: [],
+        injectOnlyTags: {},
+        injectOnlyFragments: [],
+        injectOnlyTagNames: [],
+      };
+    });
+
+    await runPlotTasksRuntime_ACU(plotSettings, '当前输入');
+
+    expect(mockReplacePlotTagPlaceholders).toHaveBeenCalledTimes(5);
+    const calls = mockReplacePlotTagPlaceholders.mock.calls;
+
+    // 每个任务都应拿到历史 map（第3参）
+    expect(calls[0][2]).toBe(historyTagMap);
+    expect(calls[1][2]).toBe(historyTagMap);
+    expect(calls[2][2]).toBe(historyTagMap);
+    expect(calls[3][2]).toBe(historyTagMap);
+    expect(calls[4][2]).toBe(historyTagMap);
+
+    // T1/T2/T3 渲染时本轮无 recall；T4/T5 渲染时本轮已含 recall
+    expect(calls[0][1] instanceof Map ? calls[0][1].has('recall') : false).toBe(false);
+    expect(calls[1][1] instanceof Map ? calls[1][1].has('recall') : false).toBe(false);
+    expect(calls[2][1] instanceof Map ? calls[2][1].has('recall') : false).toBe(false);
+    expect(calls[3][1] instanceof Map ? calls[3][1].has('recall') : false).toBe(true);
+    expect(calls[4][1] instanceof Map ? calls[4][1].has('recall') : false).toBe(true);
+  });
+
   // ═══════════════════════════════════════════════════════════════
   // stage 级统一 effective preset
   // ═══════════════════════════════════════════════════════════════
@@ -723,7 +798,7 @@ describe('runPlotTasksRuntime_ACU', () => {
       contextExcludeTags: '',
       contextExcludeRules: [],
       loopSettings: { maxRetries: 1 },
-      plotTasks: [
+      tasks: [
         { id: 't1', name: '任务1', enabled: true, stage: 1, order: 0, promptGroup: [{ role: 'USER', content: '提示词1' }], extractTags: 'tag1', taskApiPreset: 'stage1-preset' },
         { id: 't2', name: '任务2', enabled: true, stage: 2, order: 0, promptGroup: [{ role: 'USER', content: '提示词2' }], extractTags: 'tag1', taskApiPreset: '' },
       ],
