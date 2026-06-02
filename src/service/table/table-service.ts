@@ -160,26 +160,34 @@ async function persistTablesToChatMessageWithLockOption_ACU(
           }
           continue;
         }
-        independentData[sheetKey] = applyTableDelta_ACU(baseSheet, delta, sheetKey);
+        const normalizedBaseSheet = JSON.parse(JSON.stringify(baseSheet));
+        if (Array.isArray(normalizedBaseSheet.content)) {
+          normalizedBaseSheet.content = ensureStableRowIdsForSheetContent_ACU(normalizedBaseSheet.content);
+        }
+        independentData[sheetKey] = applyTableDelta_ACU(normalizedBaseSheet, delta, sheetKey);
       }
     } else {
       independentData = JSON.parse(JSON.stringify(currentTagData.independentData || {}));
     }
 
-    let keysToSave: string[] = targetSheetKeys as string[];
+    let keysToSave: string[] = Array.isArray(targetSheetKeys)
+      ? targetSheetKeys.filter((sheetKey): sheetKey is string => typeof sheetKey === 'string' && sheetKey.length > 0)
+      : getSortedSheetKeys_ACU(effectiveTableData);
 
-    if (!keysToSave) {
-      keysToSave = getSortedSheetKeys_ACU(effectiveTableData);
-    }
+    keysToSave = [...new Set(keysToSave.filter(sheetKey => Boolean(effectiveTableData[sheetKey])))];
 
-    const trackingKeySet = new Set(
-      Array.isArray(trackingSheetKeys)
+    const trackingCandidateKeys = [
+      ...keysToSave,
+      ...(Array.isArray(trackingSheetKeys)
         ? trackingSheetKeys.filter((sheetKey): sheetKey is string => typeof sheetKey === 'string' && sheetKey.length > 0)
-        : []
+        : []),
+    ];
+    const trackingKeySet = new Set(
+      trackingCandidateKeys.filter(sheetKey => Boolean(effectiveTableData[sheetKey]))
     );
     const actuallyModifiedKeys = [...trackingKeySet];
     const metadataOnlyUpdateGroupKeys = Array.isArray(updateGroupKeys)
-      ? updateGroupKeys.filter(sheetKey => trackingKeySet.has(sheetKey))
+      ? [...new Set(updateGroupKeys.filter(sheetKey => trackingKeySet.has(sheetKey) && Boolean(effectiveTableData[sheetKey])))]
       : [];
 
     if (keysToSave.length === 0 && trackAsUpdate && actuallyModifiedKeys.length > 0) {
@@ -226,8 +234,11 @@ async function persistTablesToChatMessageWithLockOption_ACU(
       for (const sheetKey of Object.keys(independentData).filter(k => k.startsWith('sheet_'))) {
         const nextSheet = independentData[sheetKey];
         if (!nextSheet) continue;
-        const baseSheet = prevTagData.independentData[sheetKey];
-        const result = buildTableDelta_ACU(baseSheet, nextSheet, sheetKey);
+        const normalizedBaseSheet = JSON.parse(JSON.stringify(prevTagData.independentData[sheetKey] || null));
+        if (normalizedBaseSheet && Array.isArray(normalizedBaseSheet.content)) {
+          normalizedBaseSheet.content = ensureStableRowIdsForSheetContent_ACU(normalizedBaseSheet.content);
+        }
+        const result = buildTableDelta_ACU(normalizedBaseSheet, nextSheet, sheetKey);
         if (result.degraded) {
           anyDegraded = true;
           logDebug_ACU(`[表格增量] ${sheetKey} 退化: ${result.degradeReason}，本楼层将使用 checkpoint 模式`);

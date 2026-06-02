@@ -117,6 +117,44 @@ describe('useApiPresetStore', () => {
     expect(saveSettings).toHaveBeenCalled();
   });
 
+  it('保存当前活动预设时同步当前聊天 apiConfig 细节字段', async () => {
+    const settings = createSettings();
+    settings.apiPresetBindingsByChat['chat-A'] = { presetName: 'alpha', updatedAt: 1 };
+    const { store } = await importStore(settings);
+    store.refreshFromSettings();
+
+    expect(store.savePreset({
+      name: 'alpha',
+      apiMode: 'custom',
+      tavernProfile: '',
+      apiConfig: {
+        url: 'https://alpha-2.test',
+        apiKey: 'ka2',
+        model: 'ma2',
+        useMainApi: false,
+        max_tokens: 2048,
+        temperature: 0.25,
+        bodyParams: '{"top_p":0.9}',
+        excludeBodyParams: 'temperature',
+        requestHeaders: '{"x-test":"1"}',
+      },
+    }, 'alpha')).toBe(true);
+
+    expect(store.activePresetName).toBe('alpha');
+    expect(settings.apiPresetBindingsByChat['chat-A'].presetName).toBe('alpha');
+    expect(settings.apiConfig).toEqual(expect.objectContaining({
+      url: 'https://alpha-2.test',
+      apiKey: 'ka2',
+      model: 'ma2',
+      useMainApi: false,
+      max_tokens: 2048,
+      temperature: 0.25,
+      bodyParams: '{"top_p":0.9}',
+      excludeBodyParams: 'temperature',
+      requestHeaders: '{"x-test":"1"}',
+    }));
+  });
+
   it('删除预设时清理默认、当前聊天和功能引用', async () => {
     const settings = createSettings();
     settings.apiPresetBindingsByChat['chat-A'] = { presetName: 'beta', updatedAt: 1 };
@@ -148,6 +186,34 @@ describe('useApiPresetStore', () => {
 
     expect(store.defaultApiPresetName).toBe('renamed');
     expect(settings.apiPresetBindingsByChat['chat-A'].presetName).toBe('renamed');
+    expect(store.activePresetName).toBe('renamed');
+    expect(settings.apiConfig).toEqual(expect.objectContaining({
+      url: 'https://r.test',
+      model: 'mr',
+      useMainApi: false,
+      max_tokens: 2048,
+      temperature: 0.8,
+    }));
     expect(settings.apiPresets.map((p: any) => p.name)).toContain('renamed');
+  });
+
+  it('保存非活动预设时不覆盖当前聊天 apiConfig', async () => {
+    const settings = createSettings();
+    settings.apiPresetBindingsByChat['chat-A'] = { presetName: 'alpha', updatedAt: 1 };
+    const { store } = await importStore(settings);
+    store.refreshFromSettings();
+
+    expect(store.savePreset({
+      name: 'beta',
+      apiMode: 'tavern',
+      tavernProfile: 'profile-beta-2',
+      apiConfig: { url: '', apiKey: '', model: '', useMainApi: true, max_tokens: 777, temperature: 1.5, bodyParams: '{"a":1}', excludeBodyParams: '', requestHeaders: '' },
+    }, 'beta')).toBe(true);
+
+    expect(store.activePresetName).toBe('alpha');
+    expect(settings.apiPresetBindingsByChat['chat-A'].presetName).toBe('alpha');
+    expect(settings.apiConfig.url).toBe('');
+    expect(settings.apiConfig.useMainApi).toBe(true);
+    expect(settings.apiConfig.max_tokens).toBe(60000);
   });
 });

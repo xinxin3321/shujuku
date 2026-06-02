@@ -3,6 +3,7 @@
  * I1+I2 集成测试
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { logWarn_ACU } from '../../src/shared/utils';
 
 const { mockChat, mockSettings, mockCurrentJsonTableDataRef } = vi.hoisted(() => ({
   mockChat: [] as any[],
@@ -260,6 +261,40 @@ describe('I2: 增量存储端到端链路', () => {
     expect(rebuiltSheetA.content).toEqual([['row_id', 'A'], ['a1', '新A']]);
     expect(td2.modifiedKeys.sort()).toEqual(['sheet_a', 'sheet_b']);
     expect(td2.updateGroupKeys.sort()).toEqual(['sheet_a', 'sheet_b']);
+  });
+
+  it('旧脏 base 在同一 saveTargetIndex 多次保存时会先被稳定化，不再打印 base_no_stable_row_id', async () => {
+    mockChat.push({ is_user: false, mes: 'AI回复1' });
+    mockCurrentJsonTableDataRef.value = {
+      sheet_a: { name: '表A', content: [['row_id', 'A'], ['a1', '旧A']] },
+      sheet_b: { name: '表B', content: [['row_id', 'B'], ['b1', '旧B']] },
+    };
+    await saveIndependentTableToChatHistory_ACU();
+    mockChat[0].TavernDB_ACU_IsolatedData[''].independentData.sheet_a.content = [['row_id', 'A'], ['', '旧A1'], ['', '旧A2']];
+
+    mockChat.push({ is_user: true, mes: '用户' });
+    mockChat.push({ is_user: false, mes: 'AI回复2' });
+
+    mockCurrentJsonTableDataRef.value = {
+      sheet_a: { name: '表A', content: [['row_id', 'A'], ['1', '新A1'], ['2', '新A2']] },
+      sheet_b: { name: '表B', content: [['row_id', 'B'], ['b1', '旧B']] },
+    };
+    await saveIndependentTableToChatHistory_ACU(2, ['sheet_a'], ['sheet_a'], false, ['sheet_a']);
+
+    mockCurrentJsonTableDataRef.value = {
+      sheet_a: { name: '表A', content: [['row_id', 'A'], ['1', '新A1'], ['2', '新A2']] },
+      sheet_b: { name: '表B', content: [['row_id', 'B'], ['b1', '新B']] },
+    };
+    await saveIndependentTableToChatHistory_ACU(2, ['sheet_b'], ['sheet_b'], false, ['sheet_b']);
+
+    const td2 = mockChat[2].TavernDB_ACU_IsolatedData[''];
+    expect(td2._acu_storage_mode).toBe('delta');
+    expect(td2.incrementalData.sheet_a).toBeDefined();
+    expect(td2.incrementalData.sheet_b).toBeDefined();
+    const rebuiltA = applyTableDelta_ACU({ name: '表A', content: [['row_id', 'A'], ['1', '旧A1'], ['2', '旧A2']] } as any, td2.incrementalData.sheet_a, 'sheet_a');
+    expect(rebuiltA.content).toEqual([['row_id', 'A'], ['1', '新A1'], ['2', '新A2']]);
+    const baseWarnings = vi.mocked(logWarn_ACU).mock.calls.filter(call => String(call[0]).includes('base 缺少稳定 row_id'));
+    expect(baseWarnings).toHaveLength(0);
   });
 
   it('delta 模式保留本轮 tracking metadata，即使纪要表未产生增量', async () => {

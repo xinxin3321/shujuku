@@ -206,9 +206,9 @@ export const useApiPresetStore = defineStore('acu-v2-api-presets', {
     /**
      * 仅刷新展示用状态（presets / activePresetName / streaming）。
      *
-     * 实际把 chat 绑定的预设写回 apiMode/apiConfig/tavernProfile 的副作用由 service 层
-     * 的 applyCurrentChatApiPresetSelection_ACU() 负责（见 injection-engine-state.ts
-     * loadSettings_ACU()）。store 不重复调用，避免与 chat-changed 监听器形成竞争或循环写入。
+     * 切换聊天后的 settings 刷新由 service 层的 loadSettings_ACU() 完成，
+     * v2 chat-changed listener 只负责让 store 重新读取最新 settings。
+     * 当前聊天 API 配置的显式写回只在 setActivePresetForCurrentChat()/savePreset() 中执行，避免刷新阶段产生循环写入。
      */
     refreshFromSettings(): void {
       ensureSettingsShape();
@@ -268,8 +268,10 @@ export const useApiPresetStore = defineStore('acu-v2-api-presets', {
     savePreset(presetInput: AcuV2ApiPreset, originalName = ''): boolean {
       const preset = normalizePreset(presetInput);
       if (!preset) return false;
-      const hadPresets = this.presets.length > 0;
       const oldName = String(originalName || '').trim();
+      const activePresetNameBeforeSave = String(this.activePresetName || '').trim();
+      const isRenamingActivePreset = !!oldName && activePresetNameBeforeSave === oldName;
+      const hadPresets = this.presets.length > 0;
       const existingByNewName = this.presets.findIndex(p => p.name === preset.name);
       if (existingByNewName >= 0 && this.presets[existingByNewName].name !== oldName) {
         this.presets[existingByNewName] = preset;
@@ -293,8 +295,14 @@ export const useApiPresetStore = defineStore('acu-v2-api-presets', {
       }
 
       this.persist();
-      if (!hadPresets || !this.activePresetName || this.activePresetName === preset.name) {
+      const shouldSyncActivePresetAfterSave = !hadPresets
+        || !activePresetNameBeforeSave
+        || activePresetNameBeforeSave === preset.name
+        || isRenamingActivePreset;
+      if (shouldSyncActivePresetAfterSave) {
         this.setActivePresetForCurrentChat(preset.name);
+      } else if (this.activePresetName !== activePresetNameBeforeSave) {
+        this.activePresetName = activePresetNameBeforeSave;
       }
       return true;
     },

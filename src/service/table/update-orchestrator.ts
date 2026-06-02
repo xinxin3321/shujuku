@@ -293,6 +293,9 @@ export function loadBatchBaseData_ACU(
                 try {
                     mergedBatchData[sheetKey] = applyTableDelta_ACU(mergedBatchData[sheetKey], incrementalData[sheetKey], sheetKey);
                     restoreGuideStructure(mergedBatchData[sheetKey], guideSnapshots[sheetKey]);
+                    if (Array.isArray(mergedBatchData[sheetKey]?.content)) {
+                        mergedBatchData[sheetKey].content = ensureStableRowIdsForSheetContent_ACU(mergedBatchData[sheetKey].content);
+                    }
                     batchFoundSheets[sheetKey] = true;
                 } catch (e: any) {
                     logWarn_ACU(`[表格增量] loadBatchBaseData: 叠加 delta 失败 (sheet=${sheetKey}): ${e?.message || e}`);
@@ -584,6 +587,7 @@ export async function applyUnifiedGroupFillResponses_ACU(
     let workingTableData = sqlInitialization.workingTableData;
     const initializedSheetKeys = sqlInitialization.initializedSheetKeys;
     const modifiedKeySet = new Set<string>();
+    const trackingKeySet = new Set<string>();
 
     for (const response of sortedResponses) {
         let parseResult: any;
@@ -617,9 +621,6 @@ export async function applyUnifiedGroupFillResponses_ACU(
                     : `统一提交失败：group ${response.job.groupKey} 解析或应用失败。`,
             };
         }
-        if (response.tableEditText && parsedKeys.length === 0 && appliedEdits <= 0) {
-            return { success: false, modifiedKeys: [], error: `统一提交失败：group ${response.job.groupKey} 未形成任何实质性操作。` };
-        }
         if (Array.isArray(response.job.targetSheetKeys) && response.job.targetSheetKeys.length > 0) {
             const allowedSheetKeys = new Set(response.job.targetSheetKeys);
             const unauthorizedKeys = parsedKeys.filter((sheetKey: string) => !allowedSheetKeys.has(sheetKey));
@@ -631,6 +632,11 @@ export async function applyUnifiedGroupFillResponses_ACU(
                 };
             }
         }
+        for (const sheetKey of (response.job?.targetSheetKeys || [])) {
+            if (workingTableData && workingTableData[sheetKey]) {
+                trackingKeySet.add(sheetKey);
+            }
+        }
         parsedKeys.forEach((sheetKey: string) => modifiedKeySet.add(sheetKey));
     }
 
@@ -638,13 +644,20 @@ export async function applyUnifiedGroupFillResponses_ACU(
 
     const modifiedKeys = [...modifiedKeySet].sort();
     if (!options.isImportMode) {
+        const isFirstTimeInit = await checkIfFirstTimeInit_ACU();
+        const allUnifiedSheetKeys = getSortedSheetKeys_ACU(workingTableData);
         const initializedKeys = [...initializedSheetKeys].sort();
-        const allTargetSheetKeys = [...new Set([...allTargetSheetKeySet, ...initializedKeys])].sort();
+        const keysToSave = isFirstTimeInit
+            ? allUnifiedSheetKeys
+            : [...new Set([...modifiedKeys, ...initializedKeys])].sort();
+        const keysToTrack = isFirstTimeInit
+            ? allUnifiedSheetKeys
+            : [...new Set([...trackingKeySet, ...initializedKeys])].sort();
         const saveResult = await persistTablesToChatMessage_ACU({
             targetMessageIndex: options.saveTargetIndex,
-            targetSheetKeys: [...new Set([...modifiedKeys, ...initializedKeys])].sort(),
-            updateGroupKeys: allTargetSheetKeys,
-            trackingSheetKeys: allTargetSheetKeys,
+            targetSheetKeys: keysToSave,
+            updateGroupKeys: keysToTrack,
+            trackingSheetKeys: keysToTrack,
             tableData: workingTableData,
             trackAsUpdate: true,
         });
@@ -938,11 +951,14 @@ export async function executeCardUpdateCore_ACU(
 
                         const isFirstTimeInit = await checkIfFirstTimeInit_ACU();
                         const hasTargetSheetTracking = Array.isArray(targetSheetKeys) && targetSheetKeys.length > 0;
+                        const allSheetKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
+                        const targetTrackingKeys = hasTargetSheetTracking
+                            ? targetSheetKeys.filter((sheetKey: string) => Boolean(currentJsonTableData_ACU?.[sheetKey]))
+                            : [];
 
                         if (keysToPersist.length > 0 || isFirstTimeInit || hasTargetSheetTracking) {
                             let keysToActuallySave = keysToPersist;
                             if (isFirstTimeInit) {
-                                const allSheetKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
                                 keysToActuallySave = allSheetKeys;
 
                                 const fullTemplate = parseTableTemplateJson_ACU({ stripSeedRows: false });
@@ -958,10 +974,14 @@ export async function executeCardUpdateCore_ACU(
                                 logDebug_ACU('[Init] First time initialization detected. Saving complete template structure with all tables.');
                             }
 
-                            const updateGroupKeysRaw = isFirstTimeInit ? keysToPersist : targetSheetKeys;
-                            const keysToTrackAsUpdated = (keysToPersist.length === 0 && hasTargetSheetTracking)
-                                ? [...targetSheetKeys]
-                                : keysToPersist.filter((sheetKey: string) => keysToActuallySave.includes(sheetKey));
+                            const keysToTrackAsUpdated = isFirstTimeInit
+                                ? [...allSheetKeys]
+                                : (hasTargetSheetTracking
+                                    ? [...targetTrackingKeys]
+                                    : keysToPersist.filter((sheetKey: string) => keysToActuallySave.includes(sheetKey)));
+                            const updateGroupKeysRaw = isFirstTimeInit
+                                ? [...allSheetKeys]
+                                : (hasTargetSheetTracking ? [...targetTrackingKeys] : targetSheetKeys);
                             const updateGroupKeysToUse = Array.isArray(updateGroupKeysRaw)
                                 ? updateGroupKeysRaw.filter(sheetKey => {
                                     const table = currentJsonTableData_ACU?.[sheetKey];
