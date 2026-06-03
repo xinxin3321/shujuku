@@ -26,6 +26,7 @@ const {
   mockGetChatSheetGuideData,
   mockSaveCurrentProfileTemplate,
   mockSetTableTemplate,
+  mockStripPlotTaskRuntimeApiPresetFields,
 } = vi.hoisted(() => ({
   mockSettings: { dataIsolationEnabled: false, dataIsolationCode: '' } as any,
   mockGetCurrentIsolationKey: vi.fn(() => ''),
@@ -48,6 +49,7 @@ const {
   mockGetChatSheetGuideData: vi.fn(() => null),
   mockSaveCurrentProfileTemplate: vi.fn(),
   mockSetTableTemplate: vi.fn(),
+  mockStripPlotTaskRuntimeApiPresetFields: vi.fn((tasks: any[]) => tasks || []),
 }));
 
 // ═══ Mocks ═══
@@ -152,6 +154,7 @@ vi.mock('../../../src/service/plot/plot-logic', () => ({
   getPlotFinalDirectiveFromSource_ACU: mockGetPlotFinalDirectiveFromSource,
   normalizePlotPresetSelectionValue_ACU: mockNormalizePlotPresetSelectionValue,
   setPlotPromptContentByIdForSettings_ACU: mockSetPlotPromptContentById,
+  stripPlotTaskRuntimeApiPresetFields_ACU: mockStripPlotTaskRuntimeApiPresetFields,
 }));
 
 // mock chat-scope 内部跨文件依赖

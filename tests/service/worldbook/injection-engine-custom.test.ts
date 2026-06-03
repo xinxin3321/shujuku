@@ -104,6 +104,7 @@ vi.mock('../../../src/shared/utils', () => ({
 
 vi.mock('../../../src/shared/constants', () => ({
   getImportBatchPrefix_ACU: mockGetImportBatchPrefix,
+  SCRIPT_ID_PREFIX_ACU: 'test-script-id',
 }));
 
 vi.mock('../../../src/service/worldbook/injection-engine-config', () => ({

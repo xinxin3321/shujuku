@@ -33,6 +33,7 @@ export type SaveSettingsResult_ACU = {
 };
 
 let settingsStorageReadyForSave_ACU = false;
+export const _set_settingsStorageReadyForSave_ACU = (val: boolean) => { settingsStorageReadyForSave_ACU = val; };
 let settingsReloadAfterIdbScheduled_ACU = false;
 
 function scheduleSettingsReloadAfterIdbReady_ACU(reason: string): void {

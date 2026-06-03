@@ -78,6 +78,9 @@ export function isExtensionMode(): boolean {
  * - 插件模式：返回 window（自身就是主窗口）
  */
 export function getHostWindow(): Window {
+    if (typeof window === 'undefined') {
+        return globalThis as any as Window;
+    }
     if (isUserscriptMode()) {
         try {
             return window.parent || window;

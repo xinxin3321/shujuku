@@ -64,6 +64,7 @@ describe('visualizer template assistant addon', () => {
           </div>
         </div>
         <div class="acu-vis-content">
+          <div id="acu-vis-assistant-dock"></div>
           <div id="acu-vis-main-area"></div>
         </div>
       </div>
@@ -81,7 +82,9 @@ describe('visualizer template assistant addon', () => {
         <div class="acu-vis-toolbar">
           <div class="acu-vis-actions"></div>
         </div>
-        <div class="acu-vis-content"></div>
+        <div class="acu-vis-content">
+          <div id="acu-vis-assistant-dock"></div>
+        </div>
       </div>
     `;
 
@@ -100,7 +103,9 @@ describe('visualizer template assistant addon', () => {
         <div class="acu-vis-toolbar">
           <div class="acu-vis-actions"></div>
         </div>
-        <div class="acu-vis-content"></div>
+        <div class="acu-vis-content">
+          <div id="acu-vis-assistant-dock"></div>
+        </div>
       </div>
     `;
 
@@ -118,6 +123,7 @@ describe('visualizer template assistant addon', () => {
         </div>
         <div class="acu-vis-content">
           <div class="acu-vis-sidebar"></div>
+          <div id="acu-vis-assistant-dock"></div>
           <div class="acu-vis-main"></div>
         </div>
       </div>
@@ -126,12 +132,13 @@ describe('visualizer template assistant addon', () => {
     ensureVisualizerTemplateAssistantAddonDom_ACU();
 
     const root = document.querySelector('#acu-visualizer-content');
+    const dock = document.querySelector('#acu-vis-assistant-dock');
     const host = document.querySelector('#acu-vis-assistant-host');
 
     expect(host).toBeTruthy();
     expect(root?.contains(host)).toBe(true);
-    expect(host?.parentElement).toBe(root);
-    expect(root?.lastElementChild).toBe(host);
+    expect(host?.parentElement).toBe(dock);
+    expect(dock?.lastElementChild).toBe(host);
   });
 
 });
