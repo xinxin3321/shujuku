@@ -161,7 +161,7 @@ import { replaceDbSqlVariables } from '../../runtime/template-vars/sql-query-var
             responsePromise = sendConnectionManagerRequest_ACU(
                 profileId, 
                 messages, 
-                effectiveApiConfig.max_tokens || 4096 
+                effectiveApiConfig.max_tokens ?? effectiveApiConfig.maxTokens ?? 4096
             );
 
             rawResult = await responsePromise;
@@ -248,7 +248,7 @@ import { replaceDbSqlVariables } from '../../runtime/template-vars/sql-query-var
             
             const headers = { ...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json' };
             
-            const body = JSON.stringify(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens: effectiveApiConfig.max_tokens, temperature: effectiveApiConfig.temperature, topP: effectiveApiConfig.top_p, stripModelPrefix: false }));
+            const body = JSON.stringify(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { stripModelPrefix: false }));
             
             logDebug_ACU('ACU: 调用新的后端生成API:', generateUrl, 'Model:', effectiveApiConfig.model);
             const response = await fetch(generateUrl, { method: 'POST', headers, body, signal: abortSignal });

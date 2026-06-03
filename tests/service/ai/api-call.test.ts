@@ -46,9 +46,11 @@ vi.stubGlobal('fetch', mockFetch);
 
 import {
   callApi_ACU,
+  callApiWithPlotPreset_ACU,
   getApiConfigByPreset_ACU,
   callAIWithPreset_ACU,
   callCustomOpenAI_ACU_Direct,
+  buildCustomApiRequestBody_ACU,
 } from '../../../src/service/ai/api-call';
 
 beforeEach(() => {
@@ -198,6 +200,21 @@ describe('callCustomOpenAI_ACU_Direct', () => {
     expect(result).toBe('直接回复');
     expect(mockSendConnectionManager).toHaveBeenCalled();
   });
+
+  it('tavern 模式 max_tokens=0 透传给 sendConnectionManagerRequest', async () => {
+    mockSettings.apiMode = 'tavern';
+    mockSettings.apiConfig.max_tokens = 0;
+    mockSendConnectionManager.mockResolvedValue({
+      result: { choices: [{ message: { content: '直接回复' } }] },
+    });
+    const result = await callCustomOpenAI_ACU_Direct([{ role: 'user', content: '测试' }]);
+    expect(result).toBe('直接回复');
+    expect(mockSendConnectionManager).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      0,
+    );
+  });
   it('custom 模式且 useMainApi 时使用 generateRaw', async () => {
     mockSettings.apiMode = 'custom';
     mockSettings.apiConfig.useMainApi = true;
@@ -212,5 +229,185 @@ describe('callCustomOpenAI_ACU_Direct', () => {
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) });
     const result = await callCustomOpenAI_ACU_Direct([{ role: 'user', content: '测试' }]);
     expect(result).toBe('fetch回复');
+  });
+});
+
+// ═══ buildCustomApiRequestBody_ACU ═══
+describe('buildCustomApiRequestBody_ACU', () => {
+  it('max_tokens=0 不被回退为 20000', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', max_tokens: 0 },
+    );
+    expect(body.max_tokens).toBe(0);
+  });
+
+  it('maxTokens 驼峰别名生效', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4', maxTokens: 1234 },
+    );
+    expect(body.max_tokens).toBe(1234);
+  });
+
+  it('temperature=0 不被回退为 1.0', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4', temperature: 0 },
+    );
+    expect(body.temperature).toBe(0);
+  });
+
+  it('top_p=0 进入 body.top_p', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4', top_p: 0 },
+    );
+    expect(body.top_p).toBe(0);
+  });
+
+  it('topP 驼峰别名生效', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4', topP: 0.5 },
+    );
+    expect(body.top_p).toBe(0.5);
+  });
+
+  it('topP=0 驼峰别名生效', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4', topP: 0 },
+    );
+    expect(body.top_p).toBe(0);
+  });
+
+  it('bodyParams 能覆盖默认 temperature/top_p/max_tokens', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4', temperature: 1.0, top_p: 0.95, max_tokens: 20000, bodyParams: 'temperature:0.3\ntop_p:0.5\nmax_tokens:100' },
+    );
+    expect(body.temperature).toBe(0.3);
+    expect(body.top_p).toBe(0.5);
+    expect(body.max_tokens).toBe(100);
+  });
+
+  it('excludeBodyParams 删除指定字段', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4', temperature: 1.0, excludeBodyParams: 'temperature,top_p' },
+    );
+    expect(body).not.toHaveProperty('temperature');
+    expect(body).not.toHaveProperty('top_p');
+    expect(body).toHaveProperty('max_tokens');
+  });
+
+  it('bodyParams 先覆盖 excludeBodyParams 后删除', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4', temperature: 1.0, bodyParams: 'temperature:0.3', excludeBodyParams: 'temperature' },
+    );
+    expect(body).not.toHaveProperty('temperature');
+  });
+
+
+
+  it('overrides.maxTokens 优先于 effectiveApiConfig', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4', max_tokens: 9999 },
+      { maxTokens: 100 },
+    );
+    expect(body.max_tokens).toBe(100);
+  });
+
+  it('无配置时使用默认值', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4' },
+    );
+    expect(body.max_tokens).toBe(20000);
+    expect(body.temperature).toBe(1.0);
+    expect(body.top_p).toBe(0.95);
+  });
+});
+
+// ═══ callApi_ACU 温度透传 ═══
+describe('callApi_ACU 温度透传', () => {
+  it('custom 模式 fetch body 使用配置温度，不是 0.7', async () => {
+    mockSettings.apiConfig = { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', temperature: 0.3, top_p: 0.8, max_tokens: 2048 };
+    mockFetch.mockResolvedValue({ ok: true });
+    mockHandleApiResponse.mockResolvedValue('AI 回复');
+    await callApi_ACU([{ role: 'user', content: '你好' }], {});
+    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(fetchBody.temperature).toBe(0.3);
+    expect(fetchBody.top_p).toBe(0.8);
+    expect(fetchBody.max_tokens).toBe(2048);
+  });
+
+  it('custom 模式 temperature=0 进入 fetch body', async () => {
+    mockSettings.apiConfig = { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', temperature: 0 };
+    mockFetch.mockResolvedValue({ ok: true });
+    mockHandleApiResponse.mockResolvedValue('AI 回复');
+    await callApi_ACU([{ role: 'user', content: '你好' }], {});
+    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(fetchBody.temperature).toBe(0);
+  });
+});
+
+// ═══ callApiWithPlotPreset_ACU 温度透传 ═══
+describe('callApiWithPlotPreset_ACU 温度透传', () => {
+  it('custom 模式 fetch body 使用配置温度', async () => {
+    mockSettings.plotApiPreset = '';
+    mockSettings.apiConfig = { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', temperature: 0.5, top_p: 0.7 };
+    mockFetch.mockResolvedValue({ ok: true });
+    mockHandleApiResponse.mockResolvedValue('AI 回复');
+    await callApiWithPlotPreset_ACU([{ role: 'user', content: '你好' }], '');
+    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(fetchBody.temperature).toBe(0.5);
+    expect(fetchBody.top_p).toBe(0.7);
+  });
+
+  it('custom 模式指定预设温度进入 fetch body', async () => {
+    mockSettings.plotApiPreset = '预设C';
+    mockSettings.apiPresets = [
+      { name: '预设C', apiMode: 'custom', apiConfig: { url: 'https://api.example.com', model: 'gpt-4', temperature: 0.2, top_p: 0.6 }, tavernProfile: '' },
+    ];
+    mockFetch.mockResolvedValue({ ok: true });
+    mockHandleApiResponse.mockResolvedValue('AI 回复');
+    await callApiWithPlotPreset_ACU([{ role: 'user', content: '你好' }], '预设C');
+    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(fetchBody.temperature).toBe(0.2);
+    expect(fetchBody.top_p).toBe(0.6);
+  });
+});
+
+// ═══ callAIWithPreset_ACU 参数透传 ═══
+describe('callAIWithPreset_ACU 参数透传', () => {
+  it('custom 分支 fetch body temperature=0 不被回退', async () => {
+    mockSettings.apiConfig = { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', temperature: 0 };
+    mockFetch.mockResolvedValue({ ok: true });
+    mockHandleApiResponse.mockResolvedValue('AI 回复');
+    await callAIWithPreset_ACU([{ role: 'user', content: '你好' }]);
+    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(fetchBody.temperature).toBe(0);
+  });
+
+  it('custom 分支 fetch body topP 驼峰别名生效', async () => {
+    mockSettings.apiConfig = { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', topP: 0.3 };
+    mockFetch.mockResolvedValue({ ok: true });
+    mockHandleApiResponse.mockResolvedValue('AI 回复');
+    await callAIWithPreset_ACU([{ role: 'user', content: '你好' }]);
+    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(fetchBody.top_p).toBe(0.3);
+  });
+
+  it('custom 分支 fetch body max_tokens=0 不被回退', async () => {
+    mockSettings.apiConfig = { url: 'https://api.example.com', model: 'gpt-4', apiKey: 'sk-test', max_tokens: 0 };
+    mockFetch.mockResolvedValue({ ok: true });
+    mockHandleApiResponse.mockResolvedValue('AI 回复');
+    await callAIWithPreset_ACU([{ role: 'user', content: '你好' }]);
+    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(fetchBody.max_tokens).toBe(0);
   });
 });

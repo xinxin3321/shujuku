@@ -27,6 +27,7 @@ const {
   mockParseRandomTags,
   mockReplaceRandomVariables,
   mockReplaceDbSqlVariables,
+  mockBuildCustomBody,
 } = vi.hoisted(() => {
   const mockCurrentAbortControllerRef = { value: null as any };
   return {
@@ -62,6 +63,7 @@ const {
     mockParseRandomTags: vi.fn((text: string) => text),
     mockReplaceRandomVariables: vi.fn((text: string) => text),
     mockReplaceDbSqlVariables: vi.fn((text: string) => text),
+    mockBuildCustomBody: vi.fn(() => ({ messages: [], model: 'gpt-4', max_tokens: 4096, temperature: 1.0, top_p: 0.95, stream: false })),
   };
 });
 
@@ -76,6 +78,7 @@ vi.mock('../../../src/service/runtime/state-manager', () => ({
 
 vi.mock('../../../src/service/ai/api-call', () => ({
   getApiConfigByPreset_ACU: mockGetApiConfigByPreset,
+  buildCustomApiRequestBody_ACU: mockBuildCustomBody,
 }));
 
 vi.mock('../../../src/data/gateways/host-state-gateway', () => ({
@@ -361,6 +364,21 @@ describe('callCustomOpenAI_ACU — custom fetch 模式', () => {
     });
     await expect(callCustomOpenAI_ACU({})).rejects.toThrow('内容为空');
   });
+
+  it('custom fetch overrides 不含 temperature/topP/maxTokens', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'fetch回复' } }] }),
+    });
+    await callCustomOpenAI_ACU({});
+    expect(mockBuildCustomBody).toHaveBeenCalled();
+    const overrides = mockBuildCustomBody.mock.calls[mockBuildCustomBody.mock.calls.length - 1][2];
+    expect(overrides).not.toHaveProperty('temperature');
+    expect(overrides).not.toHaveProperty('topP');
+    expect(overrides).not.toHaveProperty('maxTokens');
+    expect(overrides.stripModelPrefix).toBe(false);
+  });
+
 });
 
 // ═══ callCustomOpenAI_ACU — tavern 模式 ═══
@@ -408,6 +426,25 @@ describe('callCustomOpenAI_ACU — tavern 模式', () => {
     const result = await callCustomOpenAI_ACU({});
     expect(result).toBe('酒馆回复');
     expect(mockSendConnectionManagerRequest).toHaveBeenCalledWith('profile-1', expect.any(Array), 4096);
+  });
+
+  it('max_tokens=0 透传给 sendConnectionManagerRequest_ACU', async () => {
+    mockGetApiConfigByPreset.mockReturnValue({
+      apiMode: 'tavern',
+      apiConfig: { max_tokens: 0 },
+      tavernProfile: 'profile-1',
+    });
+    mockGetConnectionManagerProfiles.mockReturnValue([
+      { id: 'profile-1', name: '预设1', api: 'openai', preset: 'preset-1' },
+    ]);
+    mockTriggerSlash.mockResolvedValue('预设1');
+    mockSendConnectionManagerRequest.mockResolvedValue({
+      ok: true,
+      result: { choices: [{ message: { content: '酒馆回复' } }] },
+    });
+    const result = await callCustomOpenAI_ACU({});
+    expect(result).toBe('酒馆回复');
+    expect(mockSendConnectionManagerRequest).toHaveBeenCalledWith('profile-1', expect.any(Array), 0);
   });
 });
 

@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const { mockSettings, mockCurrentJsonTableData, mockSendConnectionManager, mockExtractTableEditInner } = vi.hoisted(() => {
+const { mockSettings, mockCurrentJsonTableData, mockSendConnectionManager, mockExtractTableEditInner, mockBuildCustomBody } = vi.hoisted(() => {
   const mockSettings: any = {
     autoMergeEnabled: true,
     autoMergeThreshold: 5,
@@ -27,7 +27,8 @@ const { mockSettings, mockCurrentJsonTableData, mockSendConnectionManager, mockE
   };
   const mockSendConnectionManager = vi.fn();
   const mockExtractTableEditInner = vi.fn(() => '');
-  return { mockSettings, mockCurrentJsonTableData, mockSendConnectionManager, mockExtractTableEditInner };
+  const mockBuildCustomBody = vi.fn(() => ({ messages: [], model: 'gpt-4', max_tokens: 4096, temperature: 1.0, top_p: 0.95, stream: false }));
+  return { mockSettings, mockCurrentJsonTableData, mockSendConnectionManager, mockExtractTableEditInner, mockBuildCustomBody };
 });
 
 vi.mock('../../../src/service/runtime/state-manager', () => ({
@@ -75,6 +76,11 @@ vi.mock('../../../src/service/table/table-service', () => ({
 vi.mock('../../../src/service/ai/prompt-builder', () => ({
   handleApiResponse_ACU: vi.fn(),
   extractTableEditInner_ACU: mockExtractTableEditInner,
+}));
+
+vi.mock('../../../src/service/ai/api-call', () => ({
+  buildCustomApiRequestBody_ACU: mockBuildCustomBody,
+  getApiConfigByPreset_ACU: vi.fn(),
 }));
 
 import {
@@ -298,4 +304,79 @@ describe('finalizeAutoMerge_ACU', () => {
     expect(saveIndependentTableToChatHistory_ACU).toHaveBeenCalled();
     expect(updateReadableLorebookEntry_ACU).toHaveBeenCalled();
   });
+});
+
+
+// ═══════════════════════════════════════════════════════════════
+// max_tokens ?? 回退验证
+// ═══════════════════════════════════════════════════════════════
+describe('executeAutoMergeBatch_ACU max_tokens 回退', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockSettings.apiMode = 'tavern';
+    mockSettings.tavernProfile = 'default';
+    mockSettings.apiConfig = { max_tokens: 4096, model: 'gpt-4' };
+    mockSettings.charCardPrompt = [{ role: 'USER', content: '提示词', isMain: true, mainSlot: 'A' }];
+    mockSettings.streamingEnabled = false;
+  });
+
+  afterEach(async () => {
+    try { await vi.runAllTimersAsync(); } catch (_) { /* ignore */ }
+    vi.useRealTimers();
+  });
+
+  it('tavern 分支 max_tokens=0 不被 4096 覆盖', async () => {
+    mockSettings.apiConfig.max_tokens = 0;
+    mockExtractTableEditInner.mockReturnValue({ inner: 'insertRow(0, {"0": "test"})' });
+    mockSendConnectionManager.mockResolvedValue({
+      ok: true,
+      result: { choices: [{ message: { content: '<tableEdit>insertRow(0, {"0": "test"})</tableEdit>' } }] },
+    });
+
+    const prepared = prepareAutoMergeBatches_ACU({
+      startIndex: 0, endIndex: 3, targetCount: 3, batchSize: 3,
+      promptTemplate: '$A $BASE_DATA $TARGET_COUNT', isAutoMode: true,
+    });
+
+    const promise = executeAutoMergeBatch_ACU(prepared, prepared.batches[0], []);
+    for (let i = 0; i < 5; i++) await vi.advanceTimersByTimeAsync(6000);
+    await promise;
+
+    expect(mockSendConnectionManager).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      0
+    );
+  });
+
+  it('custom 分支 overrides 不含 temperature/topP/maxTokens', async () => {
+    mockSettings.apiMode = 'custom';
+    mockSettings.apiConfig = { url: 'https://api.example.com', model: 'gpt-4', max_tokens: 0 };
+    mockSettings.streamingEnabled = false;
+    mockBuildCustomBody.mockReturnValue({ messages: [], model: 'gpt-4', max_tokens: 0, temperature: 1.0, top_p: 0.95, stream: false });
+
+    const { handleApiResponse_ACU, extractTableEditInner_ACU } = await import('../../../src/service/ai/prompt-builder');
+    vi.mocked(handleApiResponse_ACU).mockResolvedValue('<tableEdit>insertRow(0, {"0": "test"})</tableEdit>');
+    vi.mocked(extractTableEditInner_ACU).mockReturnValue({ inner: 'insertRow(0, {"0": "test"})' });
+
+    const mockFetchLocal = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', mockFetchLocal);
+
+    const prepared = prepareAutoMergeBatches_ACU({
+      startIndex: 0, endIndex: 3, targetCount: 3, batchSize: 3,
+      promptTemplate: '$A $BASE_DATA $TARGET_COUNT', isAutoMode: true,
+    });
+
+    const promise = executeAutoMergeBatch_ACU(prepared, prepared.batches[0], []);
+    for (let i = 0; i < 5; i++) await vi.advanceTimersByTimeAsync(6000);
+    await promise;
+
+    expect(mockBuildCustomBody).toHaveBeenCalled();
+    const overrides = mockBuildCustomBody.mock.calls[mockBuildCustomBody.mock.calls.length - 1][2];
+    expect(overrides).not.toHaveProperty('temperature');
+    expect(overrides).not.toHaveProperty('topP');
+    expect(overrides).not.toHaveProperty('maxTokens');
+    expect(overrides.stripModelPrefix).toBe(false);
+  });
+
 });

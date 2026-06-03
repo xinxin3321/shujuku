@@ -61,7 +61,7 @@ export function buildCustomApiRequestBody_ACU(
   const model = opts.stripModelPrefix !== false
     ? (effectiveApiConfig.model || '').replace(/^models\//, '')
     : (effectiveApiConfig.model || '');
-  const maxTokens = opts.maxTokens || effectiveApiConfig.max_tokens || effectiveApiConfig.maxTokens || 20000;
+  const maxTokens = opts.maxTokens ?? effectiveApiConfig.max_tokens ?? effectiveApiConfig.maxTokens ?? 20000;
   const temperature = opts.temperature ?? effectiveApiConfig.temperature ?? 1.0;
   const topP = opts.topP ?? effectiveApiConfig.top_p ?? effectiveApiConfig.topP ?? 0.95;
 
@@ -154,7 +154,7 @@ export async function callApiWithPlotPreset_ACU(messages: any[], presetName: str
         throw new Error('自定义API的URL或模型未配置。');
       }
 
-      const requestBody = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { temperature: 0.7, topP: 0.95 });
+      const requestBody = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig);
 
 
       const response = await fetch('/api/backends/chat-completions/generate', {
@@ -207,7 +207,7 @@ export async function callApi_ACU(messages: any[], apiSettings: any, abortSignal
         throw new Error('自定义API的URL或模型未配置。');
       }
 
-      const requestBody = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { temperature: 0.7, topP: 0.95 });
+      const requestBody = buildCustomApiRequestBody_ACU(messages, effectiveApiConfig);
 
       const response = await fetch('/api/backends/chat-completions/generate', {
         method: 'POST',
@@ -273,7 +273,7 @@ export async function callCustomOpenAI_ACU_Direct(messages: any[]) {
       if (settings_ACU.apiMode === 'tavern') {
           const profileId = settings_ACU.tavernProfile;
           return await sendConnectionManagerRequest_ACU(
-                profileId, messages, settings_ACU.apiConfig.max_tokens || 4096
+                profileId, messages, settings_ACU.apiConfig.max_tokens ?? settings_ACU.apiConfig.maxTokens ?? 4096
           ).then(r => r.result.choices[0].message.content);
       } else {
           // Custom API（流式传输）
@@ -307,7 +307,7 @@ export async function callAIWithPreset_ACU(messages: any[], presetName: string =
     const effectiveApiMode = apiPresetConfig.apiMode;
     const effectiveApiConfig = apiPresetConfig.apiConfig || {} as any;
     const effectiveTavernProfile = apiPresetConfig.tavernProfile;
-    const maxTokens = effectiveApiConfig.max_tokens || effectiveApiConfig.maxTokens || 4096;
+    const maxTokens = effectiveApiConfig.max_tokens ?? effectiveApiConfig.maxTokens ?? 4096;
 
 
     logDebug_ACU(`[callAIWithPreset] 调用 AI，消息数=${messages.length}，预设=${presetName || '当前配置'}，模式=${effectiveApiMode}`);
@@ -340,7 +340,7 @@ export async function callAIWithPreset_ACU(messages: any[], presetName: string =
         throw new Error('自定义API的URL或模型未配置。');
     }
 
-    const body = JSON.stringify(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens, temperature: effectiveApiConfig.temperature || 1.0, topP: effectiveApiConfig.top_p || 0.9, stripModelPrefix: false }));
+    const body = JSON.stringify(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens, stripModelPrefix: false }));
 
     const res = await fetch('/api/backends/chat-completions/generate', {
         method: 'POST',

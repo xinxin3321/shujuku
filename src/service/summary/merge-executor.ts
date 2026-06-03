@@ -126,7 +126,7 @@ export async function executeMergeBatches_ACU(
 
             try {
                 if (settings_ACU.apiMode === 'tavern') {
-                    const result = await sendConnectionManagerRequest_ACU(settings_ACU.tavernProfile, finalMessages, settings_ACU.apiConfig.max_tokens || 4096);
+                    const result = await sendConnectionManagerRequest_ACU(settings_ACU.tavernProfile, finalMessages, settings_ACU.apiConfig.max_tokens ?? settings_ACU.apiConfig.maxTokens ?? 4096);
                     if (result && result.ok) aiResponseText = result.result.choices[0].message.content;
                     else throw new Error('API请求返回不成功状态');
                 } else {
@@ -136,7 +136,7 @@ export async function executeMergeBatches_ACU(
                         const res = await fetch(`/api/backends/chat-completions/generate`, {
                             method: 'POST',
                             headers: { ...getHostRequestHeaders_ACU(), 'Content-Type': 'application/json' },
-                            body: JSON.stringify(buildCustomApiRequestBody_ACU(finalMessages, settings_ACU.apiConfig, { maxTokens: settings_ACU.apiConfig.max_tokens || 4096, temperature: settings_ACU.apiConfig.temperature, stripModelPrefix: false }))
+                            body: JSON.stringify(buildCustomApiRequestBody_ACU(finalMessages, settings_ACU.apiConfig, { stripModelPrefix: false }))
                         });
                         if (!res.ok) throw new Error(`API请求失败: ${res.status} ${await res.text()}`);
                         aiResponseText = await handleApiResponse_ACU(res);

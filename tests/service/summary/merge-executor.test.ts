@@ -69,6 +69,14 @@ vi.mock('../../../src/service/ai/prompt-builder', () => ({
   handleApiResponse_ACU: vi.fn(),
 }));
 
+const { mockBuildCustomBody } = vi.hoisted(() => ({
+  mockBuildCustomBody: vi.fn(() => ({ messages: [], model: 'gpt-4', max_tokens: 4096, temperature: 1.0, top_p: 0.95, stream: false })),
+}));
+vi.mock('../../../src/service/ai/api-call', () => ({
+  buildCustomApiRequestBody_ACU: mockBuildCustomBody,
+  getApiConfigByPreset_ACU: vi.fn(),
+}));
+
 import {
   prepareMergeSummary_ACU,
   executeManualMergeSummary_ACU,
@@ -763,5 +771,87 @@ describe('executeMergeBatches_ACU', () => {
 
     expect(capturedPrompt).toContain('合并为 3 条');
     expect(capturedPrompt).toContain('纪要1');
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════
+// max_tokens ?? 回退验证
+// ═══════════════════════════════════════════════════════════════
+describe('executeMergeBatches_ACU max_tokens 回退', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('tavern 分支 max_tokens=0 不被 4096 覆盖', async () => {
+    mockSettings.apiMode = 'tavern';
+    mockSettings.apiConfig = { max_tokens: 0, model: 'gpt-4' };
+    mockSettings.tavernProfile = 'default';
+    mockSettings.charCardPrompt = [{ role: 'USER', content: '提示词', isMain: true, mainSlot: 'A' }];
+    mockSettings.streamingEnabled = false;
+
+    const { sendConnectionManagerRequest_ACU } = await import('../../../src/service/ai/ai-service');
+    const { extractTableEditInner_ACU } = await import('../../../src/service/ai/prompt-builder');
+
+    vi.mocked(sendConnectionManagerRequest_ACU).mockResolvedValue({
+      ok: true,
+      result: { choices: [{ message: { content: '<tableEdit>insertRow(0, {"0": "test"})</tableEdit>' } }] },
+    });
+    vi.mocked(extractTableEditInner_ACU).mockReturnValue({ inner: 'insertRow(0, {"0": "test"})' });
+
+    const config = {
+      summaryKey: 'sheet_0',
+      allSummaryRows: [['1', 'A']],
+      fullSummaryRows: [['1', 'A']],
+      startIndex: 0,
+      targetCount: 1,
+      batchSize: 5,
+      promptTemplate: '$A $TARGET_COUNT $BASE_DATA',
+      maxRetries: 1,
+    };
+
+    await executeMergeBatches_ACU(config);
+    expect(sendConnectionManagerRequest_ACU).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      0
+    );
+  });
+
+  it('custom 分支 max_tokens=0 不被 4096 覆盖', async () => {
+    mockSettings.apiMode = 'custom';
+    mockSettings.apiConfig = { url: 'https://api.example.com', model: 'gpt-4', max_tokens: 0 };
+    mockSettings.charCardPrompt = [{ role: 'USER', content: '提示词', isMain: true, mainSlot: 'A' }];
+    mockSettings.streamingEnabled = false;
+
+    mockBuildCustomBody.mockReturnValue({ messages: [], model: 'gpt-4', max_tokens: 0, temperature: 1.0, top_p: 0.95, stream: false });
+
+    const { handleApiResponse_ACU, extractTableEditInner_ACU } = await import('../../../src/service/ai/prompt-builder');
+    vi.mocked(handleApiResponse_ACU).mockResolvedValue('<tableEdit>insertRow(0, {"0": "test"})</tableEdit>');
+    vi.mocked(extractTableEditInner_ACU).mockReturnValue({ inner: 'insertRow(0, {"0": "test"})' });
+
+    const mockFetchLocal = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', mockFetchLocal);
+
+    const config = {
+      summaryKey: 'sheet_0',
+      allSummaryRows: [['1', 'A']],
+      fullSummaryRows: [['1', 'A']],
+      startIndex: 0,
+      targetCount: 1,
+      batchSize: 5,
+      promptTemplate: '$A $TARGET_COUNT $BASE_DATA',
+      maxRetries: 1,
+    };
+
+    await executeMergeBatches_ACU(config);
+    // buildCustomApiRequestBody_ACU 被调用时 overrides 不含 maxTokens/temperature
+    expect(mockBuildCustomBody).toHaveBeenCalled();
+    const overrides = mockBuildCustomBody.mock.calls[mockBuildCustomBody.mock.calls.length - 1][2];
+    expect(overrides).not.toHaveProperty('temperature');
+    expect(overrides).not.toHaveProperty('maxTokens');
+    expect(overrides).not.toHaveProperty('topP');
+
+    expect(overrides.stripModelPrefix).toBe(false);
   });
 });

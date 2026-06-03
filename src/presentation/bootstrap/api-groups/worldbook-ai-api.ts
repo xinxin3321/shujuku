@@ -129,16 +129,17 @@ export function createWorldbookAiApi(_ctx: ApiGroupContext): Record<string, Func
 
                 logDebug_ACU(`[callAI] Calling AI with ${messages.length} messages, preset: ${presetName || '当前配置'}, mode: ${effectiveApiMode}`);
 
-                const maxTokensRaw = options.max_tokens ?? options.maxTokens ?? effectiveApiConfig.max_tokens ?? effectiveApiConfig.maxTokens ?? 4096;
-                const maxTokensNumber = Number(maxTokensRaw);
-                const maxTokens = Number.isFinite(maxTokensNumber) && maxTokensNumber > 0
-                    ? Math.trunc(maxTokensNumber)
-                    : 4096;
+                // options 层 override：调用方显式传入的 max_tokens（custom 路径专用，0 合法）
+                // tavern 路径 max_tokens 与其他入口统一使用 ?? 链，0 为合法值
+                const optionsMaxTokens = (options.max_tokens !== undefined || options.maxTokens !== undefined)
+                    ? Number(options.max_tokens ?? options.maxTokens)
+                    : undefined;
 
                 if (effectiveApiMode === 'tavern') {
                     const profileId = effectiveTavernProfile || settings_ACU.tavernProfile;
+                    const tavernMaxTokens = effectiveApiConfig.max_tokens ?? effectiveApiConfig.maxTokens ?? 4096;
                     const response = await sendConnectionManagerRequest_ACU(
-                        profileId, messages, maxTokens
+                        profileId, messages, tavernMaxTokens
                     );
                     if (response && response.result && response.result.choices && response.result.choices[0]) {
                         return response.result.choices[0].message.content;
@@ -170,7 +171,9 @@ export function createWorldbookAiApi(_ctx: ApiGroupContext): Record<string, Func
                         }
 
                         const url = `/api/backends/chat-completions/generate`;
-                        const body = JSON.stringify(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, { maxTokens, temperature: effectiveApiConfig.temperature || 1.0, topP: effectiveApiConfig.top_p, stripModelPrefix: false }));
+                        const customOverrides: { maxTokens?: number; stripModelPrefix: boolean } = { stripModelPrefix: false };
+                        if (optionsMaxTokens !== undefined) customOverrides.maxTokens = optionsMaxTokens;
+                        const body = JSON.stringify(buildCustomApiRequestBody_ACU(messages, effectiveApiConfig, customOverrides));
 
                         const headers = {
                             ...getHostRequestHeaders_ACU(),
