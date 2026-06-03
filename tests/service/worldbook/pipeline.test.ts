@@ -715,6 +715,26 @@ describe('updateReadableLorebookEntry_ACU', () => {
     expect(mockUpdateOutlineTableEntry).toHaveBeenCalled();
     expect(mockUpdateCustomTableExports).toHaveBeenCalled();
   });
+
+  it('外部导入模式把目标世界书传给所有派生条目生成器', async () => {
+    mockCurrentJsonTableData.value = {
+      sheet_0: { name: '测试', content: [['', '列1'], ['', '值1']] },
+    };
+    mockFormatJsonToReadable.mockReturnValue({
+      readableText: '测试可读文本',
+      importantPersonsTable: { name: '重要人物表', content: [['', '姓名'], ['', '角色A']] },
+      summaryTable: { name: '总结表', content: [['', '编码索引'], ['', 'AM0001']] },
+      outlineTable: { name: '总体大纲', content: [['', '大纲列'], ['', '内容']] },
+    });
+
+    await updateReadableLorebookEntry_ACU(true, true, 'target-book');
+
+    expect(mockUpdateImportantPersonsRelatedEntries).toHaveBeenCalledWith(expect.any(Object), true, 'target-book');
+    expect(mockUpdateSummaryTableEntries).toHaveBeenCalledWith(expect.any(Object), true, 'target-book');
+    expect(mockUpdateOutlineTableEntry).toHaveBeenCalledWith(expect.any(Object), true, 'target-book');
+    expect(mockUpdateCustomTableExports).toHaveBeenCalledWith(expect.any(Object), true, 'target-book');
+    expect(mockGwGetLorebookEntries).toHaveBeenCalledWith('target-book');
+  });
 });
 
 describe('buildCombinedWorldbookContentByStrategy_ACU', () => {

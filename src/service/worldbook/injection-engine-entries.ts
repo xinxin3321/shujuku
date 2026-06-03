@@ -16,9 +16,9 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
       return raw.split(/[,，]/).map(k => k.trim()).filter(Boolean);
   }
 
-  export async function updateOutlineTableEntry_ACU(outlineTable: any, isImport = false) { // [外部导入] 添加 isImport 标志
+  export async function updateOutlineTableEntry_ACU(outlineTable: any, isImport = false, targetLorebookOverride: string | null = null) { // [外部导入] 添加 isImport 标志
     if (!isWorldbookApiAvailable_ACU()) return;
-    const primaryLorebookName = await getInjectionTargetLorebook_ACU();
+    const primaryLorebookName = targetLorebookOverride || await getInjectionTargetLorebook_ACU();
     if (!primaryLorebookName) {
         logWarn_ACU('Cannot update outline table entry: No injection target lorebook set.');
         return;
@@ -143,9 +143,9 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
     }
   }
 
-  export async function updateSummaryTableEntries_ACU(summaryTable: any, isImport = false) { // [外部导入] 添加 isImport 标志
+  export async function updateSummaryTableEntries_ACU(summaryTable: any, isImport = false, targetLorebookOverride: string | null = null) { // [外部导入] 添加 isImport 标志
     if (!isWorldbookApiAvailable_ACU()) return;
-    const primaryLorebookName = await getInjectionTargetLorebook_ACU();
+    const primaryLorebookName = targetLorebookOverride || await getInjectionTargetLorebook_ACU();
     if (!primaryLorebookName) {
         logWarn_ACU('Cannot update summary entries: No injection target lorebook set.');
         return;
@@ -251,9 +251,9 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
     }
   }
 
-  export async function updateImportantPersonsRelatedEntries_ACU(importantPersonsTable: any, isImport = false) { // [外部导入] 添加 isImport 标志
+  export async function updateImportantPersonsRelatedEntries_ACU(importantPersonsTable: any, isImport = false, targetLorebookOverride: string | null = null) { // [外部导入] 添加 isImport 标志
     if (!isWorldbookApiAvailable_ACU()) return;
-    const primaryLorebookName = await getInjectionTargetLorebook_ACU();
+    const primaryLorebookName = targetLorebookOverride || await getInjectionTargetLorebook_ACU();
     if (!primaryLorebookName) {
         logWarn_ACU('Cannot update important persons entries: No injection target lorebook set.');
         return;

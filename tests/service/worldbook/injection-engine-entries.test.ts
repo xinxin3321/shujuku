@@ -194,6 +194,14 @@ describe('updateOutlineTableEntry_ACU', () => {
     expect(createArgs[1][0].comment).toContain('外部导入-');
   });
 
+  it('外部导入模式优先写入指定目标世界书', async () => {
+    mockGetLorebookEntries.mockResolvedValue([]);
+    await updateOutlineTableEntry_ACU({ name: '总体大纲', content: [['', '列1'], ['', '值1']] }, true, 'target-book');
+    expect(mockGetInjectionTargetLorebook).not.toHaveBeenCalled();
+    expect(mockGetLorebookEntries).toHaveBeenCalledWith('target-book');
+    expect(mockCreateLorebookEntries).toHaveBeenCalledWith('target-book', expect.any(Array));
+  });
+
   it('隔离模式使用隔离前缀', async () => {
     mockGetIsolationPrefix.mockReturnValue('ACU-[test]-');
     mockGetLorebookEntries.mockResolvedValue([]);
@@ -257,6 +265,13 @@ describe('updateSummaryTableEntries_ACU', () => {
     await updateSummaryTableEntries_ACU(summaryTable, true);
     expect(mockDeleteLorebookEntries).not.toHaveBeenCalled();
     expect(mockCreateLorebookEntries).toHaveBeenCalled();
+  });
+
+  it('外部导入模式的总结条目写入指定目标世界书', async () => {
+    await updateSummaryTableEntries_ACU(summaryTable, true, 'target-book');
+    expect(mockGetInjectionTargetLorebook).not.toHaveBeenCalled();
+    expect(mockGetLorebookEntries).toHaveBeenCalledWith('target-book');
+    expect(mockCreateLorebookEntries).toHaveBeenCalledWith('target-book', expect.any(Array));
   });
 
   it('创建的条目使用 keyword 类型', async () => {
@@ -342,6 +357,13 @@ describe('updateImportantPersonsRelatedEntries_ACU', () => {
     ]);
     await updateImportantPersonsRelatedEntries_ACU(personsTable, true);
     expect(mockDeleteLorebookEntries).not.toHaveBeenCalled();
+  });
+
+  it('外部导入模式的重要人物条目写入指定目标世界书', async () => {
+    await updateImportantPersonsRelatedEntries_ACU(personsTable, true, 'target-book');
+    expect(mockGetInjectionTargetLorebook).not.toHaveBeenCalled();
+    expect(mockGetLorebookEntries).toHaveBeenCalledWith('target-book');
+    expect(mockCreateLorebookEntries).toHaveBeenCalledWith('target-book', expect.any(Array));
   });
 
   it('创建人物条目 + 表头 + 索引', async () => {

@@ -19,6 +19,8 @@ const {
   mockBuildUsedOrderSet, mockAllocOrder, mockAllocConsecutiveOrderBlock,
   mockGetInjectionTargetLorebook, mockGetIsolationPrefix,
   mockSplitKeywordsByComma,
+  mockGetLatestSummaryVectorIndexSnapshotState,
+  mockGetEffectiveSummaryVectorIndexConfig,
 } = vi.hoisted(() => ({
   mockSettings: {
     dataIsolationEnabled: false,
@@ -70,6 +72,10 @@ const {
     if (!raw) return [];
     return raw.split(/[,，]/).map((k: string) => k.trim()).filter(Boolean);
   }),
+  mockGetLatestSummaryVectorIndexSnapshotState: vi.fn(() => null),
+  mockGetEffectiveSummaryVectorIndexConfig: vi.fn(() => ({
+    summaryIndexKeywordMinRows: 3,
+  })),
 }));
 
 vi.mock('../../../src/service/settings/settings-readers', () => ({
@@ -127,6 +133,14 @@ vi.mock('../../../src/service/worldbook/injection-engine-state', () => ({
 
 vi.mock('../../../src/service/worldbook/injection-engine-entries', () => ({
   splitKeywordsByComma_ACU: mockSplitKeywordsByComma,
+}));
+
+vi.mock('../../../src/service/vector/summary-vector-index-state-service', () => ({
+  getLatestSummaryVectorIndexSnapshotState_ACU: mockGetLatestSummaryVectorIndexSnapshotState,
+}));
+
+vi.mock('../../../src/service/vector/vector-memory-config', () => ({
+  getEffectiveSummaryVectorIndexConfig_ACU: mockGetEffectiveSummaryVectorIndexConfig,
 }));
 
 import { updateCustomTableExports_ACU } from '../../../src/service/worldbook/injection-engine-custom';
@@ -430,6 +444,35 @@ describe('updateCustomTableExports_ACU', () => {
         const hasImportPrefix = createArgs[1].some((e: any) => e.comment && e.comment.includes('外部导入-'));
         expect(hasImportPrefix).toBe(true);
       }
+    });
+
+    it('条目写入指定目标世界书', async () => {
+      const mergedData: any = {
+        sheet_0: {
+          name: '导入表',
+          content: [['', '列1'], ['', '值A']],
+          exportConfig: { enabled: true, entryName: '导入表', entryType: 'constant' },
+        },
+      };
+      mockGetSortedSheetKeys.mockReturnValue(['sheet_0']);
+      mockEnsureExportConfigDefaults.mockReturnValue({
+        enabled: true,
+        splitByRow: false,
+        entryName: '导入表',
+        entryType: 'constant',
+        keywords: '',
+        preventRecursion: true,
+        injectionTemplate: '',
+        extraIndexEnabled: false,
+        extraIndexColumns: [],
+        extraIndexColumnModes: {},
+        entryPlacement: { position: 'at_depth_as_system', depth: 2, order: 10000 },
+        extraIndexPlacement: { position: 'at_depth_as_system', depth: 2, order: 10010 },
+      });
+      await updateCustomTableExports_ACU(mergedData, true, 'target-book');
+      expect(mockGetInjectionTargetLorebook).not.toHaveBeenCalled();
+      expect(mockGetLorebookEntries).toHaveBeenCalledWith('target-book');
+      expect(mockCreateLorebookEntries).toHaveBeenCalledWith('target-book', expect.any(Array));
     });
   });
 
