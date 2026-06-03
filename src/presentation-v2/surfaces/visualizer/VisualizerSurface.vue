@@ -1764,6 +1764,7 @@ watch(rowCount, () => {
   display: none;
   align-items: stretch;
   justify-content: flex-start;
+  padding: var(--acu-safe-top, 0px) var(--acu-safe-right, 0px) var(--acu-safe-bottom, 0px) var(--acu-safe-left, 0px);
   overflow: hidden;
   background: rgba(0, 0, 0, 0.58);
   pointer-events: auto;
@@ -1778,9 +1779,9 @@ watch(rowCount, () => {
 
 .acu-visualizer-surface__mobile-nav {
   width: 280px;
-  max-width: calc(100vw - 72px);
+  max-width: calc(100vw - 72px - var(--acu-safe-left, 0px) - var(--acu-safe-right, 0px));
   height: 100%;
-  max-height: 100vh;
+  max-height: 100%;
   min-width: 0;
   min-height: 0;
   align-self: stretch;
@@ -1803,21 +1804,21 @@ watch(rowCount, () => {
 
 @supports (width: min(280px, calc(100vw - 72px))) {
   .acu-visualizer-surface__mobile-nav {
-    width: min(280px, calc(100vw - 72px));
-    flex: 0 0 min(280px, calc(100vw - 72px));
+    width: min(280px, calc(100vw - 72px - var(--acu-safe-left, 0px) - var(--acu-safe-right, 0px)));
+    flex: 0 0 min(280px, calc(100vw - 72px - var(--acu-safe-left, 0px) - var(--acu-safe-right, 0px)));
   }
 }
 
 @supports (width: 100dvw) {
   .acu-visualizer-surface__mobile-nav {
-    max-width: calc(100dvw - 72px);
+    max-width: calc(100dvw - 72px - var(--acu-safe-left, 0px) - var(--acu-safe-right, 0px));
   }
 }
 
 @supports (height: 100dvh) {
   .acu-visualizer-surface__mobile-nav {
-    height: 100dvh;
-    max-height: 100dvh;
+    height: 100%;
+    max-height: 100%;
   }
 }
 

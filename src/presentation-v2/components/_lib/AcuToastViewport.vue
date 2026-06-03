@@ -187,10 +187,10 @@ watch(
 
 .acu-toast-viewport__list {
   position: absolute;
-  right: 18px;
-  bottom: 18px;
-  width: min(360px, calc(100% - 36px));
-  max-height: calc(100% - 36px);
+  right: calc(18px + var(--acu-safe-right, 0px));
+  bottom: calc(18px + var(--acu-safe-bottom, 0px));
+  width: min(360px, calc(100% - 36px - var(--acu-safe-left, 0px) - var(--acu-safe-right, 0px)));
+  max-height: calc(100% - 36px - var(--acu-safe-top, 0px) - var(--acu-safe-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -283,11 +283,11 @@ watch(
 
 @media (max-width: 640px) {
   .acu-toast-viewport__list {
-    right: 12px;
-    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-    left: 12px;
+    right: calc(12px + var(--acu-safe-right, 0px));
+    bottom: calc(12px + var(--acu-safe-bottom, 0px));
+    left: calc(12px + var(--acu-safe-left, 0px));
     width: auto;
-    max-height: calc(100% - 24px - env(safe-area-inset-bottom, 0px));
+    max-height: calc(100% - 24px - var(--acu-safe-top, 0px) - var(--acu-safe-bottom, 0px));
   }
 
   .acu-v2-toast {
