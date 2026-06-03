@@ -4,6 +4,7 @@
  * @vitest-environment jsdom
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { nextTick } from 'vue';
 
 const STORAGE_KEY = 'acu_v2_ui_state';
 
@@ -348,6 +349,7 @@ describe('TablePage', () => {
       .find(item => item.textContent?.trim() === 'Other') as HTMLElement).click();
     await Promise.resolve();
     await Promise.resolve();
+    await nextTick();
 
     expect(injectionTargetChange).toHaveBeenCalledWith('Other');
     expect(describeInjectionTarget).toHaveBeenCalledTimes(2);

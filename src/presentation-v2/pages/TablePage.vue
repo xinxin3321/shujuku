@@ -262,9 +262,9 @@ function onEntriesManualBookToggle(name: string, checked: boolean): void {
   void refreshEntriesGroups();
 }
 
-function onInjectionTargetChange(value: string): void {
-  injectionTarget.onSelectorChange(value);
-  void refreshInjectionLabel();
+async function onInjectionTargetChange(value: string): Promise<void> {
+  await injectionTarget.onSelectorChange(value);
+  await refreshInjectionLabel();
 }
 
 async function refreshAll(): Promise<void> {
