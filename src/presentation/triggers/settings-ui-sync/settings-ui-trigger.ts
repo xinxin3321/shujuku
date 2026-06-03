@@ -27,6 +27,8 @@ import { executeContentOptimization_ACU } from '../../components/optimization-ui
 import { maybeLiftWorldbookSuppression_ACU } from '../../../service/runtime/helpers-remaining';
 import { purgeOldLayerData_ACU } from './settings-ui-config';
 import { buildAutoUpdatePlan_ACU, checkAutoUpdatePreConditions_ACU, executeAutoUpdatePlan_ACU, handleFloorIncreaseDelay_ACU } from '../../../service/table/update-scheduler';
+import { processGroupedRuntimeChunk_ACU } from '../../../service/table/update-orchestrator';
+import { isSqliteMode } from '../../../service/table/storage-mode';
 
   export async function triggerAutomaticUpdateIfNeeded_ACU() {
     logDebug_ACU('ACU Auto-Trigger: Starting independent check...');
@@ -84,6 +86,11 @@ import { buildAutoUpdatePlan_ACU, checkAutoUpdatePreConditions_ACU, executeAutoU
         _set_isAutoUpdatingCard_ACU,
         {
             processUpdates: (indices, mode, options) => processUpdates_ACU(indices, mode, options),
+            ...(isSqliteMode()
+                ? {}
+                : {
+                    processGroupedUpdates: (groups, mode, options) => processGroupedRuntimeChunk_ACU(groups, mode, options),
+                }),
             refreshData: () => refreshMergedDataAndNotifyWithUI_ACU(),
             loadAllChatMessages: () => loadAllChatMessages_ACU(),
             purgeOldLayerData: () => purgeOldLayerData_ACU(),

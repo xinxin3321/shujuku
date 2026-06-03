@@ -202,6 +202,8 @@ import {
   buildChatSheetGuideDataFromData_ACU,
   buildChatSheetGuideDataFromTemplateObj_ACU,
   overwriteChatSheetGuideFromTemplate_ACU,
+  ensureStableRowIdsForSeedRows_ACU,
+  ensureStableRowIdsForSheetContent_ACU,
   ensureChatSheetGuideSeeded_ACU,
   migrateLegacyTemplateScopeForCurrentChat_ACU,
 } from '../../../src/service/template/chat-scope/chat-scope-guide';
@@ -248,6 +250,21 @@ describe('materializeDataFromSheetGuide_ACU', () => {
     expect(result.sheet_0).toBeDefined();
     // content 应包含表头 + seedRows
     expect(result.sheet_0.content).toEqual([['row_id', '物品名'], ['1', '铁剑'], ['2', '盾牌']]);
+  });
+
+  it('includeSeedRows=true 时会稳定化缺失与重复 row_id', () => {
+    const guide = {
+      sheet_0: {
+        name: '表',
+        content: [['row_id', '名称']],
+        _seedRows: [['', '第一行'], ['1', '第二行'], ['1', '第三行']],
+      },
+    };
+
+    const result = materializeDataFromSheetGuide_ACU(guide, { includeSeedRows: true });
+
+    expect(result.sheet_0.content).toEqual([['row_id', '名称'], ['2', '第一行'], ['1', '第二行'], ['3', '第三行']]);
+    expect(result.sheet_0._seedRows).toEqual([['2', '第一行'], ['1', '第二行'], ['3', '第三行']]);
   });
 
   it('includeSeedRows=false 时只包含表头', () => {
@@ -379,6 +396,27 @@ describe('getEffectiveSeedRowsForSheet_ACU', () => {
     });
     const result = getEffectiveSeedRowsForSheet_ACU('sheet_0');
     expect(result).toEqual([['1', '数据']]);
+  });
+
+  it('currentData 的种子行缺失 row_id 时按未占用数字补齐', () => {
+    mockCurrentJsonTableData.sheet_0 = { _seedRows: [[null, '空值'], ['1', '已存在'], ['', '空串']] };
+
+    const result = getEffectiveSeedRowsForSheet_ACU('sheet_0');
+
+    expect(result).toEqual([['2', '空值'], ['1', '已存在'], ['3', '空串']]);
+    expect(result).not.toBe(mockCurrentJsonTableData.sheet_0._seedRows);
+  });
+
+  it('回退到 guide 时只修正后续重复 row_id，保留首个稳定值', () => {
+    mockCurrentJsonTableData.sheet_0 = {};
+    mockGetCurrentChatTemplateScopeState.mockReturnValue({
+      mode: 'chat_override',
+      guideData: { mate: { type: 'chatSheets', version: 2 }, sheet_0: { name: '表', content: [['row_id']], _seedRows: [['alpha', '首个'], ['alpha', '重复']] } },
+    });
+
+    const result = getEffectiveSeedRowsForSheet_ACU('sheet_0');
+
+    expect(result).toEqual([['alpha', '首个'], ['1', '重复']]);
   });
 
   it('allowTemplateFallback=false 时不回退到模板', () => {
@@ -577,5 +615,30 @@ describe('migrateLegacyTemplateScopeForCurrentChat_ACU', () => {
     mockGetChatArray.mockReturnValue([]);
     const result = migrateLegacyTemplateScopeForCurrentChat_ACU();
     expect(result).toBeNull();
+  });
+});
+
+describe('row_id 稳定化 helpers', () => {
+  it('ensureStableRowIdsForSeedRows_ACU 只补缺失和后续重复，不改首个稳定值', () => {
+    const input = [['', '第一行'], ['1', '第二行'], ['1', '第三行'], ['r1', '第四行']];
+
+    const result = ensureStableRowIdsForSeedRows_ACU(input as any);
+
+    expect(result).toEqual([['2', '第一行'], ['1', '第二行'], ['3', '第三行'], ['r1', '第四行']]);
+    expect(result).not.toBe(input);
+    expect(input[0][0]).toBe('');
+  });
+
+  it('ensureStableRowIdsForSheetContent_ACU 保留表头并为 undefined/空行补齐 row_id', () => {
+    const input = [['row_id', '名称'], [undefined, '未定义'], [], ['SystemRules', '稳定值']];
+
+    const result = ensureStableRowIdsForSheetContent_ACU(input as any);
+
+    expect(result).toEqual([
+      ['row_id', '名称'],
+      ['1', '未定义'],
+      ['2'],
+      ['SystemRules', '稳定值'],
+    ]);
   });
 });

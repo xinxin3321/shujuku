@@ -448,12 +448,14 @@ describe('executeAutoUpdatePlan_ACU', () => {
 
   function makeOps(overrides: Partial<{
     processUpdates: any;
+    processGroupedUpdates: any;
     refreshData: any;
     loadAllChatMessages: any;
     purgeOldLayerData: any;
   }> = {}) {
     return {
       processUpdates: overrides.processUpdates || vi.fn().mockResolvedValue(true),
+      processGroupedUpdates: overrides.processGroupedUpdates,
       refreshData: overrides.refreshData || vi.fn().mockResolvedValue(undefined),
       loadAllChatMessages: overrides.loadAllChatMessages || vi.fn().mockResolvedValue(undefined),
       purgeOldLayerData: overrides.purgeOldLayerData || vi.fn().mockResolvedValue(undefined),
@@ -488,6 +490,49 @@ describe('executeAutoUpdatePlan_ACU', () => {
     expect(ops.loadAllChatMessages).toHaveBeenCalled();
     expect(ops.refreshData).toHaveBeenCalled();
     expect(ops.purgeOldLayerData).toHaveBeenCalled();
+  });
+
+  it('提供 processGroupedUpdates 时优先走 grouped 委托', async () => {
+    const plan = {
+      tablesToUpdate: [],
+      updateGroups: {
+        'group_a': { indices: [1], batchSize: 2, groupId: 0, sheetKeys: ['sheet_0'], sheetNames: ['表A'] },
+        'group_b': { indices: [2], batchSize: 2, groupId: 1, sheetKeys: ['sheet_1'], sheetNames: ['表B'] },
+      },
+    };
+    const mockGrouped = vi.fn().mockResolvedValue({ success: true, failedGroups: [] });
+    const mockProcess = vi.fn().mockResolvedValue(true);
+    const ops = makeOps({ processGroupedUpdates: mockGrouped, processUpdates: mockProcess });
+
+    const result = await executeAutoUpdatePlan_ACU(plan, baseSettings, mockSetAutoUpdating, ops);
+
+    expect(result.success).toBe(true);
+    expect(mockGrouped).toHaveBeenCalledTimes(1);
+    expect(mockGrouped).toHaveBeenCalledWith([
+      expect.objectContaining({ key: 'group_a', groupId: 0, indices: [1], batchSize: 2, sheetKeys: ['sheet_0'], requestOptions: { skipProfileSwitch: true, forceDirectApi: true } }),
+      expect.objectContaining({ key: 'group_b', groupId: 1, indices: [2], batchSize: 2, sheetKeys: ['sheet_1'], requestOptions: { skipProfileSwitch: true, forceDirectApi: true } }),
+    ], 'auto_independent', {});
+    expect(mockProcess).not.toHaveBeenCalled();
+  });
+
+  it('grouped 委托返回 failedGroups 时按数量汇总失败组', async () => {
+    const plan = {
+      tablesToUpdate: [],
+      updateGroups: {
+        'group_a': { indices: [1], batchSize: 2, groupId: 0, sheetKeys: ['sheet_0'], sheetNames: ['表A'] },
+        'group_b': { indices: [2], batchSize: 2, groupId: 1, sheetKeys: ['sheet_1'], sheetNames: ['表B'] },
+      },
+    };
+    const mockGrouped = vi.fn().mockResolvedValue({ success: false, failedGroups: ['group_a'] });
+    const mockProcess = vi.fn().mockResolvedValue(true);
+    const ops = makeOps({ processGroupedUpdates: mockGrouped, processUpdates: mockProcess });
+
+    const result = await executeAutoUpdatePlan_ACU(plan, baseSettings, mockSetAutoUpdating, ops);
+
+    expect(result.success).toBe(false);
+    expect(result.failedGroups).toBe(1);
+    expect(result.totalGroups).toBe(2);
+    expect(mockProcess).not.toHaveBeenCalled();
   });
 
   it('多组部分失败', async () => {

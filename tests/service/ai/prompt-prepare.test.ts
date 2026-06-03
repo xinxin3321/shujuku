@@ -11,10 +11,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ═══════════════════════════════════════════════════════════════
 
 const mockGetEffectiveSeedRows = vi.fn(() => []);
+const mockEnsureChatSheetGuideSeeded = vi.fn().mockResolvedValue(null);
+const mockAttachSeedRows = vi.fn();
+let mockCurrentJsonTableData: any = null;
+let mockSettings: any = {};
+
 vi.mock('../../../src/service/template/chat-scope', () => ({
   getEffectiveSeedRowsForSheet_ACU: (...args: any[]) => mockGetEffectiveSeedRows(...args),
-  ensureChatSheetGuideSeeded_ACU: vi.fn().mockResolvedValue(null),
-  attachSeedRowsToCurrentDataFromGuide_ACU: vi.fn(),
+  ensureChatSheetGuideSeeded_ACU: (...args: any[]) => mockEnsureChatSheetGuideSeeded(...args),
+  attachSeedRowsToCurrentDataFromGuide_ACU: (...args: any[]) => mockAttachSeedRows(...args),
   getSortedSheetKeys_ACU: vi.fn((data: any) => data ? Object.keys(data).filter((k: string) => k.startsWith('sheet_')) : []),
 }));
 
@@ -28,9 +33,9 @@ vi.mock('../../../src/shared/utils', () => ({
 }));
 
 vi.mock('../../../src/service/runtime/state-manager', () => ({
-  manualExtraHint_ACU: '',
-  currentJsonTableData_ACU: null,
-  settings_ACU: {},
+  get manualExtraHint_ACU() { return ''; },
+  get currentJsonTableData_ACU() { return mockCurrentJsonTableData; },
+  get settings_ACU() { return mockSettings; },
 }));
 
 vi.mock('../../../src/data/gateways/host-state-gateway', () => ({
@@ -49,12 +54,21 @@ vi.mock('../../../src/service/table/storage-mode', () => ({
   isSqliteMode: vi.fn(() => true),
 }));
 
-import { formatTableForSqliteMode } from '../../../src/service/ai/prompt-builder/prompt-prepare';
+import { formatTableForSqliteMode, prepareAIInput_ACU } from '../../../src/service/ai/prompt-builder/prompt-prepare';
 
 describe('formatTableForSqliteMode', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetEffectiveSeedRows.mockReturnValue([]);
+    mockEnsureChatSheetGuideSeeded.mockResolvedValue(null);
+    mockAttachSeedRows.mockReset();
+    mockCurrentJsonTableData = null;
+    mockSettings = {
+      tableContextExtractTags: '',
+      tableContextExcludeTags: '',
+      tableContextExtractRules: '',
+      tableContextExcludeRules: '',
+    };
   });
 
   // ═══════════════════════════════════════════════════════════════
@@ -211,5 +225,72 @@ describe('formatTableForSqliteMode', () => {
     };
     const result = formatTableForSqliteMode(table, 0, 'sheet_0', null);
     expect(result).toContain('-- Note: 第一行说明\n-- 第二行说明');
+  });
+});
+
+describe('prepareAIInput_ACU — 显式 tableData 模式', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetEffectiveSeedRows.mockReturnValue([]);
+    mockEnsureChatSheetGuideSeeded.mockResolvedValue(null);
+    mockAttachSeedRows.mockReset();
+    mockCurrentJsonTableData = null;
+    mockSettings = {
+      tableContextExtractTags: '',
+      tableContextExcludeTags: '',
+      tableContextExtractRules: '',
+      tableContextExcludeRules: '',
+    };
+  });
+
+  it('传入显式 tableData 时优先使用显式数据而不是全局数据', async () => {
+    mockCurrentJsonTableData = {
+      sheet_0: {
+        name: '全局表',
+        content: [['row_id', 'name'], ['1', '全局值']],
+        updateConfig: {},
+      },
+    };
+    const explicitTableData = {
+      sheet_0: {
+        uid: 'sheet_0',
+        name: '显式表',
+        content: [['row_id', 'name'], ['1', '显式值']],
+        updateConfig: {},
+      },
+    };
+
+    const result = await prepareAIInput_ACU([], 'standard', null, { tableData: explicitTableData });
+    expect(result).not.toBeNull();
+    expect(result!.tableDataText).toContain('[0:显式表]');
+    expect(result!.tableDataText).toContain('显式值');
+    expect(result!.tableDataText).not.toContain('全局表');
+    expect(result!.tableDataText).not.toContain('全局值');
+  });
+
+  it('传入显式 tableData 且存在 guideData 时不调用全局 attach helper，且不污染原始显式对象', async () => {
+    mockCurrentJsonTableData = {
+      sheet_0: {
+        uid: 'sheet_0',
+        name: '全局表',
+        content: [['row_id', 'name']],
+        updateConfig: {},
+      },
+    };
+    const explicitTableData = {
+      sheet_0: {
+        uid: 'sheet_0',
+        name: '显式表',
+        content: [['row_id', 'name']],
+        updateConfig: {},
+      },
+    };
+    mockEnsureChatSheetGuideSeeded.mockResolvedValue({ sheet_0: { seedRows: [['1', '模板值']] } });
+
+    await prepareAIInput_ACU([], 'standard', null, { tableData: explicitTableData });
+
+    expect(mockAttachSeedRows).not.toHaveBeenCalled();
+    expect(explicitTableData.sheet_0.seedRows).toBeUndefined();
+    expect(mockCurrentJsonTableData.sheet_0.seedRows).toBeUndefined();
   });
 });

@@ -63,6 +63,19 @@ const mockGetCurrentChatTemplateScopeState = vi.fn().mockReturnValue(null);
 vi.mock('../../../src/service/template/chat-scope', () => ({
   getEffectiveSeedRowsForSheet_ACU: (...args: any[]) => mockGetEffectiveSeedRows(...args),
   getCurrentChatTemplateScopeState_ACU: (...args: any[]) => mockGetCurrentChatTemplateScopeState(...args),
+  ensureStableRowIdsForSheetContent_ACU: vi.fn((content: any) => {
+    if (!Array.isArray(content) || content.length === 0) return [];
+    const header = Array.isArray(content[0]) ? [...content[0]] : ['row_id'];
+    const rows = content.slice(1).map((row: any) => Array.isArray(row) ? [...row] : []);
+    let nextId = 1;
+    return [header, ...rows.map((row: any) => {
+      const normalized = row[0] == null || String(row[0]).trim() === '' ? '' : String(row[0]).trim();
+      const value = normalized || String(nextId++);
+      if (row.length === 0) return [value];
+      row[0] = value;
+      return row;
+    })];
+  }),
   sanitizeTemplateSnapshotForChat_ACU: vi.fn((source: any) => {
     if (!source) return null;
     return { templateStr: typeof source === 'string' ? source : JSON.stringify(source), templateObj: typeof source === 'string' ? JSON.parse(source) : source };
@@ -84,6 +97,7 @@ vi.mock('../../../src/shared/json-helpers', () => ({
 
 // 现在 import 被测模块
 import {
+  applySqlEditsToTableDataSnapshot_ACU,
   SqlTableService,
   splitSqlStatements,
   extractTableNamesFromStatements,
@@ -238,6 +252,60 @@ describe('extractTableNamesFromStatements', () => {
   it('大小写不敏感', () => {
     const result = extractTableNamesFromStatements(["insert into MyTable values (1)"]);
     expect(result).toEqual(['MyTable']);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// SqlTableService 类测试
+// ═══════════════════════════════════════════════════════════════
+describe('applySqlEditsToTableDataSnapshot_ACU', () => {
+  const TEST_DDL = `CREATE TABLE inventory (
+    row_id INTEGER PRIMARY KEY,
+    item_name TEXT NOT NULL,
+    quantity INTEGER DEFAULT 1
+  );`;
+
+  const snapshotTableData: any = {
+    mate: { type: 'acu', version: 1, updateConfigUiSentinel: 0, globalInjectionConfig: { readableEntryPlacement: { position: '', depth: 0, order: 0 }, wrapperPlacement: { position: '', depth: 0, order: 0 } } },
+    sheet_0: {
+      uid: 'inventory',
+      name: '背包物品表',
+      sourceData: { note: '', initNode: '', deleteNode: '', updateNode: '', insertNode: '', ddl: TEST_DDL },
+      content: [
+        ['row_id', 'item_name', 'quantity'],
+        ['1', '铁剑', '3'],
+      ],
+      updateConfig: {},
+      exportConfig: {},
+      orderNo: 0,
+    },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCurrentJsonTableData = null;
+  });
+
+  it('基于显式快照应用 SQL，返回 workingData 且不污染输入快照与全局状态', async () => {
+    const inputSnapshot = JSON.parse(JSON.stringify(snapshotTableData));
+    const result = await applySqlEditsToTableDataSnapshot_ACU("UPDATE inventory SET quantity = 9 WHERE row_id = 1; INSERT INTO inventory VALUES (2, '治疗药水', 5);", inputSnapshot);
+
+    expect(result.success).toBe(true);
+    expect(result.modifiedKeys).toEqual(['sheet_0']);
+    expect(result.appliedEdits).toBe(2);
+    expect(result.workingData?.sheet_0.content).toEqual([['row_id', 'item_name', 'quantity'], ['1', '铁剑', '9'], ['2', '治疗药水', '5']]);
+    expect(inputSnapshot.sheet_0.content).toEqual([['row_id', 'item_name', 'quantity'], ['1', '铁剑', '3']]);
+    expect(mockCurrentJsonTableData).toBeNull();
+  });
+
+  it('SQL 失败时返回错误且不污染输入快照与全局状态', async () => {
+    const inputSnapshot = JSON.parse(JSON.stringify(snapshotTableData));
+    const result = await applySqlEditsToTableDataSnapshot_ACU('UPDATE inventory SET missing_col = 1 WHERE row_id = 1;', inputSnapshot);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('missing_col');
+    expect(inputSnapshot.sheet_0.content).toEqual([['row_id', 'item_name', 'quantity'], ['1', '铁剑', '3']]);
+    expect(mockCurrentJsonTableData).toBeNull();
   });
 });
 
@@ -512,6 +580,38 @@ describe('SqlTableService', () => {
       // 验证 UPDATE 确实生效了（quantity 从 3 变为 10）
       expect(queryResult.values[0]).toContain(10);
       expect(queryResult.values[1]).toContain('治疗药水');
+    });
+
+    it('seedRows 缺失 row_id 时会稳定化后写入 SQLite', async () => {
+      mockMergeAll.mockResolvedValue(null);
+      await service.loadFromChat();
+
+      const { parseTableTemplateJson_ACU } = await import('../../../src/shared/utils');
+      vi.mocked(parseTableTemplateJson_ACU).mockReturnValue({
+        mate: { type: 'acu', version: 1 },
+        sheet_0: {
+          uid: 'inventory',
+          name: '背包物品表',
+          sourceData: { note: '', initNode: '', deleteNode: '', updateNode: '', insertNode: '', ddl: TEST_DDL_WITH_SEED },
+          content: [['row_id', 'item_name', 'quantity']],
+          updateConfig: {},
+          exportConfig: {},
+          orderNo: 0,
+        },
+      } as any);
+
+      mockGetEffectiveSeedRows.mockReturnValue([
+        [null, '铁剑', '3'],
+        ['', '治疗药水', '5'],
+      ]);
+
+      const result = service.applyEdits("UPDATE inventory SET quantity = 10 WHERE item_name = '铁剑';");
+      expect(result.success).toBe(true);
+
+      const queryResult = service.executeQuery('SELECT row_id, item_name, quantity FROM inventory ORDER BY row_id');
+      expect(queryResult.rowCount).toBe(2);
+      expect(queryResult.values[0]).toEqual([1, '铁剑', 10]);
+      expect(queryResult.values[1]).toEqual([2, '治疗药水', 5]);
     });
 
     it('没有 seedRows 的表建表后仍为空表', async () => {

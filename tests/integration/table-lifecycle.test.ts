@@ -3,6 +3,7 @@
  * I1+I2 集成测试
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { logWarn_ACU } from '../../src/shared/utils';
 
 const { mockChat, mockSettings, mockCurrentJsonTableDataRef } = vi.hoisted(() => ({
   mockChat: [] as any[],
@@ -23,6 +24,7 @@ vi.mock('../../src/shared/utils', () => ({
 }));
 vi.mock('../../src/service/runtime/state-manager', () => ({
   get currentJsonTableData_ACU() { return mockCurrentJsonTableDataRef.value; },
+  currentChatFileIdentifier_ACU: 'test-chat',
   getCurrentIsolationKey_ACU: vi.fn(() => ''),
   settings_ACU: mockSettings,
   _set_currentJsonTableData_ACU: vi.fn((v: any) => { mockCurrentJsonTableDataRef.value = v; }),
@@ -36,6 +38,23 @@ vi.mock('../../src/service/template/chat-scope', () => ({
   ensureChatSheetGuideSeeded_ACU: vi.fn().mockResolvedValue(null),
   getChatSheetGuideDataForIsolationKey_ACU: vi.fn(() => null),
   getSortedSheetKeys_ACU: vi.fn((d: any) => d ? Object.keys(d).filter((k: string) => k.startsWith('sheet_')).sort() : []),
+  ensureStableRowIdsForSheetContent_ACU: vi.fn((content: any) => {
+    if (!Array.isArray(content) || content.length === 0) return [];
+    const header = Array.isArray(content[0]) ? [...content[0]] : ['row_id'];
+    const rows = content.slice(1).map((row: any) => Array.isArray(row) ? [...row] : []);
+    const used = new Set<string>();
+    let nextId = 1;
+    return [header, ...rows.map((row: any) => {
+      let value = row[0] == null ? '' : String(row[0]).trim();
+      if (!value || used.has(value)) {
+        while (used.has(String(nextId))) nextId += 1;
+        value = String(nextId++);
+      }
+      used.add(value);
+      row[0] = value;
+      return row;
+    })];
+  }),
   sanitizeSheetForStorage_ACU: vi.fn((s: any) => JSON.parse(JSON.stringify(s))),
   setChatSheetGuideDataForIsolationKey_ACU: vi.fn(),
 }));
@@ -200,7 +219,7 @@ describe('I2: 增量存储端到端链路', () => {
     expect(rebuiltB.content).toEqual([['row_id', 'B'], ['b1', '新B']]);
   });
 
-  it('同一楼层后续分组退化为 checkpoint 时不丢失先写入的表', async () => {
+  it('同一楼层后续分组在 row_id 稳定化后仍走 delta，且不丢失先写入的表', async () => {
     mockChat.push({ is_user: false, mes: 'AI回复1' });
     mockCurrentJsonTableDataRef.value = {
       sheet_a: { name: '表A', content: [['row_id', 'A'], ['a1', '旧A']] },
@@ -225,15 +244,60 @@ describe('I2: 增量存储端到端链路', () => {
     await saveIndependentTableToChatHistory_ACU(2, ['sheet_b'], ['sheet_b'], false, ['sheet_b']);
 
     const td2 = mockChat[2].TavernDB_ACU_IsolatedData[''];
-    expect(td2._acu_storage_mode).toBe('checkpoint');
-    expect(td2.incrementalData).toBeUndefined();
-    expect(td2.independentData.sheet_a.content).toEqual([['row_id', 'A'], ['a1', '新A']]);
-    expect(td2.independentData.sheet_b.content).toEqual([['row_id', 'B'], ['', '坏行1'], ['', '坏行2']]);
+    expect(td2._acu_storage_mode).toBe('delta');
+    expect(td2.independentData).toEqual({});
+    expect(td2.incrementalData.sheet_b).toBeDefined();
+    const rebuiltSheetB = applyTableDelta_ACU(
+      { name: '表B', content: [['row_id', 'B'], ['b1', '旧B']] } as any,
+      td2.incrementalData.sheet_b,
+      'sheet_b',
+    );
+    expect(rebuiltSheetB.content).toEqual([['row_id', 'B'], ['1', '坏行1'], ['2', '坏行2']]);
+    const rebuiltSheetA = applyTableDelta_ACU(
+      { name: '表A', content: [['row_id', 'A'], ['a1', '新A']] } as any,
+      td2.incrementalData.sheet_a,
+      'sheet_a',
+    );
+    expect(rebuiltSheetA.content).toEqual([['row_id', 'A'], ['a1', '新A']]);
     expect(td2.modifiedKeys.sort()).toEqual(['sheet_a', 'sheet_b']);
     expect(td2.updateGroupKeys.sort()).toEqual(['sheet_a', 'sheet_b']);
   });
 
-  it('delta 模式只记录实际持久化变化的 key，过滤未产生增量的纪要表标记', async () => {
+  it('旧脏 base 在同一 saveTargetIndex 多次保存时会先被稳定化，不再打印 base_no_stable_row_id', async () => {
+    mockChat.push({ is_user: false, mes: 'AI回复1' });
+    mockCurrentJsonTableDataRef.value = {
+      sheet_a: { name: '表A', content: [['row_id', 'A'], ['a1', '旧A']] },
+      sheet_b: { name: '表B', content: [['row_id', 'B'], ['b1', '旧B']] },
+    };
+    await saveIndependentTableToChatHistory_ACU();
+    mockChat[0].TavernDB_ACU_IsolatedData[''].independentData.sheet_a.content = [['row_id', 'A'], ['', '旧A1'], ['', '旧A2']];
+
+    mockChat.push({ is_user: true, mes: '用户' });
+    mockChat.push({ is_user: false, mes: 'AI回复2' });
+
+    mockCurrentJsonTableDataRef.value = {
+      sheet_a: { name: '表A', content: [['row_id', 'A'], ['1', '新A1'], ['2', '新A2']] },
+      sheet_b: { name: '表B', content: [['row_id', 'B'], ['b1', '旧B']] },
+    };
+    await saveIndependentTableToChatHistory_ACU(2, ['sheet_a'], ['sheet_a'], false, ['sheet_a']);
+
+    mockCurrentJsonTableDataRef.value = {
+      sheet_a: { name: '表A', content: [['row_id', 'A'], ['1', '新A1'], ['2', '新A2']] },
+      sheet_b: { name: '表B', content: [['row_id', 'B'], ['b1', '新B']] },
+    };
+    await saveIndependentTableToChatHistory_ACU(2, ['sheet_b'], ['sheet_b'], false, ['sheet_b']);
+
+    const td2 = mockChat[2].TavernDB_ACU_IsolatedData[''];
+    expect(td2._acu_storage_mode).toBe('delta');
+    expect(td2.incrementalData.sheet_a).toBeDefined();
+    expect(td2.incrementalData.sheet_b).toBeDefined();
+    const rebuiltA = applyTableDelta_ACU({ name: '表A', content: [['row_id', 'A'], ['1', '旧A1'], ['2', '旧A2']] } as any, td2.incrementalData.sheet_a, 'sheet_a');
+    expect(rebuiltA.content).toEqual([['row_id', 'A'], ['1', '新A1'], ['2', '新A2']]);
+    const baseWarnings = vi.mocked(logWarn_ACU).mock.calls.filter(call => String(call[0]).includes('base 缺少稳定 row_id'));
+    expect(baseWarnings).toHaveLength(0);
+  });
+
+  it('delta 模式保留本轮 tracking metadata，即使纪要表未产生增量', async () => {
     mockChat.push({ is_user: false, mes: 'AI回复1' });
     mockCurrentJsonTableDataRef.value = {
       sheet_summary: { name: '纪要表', content: [['row_id', '内容'], ['s1', '旧纪要']] },
@@ -260,8 +324,8 @@ describe('I2: 增量存储端到端链路', () => {
     expect(td2._acu_storage_mode).toBe('delta');
     expect(td2.incrementalData.sheet_data).toBeDefined();
     expect(td2.incrementalData.sheet_summary).toBeUndefined();
-    expect(td2.modifiedKeys).toEqual(['sheet_data']);
-    expect(td2.updateGroupKeys).toEqual(['sheet_data']);
+    expect(td2.modifiedKeys).toEqual(['sheet_summary', 'sheet_data']);
+    expect(td2.updateGroupKeys).toEqual(['sheet_summary', 'sheet_data']);
   });
 
   it('buildTableDelta + applyTableDelta 往返一致性', () => {
@@ -274,7 +338,7 @@ describe('I2: 增量存储端到端链路', () => {
     expect(rebuilt.content).toEqual(next.content);
   });
 
-  it('row_id 缺失时退化为 checkpoint', async () => {
+  it('row_id 缺失时会在落盘前稳定化，因此仍可写成 delta', async () => {
     mockChat.push({ is_user: false, mes: 'AI回复1' });
     mockCurrentJsonTableDataRef.value = {
       sheet_0: { name: 'T', content: [['row_id', 'A'], ['r1', '铁剑']] },
@@ -287,10 +351,16 @@ describe('I2: 增量存储端到端链路', () => {
     };
     await saveIndependentTableToChatHistory_ACU();
     const td2 = mockChat[2].TavernDB_ACU_IsolatedData[''];
-    expect(td2._acu_storage_mode).toBe('checkpoint');
-    expect(td2.independentData.sheet_0).toBeDefined();
-    expect(td2.independentData.sheet_0.content).toHaveLength(3);
-    expect(isCheckpointTagData_ACU(td2)).toBe(true);
+    expect(td2._acu_storage_mode).toBe('delta');
+    expect(td2.independentData).toEqual({});
+    expect(td2.incrementalData.sheet_0).toBeDefined();
+    const rebuilt = applyTableDelta_ACU(
+      { name: 'T', content: [['row_id', 'A'], ['r1', '铁剑']] } as any,
+      td2.incrementalData.sheet_0,
+      'sheet_0',
+    );
+    expect(rebuilt.content).toEqual([['row_id', 'A'], ['1', '铁剑'], ['2', '药水']]);
+    expect(isDeltaTagData_ACU(td2)).toBe(true);
   });
 
   it('旧版数据（无 _acu_storage_mode 标记）兼容性确认', () => {

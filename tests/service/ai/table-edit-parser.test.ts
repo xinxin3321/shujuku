@@ -61,6 +61,7 @@ vi.mock('../../../src/service/ai/prompt-builder/json-sanitizer', () => ({
 import {
   extractTableEditInner_ACU,
   parseAndApplyTableEdits_ACU,
+  parseAndApplyTableEditsToData_ACU,
   isSqlContent,
 } from '../../../src/service/ai/prompt-builder/table-edit-parser';
 
@@ -364,5 +365,42 @@ describe('parseAndApplyTableEdits_ACU — DSL 分支', () => {
     parseAndApplyTableEdits_ACU(aiResponse, 'standard');
     // 非 SQLite 模式不应调用 provider.applyEdits
     expect(mockApplyEdits).not.toHaveBeenCalled();
+  });
+});
+
+describe('parseAndApplyTableEditsToData_ACU', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSettings = { tableEditLastPairOnly: false };
+    mockIsSqliteMode = false;
+    mockCurrentJsonTableData = {
+      sheet_0: {
+        uid: 'sheet_0',
+        name: '全局表',
+        content: [
+          ['row_id', 'item_name', 'quantity'],
+          ['1', '全局铁剑', '3'],
+        ],
+        updateConfig: {},
+      },
+    };
+  });
+
+  it('显式 tableData 修改只作用于传入对象，不污染全局 currentJsonTableData_ACU', () => {
+    const explicitTableData = {
+      sheet_0: {
+        uid: 'sheet_0',
+        name: '显式表',
+        content: [['row_id', 'item_name', 'quantity'], ['1', '显式铁剑', '3']],
+        updateConfig: {},
+      },
+    };
+
+    const result = parseAndApplyTableEditsToData_ACU('<tableEdit>insertRow(0, {"0": "显式药水", "1": "5"})</tableEdit>', explicitTableData, 'standard');
+    expect(result).toHaveProperty('success');
+    expect(explicitTableData.sheet_0.content).toHaveLength(3);
+    expect(explicitTableData.sheet_0.content[2][1]).toBe('显式药水');
+    expect(mockCurrentJsonTableData.sheet_0.content).toHaveLength(2);
+    expect(mockCurrentJsonTableData.sheet_0.content[1][1]).toBe('全局铁剑');
   });
 });

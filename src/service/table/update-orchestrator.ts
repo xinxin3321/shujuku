@@ -9,7 +9,7 @@ import { callCustomOpenAI_ACU } from '../ai/prompt-builder';
 import { getChatArray_ACU } from '../chat/chat-service';
 import { coreApisAreReady_ACU, currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU } from '../runtime/state-manager';
 import { checkAutoMergeTrigger_ACU, prepareAutoMergeBatches_ACU, executeAutoMergeBatch_ACU, finalizeAutoMerge_ACU } from '../summary/merge-logic';
-import { getChatSheetGuideDataForIsolationKey_ACU } from '../template/chat-scope';
+import { ensureStableRowIdsForSheetContent_ACU, getChatSheetGuideDataForIsolationKey_ACU, getEffectiveSeedRowsForSheet_ACU } from '../template/chat-scope';
 import { loadAllChatMessages_ACU, updateReadableLorebookEntry_ACU } from '../worldbook/pipeline';
 import { enqueueSummaryVectorIndexFlush_ACU } from '../vector/summary-vector-index-flush-queue';
 import { getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
@@ -37,10 +37,12 @@ function resolveTableApiPresetOverride_ACU(tableName: any): string {
     const preset = overrides[normalizedName];
     return (typeof preset === 'string' && preset.trim()) ? preset.trim() : '';
 }
-import { checkIfFirstTimeInit_ACU, saveIndependentTableToChatHistoryWithinScopeLock_ACU } from './table-service';
-import { parseAndApplyTableEdits_ACU, prepareAIInput_ACU } from '../ai/prompt-builder';
+import { checkIfFirstTimeInit_ACU, persistTablesToChatMessage_ACU, saveIndependentTableToChatHistoryWithinScopeLock_ACU } from './table-service';
+import { parseAndApplyTableEdits_ACU, parseAndApplyTableEditsToData_ACU, prepareAIInput_ACU } from '../ai/prompt-builder';
+import { isSqlContent } from '../ai/prompt-builder/table-edit-parser';
 import { buildGuidedBaseDataFromSheetGuide_ACU, getSortedSheetKeys_ACU } from '../template/chat-scope';
 import { isSqliteMode } from './storage-mode';
+import { applySqlEditsToTableDataSnapshot_ACU } from './sql-table-service';
 import { reloadStorageProvider } from './table-storage-strategy';
 import { clearTableDataAtFloors_ACU } from '../chat/chat-service';
 import { applySpecialIndexSequenceToSummaryTables_ACU } from '../runtime/helpers-remaining';
@@ -101,6 +103,56 @@ export interface ManualUpdateResult {
     autoMergeTriggered?: boolean;
     autoMergeSuccess?: boolean;
 }
+
+export interface GroupFillJob_ACU {
+    groupKey: string;
+    groupId: number;
+    batchNumber: number;
+    targetSheetKeys: string[] | null;
+    messagesForContext: any[];
+    saveTargetIndex: number;
+    updateMode: string;
+    requestOptions: Record<string, any> | null;
+    baseSnapshot: Record<string, any>;
+    isImportMode?: boolean;
+}
+
+export interface GroupFillResponse_ACU {
+    success: boolean;
+    attempt: number;
+    job: GroupFillJob_ACU;
+    aiResponse?: string;
+    tableEditText?: string;
+    error?: string;
+    rawError?: string;
+    aborted?: boolean;
+}
+
+export interface UnifiedApplyAttempt_ACU {
+    saveTargetIndex: number;
+    responseCount: number;
+    attempt: number;
+    error?: string;
+}
+
+interface ManualRuntimeUpdateGroup_ACU {
+    indices: number[];
+    batchSize: number;
+    groupId: number;
+    sheetKeys: string[];
+}
+
+export interface GroupedRuntimeUpdateGroup_ACU {
+    key: string;
+    groupId: number;
+    indices: number[];
+    batchSize: number;
+    sheetKeys: string[];
+    requestOptions: Record<string, any> | null;
+}
+
+const SQL_ERROR_MARKER_ACU = '\n\n<!-- SQL_ERROR_FEEDBACK -->\n';
+const UNIFIED_GROUP_ERROR_MARKER_ACU = '\n\n<!-- UNIFIED_GROUP_ERROR_FEEDBACK -->\n';
 
 // ============================================================
 // 核心业务函数
@@ -241,6 +293,9 @@ export function loadBatchBaseData_ACU(
                 try {
                     mergedBatchData[sheetKey] = applyTableDelta_ACU(mergedBatchData[sheetKey], incrementalData[sheetKey], sheetKey);
                     restoreGuideStructure(mergedBatchData[sheetKey], guideSnapshots[sheetKey]);
+                    if (Array.isArray(mergedBatchData[sheetKey]?.content)) {
+                        mergedBatchData[sheetKey].content = ensureStableRowIdsForSheetContent_ACU(mergedBatchData[sheetKey].content);
+                    }
                     batchFoundSheets[sheetKey] = true;
                 } catch (e: any) {
                     logWarn_ACU(`[表格增量] loadBatchBaseData: 叠加 delta 失败 (sheet=${sheetKey}): ${e?.message || e}`);
@@ -296,6 +351,495 @@ export function resolveUpdateMode_ACU(mode: string): string {
     }
 }
 
+export async function collectGroupFillResponse_ACU(
+    job: GroupFillJob_ACU,
+    feedback?: { lastSqlError?: string | null; lastUnifiedError?: string | null },
+    abortController: AbortController = new AbortController(),
+    options: {
+        onProgress?: (event: CardUpdateProgressEvent) => void;
+        maxRetriesOverride?: number;
+    } = {}
+): Promise<GroupFillResponse_ACU> {
+    options.onProgress?.({ phase: 'preparing' });
+
+    const dynamicContent = await prepareAIInput_ACU(job.messagesForContext, job.updateMode, job.targetSheetKeys, {
+        tableData: job.baseSnapshot,
+        excludeImportTaggedWorldbookEntries: job.isImportMode === true && settings_ACU.importPromptExcludeImportedWorldbookEntries !== false,
+    });
+    if (!dynamicContent) {
+        return {
+            job,
+            success: false,
+            attempt: 0,
+            error: '无法准备AI输入，数据库未加载。',
+            rawError: '无法准备AI输入，数据库未加载。',
+        };
+    }
+
+    const maxRetries = options.maxRetriesOverride || settings_ACU.tableMaxRetries || 3;
+    let lastErrorMessage = 'AI响应中未找到完整有效的 <tableEdit> 标签';
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        if (wasStoppedByUser_ACU) {
+            return { job, success: false, attempt, aborted: true };
+        }
+
+        options.onProgress?.({ phase: 'calling_ai', attempt, maxRetries });
+
+        if (feedback?.lastSqlError && isSqliteMode()) {
+            const markerIndex = dynamicContent.tableDataText.indexOf(SQL_ERROR_MARKER_ACU);
+            if (markerIndex !== -1) {
+                dynamicContent.tableDataText = dynamicContent.tableDataText.substring(0, markerIndex);
+            }
+            dynamicContent.tableDataText += `${SQL_ERROR_MARKER_ACU}[SQL执行错误，请修正后重新输出]\n错误信息: ${feedback.lastSqlError}`;
+        }
+        if (feedback?.lastUnifiedError) {
+            const markerIndex = dynamicContent.tableDataText.indexOf(UNIFIED_GROUP_ERROR_MARKER_ACU);
+            if (markerIndex !== -1) {
+                dynamicContent.tableDataText = dynamicContent.tableDataText.substring(0, markerIndex);
+            }
+            dynamicContent.tableDataText += `${UNIFIED_GROUP_ERROR_MARKER_ACU}[统一提交失败，请修正后重新输出]\n错误信息: ${feedback.lastUnifiedError}`;
+        }
+
+        try {
+            const aiResponse = await callCustomOpenAI_ACU(dynamicContent, abortController, job.requestOptions);
+            if (abortController.signal.aborted || wasStoppedByUser_ACU) {
+                return { job, success: false, attempt, aborted: true };
+            }
+
+            const minReplyLength = settings_ACU.autoUpdateTokenThreshold || 0;
+            if (aiResponse && minReplyLength > 0 && aiResponse.length < minReplyLength) {
+                throw new Error(`AI回复过短 (${aiResponse.length} 字符)，低于阈值 (${minReplyLength} 字符)`);
+            }
+            if (!aiResponse || !aiResponse.includes('<tableEdit>') || !aiResponse.includes('</tableEdit>')) {
+                throw new Error('AI响应中未找到完整有效的 <tableEdit> 标签');
+            }
+
+            const tableEditText = (aiResponse.match(/<tableEdit>([\s\S]*?)<\/tableEdit>/i)?.[1] || '').trim();
+
+            return { job, success: true, attempt, aiResponse, tableEditText };
+        } catch (error: any) {
+            lastErrorMessage = error?.message || '未知错误';
+            logWarn_ACU(`第 ${attempt} 次尝试失败: ${lastErrorMessage}`);
+            if (error?.name === 'AbortError' || String(lastErrorMessage).toLowerCase().includes('aborted') || wasStoppedByUser_ACU) {
+                return { job, success: false, attempt, aborted: true };
+            }
+            if (attempt < maxRetries) {
+                options.onProgress?.({ phase: 'retry', attempt, maxRetries, message: String(lastErrorMessage).substring(0, 50) });
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+        }
+    }
+
+    return { job, success: false, attempt: maxRetries, error: `填表在 ${maxRetries} 次尝试后仍失败: ${lastErrorMessage}`, rawError: lastErrorMessage };
+}
+
+function buildSqlInitializationBase_ACU(baseSnapshot: Record<string, any>, targetSheetKeys: string[]) {
+    const workingTableData = JSON.parse(JSON.stringify(baseSnapshot || {}));
+    const initializedSheetKeys = new Set<string>();
+
+    let templateData: Record<string, any> | null = null;
+    let guideData: Record<string, any> | null = null;
+    let guidedBaseData: Record<string, any> | null = null;
+
+    try {
+        templateData = parseTableTemplateJson_ACU({ stripSeedRows: false }) as Record<string, any> | null;
+    } catch (error) {
+        logWarn_ACU('[SQL Init] parseTableTemplateJson_ACU failed, fallback to baseSnapshot only.', error);
+    }
+    try {
+        guideData = getChatSheetGuideDataForIsolationKey_ACU(getCurrentIsolationKey_ACU());
+        guidedBaseData = guideData ? buildGuidedBaseDataFromSheetGuide_ACU(guideData) : null;
+    } catch (error) {
+        logWarn_ACU('[SQL Init] getChatSheetGuideDataForIsolationKey_ACU failed, fallback to template/baseSnapshot only.', error);
+    }
+
+    if (!workingTableData.mate && templateData?.mate) {
+        workingTableData.mate = JSON.parse(JSON.stringify(templateData.mate));
+    }
+
+    for (const sheetKey of Array.isArray(targetSheetKeys) ? targetSheetKeys : []) {
+        if (!sheetKey || !String(sheetKey).startsWith('sheet_')) continue;
+
+        const templateSheet = templateData?.[sheetKey];
+        const guidedSheet = guidedBaseData?.[sheetKey];
+        const existingSheet = workingTableData?.[sheetKey];
+        const sourceSheet = guidedSheet || templateSheet;
+        if ((!existingSheet || typeof existingSheet !== 'object') && (!sourceSheet || typeof sourceSheet !== 'object')) continue;
+
+        let sheetChanged = false;
+        if (!existingSheet || typeof existingSheet !== 'object') {
+            workingTableData[sheetKey] = {};
+            sheetChanged = true;
+        }
+
+        const targetSheet = workingTableData[sheetKey];
+        const fallbackUid = guidedSheet?.uid || templateSheet?.uid;
+        const fallbackName = guidedSheet?.name || templateSheet?.name;
+        const fallbackSourceData = guidedSheet?.sourceData && typeof guidedSheet.sourceData === 'object'
+            ? guidedSheet.sourceData
+            : (templateSheet?.sourceData && typeof templateSheet.sourceData === 'object' ? templateSheet.sourceData : null);
+        const fallbackUpdateConfig = guidedSheet?.updateConfig && typeof guidedSheet.updateConfig === 'object'
+            ? guidedSheet.updateConfig
+            : (templateSheet?.updateConfig && typeof templateSheet.updateConfig === 'object' ? templateSheet.updateConfig : null);
+        const fallbackExportConfig = guidedSheet?.exportConfig && typeof guidedSheet.exportConfig === 'object'
+            ? guidedSheet.exportConfig
+            : (templateSheet?.exportConfig && typeof templateSheet.exportConfig === 'object' ? templateSheet.exportConfig : null);
+        const fallbackOrderNo = guidedSheet?.orderNo !== undefined ? guidedSheet.orderNo : templateSheet?.orderNo;
+        const headerRow = Array.isArray(targetSheet?.content?.[0])
+            ? targetSheet.content[0]
+            : (Array.isArray(guidedSheet?.content?.[0])
+                ? guidedSheet.content[0]
+                : (Array.isArray(templateSheet?.content?.[0]) ? templateSheet.content[0] : null));
+
+        if (!targetSheet.uid && fallbackUid) { targetSheet.uid = fallbackUid; sheetChanged = true; }
+        if (!targetSheet.name && fallbackName) { targetSheet.name = fallbackName; sheetChanged = true; }
+        if ((!targetSheet.sourceData || typeof targetSheet.sourceData !== 'object') && fallbackSourceData) {
+            targetSheet.sourceData = JSON.parse(JSON.stringify(fallbackSourceData));
+            sheetChanged = true;
+        } else if (!targetSheet?.sourceData?.ddl && fallbackSourceData?.ddl) {
+            targetSheet.sourceData = { ...(targetSheet.sourceData || {}), ddl: fallbackSourceData.ddl };
+            sheetChanged = true;
+        }
+        if ((!targetSheet.updateConfig || typeof targetSheet.updateConfig !== 'object') && fallbackUpdateConfig) {
+            targetSheet.updateConfig = JSON.parse(JSON.stringify(fallbackUpdateConfig));
+            sheetChanged = true;
+        }
+        if ((!targetSheet.exportConfig || typeof targetSheet.exportConfig !== 'object') && fallbackExportConfig) {
+            targetSheet.exportConfig = JSON.parse(JSON.stringify(fallbackExportConfig));
+            sheetChanged = true;
+        }
+        if ((targetSheet.orderNo === undefined || targetSheet.orderNo === null) && fallbackOrderNo !== undefined) {
+            targetSheet.orderNo = fallbackOrderNo;
+            sheetChanged = true;
+        }
+
+        if (!Array.isArray(targetSheet.content)) {
+            targetSheet.content = headerRow ? [JSON.parse(JSON.stringify(headerRow))] : [];
+            sheetChanged = true;
+        } else if (targetSheet.content.length === 0 && headerRow) {
+            targetSheet.content = [JSON.parse(JSON.stringify(headerRow))];
+            sheetChanged = true;
+        } else if (!Array.isArray(targetSheet.content[0]) && headerRow) {
+            targetSheet.content[0] = JSON.parse(JSON.stringify(headerRow));
+            sheetChanged = true;
+        }
+
+        if (Array.isArray(targetSheet.content) && targetSheet.content.length <= 1) {
+            const seedRows = getEffectiveSeedRowsForSheet_ACU(sheetKey, { guideData, allowTemplateFallback: true });
+            if (Array.isArray(seedRows) && seedRows.length > 0) {
+                targetSheet.content = [targetSheet.content[0] || [], ...JSON.parse(JSON.stringify(seedRows))];
+                targetSheet.content = ensureStableRowIdsForSheetContent_ACU(targetSheet.content);
+                sheetChanged = true;
+            }
+        }
+
+        if (sheetChanged) initializedSheetKeys.add(sheetKey);
+    }
+
+    return { workingTableData, initializedSheetKeys };
+}
+
+export async function applyUnifiedGroupFillResponses_ACU(
+    responses: GroupFillResponse_ACU[],
+    baseSnapshot: Record<string, any>,
+    options: {
+        saveTargetIndex: number;
+        updateMode: string;
+        isImportMode: boolean;
+    }
+): Promise<CardUpdateResult> {
+    if (!Array.isArray(responses) || responses.length === 0) {
+        return { success: false, modifiedKeys: [], error: '统一提交失败：responses 为空。' };
+    }
+    if (!baseSnapshot || typeof baseSnapshot !== 'object') {
+        return { success: false, modifiedKeys: [], error: '统一提交失败：baseSnapshot 无效。' };
+    }
+
+    const sortedResponses = [...responses].sort((a, b) => {
+        const jobA = a.job;
+        const jobB = b.job;
+        return (jobA?.saveTargetIndex || 0) - (jobB?.saveTargetIndex || 0)
+            || (jobA?.batchNumber || 0) - (jobB?.batchNumber || 0)
+            || (jobA?.groupId || 0) - (jobB?.groupId || 0)
+            || String(jobA?.groupKey || '').localeCompare(String(jobB?.groupKey || ''));
+    });
+
+    const seenTargetSheetKeys = new Set<string>();
+    const allTargetSheetKeySet = new Set<string>();
+    for (const response of sortedResponses) {
+        if (!response.success || !response.aiResponse || response.tableEditText === undefined || response.tableEditText === null || !response.job) {
+            return { success: false, modifiedKeys: [], error: '统一提交失败：存在未完成或无效的 group 响应。' };
+        }
+        for (const sheetKey of response.job.targetSheetKeys || []) {
+            if (seenTargetSheetKeys.has(sheetKey)) {
+                return { success: false, modifiedKeys: [], error: `统一提交失败：targetSheetKeys 存在重叠冲突 (${sheetKey})。` };
+            }
+            seenTargetSheetKeys.add(sheetKey);
+            allTargetSheetKeySet.add(sheetKey);
+        }
+    }
+
+    const sqlInitialization = isSqliteMode()
+        ? buildSqlInitializationBase_ACU(baseSnapshot, [...allTargetSheetKeySet])
+        : { workingTableData: JSON.parse(JSON.stringify(baseSnapshot)), initializedSheetKeys: new Set<string>() };
+
+    let workingTableData = sqlInitialization.workingTableData;
+    const initializedSheetKeys = sqlInitialization.initializedSheetKeys;
+    const modifiedKeySet = new Set<string>();
+    const trackingKeySet = new Set<string>();
+
+    for (const response of sortedResponses) {
+        let parseResult: any;
+        if (isSqliteMode() && typeof response.tableEditText === 'string' && isSqlContent(response.tableEditText)) {
+            parseResult = await applySqlEditsToTableDataSnapshot_ACU(
+                response.tableEditText,
+                workingTableData,
+                options.updateMode,
+            );
+            if (parseResult?.success && parseResult.workingData) {
+                workingTableData = parseResult.workingData;
+            }
+        } else {
+            parseResult = parseAndApplyTableEditsToData_ACU(response.aiResponse!, workingTableData, options.updateMode, options.isImportMode);
+        }
+        const parseResultObject = typeof parseResult === 'object' && parseResult !== null ? parseResult : null;
+        const parseSuccess = parseResultObject ? parseResultObject.success : !!parseResult;
+        const parsedKeys = parseResultObject ? (parseResultObject.modifiedKeys || []) : (response.job?.targetSheetKeys || []);
+        const appliedEdits = parseResultObject && typeof parseResultObject.appliedEdits === 'number'
+            ? parseResultObject.appliedEdits
+            : (Array.isArray(parsedKeys) ? parsedKeys.length : 0);
+        const parseError = parseResultObject && typeof parseResultObject.error === 'string'
+            ? parseResultObject.error.trim()
+            : '';
+        if (!parseSuccess) {
+            return {
+                success: false,
+                modifiedKeys: [],
+                error: parseError
+                    ? `统一提交失败：group ${response.job.groupKey} 解析或应用失败。${parseError}`
+                    : `统一提交失败：group ${response.job.groupKey} 解析或应用失败。`,
+            };
+        }
+        if (Array.isArray(response.job.targetSheetKeys) && response.job.targetSheetKeys.length > 0) {
+            const allowedSheetKeys = new Set(response.job.targetSheetKeys);
+            const unauthorizedKeys = parsedKeys.filter((sheetKey: string) => !allowedSheetKeys.has(sheetKey));
+            if (unauthorizedKeys.length > 0) {
+                return {
+                    success: false,
+                    modifiedKeys: [],
+                    error: `统一提交失败：group ${response.job.groupKey} 越权修改了非目标表 (${unauthorizedKeys.join(', ')})。`,
+                };
+            }
+        }
+        for (const sheetKey of (response.job?.targetSheetKeys || [])) {
+            if (workingTableData && workingTableData[sheetKey]) {
+                trackingKeySet.add(sheetKey);
+            }
+        }
+        parsedKeys.forEach((sheetKey: string) => modifiedKeySet.add(sheetKey));
+    }
+
+    applySpecialIndexSequenceToSummaryTables_ACU(workingTableData);
+
+    const modifiedKeys = [...modifiedKeySet].sort();
+    if (!options.isImportMode) {
+        const isFirstTimeInit = await checkIfFirstTimeInit_ACU();
+        const allUnifiedSheetKeys = getSortedSheetKeys_ACU(workingTableData);
+        const initializedKeys = [...initializedSheetKeys].sort();
+        const keysToSave = isFirstTimeInit
+            ? allUnifiedSheetKeys
+            : [...new Set([...modifiedKeys, ...initializedKeys])].sort();
+        const keysToTrack = isFirstTimeInit
+            ? allUnifiedSheetKeys
+            : [...new Set([...trackingKeySet, ...initializedKeys])].sort();
+        const saveResult = await persistTablesToChatMessage_ACU({
+            targetMessageIndex: options.saveTargetIndex,
+            targetSheetKeys: keysToSave,
+            updateGroupKeys: keysToTrack,
+            trackingSheetKeys: keysToTrack,
+            tableData: workingTableData,
+            trackAsUpdate: true,
+        });
+        if (!saveResult.saved) {
+            return { success: false, modifiedKeys, error: saveResult.error || '统一提交失败：保存聊天记录失败。' };
+        }
+
+        await updateReadableLorebookEntry_ACU(true);
+        if (getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
+            await enqueueSummaryVectorIndexFlush_ACU({ targetMessageIndex: options.saveTargetIndex, mode: 'sync', reason: 'unified_group_fill_complete' });
+        }
+    }
+
+    return { success: true, modifiedKeys };
+}
+
+export async function processGroupedRuntimeChunk_ACU(
+    groups: GroupedRuntimeUpdateGroup_ACU[],
+    mode: string,
+    options: {
+        isImportMode?: boolean;
+        abortController?: AbortController;
+    } = {}
+): Promise<{ success: boolean; failedGroups: string[]; error?: string }> {
+    if (!Array.isArray(groups) || groups.length === 0) {
+        return { success: true, failedGroups: [] };
+    }
+
+    const chatHistory = getChatArray_ACU();
+    const templateForLookup = parseTableTemplateJson_ACU({ stripSeedRows: true });
+    const failedGroups = new Set<string>();
+    let firstError: string | undefined;
+    const transactionBuckets = new Map<string, {
+        saveTargetIndex: number;
+        batchNumber: number;
+        updateMode: string;
+        baseSnapshot: Record<string, any>;
+        jobs: GroupFillJob_ACU[];
+    }>();
+
+    for (const group of groups) {
+        const batchSize = Math.max(1, Number(group.batchSize) || Number(settings_ACU.updateBatchSize) || 2);
+        const groupBatches: number[][] = [];
+        for (let i = 0; i < group.indices.length; i += batchSize) {
+            groupBatches.push(group.indices.slice(i, i + batchSize));
+        }
+
+        for (let i = 0; i < groupBatches.length; i++) {
+            const batchIndices = groupBatches[i];
+            const batchNumber = i + 1;
+            const firstMessageIndexOfBatch = batchIndices[0];
+            const lastMessageIndexOfBatch = batchIndices[batchIndices.length - 1];
+            const finalSaveTargetIndex = lastMessageIndexOfBatch;
+
+            const baseResult = buildBatchMergeBase_ACU(batchNumber);
+            if (!baseResult.data) {
+                failedGroups.add(group.key);
+                firstError = firstError || baseResult.error || '无法构建合并基底，操作已终止。';
+                continue;
+            }
+
+            const mergedBatchData = baseResult.data;
+            const batchSheetKeys = getSortedSheetKeys_ACU(mergedBatchData);
+            const batchIsolationKey = getCurrentIsolationKey_ACU();
+            loadBatchBaseData_ACU(chatHistory, firstMessageIndexOfBatch, batchIsolationKey, batchSheetKeys, mergedBatchData);
+            _set_currentJsonTableData_ACU(mergedBatchData);
+
+            let sliceStartIndex = firstMessageIndexOfBatch;
+            if (sliceStartIndex > 0 && chatHistory[sliceStartIndex - 1]?.is_user) {
+                sliceStartIndex--;
+            }
+            const messagesForContext = chatHistory.slice(sliceStartIndex, lastMessageIndexOfBatch + 1);
+
+            const isAutoUpdateMode = mode && mode.startsWith('auto');
+            const lastAiMessageInBatch = chatHistory[lastMessageIndexOfBatch];
+            const lastAiMessageContent = lastAiMessageInBatch?.mes || lastAiMessageInBatch?.message || '';
+            const lastAiMessageLength = lastAiMessageContent.length;
+            const minReplyLength = settings_ACU.autoUpdateTokenThreshold || 0;
+            if (isAutoUpdateMode && lastAiMessageLength < minReplyLength) {
+                continue;
+            }
+
+            const updateMode = resolveUpdateMode_ACU(mode);
+            const baseSnapshot = JSON.parse(JSON.stringify(mergedBatchData));
+            let effectiveRequestOptions = group.requestOptions || null;
+            if (!effectiveRequestOptions?.tableApiPreset && Array.isArray(group.sheetKeys) && group.sheetKeys.length > 0) {
+                const firstTableName = templateForLookup?.[group.sheetKeys[0]]?.name || '';
+                const resolvedPreset = resolveTableApiPresetOverride_ACU(firstTableName);
+                if (resolvedPreset) {
+                    effectiveRequestOptions = { ...(effectiveRequestOptions || {}), tableApiPreset: resolvedPreset };
+                }
+            }
+            const job: GroupFillJob_ACU = {
+                groupKey: group.key,
+                groupId: group.groupId,
+                batchNumber,
+                targetSheetKeys: group.sheetKeys,
+                messagesForContext,
+                saveTargetIndex: finalSaveTargetIndex,
+                updateMode,
+                requestOptions: effectiveRequestOptions,
+                baseSnapshot,
+                isImportMode: options.isImportMode === true,
+            };
+            const bucketKey = `${finalSaveTargetIndex}|${batchNumber}|${updateMode}|${options.isImportMode === true ? 1 : 0}`;
+            const existingBucket = transactionBuckets.get(bucketKey);
+            if (existingBucket) {
+                existingBucket.jobs.push(job);
+            } else {
+                transactionBuckets.set(bucketKey, {
+                    saveTargetIndex: finalSaveTargetIndex,
+                    batchNumber,
+                    updateMode,
+                    baseSnapshot,
+                    jobs: [job],
+                });
+            }
+        }
+    }
+
+    const orderedBuckets = [...transactionBuckets.values()].sort((a, b) => a.saveTargetIndex - b.saveTargetIndex || a.batchNumber - b.batchNumber);
+    for (const bucket of orderedBuckets) {
+        const maxBucketRetries = Math.max(1, Number(settings_ACU.tableMaxRetries) || 3);
+        let retryUnifiedError: string | null = null;
+        let bucketSucceeded = false;
+
+        for (let bucketAttempt = 1; bucketAttempt <= maxBucketRetries; bucketAttempt++) {
+            const collectFeedback = retryUnifiedError ? { lastUnifiedError: retryUnifiedError } : undefined;
+            const settledResponses = await Promise.allSettled(bucket.jobs.map(job => collectGroupFillResponse_ACU(job, collectFeedback, options.abortController)));
+            const responses: GroupFillResponse_ACU[] = [];
+            let collectFailed = false;
+            let collectError: string | undefined;
+
+            for (let i = 0; i < settledResponses.length; i++) {
+                const settledResponse = settledResponses[i];
+                const job = bucket.jobs[i];
+                if (settledResponse.status === 'rejected') {
+                    collectFailed = true;
+                    collectError = collectError || (settledResponse.reason instanceof Error ? settledResponse.reason.message : String(settledResponse.reason || 'AI响应收集失败'));
+                    continue;
+                }
+                if (!settledResponse.value.success || settledResponse.value.aborted || !settledResponse.value.aiResponse) {
+                    collectFailed = true;
+                    collectError = collectError || settledResponse.value.error || settledResponse.value.rawError || 'AI响应收集失败';
+                    continue;
+                }
+                responses.push(settledResponse.value);
+            }
+
+            if (collectFailed) {
+                bucket.jobs.forEach(job => failedGroups.add(job.groupKey));
+                firstError = firstError || collectError || 'AI响应收集失败';
+                break;
+            }
+
+            const applyResult = await applyUnifiedGroupFillResponses_ACU(responses, bucket.baseSnapshot, {
+                saveTargetIndex: bucket.saveTargetIndex,
+                updateMode: bucket.updateMode,
+                isImportMode: options.isImportMode === true,
+            });
+            if (applyResult.success) {
+                bucketSucceeded = true;
+                break;
+            }
+
+            retryUnifiedError = applyResult.error || '统一提交失败。';
+            if (bucketAttempt >= maxBucketRetries) {
+                bucket.jobs.forEach(job => failedGroups.add(job.groupKey));
+                firstError = firstError || `统一提交在 ${maxBucketRetries} 次尝试后仍失败: ${retryUnifiedError}`;
+            }
+        }
+
+        if (!bucketSucceeded && firstError && options.abortController?.signal.aborted) {
+            break;
+        }
+    }
+
+    return failedGroups.size > 0
+        ? { success: false, failedGroups: [...failedGroups], error: firstError || '统一提交失败。' }
+        : { success: true, failedGroups: [] };
+}
+
 /**
  * 执行单次卡片更新的核心逻辑（AI调用 + 重试 + 解析 + 保存）
  * 纯业务逻辑，不驱动 UI。通过可选的 onProgress 回调传递纯数据进度事件。
@@ -339,54 +883,32 @@ export async function executeCardUpdateCore_ACU(
     const maxRetries = settings_ACU.tableMaxRetries || 3;
 
     try {
-        emitProgress({ phase: 'preparing' });
-
-        if (progressContext?.batchBaseSnapshot) {
-            _set_currentJsonTableData_ACU(JSON.parse(JSON.stringify(progressContext.batchBaseSnapshot)));
-        }
-
-        const dynamicContent = await prepareAIInput_ACU(messagesToUse, updateMode, targetSheetKeys, {
-            excludeImportTaggedWorldbookEntries: isImportMode && settings_ACU.importPromptExcludeImportedWorldbookEntries !== false,
-        });
-        if (!dynamicContent) {
-            return { success: false, modifiedKeys: [], error: '无法准备AI输入，数据库未加载。' };
-        }
-
-        const SQL_ERROR_MARKER = '\n\n<!-- SQL_ERROR_FEEDBACK -->\n';
         let lastSqlError: string | null = null;
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
-            if (wasStoppedByUser_ACU) {
-                return { success: false, modifiedKeys: [], aborted: true };
-            }
-
-            emitProgress({ phase: 'calling_ai', attempt, maxRetries });
-
-            if (lastSqlError && isSqliteMode()) {
-                const markerIndex = dynamicContent.tableDataText.indexOf(SQL_ERROR_MARKER);
-                if (markerIndex !== -1) {
-                    dynamicContent.tableDataText = dynamicContent.tableDataText.substring(0, markerIndex);
-                }
-                dynamicContent.tableDataText += `${SQL_ERROR_MARKER}[SQL执行错误，请修正后重新输出]\n错误信息: ${lastSqlError}`;
-            }
-
             try {
-                const aiResponse = await callCustomOpenAI_ACU(dynamicContent, abortController, requestOptions);
+                const collectResult = await collectGroupFillResponse_ACU({
+                    groupKey: `legacy_execute_${saveTargetIndex}`,
+                    groupId: 0,
+                    batchNumber: progressContext?.currentBatch || 1,
+                    targetSheetKeys,
+                    messagesForContext: messagesToUse,
+                    saveTargetIndex,
+                    updateMode,
+                    requestOptions,
+                    baseSnapshot: JSON.parse(JSON.stringify(progressContext?.batchBaseSnapshot || currentJsonTableData_ACU || {})),
+                    isImportMode,
+                }, { lastSqlError }, abortController, { onProgress: emitProgress, maxRetriesOverride: 1 });
 
-                if (abortController.signal.aborted || wasStoppedByUser_ACU) {
+                if (collectResult.aborted) {
                     return { success: false, modifiedKeys: [], aborted: true };
                 }
-
-                const minReplyLength = settings_ACU.autoUpdateTokenThreshold || 0;
-                if (aiResponse && minReplyLength > 0 && aiResponse.length < minReplyLength) {
-                    throw new Error(`AI回复过短 (${aiResponse.length} 字符)，低于阈值 (${minReplyLength} 字符)`);
-                }
-
-                if (!aiResponse || !aiResponse.includes('<tableEdit>') || !aiResponse.includes('</tableEdit>')) {
-                    throw new Error('AI响应中未找到完整有效的 <tableEdit> 标签');
+                if (!collectResult.success || !collectResult.aiResponse) {
+                    throw new Error(collectResult.rawError || collectResult.error || 'AI响应收集失败');
                 }
 
                 emitProgress({ phase: 'parsing' });
+                const aiResponse = collectResult.aiResponse;
 
                 const applyScopeKey = buildTableUpdateApplyScopeKey_ACU({
                     chatKey: currentChatFileIdentifier_ACU,
@@ -428,11 +950,15 @@ export async function executeCardUpdateCore_ACU(
                         }
 
                         const isFirstTimeInit = await checkIfFirstTimeInit_ACU();
+                        const hasTargetSheetTracking = Array.isArray(targetSheetKeys) && targetSheetKeys.length > 0;
+                        const allSheetKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
+                        const targetTrackingKeys = hasTargetSheetTracking
+                            ? targetSheetKeys.filter((sheetKey: string) => Boolean(currentJsonTableData_ACU?.[sheetKey]))
+                            : [];
 
-                        if (keysToPersist.length > 0 || isFirstTimeInit) {
+                        if (keysToPersist.length > 0 || isFirstTimeInit || hasTargetSheetTracking) {
                             let keysToActuallySave = keysToPersist;
                             if (isFirstTimeInit) {
-                                const allSheetKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
                                 keysToActuallySave = allSheetKeys;
 
                                 const fullTemplate = parseTableTemplateJson_ACU({ stripSeedRows: false });
@@ -448,8 +974,14 @@ export async function executeCardUpdateCore_ACU(
                                 logDebug_ACU('[Init] First time initialization detected. Saving complete template structure with all tables.');
                             }
 
-                            const updateGroupKeysRaw = isFirstTimeInit ? keysToPersist : targetSheetKeys;
-                            const keysToTrackAsUpdated = keysToPersist.filter((sheetKey: string) => keysToActuallySave.includes(sheetKey));
+                            const keysToTrackAsUpdated = isFirstTimeInit
+                                ? [...allSheetKeys]
+                                : (hasTargetSheetTracking
+                                    ? [...targetTrackingKeys]
+                                    : keysToPersist.filter((sheetKey: string) => keysToActuallySave.includes(sheetKey)));
+                            const updateGroupKeysRaw = isFirstTimeInit
+                                ? [...allSheetKeys]
+                                : (hasTargetSheetTracking ? [...targetTrackingKeys] : targetSheetKeys);
                             const updateGroupKeysToUse = Array.isArray(updateGroupKeysRaw)
                                 ? updateGroupKeysRaw.filter(sheetKey => {
                                     const table = currentJsonTableData_ACU?.[sheetKey];
@@ -744,7 +1276,7 @@ export async function orchestrateManualUpdate_ACU(
         }
 
         const templateData = parseTableTemplateJson_ACU({ stripSeedRows: true }) || {};
-        const updateGroups: Record<string, any> = {};
+        const updateGroups: Record<string, ManualRuntimeUpdateGroup_ACU> = {};
         targetKeys.forEach((sheetKey: string) => {
             const tableConfig = templateData?.[sheetKey]?.updateConfig || {};
             const tableGroupId = Number.isFinite(tableConfig?.groupId)
@@ -821,10 +1353,9 @@ export async function orchestrateManualUpdate_ACU(
 
         for (let start = 0; start < groupKeys.length; start += maxConcurrentGroups) {
             const chunkKeys = groupKeys.slice(start, start + maxConcurrentGroups);
-            const groupPromises = chunkKeys.map(gKey => (async () => {
+            const groupedChunk: GroupedRuntimeUpdateGroup_ACU[] = chunkKeys.map((gKey): GroupedRuntimeUpdateGroup_ACU => {
                 const group = updateGroups[gKey];
-
-                let effectiveRequestOptions: Record<string, any> | null = null;
+                let effectiveRequestOptions: GroupedRuntimeUpdateGroup_ACU['requestOptions'] = null;
                 if (Array.isArray(group.sheetKeys) && group.sheetKeys.length > 0) {
                     const firstSheetKey = group.sheetKeys[0];
                     const firstTableName = templateData?.[firstSheetKey]?.name || '';
@@ -834,45 +1365,21 @@ export async function orchestrateManualUpdate_ACU(
                     }
                 }
 
-                logDebug_ACU(`[Manual Parallel] Processing group update for groupId=${group.groupId}, sheets: ${group.sheetKeys.join(', ')}, apiPreset=${effectiveRequestOptions?.tableApiPreset || '(manual-global)'}, chunk=${Math.floor(start / maxConcurrentGroups) + 1}`);
-                const batchResult = await processBatch(group.indices, 'manual_independent', {
-                    targetSheetKeys: group.sheetKeys,
-                    batchSize: group.batchSize,
-                    requestOptions: effectiveRequestOptions,
-                });
-
                 return {
                     key: gKey,
                     groupId: group.groupId,
+                    indices: group.indices,
+                    batchSize: group.batchSize,
                     sheetKeys: group.sheetKeys,
-                    result: batchResult,
+                    requestOptions: effectiveRequestOptions,
                 };
-            })());
-
-            const results = await Promise.allSettled(groupPromises);
-            results.forEach((settledResult, idx) => {
-                const gKey = chunkKeys[idx];
-                const group = updateGroups[gKey];
-                if (settledResult.status === 'rejected') {
-                    failedGroups.push({
-                        key: gKey,
-                        error: settledResult.reason instanceof Error
-                            ? settledResult.reason.message
-                            : String(settledResult.reason || '手动更新分组执行异常。'),
-                    });
-                    logError_ACU(`[Manual Parallel] Group update threw for groupId=${group?.groupId}, sheets=${(group?.sheetKeys || []).join(', ')}:`, settledResult.reason);
-                    return;
-                }
-
-                const batchResult = settledResult.value.result;
-                if (!batchResult.success) {
-                    failedGroups.push({
-                        key: settledResult.value.key,
-                        error: batchResult.error || '手动更新失败或被终止。',
-                    });
-                    logWarn_ACU(`[Manual Parallel] Group update failed for groupId=${settledResult.value.groupId}, sheets=${settledResult.value.sheetKeys.join(', ')}: ${batchResult.error || 'unknown error'}`);
-                }
             });
+            const chunkResult = await processGroupedRuntimeChunk_ACU(groupedChunk, 'manual_independent');
+            if (!chunkResult.success) {
+                chunkResult.failedGroups.forEach(key => {
+                    failedGroups.push({ key, error: chunkResult.error || '手动更新失败或被终止。' });
+                });
+            }
 
             // 并发组内禁止每组单独刷新：多组同时写聊天记录时，提前刷新会制造中间态覆盖风险。
             // 每个并发 chunk 结束后统一刷新一次，确保后续 chunk 基于已落盘的最新状态继续执行。

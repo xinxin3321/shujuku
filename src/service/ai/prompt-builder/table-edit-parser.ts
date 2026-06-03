@@ -97,9 +97,9 @@ import { getStorageProvider } from '../../table/table-storage-strategy';
     return { inner: chosen.raw, cleaned, mode: 'comment_fallback', hasOpen, hasClose };
   }
 
-  export function parseAndApplyTableEdits_ACU(aiResponse: string, updateMode = 'standard', isImportMode = false) {
-    if (!currentJsonTableData_ACU) {
-        logError_ACU('Cannot apply edits, currentJsonTableData_ACU is not loaded.');
+  export function parseAndApplyTableEditsToData_ACU(aiResponse: string, tableData: any, updateMode = 'standard', isImportMode = false) {
+    if (!tableData) {
+        logError_ACU('Cannot apply edits, tableData is not loaded.');
         return false;
     }
 
@@ -190,8 +190,8 @@ import { getStorageProvider } from '../../table/table-storage-strategy';
         }
     });
 
-    const sheetKeysForIndexing = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
-    const sheets = sheetKeysForIndexing.map(key => currentJsonTableData_ACU[key]);
+    const sheetKeysForIndexing = getSortedSheetKeys_ACU(tableData);
+    const sheets = sheetKeysForIndexing.map(key => tableData[key]);
     let appliedEdits = 0;
     const editCountsByTable: Record<string, number> = {};
 
@@ -480,12 +480,12 @@ import { getStorageProvider } from '../../table/table-storage-strategy';
 
     // 将统计信息写入表格对象
     Object.keys(editCountsByTable).forEach(tableName => {
-        const sheetKey = Object.keys(currentJsonTableData_ACU).find(k => currentJsonTableData_ACU[k].name === tableName);
+        const sheetKey = Object.keys(tableData).find(k => tableData[k].name === tableName);
         if (sheetKey) {
-            if (!currentJsonTableData_ACU[sheetKey]._lastUpdateStats) {
-                currentJsonTableData_ACU[sheetKey]._lastUpdateStats = {};
+            if (!tableData[sheetKey]._lastUpdateStats) {
+                tableData[sheetKey]._lastUpdateStats = {};
             }
-            currentJsonTableData_ACU[sheetKey]._lastUpdateStats.changes = editCountsByTable[tableName];
+            tableData[sheetKey]._lastUpdateStats.changes = editCountsByTable[tableName];
         }
     });
     
@@ -493,12 +493,20 @@ import { getStorageProvider } from '../../table/table-storage-strategy';
     const modifiedSheetKeys: string[] = [];
     Object.keys(editCountsByTable).forEach(tableName => {
         if (editCountsByTable[tableName] > 0) {
-            const sheetKey = Object.keys(currentJsonTableData_ACU).find(k => currentJsonTableData_ACU[k].name === tableName);
+            const sheetKey = Object.keys(tableData).find(k => tableData[k].name === tableName);
             if (sheetKey) modifiedSheetKeys.push(sheetKey);
         }
     });
     
     return { success: true, modifiedKeys: modifiedSheetKeys, appliedEdits };
+  }
+
+  export function parseAndApplyTableEdits_ACU(aiResponse: string, updateMode = 'standard', isImportMode = false) {
+    if (!currentJsonTableData_ACU) {
+        logError_ACU('Cannot apply edits, currentJsonTableData_ACU is not loaded.');
+        return false;
+    }
+    return parseAndApplyTableEditsToData_ACU(aiResponse, currentJsonTableData_ACU, updateMode, isImportMode);
   }
 
   /**

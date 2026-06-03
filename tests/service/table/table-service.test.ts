@@ -3,6 +3,7 @@
  * 表格数据操作 service 层 单元测试
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { logWarn_ACU } from '../../../src/shared/utils';
 
 const {
   mockSettings,
@@ -28,6 +29,7 @@ const {
   mockReadIsolatedTagData,
   mockReadLegacyIndependentData,
   mockIsLegacyMatchForIsolation,
+  mockEnsureStableRowIdsForSheetContent,
 } = vi.hoisted(() => {
   const mockCurrentJsonTableDataRef = {
     value: {
@@ -61,6 +63,24 @@ const {
     mockWriteMessageIdentity: vi.fn(),
     mockReadIsolatedTagData: vi.fn(() => null),
     mockReadLegacyIndependentData: vi.fn(() => null),
+    mockEnsureStableRowIdsForSheetContent: vi.fn((content: any) => {
+      if (!Array.isArray(content) || content.length === 0) return [];
+      const header = Array.isArray(content[0]) ? [...content[0]] : ['row_id'];
+      const rows = content.slice(1).map((row: any) => Array.isArray(row) ? [...row] : []);
+      const used = new Set<string>();
+      let nextId = 1;
+      return [header, ...rows.map((row: any) => {
+        let value = row[0] == null ? '' : String(row[0]).trim();
+        if (!value || used.has(value)) {
+          while (used.has(String(nextId))) nextId += 1;
+          value = String(nextId++);
+        }
+        used.add(value);
+        if (row.length === 0) return [value];
+        row[0] = value;
+        return row;
+      })];
+    }),
     mockIsLegacyMatchForIsolation: vi.fn(() => false),
   };
 });
@@ -95,6 +115,7 @@ vi.mock('../../../src/service/template/chat-scope', () => ({
   ensureChatSheetGuideSeeded_ACU: mockEnsureChatSheetGuideSeeded,
   getChatSheetGuideDataForIsolationKey_ACU: mockGetChatSheetGuideData,
   getSortedSheetKeys_ACU: mockGetSortedSheetKeys,
+  ensureStableRowIdsForSheetContent_ACU: mockEnsureStableRowIdsForSheetContent,
   sanitizeSheetForStorage_ACU: mockSanitizeSheetForStorage,
   setChatSheetGuideDataForIsolationKey_ACU: mockSetChatSheetGuideData,
 }));
@@ -118,6 +139,7 @@ vi.mock('../../../src/data/repositories/chat-message-data-repo', () => ({
 
 import {
   saveIndependentTableToChatHistory_ACU,
+  persistTablesToChatMessage_ACU,
   checkIfFirstTimeInit_ACU,
   loadOrCreateJsonTableFromChatHistory_ACU,
 } from '../../../src/service/table/table-service';
@@ -143,6 +165,65 @@ describe('saveIndependentTableToChatHistory_ACU', () => {
     const result = await saveIndependentTableToChatHistory_ACU();
     expect(result.saved).toBe(false);
     expect(result.error).toContain('null');
+    expect(mockSaveChatToHost).not.toHaveBeenCalled();
+  });
+
+  it('传入显式 tableData 时保存内容优先使用显式数据而不是全局数据', async () => {
+    const aiMsg: any = { is_user: false, mes: 'AI回复' };
+    mockGetChatArray.mockReturnValue([aiMsg]);
+    mockCloneIsolatedData.mockReturnValue({
+      '': { independentData: {}, modifiedKeys: [], updateGroupKeys: [] },
+    });
+    mockCurrentJsonTableDataRef.value = {
+      sheet_0: { name: '全局表', content: [['row_id', '物品名'], ['1', '全局铁剑']] },
+    };
+    const explicitTableData = {
+      sheet_0: { name: '显式表', content: [['row_id', '物品名'], ['1', '显式铁剑']] },
+    } as any;
+
+    const result = await persistTablesToChatMessage_ACU({ tableData: explicitTableData });
+
+    expect(result.saved).toBe(true);
+    const writtenTagData = mockWriteIsolatedTagData.mock.calls[0][2];
+    expect(writtenTagData.independentData.sheet_0.content[1][1]).toBe('显式铁剑');
+    expect(writtenTagData.independentData.sheet_0.name).toBe('显式表');
+  });
+
+  it('落盘前会稳定化目标 sheet 的 row_id', async () => {
+    const aiMsg: any = { is_user: false, mes: 'AI回复' };
+    mockGetChatArray.mockReturnValue([aiMsg]);
+    mockCloneIsolatedData.mockReturnValue({
+      '': { independentData: {}, modifiedKeys: [], updateGroupKeys: [] },
+    });
+
+    const explicitTableData = {
+      sheet_0: {
+        name: '显式表',
+        content: [['row_id', '物品名'], [null, '苹果'], ['', '梨子']],
+      },
+    } as any;
+
+    const result = await persistTablesToChatMessage_ACU({ tableData: explicitTableData });
+
+    expect(result.saved).toBe(true);
+    expect(mockEnsureStableRowIdsForSheetContent).toHaveBeenCalledTimes(1);
+    const writtenTagData = mockWriteIsolatedTagData.mock.calls[0][2];
+    expect(writtenTagData.independentData.sheet_0.content).toEqual([['row_id', '物品名'], ['1', '苹果'], ['2', '梨子']]);
+    expect(explicitTableData.sheet_0.content).toEqual([['row_id', '物品名'], [null, '苹果'], ['', '梨子']]);
+  });
+
+  it('显式传入 tableData:null 时不回退全局数据，直接返回失败', async () => {
+    const aiMsg: any = { is_user: false, mes: 'AI回复' };
+    mockGetChatArray.mockReturnValue([aiMsg]);
+    mockCurrentJsonTableDataRef.value = {
+      sheet_0: { name: '全局表', content: [['row_id', '物品名'], ['1', '全局铁剑']] },
+    };
+
+    const result = await persistTablesToChatMessage_ACU({ tableData: null });
+
+    expect(result.saved).toBe(false);
+    expect(result.error).toContain('null');
+    expect(mockWriteIsolatedTagData).not.toHaveBeenCalled();
     expect(mockSaveChatToHost).not.toHaveBeenCalled();
   });
 
@@ -208,6 +289,49 @@ describe('saveIndependentTableToChatHistory_ACU', () => {
     expect(writtenTagData.updateGroupKeys).toContain('sheet_1');
   });
 
+  it('仅 trackingSheetKeys 且不保存任何表时，仍写入 tracking metadata', async () => {
+    const aiMsg: any = { is_user: false, mes: 'AI回复' };
+    mockGetChatArray.mockReturnValue([aiMsg]);
+    mockCloneIsolatedData.mockReturnValue({
+      '': { independentData: {}, modifiedKeys: [], updateGroupKeys: [] },
+    });
+
+    const result = await persistTablesToChatMessage_ACU({
+      targetMessageIndex: 0,
+      targetSheetKeys: [],
+      trackingSheetKeys: ['sheet_0'],
+      updateGroupKeys: ['sheet_0', 'sheet_missing'],
+      trackAsUpdate: true,
+    });
+
+    expect(result.saved).toBe(true);
+    expect(mockSaveChatToHost).toHaveBeenCalledTimes(1);
+    const writtenTagData = mockWriteIsolatedTagData.mock.calls[0][2];
+    expect(writtenTagData.modifiedKeys).toEqual(['sheet_0']);
+    expect(writtenTagData.updateGroupKeys).toEqual(['sheet_0']);
+    expect(writtenTagData.independentData).toEqual({});
+  });
+
+  it('真实保存表与仅追踪表混合时，仍记录全部 tracking metadata', async () => {
+    const aiMsg: any = { is_user: false, mes: 'AI回复' };
+    mockGetChatArray.mockReturnValue([aiMsg]);
+    mockCloneIsolatedData.mockReturnValue({
+      '': { independentData: {}, modifiedKeys: [], updateGroupKeys: [] },
+    });
+
+    const result = await persistTablesToChatMessage_ACU({
+      targetMessageIndex: 0,
+      targetSheetKeys: ['sheet_1'],
+      trackingSheetKeys: ['sheet_0', 'sheet_1'],
+      updateGroupKeys: ['sheet_0', 'sheet_1'],
+    });
+
+    expect(result.saved).toBe(true);
+    const writtenTagData = mockWriteIsolatedTagData.mock.calls[0][2];
+    expect(writtenTagData.modifiedKeys).toEqual(expect.arrayContaining(['sheet_0', 'sheet_1']));
+    expect(writtenTagData.updateGroupKeys).toEqual(expect.arrayContaining(['sheet_0', 'sheet_1']));
+  });
+
   it('同一目标楼层连续保存不同 group 时保留已有表、modifiedKeys 与 updateGroupKeys', async () => {
     const aiMsg: any = { is_user: false, mes: 'AI回复' };
     mockGetChatArray.mockReturnValue([aiMsg]);
@@ -235,6 +359,122 @@ describe('saveIndependentTableToChatHistory_ACU', () => {
     expect(writtenTagData.independentData.sheet_1.content[1][1]).toBe('后写组');
     expect(writtenTagData.modifiedKeys).toEqual(expect.arrayContaining(['sheet_0', 'sheet_1']));
     expect(writtenTagData.updateGroupKeys).toEqual(expect.arrayContaining(['sheet_0', 'sheet_1']));
+  });
+
+  it('上一楼层 base 缺失 row_id 时仍会稳定化 base 副本并继续写成 delta', async () => {
+    const prevAiMsg: any = { is_user: false, mes: 'AI回复0' };
+    const targetAiMsg: any = { is_user: false, mes: 'AI回复1' };
+    mockGetChatArray.mockReturnValue([prevAiMsg, targetAiMsg]);
+    mockCloneIsolatedData.mockReturnValue({
+      '': { independentData: {}, modifiedKeys: [], updateGroupKeys: [] },
+    });
+    mockReadIsolatedTagData.mockImplementation((message: any) => {
+      if (message === prevAiMsg) {
+        return {
+          independentData: {
+            sheet_0: { name: '背包物品表', content: [['row_id', '物品名'], ['', '旧苹果'], [null, '旧梨子']] },
+          },
+          modifiedKeys: ['sheet_0'],
+          updateGroupKeys: [],
+          _acu_storage_mode: 'checkpoint',
+        };
+      }
+      return null;
+    });
+    mockCurrentJsonTableDataRef.value = {
+      sheet_0: { name: '背包物品表', content: [['row_id', '物品名'], ['1', '新苹果'], ['2', '新梨子']] },
+    };
+
+    const result = await persistTablesToChatMessage_ACU({ targetMessageIndex: 1 });
+
+    expect(result.saved).toBe(true);
+    const writtenTagData = mockWriteIsolatedTagData.mock.calls[0][2];
+    expect(writtenTagData._acu_storage_mode).toBe('delta');
+    expect(writtenTagData.independentData).toEqual({});
+    expect(writtenTagData.incrementalData.sheet_0).toBeDefined();
+    expect(mockEnsureStableRowIdsForSheetContent).toHaveBeenCalledWith([['row_id', '物品名'], ['', '旧苹果'], [null, '旧梨子']]);
+    const baseWarnings = vi.mocked(logWarn_ACU).mock.calls.filter(call => String(call[0]).includes('base 缺少稳定 row_id'));
+    expect(baseWarnings).toHaveLength(0);
+  });
+
+  it('上一楼层 base 存在重复 row_id 时仍会稳定化 base 副本并继续写成 delta', async () => {
+    const prevAiMsg: any = { is_user: false, mes: 'AI回复0' };
+    const targetAiMsg: any = { is_user: false, mes: 'AI回复1' };
+    mockGetChatArray.mockReturnValue([prevAiMsg, targetAiMsg]);
+    mockCloneIsolatedData.mockReturnValue({
+      '': { independentData: {}, modifiedKeys: [], updateGroupKeys: [] },
+    });
+    mockReadIsolatedTagData.mockImplementation((message: any) => {
+      if (message === prevAiMsg) {
+        return {
+          independentData: {
+            sheet_0: { name: '背包物品表', content: [['row_id', '物品名'], ['dup', '旧苹果'], ['dup', '旧梨子']] },
+          },
+          modifiedKeys: ['sheet_0'],
+          updateGroupKeys: [],
+          _acu_storage_mode: 'checkpoint',
+        };
+      }
+      return null;
+    });
+    mockCurrentJsonTableDataRef.value = {
+      sheet_0: { name: '背包物品表', content: [['row_id', '物品名'], ['dup', '新苹果'], ['1', '新梨子']] },
+    };
+
+    const result = await persistTablesToChatMessage_ACU({ targetMessageIndex: 1 });
+
+    expect(result.saved).toBe(true);
+    const writtenTagData = mockWriteIsolatedTagData.mock.calls[0][2];
+    expect(writtenTagData._acu_storage_mode).toBe('delta');
+    expect(writtenTagData.incrementalData.sheet_0).toBeDefined();
+    expect(mockEnsureStableRowIdsForSheetContent).toHaveBeenCalledWith([['row_id', '物品名'], ['dup', '旧苹果'], ['dup', '旧梨子']]);
+    const baseWarnings = vi.mocked(logWarn_ACU).mock.calls.filter(call => String(call[0]).includes('base 缺少稳定 row_id'));
+    expect(baseWarnings).toHaveLength(0);
+  });
+
+  it('当前目标楼层已是 delta tag 时会先重建并稳定化既有 base，再保留先前增量表', async () => {
+    const prevAiMsg: any = { is_user: false, mes: 'AI回复0' };
+    const targetAiMsg: any = { is_user: false, mes: 'AI回复1' };
+    mockGetChatArray.mockReturnValue([prevAiMsg, targetAiMsg]);
+    mockReadIsolatedTagData.mockImplementation((message: any) => {
+      if (message === prevAiMsg) {
+        return {
+          independentData: {
+            sheet_0: { name: '背包物品表', content: [['row_id', '物品名'], ['', '旧苹果'], ['', '旧梨子']] },
+            sheet_1: { name: '纪要表', content: [['row_id', '事件'], ['1', '旧事件']] },
+          },
+          modifiedKeys: ['sheet_0', 'sheet_1'],
+          updateGroupKeys: ['sheet_0', 'sheet_1'],
+          _acu_storage_mode: 'checkpoint',
+        };
+      }
+      return null;
+    });
+    mockCloneIsolatedData.mockReturnValue({
+      '': {
+        independentData: {},
+        incrementalData: {
+          sheet_0: { sheetUid: 'sheet_0', rowDeltas: [{ row_id: '1', op: 'upsert', cells: ['1', '新苹果'] }] },
+        },
+        modifiedKeys: ['sheet_0'],
+        updateGroupKeys: ['sheet_0'],
+        _acu_storage_mode: 'delta',
+        _acu_storage_version: 1,
+      },
+    });
+    mockCurrentJsonTableDataRef.value = {
+      sheet_1: { name: '纪要表', content: [['row_id', '事件'], ['1', '新事件']] },
+    };
+
+    const result = await saveIndependentTableToChatHistory_ACU(1, ['sheet_1'], ['sheet_1'], false, ['sheet_1']);
+
+    expect(result.saved).toBe(true);
+    const writtenTagData = mockWriteIsolatedTagData.mock.calls[0][2];
+    expect(writtenTagData._acu_storage_mode).toBe('delta');
+    expect(writtenTagData.incrementalData.sheet_0).toBeDefined();
+    expect(writtenTagData.incrementalData.sheet_1).toBeDefined();
+    const baseWarnings = vi.mocked(logWarn_ACU).mock.calls.filter(call => String(call[0]).includes('base 缺少稳定 row_id'));
+    expect(baseWarnings).toHaveLength(0);
   });
 });
 

@@ -201,6 +201,7 @@ export interface AutoUpdateResult {
  */
 export interface AutoUpdateOperations {
     processUpdates: (indices: number[], mode: string, options: any) => Promise<any>;
+    processGroupedUpdates?: (groups: Array<{ key: string; groupId: number; indices: number[]; batchSize: number; sheetKeys: string[]; requestOptions: Record<string, any> | null }>, mode: string, options: any) => Promise<{ success: boolean; failedGroups: string[]; error?: string }>;
     refreshData: () => Promise<any>;
     loadAllChatMessages: () => Promise<void>;
     purgeOldLayerData: () => Promise<void>;
@@ -230,25 +231,44 @@ export async function executeAutoUpdatePlan_ACU(
     const failedGroupKeys: string[] = [];
     for (let start = 0; start < groupKeys.length; start += maxConcurrentGroups) {
         const chunkKeys = groupKeys.slice(start, start + maxConcurrentGroups);
-        const groupPromises = chunkKeys.map(key => (async () => {
-            const group = updateGroups[key];
-            logDebug_ACU(`[Parallel] Processing group update for groupId=${group.groupId}, sheets: ${group.sheetNames.join(', ')}`);
-
-            const success = await ops.processUpdates(group.indices, 'auto_independent', {
-                targetSheetKeys: group.sheetKeys,
-                batchSize: group.batchSize,
-                requestOptions: { skipProfileSwitch: true, forceDirectApi: true }
+        if (ops.processGroupedUpdates) {
+            const groupedChunk = chunkKeys.map(key => {
+                const group = updateGroups[key];
+                logDebug_ACU(`[Parallel] Processing grouped update for groupId=${group.groupId}, sheets: ${group.sheetNames.join(', ')}`);
+                return {
+                    key,
+                    groupId: group.groupId,
+                    indices: group.indices,
+                    batchSize: group.batchSize,
+                    sheetKeys: group.sheetKeys,
+                    requestOptions: { skipProfileSwitch: true, forceDirectApi: true },
+                };
             });
-
-            return { key, success, sheetNames: group.sheetNames };
-        })());
-
-        const results = await Promise.allSettled(groupPromises);
-        results.forEach((result, idx) => {
-            if (result.status === 'rejected' || !result.value?.success) {
-                failedGroupKeys.push(chunkKeys[idx]);
+            const groupedResult = await ops.processGroupedUpdates(groupedChunk, 'auto_independent', {});
+            if (!groupedResult.success) {
+                failedGroupKeys.push(...groupedResult.failedGroups);
             }
-        });
+        } else {
+            const groupPromises = chunkKeys.map(key => (async () => {
+                const group = updateGroups[key];
+                logDebug_ACU(`[Parallel] Processing group update for groupId=${group.groupId}, sheets: ${group.sheetNames.join(', ')}`);
+
+                const success = await ops.processUpdates(group.indices, 'auto_independent', {
+                    targetSheetKeys: group.sheetKeys,
+                    batchSize: group.batchSize,
+                    requestOptions: { skipProfileSwitch: true, forceDirectApi: true }
+                });
+
+                return { key, success, sheetNames: group.sheetNames };
+            })());
+
+            const results = await Promise.allSettled(groupPromises);
+            results.forEach((result, idx) =>{
+                if (result.status === 'rejected' || !result.value?.success) {
+                    failedGroupKeys.push(chunkKeys[idx]);
+                }
+            });
+        }
     }
 
     if (failedGroupKeys.length > 0) {

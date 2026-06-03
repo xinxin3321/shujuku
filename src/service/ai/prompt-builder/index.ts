@@ -11,4 +11,4 @@ export { prepareAIInput_ACU } from './prompt-prepare';
 export { callCustomOpenAI_ACU, handleApiResponse_ACU } from './prompt-api-call';
 
 // 表格编辑解析
-export { extractTableEditInner_ACU, parseAndApplyTableEdits_ACU } from './table-edit-parser';
+export { extractTableEditInner_ACU, parseAndApplyTableEdits_ACU, parseAndApplyTableEditsToData_ACU } from './table-edit-parser';

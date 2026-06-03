@@ -39,6 +39,8 @@ export {
     setChatSheetGuideDataForIsolationKey_ACU,
     ensureChatSheetGuideSeeded_ACU,
     getEffectiveSeedRowsForSheet_ACU,
+    ensureStableRowIdsForSeedRows_ACU,
+    ensureStableRowIdsForSheetContent_ACU,
     attachSeedRowsToCurrentDataFromGuide_ACU,
     buildChatSheetGuideDataFromData_ACU,
     buildChatSheetGuideDataFromTemplateObj_ACU,

@@ -29,9 +29,46 @@ import { logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU, st
 import { buildGlobalNameMapper, disposeGlobalNameMapper } from '../runtime/template-vars/name-mapper';
 import { parseDDLTableName, generateDDL, generateInserts } from '../../data/sqlite/schema-mapper';
 import { normalizeSqlStructure, normalizeStatementValues } from '../../data/sqlite/sql-normalizer';
-import { getEffectiveSeedRowsForSheet_ACU, getCurrentChatTemplateScopeState_ACU, sanitizeTemplateSnapshotForChat_ACU } from '../template/chat-scope';
+import { ensureStableRowIdsForSheetContent_ACU, getEffectiveSeedRowsForSheet_ACU, getCurrentChatTemplateScopeState_ACU, sanitizeTemplateSnapshotForChat_ACU } from '../template/chat-scope';
 import { getTemplatePreset_ACU } from '../template/template-preset-service';
 import { safeJsonParse_ACU } from '../../shared/json-helpers';
+
+export interface SnapshotSqlApplyResult_ACU extends ApplyEditsResult {
+  workingData?: TableDataObject_ACU;
+}
+
+const DEFAULT_MATE_ACU: Mate_ACU = {
+  type: 'acu',
+  version: 1,
+  updateConfigUiSentinel: 0,
+  globalInjectionConfig: {
+    readableEntryPlacement: { position: '', depth: 0, order: 0 },
+    wrapperPlacement: { position: '', depth: 0, order: 0 },
+  },
+};
+
+function resolveSnapshotMate_ACU(tableData: TableDataObject_ACU): Mate_ACU {
+  const mate = tableData?.mate;
+  if (mate && typeof mate === 'object') {
+    return mate as Mate_ACU;
+  }
+  return JSON.parse(JSON.stringify(DEFAULT_MATE_ACU));
+}
+
+function mapSqlTableNamesToSheetKeys_ACU(tableData: TableDataObject_ACU, tableNames: string[]): string[] {
+  if (!tableData || !Array.isArray(tableNames) || tableNames.length === 0) return [];
+  const matchedKeys = new Set<string>();
+  for (const [sheetKey, value] of Object.entries(tableData)) {
+    if (!sheetKey.startsWith('sheet_')) continue;
+    const sheet = value as any;
+    const tableNameFromUid = typeof sheet?.uid === 'string' ? sheet.uid.trim() : '';
+    const tableNameFromDDL = typeof sheet?.sourceData?.ddl === 'string' ? parseDDLTableName(sheet.sourceData.ddl) : '';
+    if ((tableNameFromUid && tableNames.includes(tableNameFromUid)) || (tableNameFromDDL && tableNames.includes(tableNameFromDDL))) {
+      matchedKeys.add(sheetKey);
+    }
+  }
+  return [...matchedKeys];
+}
 
 export class SqlTableService implements ITableStorageProvider {
   readonly mode = 'sqlite' as const;
@@ -416,6 +453,7 @@ export class SqlTableService implements ITableStorageProvider {
         if (Array.isArray(seedRows) && seedRows.length > 0) {
           // seedRows 是不含表头的纯数据行，拼接到表头后面
           sheetCopy.content = [sheetCopy.content[0] || [], ...seedRows];
+          sheetCopy.content = ensureStableRowIdsForSheetContent_ACU(sheetCopy.content);
           logDebug_ACU(`[SqlTableService] 表 ${key} (${sheetCopy.name}) 注入 ${seedRows.length} 行 seedRows 作为初版快照`);
         }
       }
@@ -479,6 +517,49 @@ export class SqlTableService implements ITableStorageProvider {
     // 场景 3：inherit_global 或无聊天级模板，fallback 到全局模板
     logDebug_ACU('[SqlTableService] 使用全局模板 (inherit_global)');
     return parseTableTemplateJson_ACU({ stripSeedRows: true }) as TableDataObject_ACU | null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 快照级 SQL 应用（用于 grouped unified commit）
+// ═══════════════════════════════════════════════════════════════
+
+export async function applySqlEditsToTableDataSnapshot_ACU(
+  sqlStatements: string,
+  tableData: TableDataObject_ACU,
+  _updateMode?: string,
+): Promise<SnapshotSqlApplyResult_ACU> {
+  const engine = new SqliteEngine();
+  const syncBridge = new SyncBridge(engine);
+  try {
+    const cleaned = sqlStatements.replace(/<!--|-->/g, '').trim();
+    if (!cleaned) {
+      return { success: true, modifiedKeys: [], appliedEdits: 0, workingData: JSON.parse(JSON.stringify(tableData || {})) };
+    }
+
+    const rawStatements = splitSqlStatements(cleaned);
+    if (rawStatements.length === 0) {
+      return { success: true, modifiedKeys: [], appliedEdits: 0, workingData: JSON.parse(JSON.stringify(tableData || {})) };
+    }
+
+    const statements = rawStatements.map(stmt => normalizeStatementValues(normalizeSqlStructure(stmt)));
+    const snapshotCopy = JSON.parse(JSON.stringify(tableData || {})) as TableDataObject_ACU;
+    await engine.init();
+    syncBridge.loadFromTableData(snapshotCopy);
+    engine.runBatch(statements);
+
+    const workingData = syncBridge.exportToTableData(resolveSnapshotMate_ACU(snapshotCopy));
+    const modifiedTableNames = extractTableNamesFromStatements(statements);
+    const modifiedKeys = mapSqlTableNamesToSheetKeys_ACU(workingData, modifiedTableNames);
+
+    logDebug_ACU(`[SqlTableService] 快照 SQL 执行成功: ${statements.length} 条语句, modifiedKeys=${modifiedKeys.join(',')}`);
+    return { success: true, modifiedKeys, appliedEdits: statements.length, workingData };
+  } catch (e: any) {
+    const errMsg = e?.message || String(e);
+    logError_ACU(`[SqlTableService] 快照 SQL 执行失败: ${errMsg}`);
+    return { success: false, modifiedKeys: [], appliedEdits: 0, error: errMsg };
+  } finally {
+    engine.dispose();
   }
 }
 

@@ -14,24 +14,41 @@ import { isSqliteMode } from '../../table/storage-mode';
 import { parseDDLColumnNames } from '../../../shared/ddl-utils';
 
   export async function prepareAIInput_ACU(messages: any[], updateMode = 'standard', targetSheetKeys: string[] | null = null, options: any = {}) {
-    if (!currentJsonTableData_ACU) {
+    const sourceTableData = options?.tableData || currentJsonTableData_ACU;
+    if (!sourceTableData) {
         logError_ACU('prepareAIInput_ACU: Cannot prepare AI input, currentJsonTableData_ACU is null.');
         return null;
     }
 
-    let _seedGuideDataForThisPrepare_ACU = null;
+    let _seedGuideDataForThisPrepare_ACU: Record<string, any> | null = null;
+    let workingTableData = sourceTableData;
     try {
         _seedGuideDataForThisPrepare_ACU = await ensureChatSheetGuideSeeded_ACU({ reason: 'prepare_ai_input_seedrows' });
         if (_seedGuideDataForThisPrepare_ACU) {
-            attachSeedRowsToCurrentDataFromGuide_ACU(_seedGuideDataForThisPrepare_ACU);
+            if (options?.tableData) {
+                workingTableData = JSON.parse(JSON.stringify(sourceTableData));
+                Object.keys(workingTableData).forEach((sheetKey) => {
+                    if (!sheetKey.startsWith('sheet_')) return;
+                    const table = workingTableData[sheetKey];
+                    if (!table || typeof table !== 'object') return;
+                    const existing = table?.seedRows;
+                    if (Array.isArray(existing) && existing.length > 0) return;
+                    const seedRows = _seedGuideDataForThisPrepare_ACU?.[sheetKey]?.seedRows;
+                    if (Array.isArray(seedRows) && seedRows.length > 0) {
+                        table.seedRows = JSON.parse(JSON.stringify(seedRows));
+                    }
+                });
+            } else {
+                attachSeedRowsToCurrentDataFromGuide_ACU(_seedGuideDataForThisPrepare_ACU);
+            }
         }
     } catch (e) { logWarn_ACU('[AI输入准备] ensureChatSheetGuideSeeded 失败, seed rows 可能不完整:', e); }
 
     let tableDataText = '';
     let _seedRowsTablesUsed_ACU: string[] = [];
-    const tableIndexes = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
+    const tableIndexes = getSortedSheetKeys_ACU(workingTableData);
     tableIndexes.forEach((sheetKey, tableIndex) => {
-        const table = currentJsonTableData_ACU[sheetKey];
+        const table = workingTableData[sheetKey];
         if (!table || !table.name || !table.content) return;
 
         if (targetSheetKeys && Array.isArray(targetSheetKeys)) {
