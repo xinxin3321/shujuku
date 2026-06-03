@@ -108,18 +108,18 @@ export   async function updateReadableLorebookEntry_ACU(createIfNeeded = false, 
     }
 
     // Call all the individual entry updaters
-    await updateImportantPersonsRelatedEntries_ACU(importantPersonsTable, isImport);
-    await updateSummaryTableEntries_ACU(summaryTable, isImport);
-    await updateOutlineTableEntry_ACU(outlineTable, isImport);
+    await updateImportantPersonsRelatedEntries_ACU(importantPersonsTable, isImport, targetLorebookOverride);
+    await updateSummaryTableEntries_ACU(summaryTable, isImport, targetLorebookOverride);
+    await updateOutlineTableEntry_ACU(outlineTable, isImport, targetLorebookOverride);
 
     // [修复] 自定义导出/按行拆分条目是否需要注入，应以 mergedData 中是否存在真实单元格数据为准，
     // 不能再依赖 readableText 判空。
     // 否则当所有表格都开启“按行拆分”后，readableText 会为空，进而误判为“数据库为空”，
     // 导致本应创建的拆分世界书条目被整体跳过。
     if (hasNonEmptyCellData_ACU) {
-        await updateCustomTableExports_ACU(mergedData, isImport);
+        await updateCustomTableExports_ACU(mergedData, isImport, targetLorebookOverride);
     } else {
-        await updateCustomTableExports_ACU(null, isImport); // 仅清理旧自定义导出条目，不创建新条目
+        await updateCustomTableExports_ACU(null, isImport, targetLorebookOverride); // 仅清理旧自定义导出条目，不创建新条目
     }
 
     // [修复] 外部导入时优先使用 targetLorebookOverride 参数，避免临时修改 worldbookConfig 被兜底补齐逻辑覆盖

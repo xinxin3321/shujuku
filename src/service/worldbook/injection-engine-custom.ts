@@ -19,9 +19,9 @@ import { getEffectiveSummaryVectorIndexConfig_ACU } from '../vector/vector-memor
   // [新增] 处理自定义表格导出逻辑
   // [修复] 当 mergedData 为空/null 时，仍需执行"清理旧自定义导出条目"逻辑，
   // 避免删除楼层回溯到空数据时旧条目残留在世界书中。
-  export async function updateCustomTableExports_ACU(mergedData: Record<string, any> | null, isImport = false) {
+  export async function updateCustomTableExports_ACU(mergedData: Record<string, any> | null, isImport = false, targetLorebookOverride: string | null = null) {
       if (!isWorldbookApiAvailable_ACU()) return;
-      const primaryLorebookName = await getInjectionTargetLorebook_ACU();
+      const primaryLorebookName = targetLorebookOverride || await getInjectionTargetLorebook_ACU();
       if (!primaryLorebookName) return;
 
       const IMPORT_PREFIX = getImportBatchPrefix_ACU();
