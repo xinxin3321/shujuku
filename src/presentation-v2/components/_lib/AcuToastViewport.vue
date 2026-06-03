@@ -187,35 +187,58 @@ watch(
 
 .acu-toast-viewport__list {
   position: absolute;
+  top: calc(62px + var(--acu-safe-top, 0px));
   right: calc(18px + var(--acu-safe-right, 0px));
-  bottom: calc(18px + var(--acu-safe-bottom, 0px));
+  bottom: auto;
   width: min(360px, calc(100% - 36px - var(--acu-safe-left, 0px) - var(--acu-safe-right, 0px)));
-  max-height: calc(100% - 36px - var(--acu-safe-top, 0px) - var(--acu-safe-bottom, 0px));
+  max-height: calc(100% - 80px - var(--acu-safe-top, 0px) - var(--acu-safe-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   list-style: none;
 }
 
 .acu-v2-toast {
+  --acu-toast-tone: var(--acu-accent);
   position: relative;
   min-width: 0;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  grid-template-columns: 26px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
-  padding: 10px;
+  padding: 10px 12px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--acu-border) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--acu-toast-tone) 22%, var(--acu-border-2));
   border-radius: var(--acu-radius-md);
-  background: var(--acu-bg-1);
-  box-shadow: none;
-  color: var(--acu-text-2);
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--acu-toast-tone) 7%, transparent),
+      transparent 48%
+    ),
+    color-mix(in srgb, var(--acu-bg-1) 97%, var(--acu-text-1) 3%);
+  box-shadow:
+    0 18px 46px rgba(0, 0, 0, 0.18),
+    0 4px 16px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 color-mix(in srgb, var(--acu-text-1) 8%, transparent);
+  color: var(--acu-text-1);
   pointer-events: auto;
   animation: acu-toast-in 0.16s ease-out both;
+}
+
+.acu-v2-toast--success {
+  --acu-toast-tone: var(--acu-success);
+}
+
+.acu-v2-toast--warning {
+  --acu-toast-tone: var(--acu-warning);
+}
+
+.acu-v2-toast--error {
+  --acu-toast-tone: var(--acu-danger);
 }
 
 .acu-v2-toast.is-closing {
@@ -224,28 +247,25 @@ watch(
 }
 
 .acu-v2-toast__icon {
+  --acu-icon-color: var(--acu-toast-tone);
   min-width: 0;
-  color: var(--acu-text-3);
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--acu-radius-sm);
+  background: color-mix(in srgb, var(--acu-toast-tone) 13%, transparent);
+  color: var(--acu-toast-tone);
   font-size: var(--acu-font-size-body-lg, 13px);
   line-height: 1;
-}
-
-.acu-v2-toast--success .acu-v2-toast__icon {
-  color: var(--acu-success);
-}
-
-.acu-v2-toast--warning .acu-v2-toast__icon {
-  color: var(--acu-warning);
-}
-
-.acu-v2-toast--error .acu-v2-toast__icon {
-  color: var(--acu-danger);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acu-toast-tone) 18%, transparent);
 }
 
 .acu-v2-toast__text {
   min-width: 0;
   margin: 0;
-  color: var(--acu-text-2);
+  color: var(--acu-text-1);
   font-size: var(--acu-font-size-body, 12px);
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -262,7 +282,7 @@ watch(
 @keyframes acu-toast-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(-6px);
   }
   to {
     opacity: 1;
@@ -277,21 +297,36 @@ watch(
   }
   to {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(-6px);
   }
 }
 
 @media (max-width: 640px) {
   .acu-toast-viewport__list {
-    right: calc(12px + var(--acu-safe-right, 0px));
-    bottom: calc(12px + var(--acu-safe-bottom, 0px));
-    left: calc(12px + var(--acu-safe-left, 0px));
-    width: auto;
-    max-height: calc(100% - 24px - var(--acu-safe-top, 0px) - var(--acu-safe-bottom, 0px));
+    top: calc(58px + var(--acu-safe-top, 0px));
+    right: auto;
+    bottom: auto;
+    left: calc(50% + (var(--acu-safe-left, 0px) - var(--acu-safe-right, 0px)) / 2);
+    width: clamp(240px, 70vw, calc(100% - 24px - var(--acu-safe-left, 0px) - var(--acu-safe-right, 0px)));
+    max-height: calc(100% - 70px - var(--acu-safe-top, 0px) - var(--acu-safe-bottom, 0px));
+    transform: translateX(-50%);
   }
 
   .acu-v2-toast {
-    grid-template-columns: 18px minmax(0, 1fr) auto;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    gap: 7px;
+    padding: 8px 9px;
+  }
+
+  .acu-v2-toast__icon {
+    width: 22px;
+    height: 22px;
+    font-size: var(--acu-font-size-body, 12px);
+  }
+
+  .acu-v2-toast__text {
+    font-size: var(--acu-font-size-caption, 11px);
+    line-height: 1.4;
   }
 
   .acu-v2-toast__action {
