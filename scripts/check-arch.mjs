@@ -175,6 +175,15 @@ const checks = [
   },
 ];
 
+const artifactChecks = [
+  {
+    section: 'Build artifact checks',
+    label: 'compiled bundle literal Vue deep selectors',
+    files: ['index.js', 'dist/index.bundle.js'],
+    pattern: /:deep\(|::v-deep|\/deep\//,
+  },
+];
+
 function listFiles(dir, extensions) {
   const absDir = join(root, dir);
 
@@ -236,6 +245,38 @@ function findMatches(check) {
   return matches;
 }
 
+function findArtifactMatches(check) {
+  const matches = [];
+
+  for (const relPath of check.files) {
+    const absPath = join(root, relPath);
+    let text;
+
+    try {
+      text = readFileSync(absPath, 'utf8');
+    } catch {
+      matches.push({
+        path: relPath,
+        line: 1,
+        text: '<missing build artifact>',
+      });
+      continue;
+    }
+
+    text.split(/\r?\n/).forEach((lineText, index) => {
+      if (check.pattern.test(lineText)) {
+        matches.push({
+          path: relPath,
+          line: index + 1,
+          text: lineText,
+        });
+      }
+    });
+  }
+
+  return matches;
+}
+
 function printMatch(match) {
   console.log(`${match.path}:${match.line}:${match.text}`);
 }
@@ -256,6 +297,25 @@ for (const check of checks) {
   }
 
   const matches = findMatches(check);
+  total += matches.length;
+
+  if (matches.length > 0) {
+    console.log(`[FAIL] ${check.label}: ${matches.length}`);
+    matches.forEach(printMatch);
+  } else {
+    console.log(`[PASS] ${check.label}: 0`);
+  }
+}
+
+for (const check of artifactChecks) {
+  if (check.section && check.section !== currentSection) {
+    currentSection = check.section;
+    console.log('');
+    console.log(`-- ${currentSection} --`);
+    console.log('');
+  }
+
+  const matches = findArtifactMatches(check);
   total += matches.length;
 
   if (matches.length > 0) {

@@ -188,6 +188,11 @@ Vue 组件**禁止直接 import service 函数或单例状态**（特别是 `set
 - 需要跨关闭 / 重开保留的内容必须是用户明确编辑过的状态，并进入对应 store / settings / draft store，且有明确 dirty 语义；页面本地 `ref` 只用于临时 UI 状态（搜索词、展开项、loading/error、临时列表缓存等），允许在重开后丢弃并重读。
 - 架构守卫禁止页面层重新引入 `useUiOpenRefreshTick` 一类逐页订阅模式。重开刷新是 shell / MainArea 的职责，不是每个页面的职责。
 
+### D26. UI v2 scoped 样式编译
+
+- UI v2 使用 Vue 标准 `<style scoped>` 与 `:deep()`，构建流程不得在 Vue 编译前剥离 `scoped`。
+- `:deep()` 只应存在于源码中，构建产物不得出现字面量 `:deep(`、`::v-deep` 或 `/deep/`；该项由 `scripts/check-arch.mjs` 在构建后守卫。
+
 ## 14. 组件抽取与命名
 
 ### D21.7 `_lib/` 组件库布局
@@ -276,5 +281,7 @@ Vue 组件**禁止直接 import service 函数或单例状态**（特别是 `set
 - [ ] 新手说明解释“是什么 / 为什么 / 出问题怎么办”。
 
 - [ ] 新页面把外部状态读取放进 `onMounted()` 刷新链；不要手写 UI-open 刷新订阅。需保留的编辑草稿进入 store / settings / draft store。
+
+- [ ] UI v2 构建没有剥离 `<style scoped>`，构建产物没有未编译的 Vue deep 选择器字面量。
 
 - [ ] store / composable / 页面集成测试覆盖新增行为。

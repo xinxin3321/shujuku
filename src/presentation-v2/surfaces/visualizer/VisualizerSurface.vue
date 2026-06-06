@@ -298,9 +298,15 @@
                                 ? '取消锁定当前列'
                                 : '锁定当前列'
                             "
-                            @click.prevent="
-                              visualizer.toggleColumnLock(
-                                visualizer.currentSheetKey,
+                            @click.stop.prevent="
+                              handleFieldColumnLockClick(
+                                row.index,
+                                field.columnIndex,
+                              )
+                            "
+                            @pointerdown.stop.prevent="
+                              handleFieldColumnLockPointerDown(
+                                row.index,
                                 field.columnIndex,
                               )
                             "
@@ -328,9 +334,14 @@
                                 ? '取消锁定当前单元格'
                                 : '锁定当前单元格'
                             "
-                            @click.prevent="
-                              visualizer.toggleCellLock(
-                                visualizer.currentSheetKey,
+                            @click.stop.prevent="
+                              handleFieldCellLockClick(
+                                row.index,
+                                field.columnIndex,
+                              )
+                            "
+                            @pointerdown.stop.prevent="
+                              handleFieldCellLockPointerDown(
                                 row.index,
                                 field.columnIndex,
                               )
@@ -620,6 +631,12 @@ const activeFieldActions = ref<{
   rowIndex: number;
   columnIndex: number;
 } | null>(null);
+const fieldLockPointerAction = ref<{
+  kind: "column" | "cell";
+  rowIndex: number;
+  columnIndex: number;
+  at: number;
+} | null>(null);
 const activeDataTextareaRef = ref<HTMLTextAreaElement | null>(null);
 const editingColumnLayoutSnapshot = ref<boolean[] | null>(null);
 const currentDataPage = ref(1);
@@ -891,6 +908,77 @@ function isFieldActionsActive(rowIndex: number, columnIndex: number): boolean {
 
 function clearFieldActions(): void {
   activeFieldActions.value = null;
+}
+
+function consumeFieldLockPointerAction(
+  kind: "column" | "cell",
+  rowIndex: number,
+  columnIndex: number,
+): boolean {
+  const action = fieldLockPointerAction.value;
+  fieldLockPointerAction.value = null;
+  return (
+    !!action &&
+    action.kind === kind &&
+    action.rowIndex === Math.trunc(Number(rowIndex)) &&
+    action.columnIndex === Math.trunc(Number(columnIndex)) &&
+    Date.now() - action.at < 1000
+  );
+}
+
+function markFieldLockPointerAction(
+  kind: "column" | "cell",
+  rowIndex: number,
+  columnIndex: number,
+): void {
+  fieldLockPointerAction.value = {
+    kind,
+    rowIndex: Math.trunc(Number(rowIndex)),
+    columnIndex: Math.trunc(Number(columnIndex)),
+    at: Date.now(),
+  };
+}
+
+function toggleFieldColumnLock(rowIndex: number, columnIndex: number): void {
+  setActiveFieldActions(rowIndex, columnIndex);
+  visualizer.toggleColumnLock(visualizer.currentSheetKey, columnIndex);
+}
+
+function toggleFieldCellLock(rowIndex: number, columnIndex: number): void {
+  setActiveFieldActions(rowIndex, columnIndex);
+  visualizer.toggleCellLock(visualizer.currentSheetKey, rowIndex, columnIndex);
+}
+
+function handleFieldColumnLockPointerDown(
+  rowIndex: number,
+  columnIndex: number,
+): void {
+  markFieldLockPointerAction("column", rowIndex, columnIndex);
+  toggleFieldColumnLock(rowIndex, columnIndex);
+}
+
+function handleFieldCellLockPointerDown(
+  rowIndex: number,
+  columnIndex: number,
+): void {
+  markFieldLockPointerAction("cell", rowIndex, columnIndex);
+  toggleFieldCellLock(rowIndex, columnIndex);
+}
+
+function handleFieldColumnLockClick(
+  rowIndex: number,
+  columnIndex: number,
+): void {
+  if (consumeFieldLockPointerAction("column", rowIndex, columnIndex)) return;
+  toggleFieldColumnLock(rowIndex, columnIndex);
+}
+
+function handleFieldCellLockClick(
+  rowIndex: number,
+  columnIndex: number,
+): void {
+  if (consumeFieldLockPointerAction("cell", rowIndex, columnIndex)) return;
+  toggleFieldCellLock(rowIndex, columnIndex);
 }
 
 function handleSurfacePointerDown(event: PointerEvent): void {
@@ -1716,8 +1804,14 @@ watch(rowCount, () => {
 }
 
 .acu-visualizer-surface__field-locks :deep(.acu-icon-btn--accent) {
-  color: var(--acu-accent);
-  background: var(--acu-accent-glow);
+  color: var(--acu-warning) !important;
+  background: color-mix(in srgb, var(--acu-warning) 16%, transparent) !important;
+}
+
+.acu-visualizer-surface__field-locks
+  :deep(.acu-icon-btn--accent:hover:not(:disabled)) {
+  color: var(--acu-warning) !important;
+  background: color-mix(in srgb, var(--acu-warning) 22%, transparent) !important;
 }
 
 .acu-visualizer-surface__field.is-locked {

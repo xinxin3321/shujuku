@@ -10,7 +10,6 @@ import commonjs from '@rollup/plugin-commonjs';
 import nodeResolve from '@rollup/plugin-node-resolve';
 import replace from '@rollup/plugin-replace';
 import vuePlugin from 'unplugin-vue/rollup';
-import stripSfcScopedStyles from './src/presentation-v2/build/rollup-strip-sfc-scoped.js';
 import sfcStyleInjector from './src/presentation-v2/build/rollup-sfc-style-injector.js';
 import vueScriptTranspiler from './src/presentation-v2/build/rollup-vue-script-transpiler.js';
 import { copyFileSync, existsSync, mkdirSync } from 'fs';
@@ -79,7 +78,6 @@ function createReplacePlugin() {
 
 const sharedPlugins = [
   nodeBuiltinsShim,
-  stripSfcScopedStyles(),
   createVuePlugin(),
   vueScriptTranspiler(),
   sfcStyleInjector(),
