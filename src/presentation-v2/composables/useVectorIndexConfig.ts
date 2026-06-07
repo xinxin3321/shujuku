@@ -19,16 +19,17 @@ import {
   archiveSummaryVectorIndexNow_ACU,
   migrateLegacySummaryVectorIndexToContentAddressed_ACU,
 } from '../../service/vector/summary-vector-index-archive-service';
-import { getLatestSummaryVectorIndexSnapshotState_ACU } from '../../service/vector/summary-vector-index-state-service';
+import {
+  getLatestSummaryVectorIndexSnapshotState_ACU,
+} from '../../service/vector/summary-vector-index-state-service';
 import {
   getSummaryVectorIndexStats_ACU,
   inspectSummaryVectorIndexHealth_ACU,
 } from '../../service/vector/summary-vector-index-storage-service';
-import { deleteSummaryVectorIndexExternal_ACU } from '../../service/vector/summary-vector-index-storage-service';
 import { clearAllSummaryVectorIndexCaches_ACU } from '../../service/vector/summary-vector-index-cache-service';
-import { assignSummaryVectorIndexStateToTagData_ACU } from '../../service/vector/summary-vector-index-state-service';
+import { deleteCurrentSummaryVectorIndexFromChat_ACU } from '../../service/vector/summary-vector-index-chat-service';
 import { loadOrCreateJsonTableFromChatHistory_ACU, saveIndependentTableToChatHistory_ACU } from '../../service/table/table-service';
-import { getLastMessageIndex_ACU, saveChatToHost_ACU } from '../../service/chat/chat-service';
+import { getLastMessageIndex_ACU } from '../../service/chat/chat-service';
 import { updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
 import { defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
 import { currentJsonTableData_ACU } from '../../service/runtime/state-manager';
@@ -54,27 +55,6 @@ function updateGlobalVectorMemoryConfigFields_ACU(patch: Partial<VectorMemoryCon
   const config = getCurrentVectorMemoryConfig_ACU();
   Object.assign(config as unknown as Record<string, unknown>, patch);
   return config;
-}
-
-async function deleteCurrentSummaryVectorIndexFromChat_ACU(): Promise<boolean> {
-  const snapshot = getLatestSummaryVectorIndexSnapshotState_ACU();
-  const latestLayer = snapshot?.layers?.[0] || null;
-  const tagData = latestLayer?.tagData;
-  const manifest = tagData?.summaryVectorIndexManifest
-    || tagData?.summaryVectorIndexState?.manifest
-    || snapshot?.summaryVectorIndexState?.manifest
-    || null;
-  const hadState = !!tagData?.summaryVectorIndexState || !!tagData?.summaryVectorIndexManifest || !!manifest;
-  if (!hadState) return false;
-
-  if (manifest) {
-    await deleteSummaryVectorIndexExternal_ACU(manifest);
-  }
-  if (tagData) {
-    assignSummaryVectorIndexStateToTagData_ACU(tagData, null);
-  }
-  await saveChatToHost_ACU();
-  return true;
 }
 
 export interface VectorIndexMessage {

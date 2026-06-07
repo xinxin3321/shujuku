@@ -28,7 +28,9 @@ import { loadOrCreateJsonTableFromChatHistory_ACU } from '../../service/table/ta
 import { cleanupWorldbookEntriesAfterDataDeletion_ACU } from '../../service/worldbook/worldbook-cleanup';
 import { deleteAllGeneratedEntries_ACU, refreshMergedDataAndNotify_ACU } from '../../service/worldbook/pipeline';
 import { applyTemplateSnapshotToScope_ACU, getDefaultTemplateSnapshot_ACU } from '../../service/template/template-preset-service';
-import { sanitizeChatSheetsObject_ACU } from '../../service/template/chat-scope';
+import { clearCurrentChatTemplateSnapshots_ACU, sanitizeChatSheetsObject_ACU } from '../../service/template/chat-scope';
+import { clearCurrentTableLocks_ACU } from '../../service/runtime/helpers-table-lock';
+import { clearCurrentChatPlotPresetOverride_ACU } from '../../service/plot/plot-logic';
 import { useToastStore } from '../stores/toast-store';
 
 export type DataMgmtMessageKind = 'info' | 'success' | 'warning' | 'error';
@@ -37,6 +39,37 @@ export interface DataMgmtMessage {
   kind: DataMgmtMessageKind;
   text: string;
   at: number;
+}
+
+export type ResetDefaultsCleanupKey =
+  | 'restore-template-prompts'
+  | 'clear-template-snapshots'
+  | 'clear-plot-snapshots'
+  | 'clear-table-locks'
+  | 'clear-table-order';
+
+export interface ResetDefaultsCleanupOptions {
+  restoreTemplateAndPrompts?: boolean;
+  clearTemplateSnapshots?: boolean;
+  clearPlotSnapshots?: boolean;
+  clearTableLocks?: boolean;
+  clearTableOrder?: boolean;
+}
+
+const DEFAULT_RESET_DEFAULTS_OPTIONS: Required<ResetDefaultsCleanupOptions> = {
+  restoreTemplateAndPrompts: true,
+  clearTemplateSnapshots: true,
+  clearPlotSnapshots: true,
+  clearTableLocks: true,
+  clearTableOrder: true,
+};
+
+function normalizeResetDefaultsOptions(options: ResetDefaultsCleanupOptions = {}): Required<ResetDefaultsCleanupOptions> {
+  return { ...DEFAULT_RESET_DEFAULTS_OPTIONS, ...options };
+}
+
+function hasSelectedResetDefaultsOption(options: Required<ResetDefaultsCleanupOptions>): boolean {
+  return Object.values(options).some(Boolean);
 }
 
 function setMessage(target: ReturnType<typeof ref<DataMgmtMessage | null>>, kind: DataMgmtMessageKind, text: string): void {
@@ -282,24 +315,79 @@ export function useDataManagement() {
     }
   }
 
-  async function resetAllDefaults(): Promise<void> {
+  async function resetAllDefaults(options: ResetDefaultsCleanupOptions = {}): Promise<void> {
+    const cleanup = normalizeResetDefaultsOptions(options);
+    if (!hasSelectedResetDefaultsOption(cleanup)) {
+      toast.warning('未选择需要恢复或清理的项目。');
+      return;
+    }
+
     busyAction.value = 'reset-defaults';
     try {
-      settings_ACU.charCardPrompt = isSqliteMode() ? DEFAULT_CHAR_CARD_PROMPT_SQL_ACU : DEFAULT_CHAR_CARD_PROMPT_ACU;
-      settings_ACU.mergeSummaryPrompt = isSqliteMode() ? DEFAULT_MERGE_SUMMARY_PROMPT_SQL_ACU : DEFAULT_MERGE_SUMMARY_PROMPT_ACU;
-      const snapshot = getDefaultTemplateSnapshot_ACU();
-      if (!snapshot?.templateStr) throw new Error('无法解析默认模板。');
-      const applied = await applyTemplateSnapshotToScope_ACU(snapshot.templateStr, {
-        scope: 'global',
-        source: 'v2_reset_all_defaults',
-        presetName: '',
-        save: true,
-        persistChatScope: false,
-      });
-      if (!applied) throw new Error('默认模板应用失败。');
-      saveSettings_ACU();
+      const snapshot = cleanup.restoreTemplateAndPrompts ? getDefaultTemplateSnapshot_ACU() : null;
+      if (cleanup.restoreTemplateAndPrompts && !snapshot?.templateStr) throw new Error('无法解析默认模板。');
+
+      if (cleanup.restoreTemplateAndPrompts) {
+        settings_ACU.charCardPrompt = isSqliteMode() ? DEFAULT_CHAR_CARD_PROMPT_SQL_ACU : DEFAULT_CHAR_CARD_PROMPT_ACU;
+        settings_ACU.mergeSummaryPrompt = isSqliteMode() ? DEFAULT_MERGE_SUMMARY_PROMPT_SQL_ACU : DEFAULT_MERGE_SUMMARY_PROMPT_ACU;
+      }
+
+      if (cleanup.clearTableOrder) {
+        settings_ACU.tableKeyOrder = [];
+      }
+
+      if (cleanup.clearTableLocks) {
+        clearCurrentTableLocks_ACU({ save: false });
+      }
+
+      if (cleanup.clearPlotSnapshots) {
+        await clearCurrentChatPlotPresetOverride_ACU({
+          source: 'v2_reset_all_defaults',
+          saveSettings: false,
+          saveChat: true,
+        });
+      }
+
+      if (cleanup.clearTemplateSnapshots) {
+        await clearCurrentChatTemplateSnapshots_ACU({
+          clearCurrentOverride: true,
+          clearArchives: true,
+          clearGuide: true,
+          clearLegacyGuide: true,
+          save: true,
+        });
+      }
+
+      if (cleanup.restoreTemplateAndPrompts) {
+        const applied = await applyTemplateSnapshotToScope_ACU(snapshot!.templateStr, {
+          scope: 'global',
+          source: 'v2_reset_all_defaults',
+          presetName: '',
+          save: true,
+          persistChatScope: false,
+        });
+        if (!applied) throw new Error('默认模板应用失败。');
+      } else if (cleanup.clearTemplateSnapshots) {
+        applyTemplateScopeForCurrentChat_ACU();
+      }
+
+      const shouldSaveSettings = cleanup.restoreTemplateAndPrompts
+        || cleanup.clearTableOrder
+        || cleanup.clearTableLocks
+        || cleanup.clearPlotSnapshots;
+      if (shouldSaveSettings) saveSettings_ACU();
+
+      const shouldRefreshTableData = cleanup.restoreTemplateAndPrompts
+        || cleanup.clearTemplateSnapshots
+        || cleanup.clearTableOrder
+        || cleanup.clearTableLocks;
+      if (shouldRefreshTableData) {
+        await loadOrCreateJsonTableFromChatHistory_ACU();
+        await refreshMergedDataAndNotify_ACU();
+      }
+      refresh();
       message.value = null;
-      toast.success('默认模板及提示词已恢复。');
+      toast.success('已按所选项目恢复默认配置。');
     } catch (e: any) {
       logError_ACU('[ACU-V2] resetAllDefaults failed', e);
       message.value = null;

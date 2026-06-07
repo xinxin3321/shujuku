@@ -735,6 +735,52 @@ export function switchCurrentChatPlotPreset_ACU(presetName: string, { source = '
     return result;
 }
 
+export async function clearCurrentChatPlotPresetOverride_ACU({
+    source = 'reset_all_defaults',
+    save = true,
+    saveSettings,
+    saveChat,
+}: {
+    source?: string;
+    save?: boolean;
+    saveSettings?: boolean;
+    saveChat?: boolean;
+} = {}) {
+    const shouldSaveSettings = saveSettings ?? save;
+    const shouldSaveChat = saveChat ?? save;
+    const hadChatScopeSnapshot = !!getCurrentChatPlotScopeState_ACU();
+    const hadBinding = !!getPlotPresetBindingForChat_ACU(currentChatFileIdentifier_ACU);
+    const result = switchCurrentChatPlotPreset_ACU('', { source, save: false });
+    if (!result || typeof result !== 'object') {
+      return {
+        changed: false,
+        clearedChatScope: false,
+        clearedBinding: false,
+        activePresetName: '',
+        followsGlobal: false,
+      };
+    }
+
+    if (shouldSaveSettings) {
+      saveSettings_ACU();
+    }
+    if (shouldSaveChat && hadChatScopeSnapshot) {
+      try {
+        await saveChatToHost_ACU();
+      } catch (error) {
+        logWarn_ACU('[剧情推进] 保存当前聊天剧情推进预设清理失败:', error);
+      }
+    }
+
+    return {
+      changed: hadChatScopeSnapshot || hadBinding,
+      clearedChatScope: hadChatScopeSnapshot,
+      clearedBinding: hadBinding,
+      activePresetName: result.activePresetName || '',
+      followsGlobal: result.followsGlobal === true,
+    };
+}
+
 function buildPlotSettingsPreviewFromPreset_ACU(presetName: string) {
     const normalizedPresetName = normalizePlotPresetSelectionValue_ACU(presetName);
     const previewSettings = cloneDefaultPlotSettingsForPreset_ACU();

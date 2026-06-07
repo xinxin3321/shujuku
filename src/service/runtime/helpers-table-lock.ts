@@ -82,6 +82,44 @@ import { isSummaryOrOutlineTable_ACU } from '../../shared/utils';
       saveSettings_ACU();
   }
 
+  export function clearCurrentTableLocks_ACU({ save = true } = {}) {
+      const scopeKey = getTableLockScopeKey_ACU();
+      const result = {
+          scopeKey,
+          removedTableLocks: false,
+          removedSpecialIndexLocks: false,
+          changed: false,
+      };
+
+      if (settings_ACU.tableUpdateLocks && typeof settings_ACU.tableUpdateLocks === 'object' && !Array.isArray(settings_ACU.tableUpdateLocks)) {
+          if (Object.prototype.hasOwnProperty.call(settings_ACU.tableUpdateLocks, scopeKey)) {
+              delete settings_ACU.tableUpdateLocks[scopeKey];
+              result.removedTableLocks = true;
+              result.changed = true;
+          }
+      } else if (settings_ACU.tableUpdateLocks !== undefined) {
+          settings_ACU.tableUpdateLocks = {};
+          result.changed = true;
+      }
+
+      if (settings_ACU.specialIndexLocks && typeof settings_ACU.specialIndexLocks === 'object' && !Array.isArray(settings_ACU.specialIndexLocks)) {
+          if (Object.prototype.hasOwnProperty.call(settings_ACU.specialIndexLocks, scopeKey)) {
+              delete settings_ACU.specialIndexLocks[scopeKey];
+              result.removedSpecialIndexLocks = true;
+              result.changed = true;
+          }
+      } else if (settings_ACU.specialIndexLocks !== undefined) {
+          settings_ACU.specialIndexLocks = {};
+          result.changed = true;
+      }
+
+      if (save && result.changed) {
+          saveSettings_ACU();
+      }
+
+      return result;
+  }
+
   export function getSummaryIndexColumnIndex_ACU(table: any) {
       try {
           if (!table || !Array.isArray(table.content) || !Array.isArray(table.content[0])) return -1;

@@ -4,9 +4,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockSettings } = vi.hoisted(() => {
+const { mockSettings, mockSaveSettings } = vi.hoisted(() => {
   const mockSettings: any = { tableUpdateLocks: {}, specialIndexLocks: {} };
-  return { mockSettings };
+  const mockSaveSettings = vi.fn();
+  return { mockSettings, mockSaveSettings };
 });
 
 vi.mock('../../../src/service/runtime/state-manager', () => ({
@@ -22,7 +23,7 @@ vi.mock('../../../src/shared/utils', () => ({
 }));
 
 vi.mock('../../../src/service/settings/settings-service', () => ({
-  saveSettings_ACU: vi.fn(),
+  saveSettings_ACU: mockSaveSettings,
 }));
 
 import {
@@ -33,6 +34,7 @@ import {
   toggleCellLock_ACU,
   isSpecialIndexLockEnabled_ACU,
   setSpecialIndexLockEnabled_ACU,
+  clearCurrentTableLocks_ACU,
   getSummaryIndexColumnIndex_ACU,
   formatSummaryIndexCode_ACU,
   applySummaryIndexSequenceToTable_ACU,
@@ -40,6 +42,7 @@ import {
 } from '../../../src/service/runtime/helpers-table-lock';
 
 beforeEach(() => {
+  vi.clearAllMocks();
   mockSettings.tableUpdateLocks = {};
   mockSettings.specialIndexLocks = {};
 });
@@ -135,6 +138,40 @@ describe('isSpecialIndexLockEnabled_ACU / setSpecialIndexLockEnabled_ACU', () =>
     setSpecialIndexLockEnabled_ACU('sheet_0', false);
     setSpecialIndexLockEnabled_ACU('sheet_0', true);
     expect(isSpecialIndexLockEnabled_ACU('sheet_0')).toBe(true);
+  });
+});
+
+describe('clearCurrentTableLocks_ACU', () => {
+  it('只清理当前聊天和隔离标识的表格锁', () => {
+    mockSettings.tableUpdateLocks = {
+      'test-chat::iso-key': { sheet_0: { rows: [1], cols: [], cells: [] } },
+      'other-chat::iso-key': { sheet_0: { rows: [2], cols: [], cells: [] } },
+    };
+    mockSettings.specialIndexLocks = {
+      'test-chat::iso-key': { sheet_0: false },
+      'test-chat::other-iso': { sheet_0: false },
+    };
+
+    const result = clearCurrentTableLocks_ACU();
+
+    expect(result.changed).toBe(true);
+    expect(result.scopeKey).toBe('test-chat::iso-key');
+    expect(mockSettings.tableUpdateLocks['test-chat::iso-key']).toBeUndefined();
+    expect(mockSettings.tableUpdateLocks['other-chat::iso-key']).toBeDefined();
+    expect(mockSettings.specialIndexLocks['test-chat::iso-key']).toBeUndefined();
+    expect(mockSettings.specialIndexLocks['test-chat::other-iso']).toBeDefined();
+    expect(mockSaveSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('save=false 时不立即保存设置', () => {
+    mockSettings.tableUpdateLocks = {
+      'test-chat::iso-key': { sheet_0: { rows: [1], cols: [], cells: [] } },
+    };
+
+    clearCurrentTableLocks_ACU({ save: false });
+
+    expect(mockSettings.tableUpdateLocks['test-chat::iso-key']).toBeUndefined();
+    expect(mockSaveSettings).not.toHaveBeenCalled();
   });
 });
 

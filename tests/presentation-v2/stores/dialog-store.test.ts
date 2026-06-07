@@ -48,4 +48,37 @@ describe('useDialogStore', () => {
     dialog.submitActive();
     await expect(second).resolves.toBe('默认名称');
   });
+
+  it('多选弹窗返回已勾选项目并要求至少选择一项', async () => {
+    const dialog = useDialogStore();
+    const selected = dialog.selectMany({
+      title: '选择清理项目',
+      message: '请选择本次要清理的项目。',
+      options: [
+        { value: 'template', label: '模板快照', defaultChecked: true },
+        { value: 'plot', label: '剧情快照', defaultChecked: true },
+        { value: 'locks', label: '表格锁', defaultChecked: false },
+      ],
+    });
+
+    expect(dialog.active?.kind).toBe('multiselect');
+    expect(dialog.checkedValues).toEqual({
+      template: true,
+      plot: true,
+      locks: false,
+    });
+
+    dialog.setCheckedValue('template', false);
+    dialog.setCheckedValue('plot', false);
+    expect(dialog.confirmDisabled).toBe(true);
+
+    dialog.submitActive();
+    expect(dialog.active?.kind).toBe('multiselect');
+
+    dialog.setCheckedValue('locks', true);
+    expect(dialog.confirmDisabled).toBe(false);
+    dialog.submitActive();
+
+    await expect(selected).resolves.toEqual(['locks']);
+  });
 });

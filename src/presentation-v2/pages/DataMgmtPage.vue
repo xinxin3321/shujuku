@@ -202,26 +202,34 @@
               </AcuFormRow>
             </div>
 
-            <div
-              class="acu-v2-data-mgmt-page__command-grid acu-v2-data-mgmt-page__command-grid--cleanup"
-            >
-              <AcuButton
-                block
-                :loading="flow.busyAction.value === 'delete-current-local'"
-                @click="onDeleteLocalData('current')"
-              >
-                删除当前标识本地数据
-              </AcuButton>
-              <AcuButton
-                block
-                variant="danger"
-                :loading="flow.busyAction.value === 'delete-all-local'"
-                @click="onDeleteLocalData('all')"
-              >
-                删除所有本地数据
-              </AcuButton>
-            </div>
           </section>
+
+          <div
+            class="acu-v2-data-mgmt-page__command-grid acu-v2-data-mgmt-page__command-grid--cleanup"
+          >
+            <AcuButton
+              block
+              :loading="flow.busyAction.value === 'delete-current-local'"
+              @click="onDeleteLocalData('current')"
+            >
+              删除当前标识本地数据
+            </AcuButton>
+            <AcuButton
+              block
+              variant="danger"
+              :loading="flow.busyAction.value === 'delete-all-local'"
+              @click="onDeleteLocalData('all')"
+            >
+              删除所有本地数据
+            </AcuButton>
+            <AcuButton
+              block
+              :loading="flow.busyAction.value === 'reset-defaults'"
+              @click="onResetAllDefaults"
+            >
+              恢复默认配置
+            </AcuButton>
+          </div>
         </AcuPanel>
       </div>
     </AcuPanelGrid>
@@ -240,9 +248,51 @@ import AcuMessage from "../components/_lib/AcuMessage.vue";
 import AcuPanel from "../components/_lib/AcuPanel.vue";
 import AcuPanelGrid from "../components/_lib/AcuPanelGrid.vue";
 import { useChatChangedTick } from "../composables/useChatChangedListener";
-import { useDataManagement } from "../composables/useDataManagement";
+import {
+  useDataManagement,
+  type ResetDefaultsCleanupKey,
+  type ResetDefaultsCleanupOptions,
+} from "../composables/useDataManagement";
 import { dataMgmtCopy } from "../copy/data-mgmt-copy";
 import { useDialogStore } from "../stores/dialog-store";
+
+const resetDefaultsCleanupOptions: Array<{
+  value: ResetDefaultsCleanupKey;
+  label: string;
+  description: string;
+  defaultChecked: boolean;
+}> = [
+  {
+    value: "restore-template-prompts",
+    label: "默认表格模板与提示词",
+    description: "恢复默认表格模板、填表提示词和合并总结提示词。",
+    defaultChecked: true,
+  },
+  {
+    value: "clear-template-snapshots",
+    label: "当前聊天表格模板快照",
+    description: "清理当前标识下由前端或角色卡导入的临时表格模板、预设快照和指导表。",
+    defaultChecked: true,
+  },
+  {
+    value: "clear-plot-snapshots",
+    label: "当前聊天剧情推进预设快照",
+    description: "清理当前聊天临时剧情推进覆盖，让它重新跟随全局设置。",
+    defaultChecked: true,
+  },
+  {
+    value: "clear-table-locks",
+    label: "当前聊天表格锁",
+    description: "清理当前聊天和当前标识下的表格行、列、单元格锁定状态。",
+    defaultChecked: true,
+  },
+  {
+    value: "clear-table-order",
+    label: "表格顺序缓存",
+    description: "清空旧的表格顺序缓存，后续按当前模板顺序重新显示。",
+    defaultChecked: true,
+  },
+];
 
 const dialogStore = useDialogStore();
 const flow = useDataManagement();
@@ -317,6 +367,29 @@ async function onDeleteLocalData(mode: "current" | "all"): Promise<void> {
   )
     return;
   void flow.deleteLocalData(mode);
+}
+
+async function onResetAllDefaults(): Promise<void> {
+  const selected = await dialogStore.selectMany<ResetDefaultsCleanupKey>({
+    title: "恢复默认配置",
+    message:
+      "选择本次要恢复或清理的项目。默认全选；取消某一项后会保留对应内容。此流程不会删除聊天正文、本地楼层数据、API 配置或全局预设库。",
+    options: resetDefaultsCleanupOptions,
+    confirmLabel: "按所选项目恢复",
+    confirmVariant: "danger",
+    requireNonEmpty: true,
+  });
+  if (!selected) return;
+
+  const selectedSet = new Set(selected);
+  const cleanup: ResetDefaultsCleanupOptions = {
+    restoreTemplateAndPrompts: selectedSet.has("restore-template-prompts"),
+    clearTemplateSnapshots: selectedSet.has("clear-template-snapshots"),
+    clearPlotSnapshots: selectedSet.has("clear-plot-snapshots"),
+    clearTableLocks: selectedSet.has("clear-table-locks"),
+    clearTableOrder: selectedSet.has("clear-table-order"),
+  };
+  void flow.resetAllDefaults(cleanup);
 }
 
 function refreshAll(): void {

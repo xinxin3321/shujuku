@@ -168,7 +168,6 @@ async function mountVectorIndexPage(opts: {
     clearAllSummaryVectorIndexCaches_ACU: clearCache,
   }));
   vi.doMock('../../../src/service/vector/summary-vector-index-chat-service', () => ({
-    recoverSummaryVectorIndexFromExternalSnapshotForCurrentChat_ACU: vi.fn(async () => false),
     deleteCurrentSummaryVectorIndexFromChat_ACU: deleteIndex,
   }));
 
@@ -176,7 +175,21 @@ async function mountVectorIndexPage(opts: {
   await mount.openAcuV2App();
   await new Promise(r => setTimeout(r, 0));
 
-  return { mount, settings, config, saveSettings, archiveSummary, migrateLegacy, inspectHealth, loadOrCreate, saveIndependent, updateLorebook, clearCache, deleteIndex, getStats };
+  return {
+    mount,
+    settings,
+    config,
+    saveSettings,
+    archiveSummary,
+    migrateLegacy,
+    inspectHealth,
+    loadOrCreate,
+    saveIndependent,
+    updateLorebook,
+    clearCache,
+    deleteIndex,
+    getStats,
+  };
 }
 
 beforeEach(() => {
@@ -404,6 +417,47 @@ describe('VectorIndexPage', () => {
     expect(inspectHealth).toHaveBeenCalledTimes(1);
     expect(migrateLegacy).not.toHaveBeenCalled();
     expect(document.body.textContent || '').toContain('当前没有可迁移的旧交火索引');
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('清空临时缓存按钮只调用缓存清理服务，不删除当前索引', async () => {
+    const { mount, clearCache, deleteIndex } = await mountVectorIndexPage();
+
+    const clearButton = Array.from(document.querySelectorAll('button'))
+      .find(b => /清空临时缓存/.test(b.textContent || '')) as HTMLButtonElement | undefined;
+    expect(clearButton).not.toBeUndefined();
+
+    clearButton!.click();
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(clearCache).toHaveBeenCalledTimes(1);
+    expect(deleteIndex).not.toHaveBeenCalled();
+    expect(document.body.textContent || '').toContain('交火索引临时缓存与热缓存已清空');
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('删除当前索引确认后调用当前聊天索引删除服务', async () => {
+    const { mount, deleteIndex } = await mountVectorIndexPage();
+
+    const deleteButton = Array.from(document.querySelectorAll('button'))
+      .find(b => /删除当前索引/.test(b.textContent || '')) as HTMLButtonElement | undefined;
+    expect(deleteButton).not.toBeUndefined();
+
+    deleteButton!.click();
+    const layer = await flushDialog();
+    expect(layer.textContent || '').toContain('删除当前聊天的交火索引');
+    const confirmButton = Array.from(layer.querySelectorAll<HTMLButtonElement>('button'))
+      .find(button => button.textContent?.includes('删除索引'));
+    expect(confirmButton).not.toBeUndefined();
+    confirmButton!.click();
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(deleteIndex).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent || '').toContain('当前聊天的交火索引已删除');
 
     mount.__resetAcuV2MountForTests();
   });

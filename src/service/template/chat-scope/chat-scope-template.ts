@@ -457,6 +457,132 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       return getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
   }
 
+  function clearLegacyHeaderGuideForIsolationKey_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+      const first = getChatFirstLayerMessage_ACU(chat);
+      if (!first) return false;
+
+      const raw = first[LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU];
+      if (!raw) return false;
+
+      const legacyObj = typeof raw === 'string'
+          ? safeJsonParse_ACU(raw, null)
+          : cloneScopedConfigData_ACU(raw, null);
+      if (!legacyObj || typeof legacyObj !== 'object' || Array.isArray(legacyObj)) return false;
+
+      const tags = legacyObj.tags;
+      if (!tags || typeof tags !== 'object' || Array.isArray(tags)) return false;
+
+      const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+      if (!Object.prototype.hasOwnProperty.call(tags, normalizedKey)) return false;
+
+      delete tags[normalizedKey];
+      if (Object.keys(tags).length === 0) {
+          delete first[LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU];
+          return true;
+      }
+
+      legacyObj.tags = tags;
+      if (typeof raw === 'string') {
+          const nextRaw = safeJsonStringify_ACU(legacyObj, '');
+          if (nextRaw) {
+              first[LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU] = nextRaw;
+          } else {
+              delete first[LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU];
+          }
+      } else {
+          first[LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU] = legacyObj;
+      }
+      return true;
+  }
+
+  export async function clearCurrentChatTemplateSnapshots_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU(), clearCurrentOverride = true, clearArchives = true, clearGuide = true, clearLegacyGuide = true, save = true } = {}) {
+      const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+      const first = getChatFirstLayerMessage_ACU(chat);
+      const result = {
+          isolationKey: normalizedKey,
+          removedCurrentScope: false,
+          removedArchives: 0,
+          removedGuide: false,
+          removedLegacyGuide: false,
+          changed: false,
+      };
+
+      if (!first) return result;
+
+      const hadScopedConfigField = Object.prototype.hasOwnProperty.call(first, CHAT_SCOPED_CONFIG_FIELD_ACU);
+      const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
+      let scopedConfigChanged = false;
+
+      if (clearCurrentOverride) {
+          if (container.template && typeof container.template === 'object' && !Array.isArray(container.template)) {
+              const slots = container.template as Record<string, any>;
+              if (Object.prototype.hasOwnProperty.call(slots, normalizedKey)) {
+                  delete slots[normalizedKey];
+                  result.removedCurrentScope = true;
+                  result.changed = true;
+                  scopedConfigChanged = true;
+              }
+              if (Object.keys(slots).length === 0) delete container.template;
+          } else if (container.template !== undefined) {
+              delete container.template;
+              result.removedCurrentScope = true;
+              result.changed = true;
+              scopedConfigChanged = true;
+          }
+      }
+
+      if (clearArchives) {
+          if (container.templateArchives && typeof container.templateArchives === 'object' && !Array.isArray(container.templateArchives)) {
+              const archiveSlots = container.templateArchives as Record<string, any>;
+              if (Object.prototype.hasOwnProperty.call(archiveSlots, normalizedKey)) {
+                  const rawEntries = archiveSlots[normalizedKey];
+                  result.removedArchives = Array.isArray(rawEntries) ? rawEntries.length : 1;
+                  delete archiveSlots[normalizedKey];
+                  result.changed = true;
+                  scopedConfigChanged = true;
+              }
+              if (Object.keys(archiveSlots).length === 0) delete container.templateArchives;
+          } else if (container.templateArchives !== undefined) {
+              delete container.templateArchives;
+              result.removedArchives = 1;
+              result.changed = true;
+              scopedConfigChanged = true;
+          }
+      }
+
+      const hasScopedPayload = Object.keys(container).some(key => key !== 'version');
+      if (scopedConfigChanged && hasScopedPayload) {
+          first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
+      } else if (!hasScopedPayload && hadScopedConfigField) {
+          delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
+          result.changed = true;
+      }
+
+      if (clearGuide) {
+          try {
+              result.removedGuide = !!clearChatSheetGuideDataForIsolationKey_ACU({ chat, isolationKey: normalizedKey });
+              result.changed = result.changed || result.removedGuide;
+          } catch (e) { logWarn_ACU('[模板作用域] clearChatSheetGuide 失败:', e); }
+      }
+
+      if (clearLegacyGuide) {
+          try {
+              result.removedLegacyGuide = clearLegacyHeaderGuideForIsolationKey_ACU({ chat, isolationKey: normalizedKey });
+              result.changed = result.changed || result.removedLegacyGuide;
+          } catch (e) { logWarn_ACU('[模板作用域] clearLegacyHeaderGuide 失败:', e); }
+      }
+
+      if (save && result.changed) {
+          try {
+              await saveChatToHost_ACU();
+          } catch (error) {
+              logWarn_ACU('[TemplateScope] 保存聊天级模板快照清理失败:', error);
+          }
+      }
+
+      return result;
+  }
+
   function clearCurrentChatTemplateScopeState_ACU({ isolationKey = getCurrentIsolationKey_ACU(), clearGuide = true, archiveCurrent = true } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       if (archiveCurrent) {

@@ -24,6 +24,7 @@ export {
     upsertChatTemplatePresetEntry_ACU,
     buildChatTemplatePresetLinkState_ACU,
     activateChatTemplatePresetSelection_ACU,
+    clearCurrentChatTemplateSnapshots_ACU,
     getCurrentChatTemplateScopeState_ACU,
     buildChatTemplateScopeStateFromCurrent_ACU,
     setCurrentChatTemplateScopeState_ACU,

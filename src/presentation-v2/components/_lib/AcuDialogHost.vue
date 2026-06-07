@@ -36,6 +36,29 @@
           />
         </label>
 
+        <div
+          v-if="renderedDialog.kind === 'multiselect'"
+          class="acu-dialog__checklist"
+        >
+          <AcuCheckbox
+            v-for="option in renderedDialog.checkboxOptions || []"
+            :key="option.value"
+            :model-value="dialog.checkedValues[option.value] === true"
+            :disabled="option.disabled"
+            @update:model-value="dialog.setCheckedValue(option.value, $event)"
+          >
+            <span class="acu-dialog__check-option">
+              <span class="acu-dialog__check-label">{{ option.label }}</span>
+              <span
+                v-if="option.description"
+                class="acu-dialog__check-description"
+              >
+                {{ option.description }}
+              </span>
+            </span>
+          </AcuCheckbox>
+        </div>
+
         <footer
           class="acu-dialog__actions"
           :class="{ 'acu-dialog__actions--stacked': isChoiceDialog }"
@@ -59,7 +82,7 @@
             </AcuButton>
             <AcuButton
               :variant="renderedDialog.confirmVariant || 'primary'"
-              :disabled="dialog.promptConfirmDisabled"
+              :disabled="dialog.confirmDisabled"
               @click="dialog.submitActive()"
             >
               {{ renderedDialog.confirmLabel || "确认" }}
@@ -78,6 +101,7 @@ import { acuClearTimeout, acuSetTimeout, type AcuTimerHandle } from "../../boots
 import { useDialogStore, type AcuDialogRequest } from "../../stores/dialog-store";
 import AcuBadge from "./AcuBadge.vue";
 import AcuButton from "./AcuButton.vue";
+import AcuCheckbox from "./AcuCheckbox.vue";
 import AcuInput from "./AcuInput.vue";
 
 const DIALOG_LEAVE_MS = 160;
@@ -195,6 +219,39 @@ watch(
   color: var(--acu-text-2);
   font-size: var(--acu-font-size-body, 12px);
   line-height: 1.4;
+}
+
+.acu-dialog__checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--acu-border);
+  border-radius: var(--acu-radius-sm);
+  background: color-mix(in srgb, var(--acu-bg-2) 74%, transparent);
+}
+
+.acu-dialog__checklist :deep(.acu-checkbox) {
+  width: 100%;
+}
+
+.acu-dialog__check-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.acu-dialog__check-label {
+  color: var(--acu-text-1);
+  font-weight: 600;
+}
+
+.acu-dialog__check-description {
+  color: var(--acu-text-3);
+  font-size: var(--acu-font-size-caption, 11px);
+  line-height: 1.45;
 }
 
 .acu-dialog__actions {

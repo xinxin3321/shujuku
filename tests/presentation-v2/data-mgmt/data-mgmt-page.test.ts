@@ -4,6 +4,7 @@
  * @vitest-environment jsdom
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_MERGE_SUMMARY_PROMPT_ACU } from '../../../src/shared/defaults-json.js';
 
 const STORAGE_KEY = 'acu_v2_ui_state';
 
@@ -27,7 +28,35 @@ function createSettings() {
     apiPresetBindingsByChat: {},
     contentOptimizationSettings: { apiPreset: '' },
     tableApiPresetOverridesByName: {},
+    plotSettings: {
+      enabled: true,
+      promptPresets: [
+        { name: '全局推进', prompts: [], plotTasks: [], contextExtractRules: [], contextExcludeRules: [] },
+      ],
+      lastUsedPresetName: '全局推进',
+      globalRevision: 1,
+      loopSettings: { quickReplyContent: [], currentPromptIndex: 0, maxRetries: 3 },
+      prompts: [],
+      plotTasks: [],
+    },
+    plotPresetBindings: {
+      'chat-data': { presetName: '聊天推进', source: 'ui', isExplicit: true, updatedAt: 1000 },
+      'other-chat': { presetName: '其他推进', source: 'ui', isExplicit: true, updatedAt: 1000 },
+    },
     retainRecentLayers: 100,
+    tableKeyOrder: ['sheet_b', 'sheet_a'],
+    manualSelectedTables: ['sheet_a'],
+    hasManualSelection: true,
+    importSelectedTables: ['sheet_b'],
+    hasImportTableSelection: true,
+    tableUpdateLocks: {
+      'chat-data::alpha': { sheet_a: { rows: [1], cols: [], cells: [] } },
+      'other-chat::alpha': { sheet_a: { rows: [2], cols: [], cells: [] } },
+    },
+    specialIndexLocks: {
+      'chat-data::alpha': { sheet_a: false },
+      'chat-data::beta': { sheet_a: false },
+    },
   } as any;
 }
 
@@ -61,6 +90,55 @@ async function mountDataMgmtPage() {
   const loadOrCreate = vi.fn(async () => ({ ok: true }));
   const refreshMerged = vi.fn(async () => ({ ok: true }));
   const applyTemplate = vi.fn(async () => ({ templateStr: '{}', templateObj: {} }));
+  const saveChatToHost = vi.fn(async () => undefined);
+  const chat = [
+    {
+      is_user: true,
+      mes: 'u',
+      TavernDB_ACU_ScopedConfig: {
+        version: 1,
+        plot: {
+          mode: 'chat_override',
+          presetName: '聊天推进',
+          snapshot: {
+            prompts: [],
+            plotTasks: [],
+            loopSettings: { quickReplyContent: [], currentPromptIndex: 0, maxRetries: 3 },
+          },
+          source: 'ui_import',
+          updatedAt: 1000,
+        },
+        template: {
+          alpha: { mode: 'chat_override', templateStr: '{"sheet_a":{}}' },
+          beta: { mode: 'chat_override', templateStr: '{"sheet_b":{}}' },
+        },
+        templateArchives: {
+          alpha: [
+            { archiveKey: 'alpha-a', mode: 'chat_override', templateStr: '{"sheet_a":{}}' },
+          ],
+          beta: [
+            { archiveKey: 'beta-a', mode: 'chat_override', templateStr: '{"sheet_b":{}}' },
+          ],
+        },
+      },
+      TavernDB_ACU_InternalSheetGuide: {
+        version: 2,
+        tags: {
+          alpha: { data: { mate: { type: 'chatSheets' }, sheet_a: { name: 'A', content: [['h']] } } },
+          beta: { data: { mate: { type: 'chatSheets' }, sheet_b: { name: 'B', content: [['h']] } } },
+        },
+      },
+      TavernDB_ACU_TableHeaderGuide: {
+        version: 1,
+        tags: {
+          alpha: { headers: [{ uid: 'sheet_a' }] },
+          beta: { headers: [{ uid: 'sheet_b' }] },
+        },
+      },
+    },
+    { is_user: false, TavernDB_ACU_IsolatedData: { alpha: {} } },
+    { is_user: false, TavernDB_ACU_IsolatedData: { alpha: {} } },
+  ] as any[];
 
   vi.stubGlobal('URL', {
     createObjectURL: vi.fn(() => 'blob:acu-test'),
@@ -79,6 +157,16 @@ async function mountDataMgmtPage() {
     getCurrentIsolationKey_ACU: () => settings.dataIsolationCode || '',
     coreApisAreReady_ACU: true,
   }));
+  vi.doMock('../../../src/data/gateways/chat-gateway', async () => {
+    const actual = await vi.importActual<any>('../../../src/data/gateways/chat-gateway');
+    return {
+      ...actual,
+      getChatArray_ACU: () => chat,
+      getChatLength_ACU: () => chat.length,
+      getLastMessageIndex_ACU: () => Math.max(0, chat.length - 1),
+      saveChatToHost_ACU: saveChatToHost,
+    };
+  });
   vi.doMock('../../../src/service/settings/settings-service', () => ({
     applyTemplateScopeForCurrentChat_ACU: applyTemplateScope,
     getDataIsolationHistory_ACU: () => [...isolationHistory],
@@ -88,11 +176,7 @@ async function mountDataMgmtPage() {
     applyCombinedSettingsImport_ACU: vi.fn(() => ['charCardPrompt']),
   }));
   vi.doMock('../../../src/service/chat/chat-service', () => ({
-    getChatArray_ACU: () => [
-      { is_user: true, mes: 'u' },
-      { is_user: false, TavernDB_ACU_IsolatedData: { alpha: {} } },
-      { is_user: false, TavernDB_ACU_IsolatedData: { alpha: {} } },
-    ],
+    getChatArray_ACU: () => chat,
     deleteLocalDataInChatCore_ACU: deleteLocalData,
     overrideLatestLayerWithTemplateCore_ACU: overrideLatest,
   }));
@@ -141,6 +225,8 @@ async function mountDataMgmtPage() {
     loadOrCreate,
     refreshMerged,
     applyTemplate,
+    saveChatToHost,
+    chat,
   };
 }
 
@@ -159,6 +245,17 @@ async function clickDialogButton(label: string): Promise<void> {
   expect(button).not.toBeUndefined();
   button!.click();
   await new Promise(r => setTimeout(r, 0));
+}
+
+async function clickDialogCheckbox(label: string): Promise<void> {
+  await Promise.resolve();
+  const layer = document.querySelector<HTMLElement>('.acu-dialog-layer');
+  expect(layer).not.toBeNull();
+  const checkbox = Array.from(layer!.querySelectorAll<HTMLButtonElement>('button[role="checkbox"]'))
+    .find(item => item.textContent?.includes(label));
+  expect(checkbox).not.toBeUndefined();
+  checkbox!.click();
+  await Promise.resolve();
 }
 
 describe('DataMgmtPage', () => {
@@ -234,6 +331,7 @@ describe('DataMgmtPage', () => {
     expect(sectionTitles).toEqual(['自动清理', '手动删除']);
     expect(cleanupPanel.textContent || '').toContain('保留数据层数');
     expect(cleanupPanel.textContent || '').toContain('删除当前标识本地数据');
+    expect(cleanupPanel.textContent || '').toContain('恢复默认配置');
 
     mount.__resetAcuV2MountForTests();
   });
@@ -396,6 +494,7 @@ describe('DataMgmtPage', () => {
     expect(localDataButtons.map(button => button.textContent?.trim() || '')).toEqual([
       '删除当前标识本地数据',
       '删除所有本地数据',
+      '恢复默认配置',
     ]);
     const button = isolationButtons
       .find(item => item.textContent?.includes('删除当前标识注入条目'));
@@ -425,6 +524,118 @@ describe('DataMgmtPage', () => {
     expect(settings.retainRecentLayers).toBe(30);
     expect(saveSettings).toHaveBeenCalled();
     expect(document.body.textContent || '').not.toContain('自动清理策略已保存：保留最近 30 层本地数据。');
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('恢复默认配置会恢复模板提示词并清理当前聊天快照、剧情预设和锁', async () => {
+    const {
+      mount,
+      settings,
+      chat,
+      applyTemplate,
+      saveSettings,
+      saveChatToHost,
+      loadOrCreate,
+      refreshMerged,
+    } = await mountDataMgmtPage();
+
+    const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+      .find(item => item.textContent?.includes('恢复默认配置'));
+    expect(button).not.toBeUndefined();
+    button!.click();
+    await Promise.resolve();
+
+    const dialogText = document.querySelector('.acu-dialog-layer')?.textContent || '';
+    expect(dialogText).toContain('默认表格模板与提示词');
+    expect(dialogText).toContain('合并总结提示词');
+    expect(dialogText).toContain('当前聊天表格模板快照');
+    expect(dialogText).toContain('当前聊天剧情推进预设快照');
+    expect(dialogText).toContain('当前聊天表格锁');
+    expect(dialogText).not.toContain('表格选择状态');
+    expect(dialogText).not.toContain('手动填表选择状态');
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>('button[role="checkbox"]'))
+      .every(item => item.getAttribute('aria-checked') === 'true')).toBe(true);
+
+    await clickDialogButton('按所选项目恢复');
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(applyTemplate).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      scope: 'global',
+      source: 'v2_reset_all_defaults',
+      presetName: '',
+      persistChatScope: false,
+    }));
+    expect(saveSettings).toHaveBeenCalled();
+    expect(saveChatToHost).toHaveBeenCalled();
+    expect(loadOrCreate).toHaveBeenCalled();
+    expect(refreshMerged).toHaveBeenCalled();
+
+    expect(settings.tableKeyOrder).toEqual([]);
+    expect(settings.manualSelectedTables).toEqual(['sheet_a']);
+    expect(settings.hasManualSelection).toBe(true);
+    expect(settings.importSelectedTables).toEqual(['sheet_b']);
+    expect(settings.hasImportTableSelection).toBe(true);
+    expect(settings.mergeSummaryPrompt).toBe(DEFAULT_MERGE_SUMMARY_PROMPT_ACU);
+    expect(settings.tableUpdateLocks['chat-data::alpha']).toBeUndefined();
+    expect(settings.tableUpdateLocks['other-chat::alpha']).toBeDefined();
+    expect(settings.specialIndexLocks['chat-data::alpha']).toBeUndefined();
+    expect(settings.specialIndexLocks['chat-data::beta']).toBeDefined();
+    expect(settings.plotPresetBindings['chat-data']).toBeUndefined();
+    expect(settings.plotPresetBindings['other-chat']).toBeDefined();
+    expect(settings.plotSettings.promptPresets.map((preset: any) => preset.name)).toContain('全局推进');
+
+    const first = chat[0];
+    expect(first.TavernDB_ACU_ScopedConfig.plot).toBeUndefined();
+    expect(first.TavernDB_ACU_ScopedConfig.template.alpha).toBeUndefined();
+    expect(first.TavernDB_ACU_ScopedConfig.template.beta).toBeDefined();
+    expect(first.TavernDB_ACU_ScopedConfig.templateArchives.alpha).toBeUndefined();
+    expect(first.TavernDB_ACU_ScopedConfig.templateArchives.beta).toBeDefined();
+    expect(first.TavernDB_ACU_InternalSheetGuide.tags.alpha).toBeUndefined();
+    expect(first.TavernDB_ACU_InternalSheetGuide.tags.beta).toBeDefined();
+    expect(first.TavernDB_ACU_TableHeaderGuide.tags.alpha).toBeUndefined();
+    expect(first.TavernDB_ACU_TableHeaderGuide.tags.beta).toBeDefined();
+    expect(document.body.textContent || '').toContain('已按所选项目恢复默认配置。');
+
+    mount.__resetAcuV2MountForTests();
+  });
+
+  it('恢复默认配置多选弹窗取消部分项目后会保留对应状态', async () => {
+    const {
+      mount,
+      settings,
+      chat,
+      applyTemplate,
+      saveChatToHost,
+    } = await mountDataMgmtPage();
+
+    const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+      .find(item => item.textContent?.includes('恢复默认配置'));
+    expect(button).not.toBeUndefined();
+    button!.click();
+    await Promise.resolve();
+    await clickDialogCheckbox('当前聊天表格锁');
+    await clickDialogButton('按所选项目恢复');
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(applyTemplate).toHaveBeenCalled();
+    expect(saveChatToHost).toHaveBeenCalled();
+    expect(settings.manualSelectedTables).toEqual(['sheet_a']);
+    expect(settings.hasManualSelection).toBe(true);
+    expect(settings.importSelectedTables).toEqual(['sheet_b']);
+    expect(settings.hasImportTableSelection).toBe(true);
+    expect(settings.tableUpdateLocks['chat-data::alpha']).toBeDefined();
+    expect(settings.specialIndexLocks['chat-data::alpha']).toBeDefined();
+    expect(settings.tableKeyOrder).toEqual([]);
+    expect(settings.plotPresetBindings['chat-data']).toBeUndefined();
+
+    const first = chat[0];
+    expect(first.TavernDB_ACU_ScopedConfig.plot).toBeUndefined();
+    expect(first.TavernDB_ACU_ScopedConfig.template.alpha).toBeUndefined();
 
     mount.__resetAcuV2MountForTests();
   });

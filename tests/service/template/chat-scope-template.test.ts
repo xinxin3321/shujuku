@@ -178,6 +178,7 @@ import {
   upsertChatTemplatePresetEntry_ACU,
   buildChatTemplatePresetLinkState_ACU,
   activateChatTemplatePresetSelection_ACU,
+  clearCurrentChatTemplateSnapshots_ACU,
   getCurrentChatTemplateScopeState_ACU,
   buildChatTemplateScopeStateFromCurrent_ACU,
   setCurrentChatTemplateScopeState_ACU,
@@ -190,9 +191,11 @@ beforeEach(() => {
   mockGetChatArray.mockReturnValue([]);
   mockGetChatFirstLayerMessage.mockReturnValue(null);
   mockGetChatScopedConfigContainer.mockReturnValue(null);
+  mockNormalizeChatScopedConfigContainer.mockImplementation((c: any) => c || { version: 1 });
   mockGetChatSheetGuideContainer.mockReturnValue({});
   mockParseTableTemplateJson.mockReturnValue({});
   mockEnsureSheetOrderNumbers.mockReturnValue(false);
+  mockCloneScopedConfigData.mockImplementation((data: any) => data ? JSON.parse(JSON.stringify(data)) : null);
   mockMigrateLegacyTemplateScope.mockReturnValue(null);
   mockGetChatSheetGuideData.mockReturnValue(null);
   mockReadProfileTemplate.mockReturnValue(null);
@@ -515,6 +518,96 @@ describe('activateChatTemplatePresetSelection_ACU', () => {
   it('无全局预设且无本地条目返回 false', async () => {
     const result = await activateChatTemplatePresetSelection_ACU('不存在的预设');
     expect(result).toBe(false);
+  });
+});
+
+// ═══ clearCurrentChatTemplateSnapshots_ACU ═══
+describe('clearCurrentChatTemplateSnapshots_ACU', () => {
+  it('无首条消息时返回未变更结果', async () => {
+    mockGetChatFirstLayerMessage.mockReturnValue(null);
+
+    const result = await clearCurrentChatTemplateSnapshots_ACU({ isolationKey: 'iso-key' });
+
+    expect(result.changed).toBe(false);
+    expect(result.removedCurrentScope).toBe(false);
+    expect(result.removedArchives).toBe(0);
+    expect(mockSaveChatToHost).not.toHaveBeenCalled();
+  });
+
+  it('清理当前隔离标识的模板覆盖、归档、指导表和旧版表头指导', async () => {
+    const firstMsg: any = {
+      _acu_table_header_guide: {
+        version: 1,
+        tags: {
+          'iso-key': { headers: [{ uid: 'sheet_0' }] },
+          other: { headers: [{ uid: 'sheet_1' }] },
+        },
+      },
+    };
+    const chat = [firstMsg];
+    mockGetChatArray.mockReturnValue(chat);
+    mockGetChatFirstLayerMessage.mockReturnValue(firstMsg);
+    mockGetChatScopedConfigContainer.mockReturnValue({
+      version: 1,
+      plot: {
+        'iso-key': { mode: 'chat_override' },
+      },
+      template: {
+        'iso-key': { mode: 'chat_override', templateStr: '{"sheet_0":{}}' },
+        other: { mode: 'chat_override', templateStr: '{"sheet_1":{}}' },
+      },
+      templateArchives: {
+        'iso-key': [
+          { archiveKey: 'a', mode: 'chat_override', templateStr: '{"sheet_0":{}}' },
+          { archiveKey: 'b', mode: 'chat_override', templateStr: '{"sheet_0":{}}' },
+        ],
+        other: [
+          { archiveKey: 'c', mode: 'chat_override', templateStr: '{"sheet_1":{}}' },
+        ],
+      },
+    });
+    mockClearChatSheetGuideData.mockReturnValue(true);
+
+    const result = await clearCurrentChatTemplateSnapshots_ACU({
+      isolationKey: 'iso-key',
+      save: true,
+    });
+
+    expect(result.changed).toBe(true);
+    expect(result.removedCurrentScope).toBe(true);
+    expect(result.removedArchives).toBe(2);
+    expect(result.removedGuide).toBe(true);
+    expect(result.removedLegacyGuide).toBe(true);
+    expect(firstMsg._acu_scoped_config.template['iso-key']).toBeUndefined();
+    expect(firstMsg._acu_scoped_config.template.other).toBeDefined();
+    expect(firstMsg._acu_scoped_config.templateArchives['iso-key']).toBeUndefined();
+    expect(firstMsg._acu_scoped_config.templateArchives.other).toBeDefined();
+    expect(firstMsg._acu_scoped_config.plot['iso-key']).toBeDefined();
+    expect(firstMsg._acu_table_header_guide.tags['iso-key']).toBeUndefined();
+    expect(firstMsg._acu_table_header_guide.tags.other).toBeDefined();
+    expect(mockClearChatSheetGuideData).toHaveBeenCalledWith({ chat, isolationKey: 'iso-key' });
+    expect(mockSaveChatToHost).toHaveBeenCalledTimes(1);
+  });
+
+  it('删除最后一个 scoped payload 时移除 scoped config 字段', async () => {
+    const firstMsg: any = { _acu_scoped_config: { version: 1 } };
+    mockGetChatArray.mockReturnValue([firstMsg]);
+    mockGetChatFirstLayerMessage.mockReturnValue(firstMsg);
+    mockGetChatScopedConfigContainer.mockReturnValue({
+      version: 1,
+      template: {
+        '': { mode: 'chat_override', templateStr: '{"sheet_0":{}}' },
+      },
+      templateArchives: {
+        '': [{ archiveKey: 'a', mode: 'chat_override', templateStr: '{"sheet_0":{}}' }],
+      },
+    });
+
+    const result = await clearCurrentChatTemplateSnapshots_ACU({ isolationKey: '', save: false });
+
+    expect(result.changed).toBe(true);
+    expect(firstMsg._acu_scoped_config).toBeUndefined();
+    expect(mockSaveChatToHost).not.toHaveBeenCalled();
   });
 });
 

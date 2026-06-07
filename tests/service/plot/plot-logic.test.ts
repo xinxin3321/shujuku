@@ -140,14 +140,17 @@ import {
   replaceCurrentPlotSettingsWithSnapshot_ACU,
   persistPlotPresetSelectionState_ACU,
   switchCurrentChatPlotPreset_ACU,
+  clearCurrentChatPlotPresetOverride_ACU,
   applyGlobalPlotPresetSelectionForEditor_ACU,
 } from '../../../src/service/plot/plot-logic';
 
 import { saveSettings_ACU } from '../../../src/service/settings/settings-service';
+import { saveChatToHost_ACU } from '../../../src/data/gateways/chat-gateway';
 import { getCurrentChatPlotScopeState_ACU, sanitizePlotSettingsSnapshotForChat_ACU, buildChatPlotScopeStateFromSettings_ACU, setCurrentChatPlotScopeState_ACU, clearCurrentChatPlotScopeState_ACU } from '../../../src/service/template/chat-scope';
 import { _set_currentEditablePlotPresetState_ACU, _set_activePlotEditorSettings_ACU, _set_currentPlotTaskEditorId_ACU } from '../../../src/service/plot/plot-state';
 
 beforeEach(() => {
+  vi.clearAllMocks();
   mockSettings.plotSettings = {
     promptPresets: [],
     lastUsedPresetName: '',
@@ -904,6 +907,60 @@ describe('switchCurrentChatPlotPreset_ACU', () => {
     mockSettings.plotSettings.loopSettings = { quickReplyContent: [], maxRetries: 3 };
     switchCurrentChatPlotPreset_ACU('预设A');
     expect(clearCurrentChatPlotScopeState_ACU).toHaveBeenCalled();
+  });
+});
+
+// ═══ clearCurrentChatPlotPresetOverride_ACU ═══
+describe('clearCurrentChatPlotPresetOverride_ACU', () => {
+  it('清理当前聊天剧情快照和绑定，并切回跟随全局', async () => {
+    vi.mocked(getCurrentChatPlotScopeState_ACU)
+      .mockReturnValueOnce({ presetName: '聊天预设', snapshot: {} } as any)
+      .mockReturnValueOnce({ presetName: '聊天预设', snapshot: {} } as any);
+    mockSettings.plotSettings.promptPresets = [{ name: '全局预设', contextExtractRules: [], contextExcludeRules: [] }];
+    mockSettings.plotSettings.lastUsedPresetName = '全局预设';
+    mockSettings.plotSettings.prompts = [];
+    mockSettings.plotSettings.loopSettings = { quickReplyContent: [], maxRetries: 3 };
+    mockSettings.plotPresetBindings = { 'test-chat': { presetName: '聊天预设', source: 'ui', isExplicit: true } };
+
+    const result = await clearCurrentChatPlotPresetOverride_ACU({ source: 'test_reset' });
+
+    expect(result.changed).toBe(true);
+    expect(result.clearedChatScope).toBe(true);
+    expect(result.clearedBinding).toBe(true);
+    expect(result.activePresetName).toBe('全局预设');
+    expect(result.followsGlobal).toBe(true);
+    expect(clearCurrentChatPlotScopeState_ACU).toHaveBeenCalled();
+    expect(mockSettings.plotPresetBindings['test-chat']).toBeUndefined();
+    expect(mockSettings.plotSettings.promptPresets.map((preset: any) => preset.name)).toContain('全局预设');
+    expect(saveSettings_ACU).toHaveBeenCalled();
+    expect(saveChatToHost_ACU).toHaveBeenCalled();
+  });
+
+  it('saveSettings=false 时不立即保存设置，但仍可保存聊天快照清理', async () => {
+    vi.mocked(getCurrentChatPlotScopeState_ACU)
+      .mockReturnValueOnce({ presetName: '聊天预设', snapshot: {} } as any)
+      .mockReturnValueOnce({ presetName: '聊天预设', snapshot: {} } as any);
+    mockSettings.plotSettings.promptPresets = [];
+    mockSettings.plotSettings.lastUsedPresetName = '';
+    mockSettings.plotPresetBindings = { 'test-chat': { presetName: '聊天预设', source: 'ui', isExplicit: true } };
+
+    await clearCurrentChatPlotPresetOverride_ACU({
+      source: 'test_reset',
+      saveSettings: false,
+      saveChat: true,
+    });
+
+    expect(saveSettings_ACU).not.toHaveBeenCalled();
+    expect(saveChatToHost_ACU).toHaveBeenCalled();
+  });
+
+  it('没有 plotSettings 时返回未变更结果', async () => {
+    mockSettings.plotSettings = null;
+
+    const result = await clearCurrentChatPlotPresetOverride_ACU();
+
+    expect(result.changed).toBe(false);
+    expect(result.followsGlobal).toBe(false);
   });
 });
 
