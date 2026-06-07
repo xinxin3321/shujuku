@@ -13,7 +13,7 @@ import { allocConsecutiveOrderBlock_ACU, applyPlacementToEntry_ACU, buildDefault
 // pipeline.ts
 // 从 05_core_tail.js 迁入
 
-export   async function updateReadableLorebookEntry_ACU(createIfNeeded = false, isImport = false, targetLorebookOverride: string | null = null) { // [外部导入] 添加 targetLorebookOverride 参数，避免临时修改 worldbookConfig 被兜底补齐逻辑覆盖
+export   async function updateReadableLorebookEntry_ACU(createIfNeeded = false, isImport = false, targetLorebookOverride: string | null = null, dataOverride: Record<string, any> | null = null) { // [外部导入] 添加 targetLorebookOverride 参数，避免临时修改 worldbookConfig 被兜底补齐逻辑覆盖
     // [健全性] 新对话开场白阶段：禁止自动创建/更新世界书条目
     // - 仅影响非导入流程（isImport=false）
     // - 仅在“无任何用户消息”的开场白阶段生效
@@ -35,12 +35,16 @@ export   async function updateReadableLorebookEntry_ACU(createIfNeeded = false, 
 
     // [新增] 分别从最新的标准表和总结表数据源中拉取数据并合并
     let mergedData = null;
-    
-    if (isImport) {
+
+    if (dataOverride) {
+        // 填表保存后调用方已经持有本轮权威快照，不需要再从聊天历史回放。
+        mergedData = JSON.parse(JSON.stringify(dataOverride));
+        _set_currentJsonTableData_ACU(mergedData);
+    } else if (isImport) {
         // 外部导入时，直接使用 currentJsonTableData_ACU
         mergedData = currentJsonTableData_ACU;
     } else {
-        // 正常更新时，使用全表合并逻辑从整段聊天记录提取每张表的最新版本
+        // 冷启动/切换聊天/显式刷新时，才使用全表合并逻辑从整段聊天记录恢复最新版本。
         await loadAllChatMessages_ACU();
         const mergedFromHistory = await mergeAllIndependentTables_ACU();
         if (mergedFromHistory) {

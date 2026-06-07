@@ -122,6 +122,28 @@ describe('prepareAIInput_ACU — SQL 模式', () => {
     expect(result!.tableDataText).toContain('Columns:');
   });
 
+  it('首个真实 AI 回复前，SQL 模式会把 seedRows 作为当前数据发给 AI', async () => {
+    mockGetEffectiveSeedRows.mockReturnValue([['1', '格里芬临时基地-指挥室', '2062-07-18 14:35', 1]]);
+    mockCurrentJsonTableData = {
+      sheet_0: {
+        name: '当前位置',
+        sourceData: {
+          ddl: 'CREATE TABLE global_state (row_id INTEGER PRIMARY KEY, current_location TEXT, cur_time TEXT, day_count INTEGER);',
+          note: '记录当前位置。',
+        },
+        content: [['row_id', '当前位置', '当前时间', '天数']],
+        updateConfig: {},
+      },
+    };
+
+    const result = await prepareAIInput_ACU([], 'standard');
+
+    expect(result).not.toBeNull();
+    expect(result!.tableDataText).toContain('-- 当前数据 (1 rows)');
+    expect(result!.tableDataText).toContain('-- | 1 | 格里芬临时基地-指挥室 | 2062-07-18 14:35 | 1 |');
+    expect(result!.tableDataText).not.toContain('-- (该表格为空，请进行初始化。)');
+  });
+
   it('SQL 编辑格式说明被追加到 tableDataText 末尾', async () => {
     mockCurrentJsonTableData = {
       sheet_0: {

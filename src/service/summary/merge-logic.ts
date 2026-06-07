@@ -10,7 +10,7 @@ import { getLastMessageIndex_ACU } from '../../data/gateways/chat-gateway';
 import { getHostRequestHeaders_ACU } from '../../data/gateways/ai-gateway';
 import { updateReadableLorebookEntry_ACU } from '../worldbook/pipeline';
 import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
-import { saveIndependentTableToChatHistory_ACU } from '../table/table-service';
+import { runTableUpdateCommit_ACU } from '../table/table-update-commit';
 import { extractTableEditInner_ACU } from '../ai/prompt-builder';
 
 // ═══ 自动合并纪要：触发检查 ═══
@@ -304,7 +304,25 @@ export async function finalizeAutoMerge_ACU(
     });
 
     const keysToSave = [summaryKey];
-    await saveIndependentTableToChatHistory_ACU(getLastMessageIndex_ACU(), keysToSave, keysToSave);
+    const writeSet = keysToSave.map(sheetKey => ({ kind: 'sheet' as const, sheetKey }));
+    await runTableUpdateCommit_ACU<null>({
+        source: 'merge_summary',
+        reason: 'auto_merge_summary',
+        writeSet,
+        revisionWriteSet: writeSet,
+        initialData: currentJsonTableData_ACU as any,
+        targetMessageIndex: getLastMessageIndex_ACU(),
+        targetSheetKeys: keysToSave,
+        updateGroupKeys: keysToSave,
+        trackingSheetKeys: keysToSave,
+        trackAsUpdate: true,
+        operations: [{ kind: 'sheet_replace', sheetKey: summaryKey, sheet: (currentJsonTableData_ACU as any)[summaryKey], reason: 'system' }],
+    }, () => ({
+        success: true,
+        value: null,
+        tableData: currentJsonTableData_ACU as any,
+        mutationResult: { changes: keysToSave.length, errors: [] },
+    }));
     await updateReadableLorebookEntry_ACU(true);
 
     return { mergedRows: accumulatedSummary.length };

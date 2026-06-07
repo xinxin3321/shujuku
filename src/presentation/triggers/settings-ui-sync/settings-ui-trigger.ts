@@ -18,8 +18,8 @@ import { $popupInstance_ACU, $customApiUrlInput_ACU, $customApiKeyInput_ACU, $cu
 import { saveSettingsAndNotify_ACU, loadSettingsAndRefreshUI_ACU } from '../../components/settings-ui-helpers';
 import { processUpdates_ACU } from '../update-process';
 import { getSortedSheetKeys_ACU } from '../../../service/template/chat-scope';
-import { loadAllChatMessages_ACU } from '../../../service/worldbook/pipeline';
-import { refreshMergedDataAndNotifyWithUI_ACU } from '../../components/pipeline-ui-helpers';
+import { loadAllChatMessages_ACU, updateReadableLorebookEntry_ACU } from '../../../service/worldbook/pipeline';
+import { getStorageProvider } from '../../../service/table/table-storage-strategy';
 import { SCRIPT_ID_PREFIX_ACU } from '../../../shared/constants';
 import { escapeHtml_ACU, renderStopButton_ACU } from '../../../shared/html-helpers';
 import { topLevelWindow_ACU } from '../../../shared/env';
@@ -73,6 +73,16 @@ function clearAutoUpdateToast_ACU(loadingToast: any) {
     }
 }
 
+async function refreshRuntimeDataAndNotifyAfterAutoUpdate_ACU(): Promise<void> {
+    const data = getStorageProvider().getCurrentData() || currentJsonTableData_ACU;
+    if (data) {
+        await updateReadableLorebookEntry_ACU(true, false, null, data);
+    }
+    try {
+        (topLevelWindow_ACU as any).AutoCardUpdaterAPI?._notifyTableUpdate?.();
+    } catch (_) {}
+}
+
 function handleAutoGroupedProgressEvent_ACU(event: CardUpdateProgressEvent, loadingToast?: any) {
     const message = buildAutoUpdateProgressMessage_ACU(event);
     updateAutoUpdateToastMessage_ACU(loadingToast, message);
@@ -89,9 +99,17 @@ function handleAutoGroupedProgressEvent_ACU(event: CardUpdateProgressEvent, load
     }
 }
 
+let autoUpdateTriggerInFlight_ACU = false;
+
   export async function triggerAutomaticUpdateIfNeeded_ACU() {
     logDebug_ACU('ACU Auto-Trigger: Starting independent check...');
+    if (autoUpdateTriggerInFlight_ACU) {
+      logDebug_ACU('ACU Auto-Trigger: trigger already in flight. Skipping.');
+      return;
+    }
+    autoUpdateTriggerInFlight_ACU = true;
 
+    try {
     // [重构] 调用 service 层前置检查
     const preCheck = checkAutoUpdatePreConditions_ACU(
         settings_ACU,
@@ -190,7 +208,7 @@ function handleAutoGroupedProgressEvent_ACU(event: CardUpdateProgressEvent, load
                         },
                     }
                     : {}),
-                refreshData: () => refreshMergedDataAndNotifyWithUI_ACU(),
+                refreshData: () => refreshRuntimeDataAndNotifyAfterAutoUpdate_ACU(),
                 loadAllChatMessages: () => loadAllChatMessages_ACU(),
                 purgeOldLayerData: () => purgeOldLayerData_ACU(),
             }
@@ -208,6 +226,9 @@ function handleAutoGroupedProgressEvent_ACU(event: CardUpdateProgressEvent, load
         try { (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate(); } catch (_) {}
     }
     if (typeof updateCardUpdateStatusDisplay_ACU === 'function') updateCardUpdateStatusDisplay_ACU();
+    } finally {
+      autoUpdateTriggerInFlight_ACU = false;
+    }
   }
 
   export function collectManualExtraHint_ACU() {

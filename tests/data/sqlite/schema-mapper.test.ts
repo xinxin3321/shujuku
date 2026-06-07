@@ -346,6 +346,21 @@ describe('validateDDLAgainstHeaders', () => {
     expect(result.mismatches).toHaveLength(0);
   });
 
+  it('中文“行号”表头视为 row_id 别名，不导致 DDL/表头错位误报', () => {
+    const ddl = `CREATE TABLE tdoll_construction (
+      row_id INTEGER PRIMARY KEY, -- 行号
+      start_time TEXT, -- 开始时间
+      construction_time TEXT, -- 建造时间
+      cost_manpower INTEGER, -- 消耗人力
+      cost_ammo INTEGER, -- 消耗弹药
+      cost_ration INTEGER, -- 消耗口粮
+      cost_parts INTEGER -- 消耗零件
+    );`;
+    const result = validateDDLAgainstHeaders(ddl, ['行号', '开始时间', '建造时间', '消耗人力', '消耗弹药', '消耗口粮', '消耗零件']);
+    expect(result.valid).toBe(true);
+    expect(result.mismatches).toHaveLength(0);
+  });
+
   it('列数不匹配时报告', () => {
     const ddl = `CREATE TABLE test (
       row_id INTEGER PRIMARY KEY,

@@ -5,7 +5,7 @@
 
 import { getChatArray_ACU, saveChatToHost_ACU } from '../../data/gateways/chat-gateway';
 import { logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
-import { currentChatFileIdentifier_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU } from '../runtime/state-manager';
+import { currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU } from '../runtime/state-manager';
 import { applyTemplateScopeForCurrentChat_ACU } from '../settings/settings-service';
 import {
   attachSeedRowsToCurrentDataFromGuide_ACU,
@@ -21,7 +21,10 @@ import { deleteAllGeneratedEntries_ACU } from '../worldbook/pipeline';
 import { mergeAllIndependentTables_ACU } from '../runtime/helpers-remaining';
 import { cloneIsolatedData_ACU, writeIsolatedTagData_ACU, writeMessageIdentity_ACU, readIsolatedTagData_ACU, readLegacyIndependentData_ACU, isLegacyMatchForIsolation_ACU } from '../../data/repositories/chat-message-data-repo';
 import { applyTableDelta_ACU, buildTableDelta_ACU, isDeltaTagData_ACU } from './table-delta';
-import { buildTableUpdateApplyScopeKey_ACU, runTableUpdateApplyWithScopeLock_ACU } from './table-update-queue';
+import { isV2TagData_ACU, resolveTableStorageStrategy_ACU } from './storage-strategy-resolver';
+import { persistTableMutationLogV2_ACU } from './storage-frame-v2-persist';
+import type { TableMutationOperationV2_ACU, TableMutationSourceV2_ACU, TableWriteConflictUnitV2_ACU } from './storage-frame-v2-types';
+import type { TableWriteTransactionContext_ACU } from './table-write-transaction';
 import type { TableDataObject_ACU } from '../../shared/models/table-data';
 
 export interface TableChatPersistOptions_ACU {
@@ -36,17 +39,141 @@ export interface TableChatPersistOptions_ACU {
   trackingSheetKeys?: string[] | null;
   tableData?: TableDataObject_ACU | null;
   trackAsUpdate?: boolean;
+  source?: TableMutationSourceV2_ACU;
+  requestId?: string;
+  batchId?: string;
+  operations?: TableMutationOperationV2_ACU[];
+  baseRevision?: string | null;
+  revisionWriteSet?: TableWriteConflictUnitV2_ACU[];
+  /** 调用方已处于 transactionContext.runCommit 临界区内时使用，避免嵌套 commit 锁。 */
+  assumeCommitLock?: boolean;
+  transactionContext?: TableWriteTransactionContext_ACU;
 }
+
+const TABLE_PERSIST_COMMIT_MODEL_REQUIRED_ACU = 'Table persistence requires table update commit model; direct unsafe writes are not allowed.';
 
 export async function persistTablesToChatMessage_ACU(
   options: TableChatPersistOptions_ACU = {},
 ): Promise<{ saved: boolean; messageIndex?: number; error?: string }> {
-  return persistTablesToChatMessageWithLockOption_ACU(options, true);
+  if (!options.transactionContext || options.assumeCommitLock !== true) {
+    logError_ACU(TABLE_PERSIST_COMMIT_MODEL_REQUIRED_ACU);
+    return { saved: false, error: TABLE_PERSIST_COMMIT_MODEL_REQUIRED_ACU };
+  }
+  return persistTablesToChatMessageWithLockOption_ACU(options);
 }
 
 async function persistTablesToChatMessageWithLockOption_ACU(
   options: TableChatPersistOptions_ACU = {},
-  useScopeLock: boolean,
+): Promise<{ saved: boolean; messageIndex?: number; error?: string }> {
+  const {
+    targetMessageIndex = -1,
+    targetSheetKeys = null,
+    updateGroupKeys = null,
+    trackingSheetKeys,
+    tableData: explicitTableData,
+    trackAsUpdate = true,
+    source,
+    requestId,
+    batchId,
+    operations,
+    revisionWriteSet,
+    assumeCommitLock,
+    transactionContext,
+  } = options;
+
+  const effectiveTableData = explicitTableData !== undefined ? explicitTableData : currentJsonTableData_ACU;
+  if (!effectiveTableData) {
+    logError_ACU('Save aborted: currentJsonTableData_ACU is null.');
+    return { saved: false, error: 'currentJsonTableData is null' };
+  }
+
+  const currentIsolationKey = getCurrentIsolationKey_ACU();
+
+  const persistCore = async () => {
+    const chat = getChatArray_ACU();
+    if (!chat || chat.length === 0) {
+      logError_ACU('Save failed: Chat history is empty.');
+      return { saved: false, error: 'chat history is empty' };
+    }
+
+    const strategy = resolveTableStorageStrategy_ACU(chat, currentIsolationKey, {
+      enabled: settings_ACU.dataIsolationEnabled,
+      code: settings_ACU.dataIsolationCode,
+    });
+
+    if (strategy.mode === 'legacy-v1') {
+      const message = 'legacy-v1 table storage must be migrated during database load before any write; write-time fallback is not allowed.';
+      logError_ACU(message);
+      return { saved: false, error: message };
+    }
+
+    let keysToSave: string[] = Array.isArray(targetSheetKeys)
+      ? targetSheetKeys.filter((sheetKey): sheetKey is string => typeof sheetKey === 'string' && sheetKey.length > 0)
+      : getSortedSheetKeys_ACU(effectiveTableData);
+    keysToSave = [...new Set(keysToSave.filter(sheetKey => Boolean(effectiveTableData[sheetKey])))];
+
+    const changedCandidateKeys = Array.isArray(trackingSheetKeys)
+      ? trackingSheetKeys.filter((sheetKey): sheetKey is string => typeof sheetKey === 'string' && sheetKey.length > 0)
+      : keysToSave;
+    const trackingKeySet = new Set(
+      changedCandidateKeys.filter(sheetKey => Boolean(effectiveTableData[sheetKey]))
+    );
+    const metadataOnlyUpdateGroupKeys = Array.isArray(updateGroupKeys)
+      ? [...new Set(updateGroupKeys.filter(sheetKey => typeof sheetKey === 'string' && Boolean(effectiveTableData[sheetKey])))]
+      : [];
+
+    try {
+      const existingGuide = getChatSheetGuideDataForIsolationKey_ACU(currentIsolationKey);
+      if (!existingGuide || !Object.keys(existingGuide).some(k => k.startsWith('sheet_'))) {
+        const templateObjForSeed = parseTableTemplateJson_ACU({ stripSeedRows: false });
+        const guideData = buildChatSheetGuideDataFromData_ACU(effectiveTableData, {
+          preserveSeedRowsFromGuideData: null,
+          seedRowsFromTemplateObj: templateObjForSeed,
+        });
+        if (guideData && Object.keys(guideData).some(k => k.startsWith('sheet_'))) {
+          setChatSheetGuideDataForIsolationKey_ACU(currentIsolationKey, guideData, { reason: 'first_fill' });
+          logDebug_ACU(`[SheetGuide] Created chat sheet guide for tag [${currentIsolationKey || '无标签'}] (tables=${Object.keys(guideData).filter(k => k.startsWith('sheet_')).length}).`);
+        }
+      }
+    } catch (e) {
+      logWarn_ACU('[SheetGuide] Failed to create sheet guide on first fill:', e);
+    }
+
+    const persistV2InTransaction = async (transactionContext: TableWriteTransactionContext_ACU) => {
+      const result = await persistTableMutationLogV2_ACU({
+        targetMessageIndex,
+        source: source || (metadataOnlyUpdateGroupKeys.length > 0 ? 'group_fill' : 'system'),
+        afterData: effectiveTableData,
+        operations,
+        filledSheetKeys: trackAsUpdate ? metadataOnlyUpdateGroupKeys : [],
+        candidateChangedSheetKeys: [...trackingKeySet],
+        groupKeys: metadataOnlyUpdateGroupKeys,
+        requestId,
+        batchId,
+        forceCheckpoint: strategy.mode === 'empty',
+        checkpointReason: strategy.mode === 'empty' ? 'init' : undefined,
+        isolationKey: currentIsolationKey,
+        revisionWriteSet,
+        assumeCommitLock,
+        transactionContext,
+      });
+
+      return { saved: result.saved, messageIndex: result.messageIndex, error: result.error };
+    };
+
+    if (!transactionContext || assumeCommitLock !== true) {
+      logError_ACU(TABLE_PERSIST_COMMIT_MODEL_REQUIRED_ACU);
+      return { saved: false, error: TABLE_PERSIST_COMMIT_MODEL_REQUIRED_ACU };
+    }
+
+    return persistV2InTransaction(transactionContext);
+  };
+
+  return persistCore();
+}
+
+async function persistTablesToChatMessageLegacyV1WithLockOption_ACU(
+  options: TableChatPersistOptions_ACU = {},
 ): Promise<{ saved: boolean; messageIndex?: number; error?: string }> {
   const {
     targetMessageIndex = -1,
@@ -70,11 +197,6 @@ async function persistTablesToChatMessageWithLockOption_ACU(
   }
 
   const currentIsolationKey = getCurrentIsolationKey_ACU();
-  const scopeKey = buildTableUpdateApplyScopeKey_ACU({
-    chatKey: currentChatFileIdentifier_ACU,
-    isolationKey: currentIsolationKey,
-    targetMessageIndex,
-  });
 
   const persistCore = async () => {
     const chat = getChatArray_ACU();
@@ -307,53 +429,27 @@ async function persistTablesToChatMessageWithLockOption_ACU(
     return { saved: true, messageIndex: finalIndex };
   };
 
-  if (!useScopeLock) {
-    return persistCore();
-  }
-
-  return runTableUpdateApplyWithScopeLock_ACU(scopeKey, persistCore);
+  return persistCore();
 }
 
 /**
- * 保存独立表格数据到聊天记录。
- * 返回 { saved: boolean, messageIndex?: number, error?: string }
- * 注意：不再内部调用 refreshMergedDataAndNotify，调用方按需自行刷新。
+ * @deprecated 旧兼容写入口已收口禁用。所有表格写入必须走 runTableUpdateCommit_ACU。
  */
 export async function saveIndependentTableToChatHistory_ACU(
-  targetMessageIndex = -1,
-  targetSheetKeys: string[] | null = null,
-  updateGroupKeys: string[] | null = null,
+  _targetMessageIndex = -1,
+  _targetSheetKeys: string[] | null = null,
+  _updateGroupKeys: string[] | null = null,
   _skipPostRefresh = false,
-  trackingSheetKeys: string[] | null = targetSheetKeys,
+  _trackingSheetKeys: string[] | null = _targetSheetKeys,
+  _source?: TableMutationSourceV2_ACU,
+  _requestId?: string,
+  _batchId?: string,
+  _transactionContext?: TableWriteTransactionContext_ACU,
+  _operations?: TableMutationOperationV2_ACU[],
+  _revisionWriteSet?: TableWriteConflictUnitV2_ACU[],
 ): Promise<{ saved: boolean; messageIndex?: number; error?: string }> {
-  return persistTablesToChatMessage_ACU({
-    targetMessageIndex,
-    targetSheetKeys,
-    updateGroupKeys,
-    trackingSheetKeys,
-    trackAsUpdate: true,
-  });
-}
-
-/**
- * 在调用方已经持有 table update scope 锁时保存独立表格数据。
- * 仅供同 scope 的 parse/apply/save 连续临界区使用；外部普通调用必须继续使用
- * saveIndependentTableToChatHistory_ACU，避免绕过目标楼层串行保护。
- */
-export async function saveIndependentTableToChatHistoryWithinScopeLock_ACU(
-  targetMessageIndex = -1,
-  targetSheetKeys: string[] | null = null,
-  updateGroupKeys: string[] | null = null,
-  _skipPostRefresh = false,
-  trackingSheetKeys: string[] | null = targetSheetKeys,
-): Promise<{ saved: boolean; messageIndex?: number; error?: string }> {
-  return persistTablesToChatMessageWithLockOption_ACU({
-    targetMessageIndex,
-    targetSheetKeys,
-    updateGroupKeys,
-    trackingSheetKeys,
-    trackAsUpdate: true,
-  }, false);
+  logError_ACU(TABLE_PERSIST_COMMIT_MODEL_REQUIRED_ACU);
+  return { saved: false, error: TABLE_PERSIST_COMMIT_MODEL_REQUIRED_ACU };
 }
 
 /**
@@ -369,7 +465,23 @@ export async function checkIfFirstTimeInit_ACU(): Promise<boolean> {
     const message = chat[i];
     if (message.is_user) continue;
 
-    const tagData = readIsolatedTagData_ACU(message, currentIsolationKey);
+    const tagData = readIsolatedTagData_ACU(message, currentIsolationKey) as any;
+    if (isV2TagData_ACU(tagData)) {
+      const checkpointData = tagData.storageFrame?.checkpoint?.data;
+      if (checkpointData && Object.keys(checkpointData).some(k => k.startsWith('sheet_'))) {
+        return false;
+      }
+      const hasV2SheetOperation = (tagData.storageFrame?.logEntries || []).some((entry: any) =>
+        Array.isArray(entry?.operations) && entry.operations.some((operation: any) => {
+          if (operation?.kind === 'sheet_replace') return typeof operation.sheetKey === 'string' && operation.sheetKey.startsWith('sheet_');
+          if (operation?.kind === 'row_upsert' || operation?.kind === 'row_delete' || operation?.kind === 'meta_update') return typeof operation.sheetKey === 'string' && operation.sheetKey.startsWith('sheet_');
+          if (operation?.kind === 'data_replace') return operation.data && Object.keys(operation.data).some((k: string) => k.startsWith('sheet_'));
+          if (operation?.kind === 'sql_batch') return Array.isArray(operation.statements) && operation.statements.length > 0;
+          return false;
+        })
+      );
+      if (hasV2SheetOperation) return false;
+    }
     if (tagData?.independentData && Object.keys(tagData.independentData).some(k => k.startsWith('sheet_'))) {
       return false;
     }

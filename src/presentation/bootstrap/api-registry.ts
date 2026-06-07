@@ -15,6 +15,7 @@ import { createPlotPresetApi } from './api-groups/plot-preset-api';
 import { createDataAdminApi } from './api-groups/data-admin-api';
 import { createSettingsConfigApi } from './api-groups/settings-config-api';
 import { createWorldbookAiApi } from './api-groups/worldbook-ai-api';
+import { createSqlApi } from './api-groups/sql-api';
 
 // --- 共享状态（回调数组） ---
 const tableUpdateCallbacks: Function[] = [];
@@ -40,6 +41,7 @@ const api = Object.assign(
     createDataAdminApi(ctx),
     createSettingsConfigApi(ctx),
     createWorldbookAiApi(ctx),
+    createSqlApi(ctx),
 );
 
 // 将最终组装的 api 赋给 apiRef，使 ctx.getApi() 返回完整对象

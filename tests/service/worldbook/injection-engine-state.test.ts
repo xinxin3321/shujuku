@@ -18,6 +18,7 @@ const {
   mockCleanChatName, mockGetChatFirstLayerMessage, mockLogDebug, mockLogError, mockLogWarn,
   mockLoadOrCreateJsonTableFromChatHistory,
   mockPurgeSheetKeysFromMessage,
+  mockRunTableWriteTransaction,
   mockCHAT_SHEET_GUIDE_FIELD,
   mockListLorebooks,
 } = vi.hoisted(() => ({
@@ -59,6 +60,15 @@ const {
   mockLogWarn: vi.fn(),
   mockLoadOrCreateJsonTableFromChatHistory: vi.fn(async () => {}),
   mockPurgeSheetKeysFromMessage: vi.fn(() => false),
+  mockRunTableWriteTransaction: vi.fn(async (_options: any, task: any) => task({
+    transactionId: 'tx-cleanup-test',
+    chatKey: 'test-chat',
+    isolationKey: '',
+    source: _options.source,
+    baseRevision: null,
+    writeSet: _options.writeSet,
+    runCommit: async (commitTask: any) => commitTask(),
+  })),
   mockCHAT_SHEET_GUIDE_FIELD: 'chatSheetGuide',
 }));
 
@@ -75,6 +85,7 @@ vi.mock('../../../src/service/runtime/state-manager', () => ({
   get currentChatFileIdentifier_ACU() { return mockCurrentChatFileIdentifier.value; },
   get currentJsonTableData_ACU() { return mockCurrentJsonTableData.value; },
   get generationGate_ACU() { return mockGenerationGate; },
+  getCurrentIsolationKey_ACU: vi.fn(() => ''),
   _set_currentChatFileIdentifier_ACU: mockSetCurrentChatFileIdentifier,
   _set_allChatMessages_ACU: mockSetAllChatMessages,
   _set_lastTotalAiMessages_ACU: mockSetLastTotalAiMessages,
@@ -122,6 +133,10 @@ vi.mock('../../../src/data/repositories/chat-message-data-repo', () => ({
   purgeSheetKeysFromMessage_ACU: mockPurgeSheetKeysFromMessage,
 }));
 
+vi.mock('../../../src/service/table/table-write-transaction', () => ({
+  runTableWriteTransaction_ACU: mockRunTableWriteTransaction,
+}));
+
 import {
   resetScriptStateForNewChat_ACU,
   getInjectionTargetLorebook_ACU,
@@ -141,6 +156,15 @@ beforeEach(() => {
   mockGenerationGate.lastUserMessageAt = 0;
   mockGenerationGate.lastUserSendIntentAt = 0;
   mockGenerationGate.lastGeneration = null;
+  mockRunTableWriteTransaction.mockImplementation(async (_options: any, task: any) => task({
+    transactionId: 'tx-cleanup-test',
+    chatKey: 'test-chat',
+    isolationKey: '',
+    source: _options.source,
+    baseRevision: null,
+    writeSet: _options.writeSet,
+    runCommit: async (commitTask: any) => commitTask(),
+  }));
 });
 
 // ═══ getIsolationPrefix_ACU ═══
@@ -245,6 +269,22 @@ describe('purgeSheetKeysFromChatHistoryHard_ACU', () => {
     expect(result.changed).toBe(true);
     expect(result.changedCount).toBe(1);
     expect(mockSaveChatToHost).toHaveBeenCalled();
+  });
+
+  it('硬删除表进入 maintenance exclusive 事务', async () => {
+    const msg = { is_user: false, someField: 'data' };
+    mockGetChatArray.mockReturnValue([msg]);
+    mockPurgeSheetKeysFromMessage.mockReturnValue(true);
+    await purgeSheetKeysFromChatHistoryHard_ACU(['sheet_0', 'sheet_1']);
+    expect(mockRunTableWriteTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'system_cleanup',
+      reason: 'purgeSheetKeysFromChatHistoryHard',
+      maintenanceMode: 'exclusive',
+      writeSet: [
+        { kind: 'sheet', sheetKey: 'sheet_0' },
+        { kind: 'sheet', sheetKey: 'sheet_1' },
+      ],
+    }), expect.any(Function));
   });
 
   it('空 keys 数组不做任何操作', async () => {

@@ -87,6 +87,10 @@ async function mountVectorIndexPage(opts: {
   const migrateLegacy = vi.fn(async () => migrationResult);
   const loadOrCreate = vi.fn(async () => ({ ok: true }));
   const saveIndependent = vi.fn(async () => ({ ok: true }));
+  const runTableUpdateCommit = vi.fn(async (_options: any, apply: any) => {
+    const applied = await apply({ transactionContext: { runCommit: async (task: any) => task() }, workingData: null });
+    return { success: applied.success !== false, value: applied.value, tableData: applied.tableData, saved: true };
+  });
   const updateLorebook = vi.fn(async () => true);
   const getLastIndex = vi.fn(() => 5);
   const clearCache = vi.fn(async () => undefined);
@@ -143,6 +147,9 @@ async function mountVectorIndexPage(opts: {
     loadOrCreateJsonTableFromChatHistory_ACU: loadOrCreate,
     saveIndependentTableToChatHistory_ACU: saveIndependent,
   }));
+  vi.doMock('../../../src/service/table/table-update-commit', () => ({
+    runTableUpdateCommit_ACU: runTableUpdateCommit,
+  }));
   vi.doMock('../../../src/service/chat/chat-service', () => ({
     getLastMessageIndex_ACU: getLastIndex,
     getChatArray_ACU: vi.fn(() => [{ is_user: false, mes: 'ai', mesId: 'm1' }]),
@@ -176,7 +183,7 @@ async function mountVectorIndexPage(opts: {
   await mount.openAcuV2App();
   await new Promise(r => setTimeout(r, 0));
 
-  return { mount, settings, config, saveSettings, archiveSummary, migrateLegacy, inspectHealth, loadOrCreate, saveIndependent, updateLorebook, clearCache, deleteIndex, getStats };
+  return { mount, settings, config, saveSettings, archiveSummary, migrateLegacy, inspectHealth, loadOrCreate, saveIndependent, runTableUpdateCommit, updateLorebook, clearCache, deleteIndex, getStats };
 }
 
 beforeEach(() => {
@@ -347,7 +354,7 @@ describe('VectorIndexPage', () => {
   });
 
   it('立即构建按钮触发归档流程并显示成功消息', async () => {
-    const { mount, archiveSummary, saveIndependent, updateLorebook } = await mountVectorIndexPage();
+    const { mount, archiveSummary, runTableUpdateCommit, updateLorebook } = await mountVectorIndexPage();
 
     const buildButton = Array.from(document.querySelectorAll('button'))
       .find(b => /立即构建交火纪要索引/.test(b.textContent || '')) as HTMLButtonElement | undefined;
@@ -359,7 +366,7 @@ describe('VectorIndexPage', () => {
 
     expect(archiveSummary).toHaveBeenCalledTimes(1);
     expect(archiveSummary).toHaveBeenCalledWith({ mode: 'sync' });
-    expect(saveIndependent).toHaveBeenCalledTimes(1);
+    expect(runTableUpdateCommit).toHaveBeenCalledTimes(1);
     expect(updateLorebook).toHaveBeenCalledTimes(1);
 
     const text = document.body.textContent || '';

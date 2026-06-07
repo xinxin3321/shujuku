@@ -7,8 +7,10 @@
 import { computed, ref, shallowRef } from 'vue';
 import type { SqlQueryResult } from '../../shared/table-storage-provider';
 import { logDebug_ACU, logError_ACU } from '../../shared/utils';
-import { getStorageProvider } from '../../service/table/table-storage-strategy';
+import { ensureStorageProviderReady_ACU } from '../../service/table/table-storage-strategy';
 import { isSqliteMode } from '../../service/table/storage-mode';
+import { currentJsonTableData_ACU, getCurrentIsolationKey_ACU } from '../../service/runtime/state-manager';
+import { runSqliteRuntimeMutationCommit_ACU } from '../../service/table/table-update-commit';
 import { useToastStore } from '../stores/toast-store';
 
 export type SqlConsoleMessageKind = 'info' | 'success' | 'warning' | 'error';
@@ -103,12 +105,12 @@ export function useSqlConsole() {
 
   function showTables(): void {
     setSql("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_acu_%' ORDER BY name;");
-    executeCurrent();
+    void executeCurrent();
   }
 
   function showSchema(): void {
     setSql("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_acu_%' ORDER BY name;");
-    executeCurrent();
+    void executeCurrent();
   }
 
   function useHistoryItem(item: SqlHistoryItem): void {
@@ -116,7 +118,7 @@ export function useSqlConsole() {
     toast.info('已把历史 SQL 填入编辑器。');
   }
 
-  function executeCurrent(): void {
+  async function executeCurrent(): Promise<void> {
     const sql = sqlText.value.trim();
     if (!sql) {
       toast.warning('SQL 语句不能为空。');
@@ -134,7 +136,7 @@ export function useSqlConsole() {
     const startTime = performance.now();
 
     try {
-      const provider = getStorageProvider();
+      const provider = await ensureStorageProviderReady_ACU();
       if (isSqlConsoleQuery(sql)) {
         const queryResult = provider.executeQuery(sql);
         const elapsedMs = (performance.now() - startTime).toFixed(1);
@@ -152,10 +154,25 @@ export function useSqlConsole() {
         return;
       }
 
-      const mutationResult = provider.executeMutation(sql);
+      const commitResult = await runSqliteRuntimeMutationCommit_ACU<null>({
+        source: 'raw_sql_mutation',
+        reason: 'sql_console_v2_mutation',
+        isolationKey: getCurrentIsolationKey_ACU(),
+        writeSet: [{ kind: 'all' as const }],
+        revisionWriteSet: [{ kind: 'all' as const }],
+        initialData: currentJsonTableData_ACU as any,
+        targetMessageIndex: -1,
+        targetSheetKeys: null,
+        updateGroupKeys: null,
+        trackingSheetKeys: [],
+        trackAsUpdate: false,
+        sql,
+        mapValue: () => null,
+      });
+      const mutationResult = commitResult.mutationResult || { changes: 0, errors: commitResult.error ? [commitResult.error] : [] };
       const elapsedMs = (performance.now() - startTime).toFixed(1);
-      if (mutationResult.errors.length > 0) {
-        const error = mutationResult.errors.join('\n');
+      if (!commitResult.success || mutationResult.errors.length > 0) {
+        const error = mutationResult.errors.join('\n') || commitResult.error || '执行失败';
         result.value = { ...emptyResult(), kind: 'error', elapsedMs, error };
         addHistory(sql, false);
         toast.error('执行失败，请检查结果区中的错误信息。');

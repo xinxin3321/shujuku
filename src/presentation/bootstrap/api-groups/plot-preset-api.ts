@@ -11,6 +11,8 @@ import { settings_ACU } from '../../../service/runtime/state-manager';
 import { getCurrentRuntimePlotPresetName_ACU, normalizePlotPresetExcludeRules_ACU, switchCurrentChatPlotPreset_ACU } from '../../../service/plot/plot-logic';
 import { fillFirstLayerWithTemplateData_ACU } from '../../../service/runtime/helpers-remaining';
 import { overwriteChatSheetGuideFromTemplate_ACU } from '../../../service/template/chat-scope';
+import { isSqliteMode } from '../../../service/table/storage-mode';
+import { reloadStorageProvider } from '../../../service/table/table-storage-strategy';
 import { saveSettingsAndNotify_ACU } from '../../components/settings-ui-helpers';
 import { refreshPresetUIAfterSwitch_ACU } from '../../components/pipeline-ui-helpers';
 import type { ApiGroupContext } from './callback-api';
@@ -277,9 +279,13 @@ export function createPlotPresetApi(ctx: ApiGroupContext): Record<string, Functi
                         });
                         if (fillResult && typeof fillResult === 'object' && fillResult.success) {
                             result.templateInjected = true;
-                            if (fillResult.messageIndex != null) {
+                            if (isSqliteMode()) {
+                                await reloadStorageProvider();
+                            }
+                            const messageIndex = (fillResult as any).messageIndex;
+                            if (messageIndex != null) {
                                 if (SillyTavern_API_ACU?.eventSource?.emit && SillyTavern_API_ACU?.eventTypes?.MESSAGE_UPDATED) {
-                                    SillyTavern_API_ACU.eventSource.emit(SillyTavern_API_ACU.eventTypes.MESSAGE_UPDATED, fillResult.messageIndex);
+                                    SillyTavern_API_ACU.eventSource.emit(SillyTavern_API_ACU.eventTypes.MESSAGE_UPDATED, messageIndex);
                                 }
                                 if ((topLevelWindow_ACU as any)?.AutoCardUpdaterAPI) {
                                     (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();

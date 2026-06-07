@@ -49,6 +49,7 @@ export {
     isNewChatGreetingStage_ACU,
     isSingleAiNoUserChat_ACU,
     buildTemplateBaseStateDataForLocalStorage_ACU,
+    ensureInitialSeedCheckpoint_ACU,
     seedGreetingLocalDataFromTemplate_ACU,
     parseReadableToJson_ACU,
     GREETING_LOCAL_BASE_STATE_MARKER_ACU,

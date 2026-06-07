@@ -187,6 +187,34 @@ describe('SyncBridge', () => {
       expect(sheet.content[2]).toContain('治疗药水');
     });
 
+    it('空表导出时从 DDL 恢复完整表头，避免只剩 row_id', () => {
+      const emptySheet = makeSheet({
+        uid: 'tdoll_construction',
+        name: '人形建造表',
+        sourceData: {
+          note: '', initNode: '', deleteNode: '', updateNode: '', insertNode: '',
+          ddl: `CREATE TABLE tdoll_construction ( -- 人形建造表
+  row_id INTEGER PRIMARY KEY, -- 行号
+  start_time TEXT NOT NULL, -- 开始时间
+  construction_time TEXT NOT NULL, -- 建造时间
+  cost_manpower INTEGER NOT NULL CHECK(cost_manpower >= 0), -- 消耗人力
+  cost_ammo INTEGER NOT NULL CHECK(cost_ammo >= 0), -- 消耗弹药
+  cost_ration INTEGER NOT NULL CHECK(cost_ration >= 0), -- 消耗口粮
+  cost_parts INTEGER NOT NULL CHECK(cost_parts >= 0) -- 消耗零件
+);`,
+        },
+        content: [['行号', '开始时间', '建造时间', '消耗人力', '消耗弹药', '消耗口粮', '消耗零件']],
+      });
+      const originalData = makeTableData({ sheet_empty: emptySheet });
+      bridge.loadFromTableData(originalData);
+
+      const exported = bridge.exportToTableData(makeMate());
+      const sheet = exported.sheet_empty as Sheet_ACU;
+
+      expect(sheet.content).toHaveLength(1);
+      expect(sheet.content[0]).toEqual(['row_id', '开始时间', '建造时间', '消耗人力', '消耗弹药', '消耗口粮', '消耗零件']);
+    });
+
     it('引擎未初始化时抛出错误', () => {
       engine.dispose();
       expect(() => bridge.exportToTableData(makeMate())).toThrow('未初始化');

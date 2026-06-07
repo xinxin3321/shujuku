@@ -173,7 +173,9 @@ export function validateDDLTextAgainstHeaders_ACU(
   const normalizedHeaders = Array.isArray(tableHeaders)
     ? tableHeaders.map((item) => String(item ?? '').trim()).filter(Boolean)
     : [];
-  const comparableHeaders = normalizedHeaders[0] === 'row_id'
+  const firstHeader = normalizedHeaders[0];
+  const isRowIdHeader = firstHeader === 'row_id' || firstHeader === '行号';
+  const comparableHeaders = isRowIdHeader
     ? normalizedHeaders.slice(1)
     : normalizedHeaders;
   const comparableColumns = columnInfos.filter((item) => item.sqlName.toLowerCase() !== 'row_id');

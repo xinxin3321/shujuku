@@ -27,7 +27,8 @@ import {
 import { deleteSummaryVectorIndexExternal_ACU } from '../../service/vector/summary-vector-index-storage-service';
 import { clearAllSummaryVectorIndexCaches_ACU } from '../../service/vector/summary-vector-index-cache-service';
 import { assignSummaryVectorIndexStateToTagData_ACU } from '../../service/vector/summary-vector-index-state-service';
-import { loadOrCreateJsonTableFromChatHistory_ACU, saveIndependentTableToChatHistory_ACU } from '../../service/table/table-service';
+import { loadOrCreateJsonTableFromChatHistory_ACU } from '../../service/table/table-service';
+import { runTableUpdateCommit_ACU } from '../../service/table/table-update-commit';
 import { getLastMessageIndex_ACU, saveChatToHost_ACU } from '../../service/chat/chat-service';
 import { updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
 import { defaultVectorMemoryConfig_ACU } from '../../shared/defaults';
@@ -502,11 +503,25 @@ export function useVectorIndexConfig() {
       }
       const summaryKey = findSummaryTableKey();
       if (summaryKey) {
-        await saveIndependentTableToChatHistory_ACU(
-          getLastMessageIndex_ACU(),
-          [summaryKey],
-          [summaryKey],
-        );
+        const writeSet = [{ kind: 'sheet' as const, sheetKey: summaryKey }];
+        await runTableUpdateCommit_ACU<null>({
+          source: 'system',
+          reason: 'vector_index_v2_rebuild_snapshot',
+          writeSet,
+          revisionWriteSet: writeSet,
+          initialData: currentJsonTableData_ACU as any,
+          targetMessageIndex: getLastMessageIndex_ACU(),
+          targetSheetKeys: [summaryKey],
+          updateGroupKeys: null,
+          trackingSheetKeys: [],
+          trackAsUpdate: false,
+          operations: [{ kind: 'sheet_replace', sheetKey: summaryKey, sheet: (currentJsonTableData_ACU as any)[summaryKey], reason: 'system' }],
+        }, () => ({
+          success: true,
+          value: null,
+          tableData: currentJsonTableData_ACU as any,
+          mutationResult: { changes: 1, errors: [] },
+        }));
       }
       const result = await archiveSummaryVectorIndexNow_ACU({ mode: 'sync' });
       if (result.success && !result.skipped) {

@@ -14,6 +14,11 @@ import { getTemplateSheetKeys_ACU } from '../template/chat-scope';
 import { upsertTemplatePreset_ACU } from '../template/template-preset-service';
 import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStandardData_ACU, readLegacySummaryData_ACU, readModifiedKeys_ACU, readUpdateGroupKeys_ACU, readMessageIdentity_ACU, isLegacyMatchForIsolation_ACU, initIsolatedTagSlot_ACU, writeLegacyCompatData_ACU } from '../../data/repositories/chat-message-data-repo';
 import { applyTableDelta_ACU, isDeltaTagData_ACU, isCheckpointTagData_ACU } from '../table/table-delta';
+import { isV2TagData_ACU, resolveTableStorageStrategy_ACU } from '../table/storage-strategy-resolver';
+import { loadTableStateFromFramesV2_ACU } from '../table/storage-frame-v2-replay';
+import { persistTableMutationLogV2_ACU } from '../table/storage-frame-v2-persist';
+import { migrateLegacyStorageToV2OnLoad_ACU } from '../table/storage-v2-migration';
+import { runTableWriteTransaction_ACU } from '../table/table-write-transaction';
 
   /**
    * 旧数据兼容层：将 content 数组中的 null 占位列迁移为行号 row_id
@@ -55,7 +60,7 @@ import { applyTableDelta_ACU, isDeltaTagData_ACU, isCheckpointTagData_ACU } from
       return data;
   }
 
-  export async function mergeAllIndependentTables_ACU() {
+  export async function mergeAllIndependentTablesLegacyV1_ACU() {
       const chat = getChatArray_ACU();
       if (!chat || chat.length === 0) {
           logDebug_ACU('Cannot merge data: Chat history is empty.');
@@ -356,6 +361,46 @@ if (!Array.isArray(next.content)) next.content = guideHeader ? [guideHeader] : [
       return migrateContentNullToRowId(mergedData);
   }
 
+  export async function mergeAllIndependentTables_ACU() {
+      const chat = getChatArray_ACU();
+      if (!chat || chat.length === 0) {
+          logDebug_ACU('Cannot merge data: Chat history is empty.');
+          return null;
+      }
+
+      const currentIsolationKey = getCurrentIsolationKey_ACU();
+      const strategy = resolveTableStorageStrategy_ACU(chat, currentIsolationKey, {
+          enabled: settings_ACU.dataIsolationEnabled,
+          code: settings_ACU.dataIsolationCode,
+      });
+
+      if (strategy.mode === 'v2') {
+          return loadTableStateFromFramesV2_ACU(chat, currentIsolationKey);
+      }
+
+      if (strategy.mode === 'legacy-v1' && strategy.warning) {
+          logWarn_ACU(`[TableStorage] ${strategy.warning}; reason=${strategy.reason}`);
+      }
+
+      if (strategy.mode === 'legacy-v1') {
+          const mergedLegacyData = await mergeAllIndependentTablesLegacyV1_ACU();
+          const migrationResult = await migrateLegacyStorageToV2OnLoad_ACU({
+              data: mergedLegacyData,
+              isolationKey: currentIsolationKey,
+              isolationConfig: {
+                  enabled: settings_ACU.dataIsolationEnabled,
+                  code: settings_ACU.dataIsolationCode,
+              },
+          });
+          if (!migrationResult.migrated) {
+              throw new Error(`旧存储迁移到 V2 失败: ${migrationResult.error || '未执行迁移'}`);
+          }
+          return mergedLegacyData;
+      }
+
+      return mergeAllIndependentTablesLegacyV1_ACU();
+  }
+
   // [重构] 刷新合并数据并通知前端和更新世界书
 
   export function formatJsonToReadable_ACU(jsonData: Record<string, any> | null) {
@@ -437,6 +482,37 @@ if (!Array.isArray(next.content)) next.content = guideHeader ? [guideHeader] : [
       return userCount === 0 && aiCount === 1;
   }
 
+  function messageHasTableDataForCurrentIsolation_ACU(message: any, isolationKey: string) {
+      try {
+          if (!message || message.is_user) return false;
+          const tagData = readIsolatedTagData_ACU(message, isolationKey);
+          if (isV2TagData_ACU(tagData) && tagData.storageFrame.checkpoint?.kind === 'full') return true;
+          if (tagData?.independentData && Object.keys(tagData.independentData).some(k => k.startsWith('sheet_'))) return true;
+          if (isLegacyMatchForIsolation_ACU(message, { enabled: settings_ACU.dataIsolationEnabled, code: settings_ACU.dataIsolationCode })) {
+              const legacyIndependent = readLegacyIndependentData_ACU(message);
+              if (legacyIndependent && Object.keys(legacyIndependent).some(k => k.startsWith('sheet_'))) return true;
+              const legacyStandard = readLegacyStandardData_ACU(message);
+              if (legacyStandard && Object.keys(legacyStandard).some(k => k.startsWith('sheet_'))) return true;
+              const legacySummary = readLegacySummaryData_ACU(message);
+              if (legacySummary && Object.keys(legacySummary).some(k => k.startsWith('sheet_'))) return true;
+          }
+      } catch (_) {}
+      return false;
+  }
+
+  function shouldCreateInitialSeedCheckpoint_ACU(chat: any[], { allowPendingFirstUserMessage = false } = {}) {
+      if (!Array.isArray(chat) || chat.length === 0) return false;
+      const userCount = chat.filter(m => m && m.is_user).length;
+      if (userCount !== 1 && !(allowPendingFirstUserMessage && userCount === 0)) return false;
+      const isolationKey = getCurrentIsolationKey_ACU();
+      return !chat.some(message => messageHasTableDataForCurrentIsolation_ACU(message, isolationKey));
+  }
+
+  function normalizeInitialCheckpointV2Source_ACU(source: string) {
+      if (source === 'game_init' || source === 'import') return 'import';
+      return 'system';
+  }
+
   export function shouldSuppressWorldbookInjection_ACU() {
       // 用户要求：取消"首楼填表后不注入书"的限制。
       // 是否创建条目，改由各条目更新逻辑自身基于"真实有效数据"判定，避免一刀切拦截整个链路。
@@ -465,160 +541,167 @@ if (!Array.isArray(next.content)) next.content = guideHeader ? [guideHeader] : [
       return out;
   }
 
-  export async function seedGreetingLocalDataFromTemplate_ACU() {
-      try {
-          const chat = getChatArray_ACU();
-          if (!isNewChatGreetingStage_ACU(chat)) return false;
+  async function writeInitialTemplateCheckpoint_ACU(templateObj: Record<string, any>, {
+      reason = 'initial_seed_checkpoint',
+      presetName = '',
+      source = '',
+      registerPreset = false,
+      force = false,
+      cleanupWorldbook = true,
+  } = {}) {
+      const chat = getChatArray_ACU();
+      if (!chat || !Array.isArray(chat) || chat.length === 0) {
+          logWarn_ACU('[InitialCheckpoint] 聊天记录为空，无法写入初始化数据');
+          return false;
+      }
 
-          const firstAiIndex = chat.findIndex(m => m && !m.is_user);
-          const greetingMsg = chat[firstAiIndex];
-          if (!greetingMsg) return false;
+      const firstAiIndex = chat.findIndex(m => m && !m.is_user);
+      if (firstAiIndex === -1) {
+          logWarn_ACU('[InitialCheckpoint] 找不到第一楼AI消息');
+          return false;
+      }
+      const firstMsg = chat[firstAiIndex];
+      if (!force && firstMsg._acu_local_template_base_state_seeded === GREETING_LOCAL_BASE_STATE_MARKER_ACU) return false;
 
-          // 幂等：避免重复写入
-          if (greetingMsg._acu_local_template_base_state_seeded === GREETING_LOCAL_BASE_STATE_MARKER_ACU) return false;
+      const sheetKeys = Object.keys(templateObj || {}).filter(k => k.startsWith('sheet_'));
+      if (sheetKeys.length === 0) {
+          logWarn_ACU('[InitialCheckpoint] 模板中没有表格数据');
+          return false;
+      }
+      ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: sheetKeys, forceRebuild: false });
 
-          const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false }); // 模板有数据就带数据
-          if (!templateObj) return false;
+      const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateObj);
+      const normalizedPresetName = deriveTemplatePresetNameForImport_ACU({ presetName });
+      const normalizedSource = source || reason;
+      if (registerPreset && normalizedPresetName && templateSnapshot?.templateStr) {
+          try {
+              const savePresetOk = upsertTemplatePreset_ACU(normalizedPresetName, templateSnapshot.templateStr);
+              if (!savePresetOk) {
+                  logWarn_ACU(`[TemplateScope] 保存模板预设失败：${normalizedPresetName}`);
+              }
+          } catch (e) {
+              logWarn_ACU('[TemplateScope] 保存模板预设失败:', e);
+          }
+      }
 
-          // 确保模板编号稳定（不改变内容，只补齐 orderNo）
-          const sheetKeys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
-          ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: sheetKeys, forceRebuild: false });
+      const baseData = buildTemplateBaseStateDataForLocalStorage_ACU(templateObj);
+      if (!baseData) return false;
 
-          const baseData = buildTemplateBaseStateDataForLocalStorage_ACU(templateObj);
-          if (!baseData) return false;
+      const isolationKey = getCurrentIsolationKey_ACU();
+      firstMsg._acu_local_template_base_state_seeded = GREETING_LOCAL_BASE_STATE_MARKER_ACU;
+      _set_suppressWorldbookInjectionInGreeting_ACU(false);
 
-          const isolationKey = getCurrentIsolationKey_ACU();
-          const tagData = initIsolatedTagSlot_ACU(greetingMsg, isolationKey);
+      const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: false });
+      if (guideData) {
+          setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, {
+              reason,
+              syncTemplateScope: true,
+              templateSource: templateSnapshot?.templateStr || templateObj,
+              presetName: normalizedPresetName,
+              source: normalizedSource,
+          });
+          applyTemplateScopeForCurrentChat_ACU();
+      }
 
-          // 写入 independentData（只写 sheet_，不强制 modifiedKeys）
+      const strategy = resolveTableStorageStrategy_ACU(chat, isolationKey, {
+          enabled: settings_ACU.dataIsolationEnabled,
+          code: settings_ACU.dataIsolationCode,
+      });
+
+      if (strategy.mode === 'legacy-v1') {
+          const tagData = initIsolatedTagSlot_ACU(firstMsg, isolationKey);
           const indep: Record<string, any> = {};
           Object.keys(baseData).forEach(k => {
               if (!k.startsWith('sheet_')) return;
               indep[k] = JSON.parse(JSON.stringify(baseData[k]));
           });
           tagData.independentData = indep;
-          // 这是一份"基底"，不应被认为是AI更新结果，因此 modifiedKeys 留空
           tagData.modifiedKeys = [];
           tagData.updateGroupKeys = [];
           tagData._acu_base_state = GREETING_LOCAL_BASE_STATE_MARKER_ACU;
           tagData._acu_storage_mode = 'checkpoint';
           tagData._acu_storage_version = 1;
-
-          // 同步旧格式（兼容老逻辑）
-          writeLegacyCompatData_ACU(greetingMsg, JSON.parse(JSON.stringify(indep)), [], []);
-
-          // 标记幂等
-          greetingMsg._acu_local_template_base_state_seeded = GREETING_LOCAL_BASE_STATE_MARKER_ACU;
-
-          // 不在这里做全局注入抑制；
-          // 是否真正创建世界书条目，交给后续各条目逻辑按"是否存在真实有效数据"决定。
-          _set_suppressWorldbookInjectionInGreeting_ACU(false);
-
+          writeLegacyCompatData_ACU(firstMsg, JSON.parse(JSON.stringify(indep)), [], [], { legacyConfirmed: true });
           await saveChatToHost_ACU();
+      } else {
+          const saveResult = await runTableWriteTransaction_ACU({
+              source: normalizeInitialCheckpointV2Source_ACU(normalizedSource),
+              reason: 'initial_checkpoint_v2',
+              isolationKey,
+              writeSet: [{ kind: 'all' }],
+              initialData: baseData as any,
+          }, async (transactionContext) => persistTableMutationLogV2_ACU({
+              targetMessageIndex: firstAiIndex,
+              source: normalizeInitialCheckpointV2Source_ACU(normalizedSource),
+              afterData: baseData as any,
+              filledSheetKeys: [],
+              candidateChangedSheetKeys: [],
+              groupKeys: [],
+              forceCheckpoint: true,
+              checkpointReason: 'init',
+              isolationKey,
+              transactionContext,
+          }));
+          if (!saveResult.saved) {
+              logWarn_ACU(`[InitialCheckpoint] V2 checkpoint 写入失败：${saveResult.error || 'unknown error'}`);
+              return false;
+          }
+      }
 
-          // [关键] 新开对话时应清理旧的世界书条目，但仍不能创建新条目。
-          // 这里主动清理一次，确保"开场白阶段不注入，但旧条目会被清掉"。
+      if (cleanupWorldbook) {
           try {
               await deleteAllGeneratedEntries_ACU();
-              logDebug_ACU('[Worldbook] Deleted generated entries on new chat greeting seed (cleanup-only).');
+              logDebug_ACU(`[InitialCheckpoint] Deleted generated entries before first real reply. reason=${reason}`);
           } catch (e) {
-              logWarn_ACU('[Worldbook] Cleanup on greeting seed failed:', e);
+              logWarn_ACU('[InitialCheckpoint] Cleanup before first real reply failed:', e);
           }
+      }
 
-          // 更新内存（但不触发世界书注入）
-          _set_currentJsonTableData_ACU(reorderDataBySheetKeys_ACU(JSON.parse(JSON.stringify(baseData)), getSortedSheetKeys_ACU(baseData)));
-          return { success: true, messageIndex: firstAiIndex };
+      _set_currentJsonTableData_ACU(reorderDataBySheetKeys_ACU(JSON.parse(JSON.stringify(baseData)), getSortedSheetKeys_ACU(baseData)));
+      logDebug_ACU(`[InitialCheckpoint] 初始化 checkpoint 已写入。reason=${reason}, messageIndex=${firstAiIndex}, sheetCount=${sheetKeys.length}`);
+      return { success: true, messageIndex: firstAiIndex, sheetCount: sheetKeys.length };
+  }
+
+  export async function ensureInitialSeedCheckpoint_ACU({ reason = 'initial_seed_checkpoint', allowPendingFirstUserMessage = false } = {}) {
+      try {
+          const chat = getChatArray_ACU();
+          if (!shouldCreateInitialSeedCheckpoint_ACU(chat, { allowPendingFirstUserMessage })) return false;
+
+          const templateObj = parseTableTemplateJson_ACU({ stripSeedRows: false });
+          if (!templateObj) return false;
+
+          const result = await writeInitialTemplateCheckpoint_ACU(templateObj, {
+              reason,
+              source: reason,
+              registerPreset: false,
+              force: false,
+              cleanupWorldbook: true,
+          });
+          if (result && typeof result === 'object' && result.success) {
+              return { success: true, messageIndex: result.messageIndex };
+          }
+          return result;
       } catch (e) {
-          logWarn_ACU('[GreetingLocalBaseState] Failed to seed greeting local data from template:', e);
+          logWarn_ACU('[InitialSeed] Failed to persist initial seed checkpoint:', e);
           return { success: false };
       }
   }
 
-  // [新增] 直接将模板数据填充到第一楼的实际表格数据
-  // 用于 initGameSession 场景，确保模板中的所有表格数据（包括种子数据）都被写入第一楼
+  export async function seedGreetingLocalDataFromTemplate_ACU() {
+      return ensureInitialSeedCheckpoint_ACU({ reason: 'legacy_seed_greeting_alias' });
+  }
+
+  // 用于 initGameSession 场景；与发送前初始化共用同一条 checkpoint 写入链路。
   export async function fillFirstLayerWithTemplateData_ACU(templateObj: Record<string, any>, { reason = 'game_init', presetName = '', source = 'game_init', registerPreset = true } = {}) {
       try {
-          const chat = getChatArray_ACU();
-          if (!chat || !Array.isArray(chat) || chat.length === 0) {
-              logWarn_ACU('[FillFirstLayer] 聊天记录为空，无法填充数据');
-              return false;
-          }
-
-          // 找到第一条AI消息（第一楼）
-          const firstAiIndex = chat.findIndex(m => m && !m.is_user);
-          if (firstAiIndex === -1) {
-              logWarn_ACU('[FillFirstLayer] 找不到第一楼AI消息');
-              return false;
-          }
-          const firstMsg = chat[firstAiIndex];
-
-          // 确保模板编号稳定
-          const sheetKeys = Object.keys(templateObj).filter(k => k.startsWith('sheet_'));
-          if (sheetKeys.length === 0) {
-              logWarn_ACU('[FillFirstLayer] 模板中没有表格数据');
-              return false;
-          }
-          ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: sheetKeys, forceRebuild: false });
-
-          const templateSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateObj);
-          const normalizedPresetName = deriveTemplatePresetNameForImport_ACU({ presetName });
-          if (registerPreset && normalizedPresetName && templateSnapshot?.templateStr) {
-              try {
-                  const savePresetOk = upsertTemplatePreset_ACU(normalizedPresetName, templateSnapshot.templateStr);
-                  if (!savePresetOk) {
-                      logWarn_ACU(`[TemplateScope] 保存模板预设失败：${normalizedPresetName}`);
-                  }
-              } catch (e) {
-                  logWarn_ACU('[TemplateScope] 保存模板预设失败:', e);
-              }
-          }
-
-          // 构建完整的表格数据（包含所有种子数据）
-          const fullData: Record<string, any> = { mate: { type: 'chatSheets', version: 1 } };
-          sheetKeys.forEach(k => {
-              fullData[k] = JSON.parse(JSON.stringify(templateObj[k]));
+          return await writeInitialTemplateCheckpoint_ACU(templateObj, {
+              reason,
+              presetName,
+              source,
+              registerPreset,
+              force: true,
+              cleanupWorldbook: true,
           });
-
-          const isolationKey = getCurrentIsolationKey_ACU();
-
-          // 写入新版格式
-          const tagData = initIsolatedTagSlot_ACU(firstMsg, isolationKey);
-
-          // 写入 independentData（包含所有表格的完整数据）
-          const indep: Record<string, any> = {};
-          sheetKeys.forEach(k => {
-              indep[k] = JSON.parse(JSON.stringify(fullData[k]));
-          });
-          tagData.independentData = indep;
-          tagData.modifiedKeys = [];
-          tagData.updateGroupKeys = [];
-          tagData._acu_storage_mode = 'checkpoint';
-          tagData._acu_storage_version = 1;
-
-          // 同步旧格式（兼容老逻辑）
-          writeLegacyCompatData_ACU(firstMsg, JSON.parse(JSON.stringify(indep)), [], []);
-
-          // 同时更新指导表与聊天级模板快照（确保表头、参数、预设名同步）
-          const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: false });
-          if (guideData) {
-              setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, {
-                  reason,
-                  syncTemplateScope: true,
-                  templateSource: templateSnapshot?.templateStr || templateObj,
-                  presetName: normalizedPresetName,
-                  source,
-              });
-              applyTemplateScopeForCurrentChat_ACU();
-          }
-
-          // 保存聊天
-          await saveChatToHost_ACU();
-
-          // 更新内存数据
-          _set_currentJsonTableData_ACU(reorderDataBySheetKeys_ACU(JSON.parse(JSON.stringify(fullData)), getSortedSheetKeys_ACU(fullData)));
-
-          logDebug_ACU(`[FillFirstLayer] 成功将模板数据填充到第一楼，共 ${sheetKeys.length} 个表格`);
-          return { success: true, messageIndex: firstAiIndex, sheetCount: sheetKeys.length };
       } catch (e) {
           logError_ACU('[FillFirstLayer] 填充第一楼数据失败:', e);
           return { success: false };

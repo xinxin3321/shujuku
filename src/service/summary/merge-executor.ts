@@ -13,7 +13,8 @@ import { buildCustomApiRequestBody_ACU } from '../ai/api-call';
 import { currentJsonTableData_ACU, settings_ACU, isAutoUpdatingCard_ACU, _set_isAutoUpdatingCard_ACU, _set_wasStoppedByUser_ACU } from '../runtime/state-manager';
 import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
 import { loadAllChatMessages_ACU, updateReadableLorebookEntry_ACU } from '../worldbook/pipeline';
-import { loadOrCreateJsonTableFromChatHistory_ACU, saveIndependentTableToChatHistory_ACU } from '../table/table-service';
+import { loadOrCreateJsonTableFromChatHistory_ACU } from '../table/table-service';
+import { runTableUpdateCommit_ACU } from '../table/table-update-commit';
 import { getLastMessageIndex_ACU } from '../chat/chat-service';
 
 export interface MergeBatchConfig {
@@ -404,7 +405,25 @@ export async function executeManualMergeSummary_ACU(
 
         // 保存到聊天记录
         const keysToSave = [summaryKey!];
-        await saveIndependentTableToChatHistory_ACU(getLastMessageIndex_ACU(), keysToSave, keysToSave);
+        const writeSet = keysToSave.map(sheetKey => ({ kind: 'sheet' as const, sheetKey }));
+        await runTableUpdateCommit_ACU<null>({
+            source: 'merge_summary',
+            reason: 'manual_merge_summary',
+            writeSet,
+            revisionWriteSet: writeSet,
+            initialData: currentJsonTableData_ACU as any,
+            targetMessageIndex: getLastMessageIndex_ACU(),
+            targetSheetKeys: keysToSave,
+            updateGroupKeys: keysToSave,
+            trackingSheetKeys: keysToSave,
+            trackAsUpdate: true,
+            operations: [{ kind: 'sheet_replace', sheetKey: summaryKey!, sheet: (currentJsonTableData_ACU as any)[summaryKey!], reason: 'system' }],
+        }, () => ({
+            success: true,
+            value: null,
+            tableData: currentJsonTableData_ACU as any,
+            mutationResult: { changes: keysToSave.length, errors: [] },
+        }));
 
         // 更新世界书
         await updateReadableLorebookEntry_ACU(true);

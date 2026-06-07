@@ -32,6 +32,7 @@ vi.mock('../../src/service/runtime/state-manager', () => ({
   get currentJsonTableData_ACU() { return mockCurrentJsonTableData; },
   get settings_ACU() { return mockSettings; },
   getCurrentIsolationKey_ACU: vi.fn(() => ''),
+  _set_currentJsonTableData_ACU: vi.fn((data: any) => { mockCurrentJsonTableData = data; }),
 }));
 
 let mockIsSqliteMode = false;
@@ -39,15 +40,54 @@ vi.mock('../../src/service/table/storage-mode', () => ({
   isSqliteMode: vi.fn(() => mockIsSqliteMode),
 }));
 
-const mockExecuteMutation = vi.fn(() => ({ errors: [], changes: 1 }));
+const {
+  mockApplyParameterizedSqlMutation,
+  mockPersistTablesToChatMessage,
+  mockExecuteRuntimeMutation,
+  mockGetRuntimeData,
+  mockCreateRuntimeSnapshot,
+  mockRestoreRuntimeSnapshot,
+  mockReloadStorageProvider,
+  mockRunTableWriteTransaction,
+} = vi.hoisted(() => ({
+  mockApplyParameterizedSqlMutation: vi.fn(),
+  mockPersistTablesToChatMessage: vi.fn().mockResolvedValue({ saved: true, messageIndex: 0 }),
+  mockExecuteRuntimeMutation: vi.fn(() => ({ changes: 1, errors: [] })),
+  mockGetRuntimeData: vi.fn(),
+  mockCreateRuntimeSnapshot: vi.fn(() => new Uint8Array([1, 2, 3])),
+  mockRestoreRuntimeSnapshot: vi.fn().mockResolvedValue(undefined),
+  mockReloadStorageProvider: vi.fn().mockResolvedValue(undefined),
+  mockRunTableWriteTransaction: vi.fn(async (options: any, task: any) => task({
+    transactionId: 'tx-crud-test',
+    chatKey: 'chat-a',
+    isolationKey: '',
+    source: options.source,
+    baseRevision: null,
+    writeSet: options.writeSet,
+    runCommit: async (commitTask: any) => commitTask(),
+  }, options.initialData ? JSON.parse(JSON.stringify(options.initialData)) : null)),
+}));
 vi.mock('../../src/service/table/table-storage-strategy', () => ({
   getStorageProvider: vi.fn(() => ({
-    executeMutation: mockExecuteMutation,
+    executeMutation: mockExecuteRuntimeMutation,
+    getCurrentData: mockGetRuntimeData,
+    createRuntimeSnapshot: mockCreateRuntimeSnapshot,
+    restoreRuntimeSnapshot: mockRestoreRuntimeSnapshot,
   })),
+  reloadStorageProvider: mockReloadStorageProvider,
+}));
+
+vi.mock('../../src/service/table/sql-table-service', () => ({
+  applyParameterizedSqlMutationToTableDataSnapshot_ACU: mockApplyParameterizedSqlMutation,
 }));
 
 vi.mock('../../src/service/table/table-service', () => ({
+  persistTablesToChatMessage_ACU: mockPersistTablesToChatMessage,
   saveIndependentTableToChatHistory_ACU: vi.fn().mockResolvedValue({ saved: true }),
+}));
+
+vi.mock('../../src/service/table/table-write-transaction', () => ({
+  runTableWriteTransaction_ACU: mockRunTableWriteTransaction,
 }));
 
 vi.mock('../../src/service/table/table-history', () => ({
@@ -76,6 +116,7 @@ import {
   createTableCrudApi,
 } from '../../src/presentation/bootstrap/api-groups/table-crud-api';
 import { resolveTableHistoryStateFromChat_ACU } from '../../src/service/table/table-history';
+import { SillyTavern_API_ACU } from '../../src/shared/host-api';
 
 // ═══════════════════════════════════════════════════════════════
 // quoteIdentifier
@@ -161,6 +202,7 @@ describe('createTableCrudApi — SQLite 模式', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsSqliteMode = true;
+    (SillyTavern_API_ACU as any).chat = [{ is_user: false }];
     mockCurrentJsonTableData = {
       sheet_0: {
         name: '背包物品表',
@@ -171,7 +213,55 @@ describe('createTableCrudApi — SQLite 模式', () => {
         ],
       },
     };
-    mockExecuteMutation.mockReturnValue({ errors: [], changes: 1 });
+    mockApplyParameterizedSqlMutation.mockImplementation(async (sql: string, params: any[], tableData: any) => {
+      const workingData = JSON.parse(JSON.stringify(tableData));
+      const sheet = workingData.sheet_0;
+      if (String(sql).startsWith('INSERT')) {
+        sheet.content.push(['3', params[0] ?? '', params[1] ?? '']);
+      } else if (String(sql).startsWith('DELETE')) {
+        sheet.content = sheet.content.filter((row: any[]) => row[0] !== params[0]);
+      } else if (String(sql).startsWith('UPDATE')) {
+        const row = sheet.content.find((item: any[]) => item[0] === params[params.length - 1]);
+        if (row) row[1] = params[0];
+      }
+      return {
+        success: true,
+        modifiedKeys: ['sheet_0'],
+        appliedEdits: 1,
+        changes: 1,
+        workingData,
+      };
+    });
+    mockPersistTablesToChatMessage.mockResolvedValue({ saved: true, messageIndex: 0 });
+    mockExecuteRuntimeMutation.mockReturnValue({ changes: 1, errors: [] });
+    mockGetRuntimeData.mockImplementation(() => {
+      const workingData = JSON.parse(JSON.stringify(mockCurrentJsonTableData));
+      const sheet = workingData.sheet_0;
+      const lastCall = mockExecuteRuntimeMutation.mock.calls.at(-1) || [];
+      const sql = String(lastCall[0] || '');
+      const params = (lastCall[1] || []) as any[];
+      if (sql.startsWith('INSERT')) {
+        sheet.content.push(['3', params[0] ?? '', params[1] ?? '']);
+      } else if (sql.startsWith('DELETE')) {
+        sheet.content = sheet.content.filter((row: any[]) => row[0] !== params[0]);
+      } else if (sql.startsWith('UPDATE')) {
+        const row = sheet.content.find((item: any[]) => item[0] === params[params.length - 1]);
+        if (row) row[1] = params[0];
+      }
+      return workingData;
+    });
+    mockCreateRuntimeSnapshot.mockReturnValue(new Uint8Array([1, 2, 3]));
+    mockRestoreRuntimeSnapshot.mockResolvedValue(undefined);
+    mockReloadStorageProvider.mockResolvedValue(undefined);
+    mockRunTableWriteTransaction.mockImplementation(async (options: any, task: any) => task({
+      transactionId: 'tx-crud-test',
+      chatKey: 'chat-a',
+      isolationKey: '',
+      source: options.source,
+      baseRevision: null,
+      writeSet: options.writeSet,
+      runCommit: async (commitTask: any) => commitTask(),
+    }, options.initialData ? JSON.parse(JSON.stringify(options.initialData)) : mockCurrentJsonTableData));
     api = createTableCrudApi(mockCtx);
   });
 
@@ -179,33 +269,42 @@ describe('createTableCrudApi — SQLite 模式', () => {
   describe('updateCell', () => {
     it('生成正确的 UPDATE SQL（列名为字符串）', async () => {
       await api.updateCell('背包物品表', 1, '数量', '10');
-      expect(mockExecuteMutation).toHaveBeenCalledWith(
+      expect(mockExecuteRuntimeMutation).toHaveBeenCalledWith(
         "UPDATE `背包物品表` SET `数量` = ? WHERE `row_id` = ?;",
-        ['10', '1']
+        ['10', '1'],
       );
+    });
+
+    it('SQLite updateCell 在统一事务内执行', async () => {
+      await api.updateCell('背包物品表', 1, '数量', '10');
+      expect(mockRunTableWriteTransaction).toHaveBeenCalledWith(expect.objectContaining({
+        source: 'manual_crud',
+        reason: 'updateCell:sqlite',
+        writeSet: [{ kind: 'cell', sheetKey: 'sheet_0', rowId: '1', columnKey: '数量' }],
+      }), expect.any(Function));
     });
 
     it('生成正确的 UPDATE SQL（列名为数字索引）', async () => {
       await api.updateCell('背包物品表', 1, 1, '新铁剑');
-      expect(mockExecuteMutation).toHaveBeenCalledWith(
+      expect(mockExecuteRuntimeMutation).toHaveBeenCalledWith(
         "UPDATE `背包物品表` SET `物品名` = ? WHERE `row_id` = ?;",
-        ['新铁剑', '1']
+        ['新铁剑', '1'],
       );
     });
 
     it('value 为 null 时生成 NULL', async () => {
       await api.updateCell('背包物品表', 1, '数量', null);
-      expect(mockExecuteMutation).toHaveBeenCalledWith(
+      expect(mockExecuteRuntimeMutation).toHaveBeenCalledWith(
         "UPDATE `背包物品表` SET `数量` = ? WHERE `row_id` = ?;",
-        [null, '1']
+        [null, '1'],
       );
     });
 
     it('value 包含单引号时正确转义', async () => {
       await api.updateCell('背包物品表', 1, '物品名', "铁剑'加强版");
-      expect(mockExecuteMutation).toHaveBeenCalledWith(
+      expect(mockExecuteRuntimeMutation).toHaveBeenCalledWith(
         "UPDATE `背包物品表` SET `物品名` = ? WHERE `row_id` = ?;",
-        ["铁剑'加强版", '1']
+        ["铁剑'加强版", '1'],
       );
     });
 
@@ -225,7 +324,7 @@ describe('createTableCrudApi — SQLite 模式', () => {
     });
 
     it('SQL 执行失败返回 false', async () => {
-      mockExecuteMutation.mockReturnValue({ errors: ['SQL 语法错误'], changes: 0 });
+      mockExecuteRuntimeMutation.mockReturnValue({ errors: ['SQL 语法错误'], changes: 0 });
       const result = await api.updateCell('背包物品表', 1, '数量', '10');
       expect(result).toBe(false);
     });
@@ -236,7 +335,7 @@ describe('createTableCrudApi — SQLite 模式', () => {
       expect(result).toBe(false);
     });
 
-    it('已有历史数据时不把编辑器保存记为最新更新', async () => {
+    it('已有历史数据时不把编辑器保存记为最新填表更新', async () => {
       vi.mocked(resolveTableHistoryStateFromChat_ACU).mockReturnValueOnce({
         latestAiMessageIndex: 1,
         latestDataMessageIndex: 0,
@@ -248,7 +347,14 @@ describe('createTableCrudApi — SQLite 模式', () => {
       });
       await api.updateCell('背包物品表', 1, '数量', '10');
       const { saveCurrentDataForTable_ACU } = await import('../../src/presentation/triggers/update-process');
-      expect(vi.mocked(saveCurrentDataForTable_ACU)).toHaveBeenCalledWith('sheet_0');
+      expect(vi.mocked(saveCurrentDataForTable_ACU)).not.toHaveBeenCalled();
+      expect(mockPersistTablesToChatMessage).toHaveBeenCalledWith(expect.objectContaining({
+        source: 'manual_crud',
+        targetSheetKeys: ['sheet_0'],
+        updateGroupKeys: null,
+        trackingSheetKeys: [],
+        trackAsUpdate: false,
+      }));
     });
   });
 
@@ -256,30 +362,30 @@ describe('createTableCrudApi — SQLite 模式', () => {
   describe('updateRow', () => {
     it('生成正确的 UPDATE SQL（多列）', async () => {
       await api.updateRow('背包物品表', 1, { '物品名': '钢剑', '数量': '7' });
-      expect(mockExecuteMutation).toHaveBeenCalledWith(
+      expect(mockExecuteRuntimeMutation).toHaveBeenCalledWith(
         "UPDATE `背包物品表` SET `物品名` = ?, `数量` = ? WHERE `row_id` = ?;",
-        ['钢剑', '7', '1']
+        ['钢剑', '7', '1'],
       );
     });
 
     it('跳过 isImportMode 内部标记', async () => {
       await api.updateRow('背包物品表', 1, { '物品名': '钢剑', isImportMode: true });
-      expect(mockExecuteMutation.mock.calls[0][0] as string).not.toContain('isImportMode');
+      expect(mockExecuteRuntimeMutation.mock.calls[0][0] as string).not.toContain('isImportMode');
     });
 
     it('跳过不存在的列名', async () => {
       await api.updateRow('背包物品表', 1, { '不存在的列': '值', '物品名': '钢剑' });
-      expect(mockExecuteMutation.mock.calls[0][0] as string).not.toContain('不存在的列');
-      expect(mockExecuteMutation).toHaveBeenCalledWith(
+      expect(mockExecuteRuntimeMutation.mock.calls[0][0] as string).not.toContain('不存在的列');
+      expect(mockExecuteRuntimeMutation).toHaveBeenCalledWith(
         "UPDATE `背包物品表` SET `物品名` = ? WHERE `row_id` = ?;",
-        ['钢剑', '1']
+        ['钢剑', '1'],
       );
     });
 
     it('无有效列时返回 false（无效操作）', async () => {
       const result = await api.updateRow('背包物品表', 1, { '不存在的列': '值' });
       expect(result).toBe(false);
-      expect(mockExecuteMutation).not.toHaveBeenCalled();
+      expect(mockExecuteRuntimeMutation).not.toHaveBeenCalled();
     });
 
     it('rowIndex < 1 返回 false', async () => {
@@ -298,38 +404,38 @@ describe('createTableCrudApi — SQLite 模式', () => {
   describe('insertRow', () => {
     it('生成正确的 INSERT SQL', async () => {
       await api.insertRow('背包物品表', { '物品名': '盾牌', '数量': '1' });
-      expect(mockExecuteMutation).toHaveBeenCalledWith(
+      expect(mockExecuteRuntimeMutation).toHaveBeenCalledWith(
         'INSERT INTO `背包物品表` (`物品名`, `数量`) VALUES (?, ?);',
-        ['盾牌', '1']
+        ['盾牌', '1'],
       );
     });
 
     it('跳过 row_id 列（自增）', async () => {
       await api.insertRow('背包物品表', { row_id: '99', '物品名': '盾牌' });
-      expect(mockExecuteMutation).toHaveBeenCalledWith(
+      expect(mockExecuteRuntimeMutation).toHaveBeenCalledWith(
         'INSERT INTO `背包物品表` (`物品名`) VALUES (?);',
-        ['盾牌']
+        ['盾牌'],
       );
     });
 
     it('空 data 生成 DEFAULT VALUES', async () => {
       await api.insertRow('背包物品表', {});
-      expect(mockExecuteMutation).toHaveBeenCalledWith('INSERT INTO `背包物品表` DEFAULT VALUES;', []);
+      expect(mockExecuteRuntimeMutation).toHaveBeenCalledWith('INSERT INTO `背包物品表` DEFAULT VALUES;', []);
     });
 
     it('value 为 null 时将 null 作为参数传递', async () => {
       await api.insertRow('背包物品表', { '物品名': null, '数量': '1' });
-      expect(mockExecuteMutation).toHaveBeenCalledWith(
+      expect(mockExecuteRuntimeMutation).toHaveBeenCalledWith(
         'INSERT INTO `背包物品表` (`物品名`, `数量`) VALUES (?, ?);',
-        [null, '1']
+        [null, '1'],
       );
     });
 
     it('value 包含单引号时传递原始值不作转义（由参数化查询处理）', async () => {
       await api.insertRow('背包物品表', { '物品名': "铁剑'加强版" });
-      expect(mockExecuteMutation).toHaveBeenCalledWith(
+      expect(mockExecuteRuntimeMutation).toHaveBeenCalledWith(
         'INSERT INTO `背包物品表` (`物品名`) VALUES (?);',
-        ["铁剑'加强版"]
+        ["铁剑'加强版"],
       );
     });
 
@@ -339,9 +445,34 @@ describe('createTableCrudApi — SQLite 模式', () => {
     });
 
     it('SQL 执行失败返回 -1', async () => {
-      mockExecuteMutation.mockReturnValue({ errors: ['SQL 错误'], changes: 0 });
+      mockExecuteRuntimeMutation.mockReturnValue({ errors: ['SQL 错误'], changes: 0 });
       const result = await api.insertRow('背包物品表', { '物品名': '盾牌' });
       expect(result).toBe(-1);
+    });
+
+    it('真实运行时 DB 约束失败时不写持久层', async () => {
+      mockExecuteRuntimeMutation.mockReturnValue({ errors: ['NOT NULL constraint failed: map_elements.element_name'], changes: 0 });
+
+      const result = await api.insertRow('背包物品表', { '物品名': null, '数量': '1' });
+
+      expect(result).toBe(-1);
+      expect(mockPersistTablesToChatMessage).not.toHaveBeenCalled();
+      expect(mockReloadStorageProvider).not.toHaveBeenCalled();
+    });
+
+    it('持久化失败时在同一公共提交模型内 reload 运行时', async () => {
+      mockPersistTablesToChatMessage.mockResolvedValue({ saved: false, error: 'save failed' });
+
+      const result = await api.insertRow('背包物品表', { '物品名': '盾牌', '数量': '1' });
+
+      expect(result).toBe(-1);
+      expect(mockExecuteRuntimeMutation).toHaveBeenCalled();
+      expect(mockPersistTablesToChatMessage).toHaveBeenCalledWith(expect.objectContaining({
+        source: 'manual_crud',
+        tableData: expect.any(Object),
+        assumeCommitLock: true,
+      }));
+      expect(mockReloadStorageProvider).toHaveBeenCalled();
     });
   });
 
@@ -349,9 +480,9 @@ describe('createTableCrudApi — SQLite 模式', () => {
   describe('deleteRow', () => {
     it('生成正确的 DELETE SQL', async () => {
       await api.deleteRow('背包物品表', 1);
-      expect(mockExecuteMutation).toHaveBeenCalledWith(
+      expect(mockExecuteRuntimeMutation).toHaveBeenCalledWith(
         'DELETE FROM `背包物品表` WHERE `row_id` = ?;',
-        ['1']
+        ['1'],
       );
     });
 
@@ -372,7 +503,7 @@ describe('createTableCrudApi — SQLite 模式', () => {
     });
 
     it('SQL 执行失败返回 false', async () => {
-      mockExecuteMutation.mockReturnValue({ errors: ['SQL 错误'], changes: 0 });
+      mockExecuteRuntimeMutation.mockReturnValue({ errors: ['SQL 错误'], changes: 0 });
       const result = await api.deleteRow('背包物品表', 1);
       expect(result).toBe(false);
     });

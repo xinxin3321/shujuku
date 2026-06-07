@@ -5,6 +5,7 @@ import {
     writeMessageIdentity_ACU,
     writeLegacyCompatData_ACU,
 } from '../../data/repositories/chat-message-data-repo';
+import { isLegacyV1TagData_ACU } from '../table/storage-strategy-resolver';
 import type {
     ChatSummaryVectorIndexChunk_ACU,
     ChatSummaryVectorIndexRow_ACU,
@@ -755,16 +756,23 @@ async function writeSummaryVectorIndexCheckpoint_ACU(options: {
         updateGroupKeys: [],
     };
     const nextIsolatedData = cloneIsolatedData_ACU(message);
+    const existingStorageFrame = (existingTagData as any).storageFrame;
+    const existingTagDataIsV2 = !!existingStorageFrame;
     const nextTagData = {
-        independentData: existingTagData.independentData || {},
-        modifiedKeys: Array.isArray(existingTagData.modifiedKeys) ? [...existingTagData.modifiedKeys] : [],
-        updateGroupKeys: Array.isArray(existingTagData.updateGroupKeys) ? [...existingTagData.updateGroupKeys] : [],
+        ...(existingTagDataIsV2
+            ? { storageFrame: existingStorageFrame, _acu_storage_version: 2 }
+            : {
+                independentData: existingTagData.independentData || {},
+                modifiedKeys: Array.isArray(existingTagData.modifiedKeys) ? [...existingTagData.modifiedKeys] : [],
+                updateGroupKeys: Array.isArray(existingTagData.updateGroupKeys) ? [...existingTagData.updateGroupKeys] : [],
+                ...(existingTagData.incrementalData ? { incrementalData: existingTagData.incrementalData } : {}),
+                ...(existingTagData._acu_storage_mode ? { _acu_storage_mode: existingTagData._acu_storage_mode } : {}),
+                ...(existingTagData._acu_storage_version != null ? { _acu_storage_version: existingTagData._acu_storage_version } : {}),
+            }),
         ...(existingTagData.vectorMemoryState ? { vectorMemoryState: existingTagData.vectorMemoryState } : {}),
         ...(existingTagData._acu_base_state ? { _acu_base_state: existingTagData._acu_base_state } : {}),
-        ...(existingTagData.incrementalData ? { incrementalData: existingTagData.incrementalData } : {}),
-        ...(existingTagData._acu_storage_mode ? { _acu_storage_mode: existingTagData._acu_storage_mode } : {}),
-        ...(existingTagData._acu_storage_version != null ? { _acu_storage_version: existingTagData._acu_storage_version } : {}),
     } as any;
+    const shouldWriteLegacyCompat = !existingTagDataIsV2 && isLegacyV1TagData_ACU(existingTagData);
     if (nextState) {
         const previousManifest = existingTagData.summaryVectorIndexManifest || previousState?.manifest || null;
         const persisted = await persistSummaryVectorIndexSnapshot_ACU({
@@ -803,12 +811,15 @@ async function writeSummaryVectorIndexCheckpoint_ACU(options: {
         enabled: settings_ACU.dataIsolationEnabled,
         code: settings_ACU.dataIsolationCode,
     });
-    writeLegacyCompatData_ACU(
-        message,
-        nextTagData.independentData || {},
-        nextTagData.modifiedKeys || [],
-        nextTagData.updateGroupKeys || [],
-    );
+    if (shouldWriteLegacyCompat) {
+        writeLegacyCompatData_ACU(
+            message,
+            nextTagData.independentData || {},
+            nextTagData.modifiedKeys || [],
+            nextTagData.updateGroupKeys || [],
+            { legacyConfirmed: true },
+        );
+    }
     if (options.saveChatAfterWrite !== false) {
         await saveChatToHost_ACU();
     }
@@ -829,16 +840,23 @@ async function clearSummaryVectorIndexCheckpoint_ACU(params: {
     if (!existingTagData?.summaryVectorIndexState && !existingTagData?.summaryVectorIndexManifest) return !!manifest;
 
     const nextIsolatedData = cloneIsolatedData_ACU(message);
+    const existingStorageFrame = (existingTagData as any).storageFrame;
+    const existingTagDataIsV2 = !!existingStorageFrame;
     const nextTagData = {
-        independentData: existingTagData.independentData || {},
-        modifiedKeys: Array.isArray(existingTagData.modifiedKeys) ? [...existingTagData.modifiedKeys] : [],
-        updateGroupKeys: Array.isArray(existingTagData.updateGroupKeys) ? [...existingTagData.updateGroupKeys] : [],
+        ...(existingTagDataIsV2
+            ? { storageFrame: existingStorageFrame, _acu_storage_version: 2 }
+            : {
+                independentData: existingTagData.independentData || {},
+                modifiedKeys: Array.isArray(existingTagData.modifiedKeys) ? [...existingTagData.modifiedKeys] : [],
+                updateGroupKeys: Array.isArray(existingTagData.updateGroupKeys) ? [...existingTagData.updateGroupKeys] : [],
+                ...(existingTagData.incrementalData ? { incrementalData: existingTagData.incrementalData } : {}),
+                ...(existingTagData._acu_storage_mode ? { _acu_storage_mode: existingTagData._acu_storage_mode } : {}),
+                ...(existingTagData._acu_storage_version != null ? { _acu_storage_version: existingTagData._acu_storage_version } : {}),
+            }),
         ...(existingTagData.vectorMemoryState ? { vectorMemoryState: existingTagData.vectorMemoryState } : {}),
         ...(existingTagData._acu_base_state ? { _acu_base_state: existingTagData._acu_base_state } : {}),
-        ...(existingTagData.incrementalData ? { incrementalData: existingTagData.incrementalData } : {}),
-        ...(existingTagData._acu_storage_mode ? { _acu_storage_mode: existingTagData._acu_storage_mode } : {}),
-        ...(existingTagData._acu_storage_version != null ? { _acu_storage_version: existingTagData._acu_storage_version } : {}),
     } as any;
+    const shouldWriteLegacyCompat = !existingTagDataIsV2 && isLegacyV1TagData_ACU(existingTagData);
     assignSummaryVectorIndexStateToTagData_ACU(nextTagData, null);
     nextIsolatedData[isolationKey] = nextTagData;
     message.TavernDB_ACU_IsolatedData = nextIsolatedData;
@@ -847,12 +865,15 @@ async function clearSummaryVectorIndexCheckpoint_ACU(params: {
         enabled: settings_ACU.dataIsolationEnabled,
         code: settings_ACU.dataIsolationCode,
     });
-    writeLegacyCompatData_ACU(
-        message,
-        nextTagData.independentData || {},
-        nextTagData.modifiedKeys || [],
-        nextTagData.updateGroupKeys || [],
-    );
+    if (shouldWriteLegacyCompat) {
+        writeLegacyCompatData_ACU(
+            message,
+            nextTagData.independentData || {},
+            nextTagData.modifiedKeys || [],
+            nextTagData.updateGroupKeys || [],
+            { legacyConfirmed: true },
+        );
+    }
     await saveChatToHost_ACU();
     logDebug_ACU(`[纪要向量索引] 当前纪要表无有效条目，已清理目标楼层交火索引 manifest: messageIndex=${params.targetMessageIndex}`);
     return true;
@@ -960,16 +981,23 @@ export async function migrateLegacySummaryVectorIndexToContentAddressed_ACU(opti
     });
 
     const nextIsolatedData = cloneIsolatedData_ACU(message);
+    const existingStorageFrame = (existingTagData as any).storageFrame;
+    const existingTagDataIsV2 = !!existingStorageFrame;
     const nextTagData = {
-        independentData: existingTagData.independentData || {},
-        modifiedKeys: Array.isArray(existingTagData.modifiedKeys) ? [...existingTagData.modifiedKeys] : [],
-        updateGroupKeys: Array.isArray(existingTagData.updateGroupKeys) ? [...existingTagData.updateGroupKeys] : [],
+        ...(existingTagDataIsV2
+            ? { storageFrame: existingStorageFrame, _acu_storage_version: 2 }
+            : {
+                independentData: existingTagData.independentData || {},
+                modifiedKeys: Array.isArray(existingTagData.modifiedKeys) ? [...existingTagData.modifiedKeys] : [],
+                updateGroupKeys: Array.isArray(existingTagData.updateGroupKeys) ? [...existingTagData.updateGroupKeys] : [],
+                ...(existingTagData.incrementalData ? { incrementalData: existingTagData.incrementalData } : {}),
+                ...(existingTagData._acu_storage_mode ? { _acu_storage_mode: existingTagData._acu_storage_mode } : {}),
+                ...(existingTagData._acu_storage_version != null ? { _acu_storage_version: existingTagData._acu_storage_version } : {}),
+            }),
         ...(existingTagData.vectorMemoryState ? { vectorMemoryState: existingTagData.vectorMemoryState } : {}),
         ...(existingTagData._acu_base_state ? { _acu_base_state: existingTagData._acu_base_state } : {}),
-        ...(existingTagData.incrementalData ? { incrementalData: existingTagData.incrementalData } : {}),
-        ...(existingTagData._acu_storage_mode ? { _acu_storage_mode: existingTagData._acu_storage_mode } : {}),
-        ...(existingTagData._acu_storage_version != null ? { _acu_storage_version: existingTagData._acu_storage_version } : {}),
     } as any;
+    const shouldWriteLegacyCompat = !existingTagDataIsV2 && isLegacyV1TagData_ACU(existingTagData);
     assignSummaryVectorIndexStateToTagData_ACU(nextTagData, persisted.state, persisted.manifest);
     nextIsolatedData[isolationKey] = nextTagData;
     message.TavernDB_ACU_IsolatedData = nextIsolatedData;
@@ -978,12 +1006,15 @@ export async function migrateLegacySummaryVectorIndexToContentAddressed_ACU(opti
         enabled: settings_ACU.dataIsolationEnabled,
         code: settings_ACU.dataIsolationCode,
     });
-    writeLegacyCompatData_ACU(
-        message,
-        nextTagData.independentData || {},
-        nextTagData.modifiedKeys || [],
-        nextTagData.updateGroupKeys || [],
-    );
+    if (shouldWriteLegacyCompat) {
+        writeLegacyCompatData_ACU(
+            message,
+            nextTagData.independentData || {},
+            nextTagData.modifiedKeys || [],
+            nextTagData.updateGroupKeys || [],
+            { legacyConfirmed: true },
+        );
+    }
     if (options.saveChatAfterWrite !== false) {
         await saveChatToHost_ACU();
     }

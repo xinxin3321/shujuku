@@ -239,13 +239,12 @@ describe('parseAndApplyTableEdits_ACU — SQL 分支', () => {
     };
   });
 
-  it('SQLite 模式下 SQL 内容走 SQL 执行路径', () => {
+  it('SQLite 模式下 SQL 内容不能由解析器直接执行', () => {
     const aiResponse = "<tableEdit>INSERT INTO inventory VALUES (2, '药水', 5);</tableEdit>";
     mockApplyEdits.mockReturnValue({ success: true, modifiedKeys: ['sheet_0'], appliedEdits: 1 });
 
-    const result = parseAndApplyTableEdits_ACU(aiResponse, 'standard');
-    expect(mockApplyEdits).toHaveBeenCalled();
-    expect(result).toEqual({ success: true, modifiedKeys: ['sheet_0'], appliedEdits: 1 });
+    expect(() => parseAndApplyTableEdits_ACU(aiResponse, 'standard')).toThrow('table update commit model');
+    expect(mockApplyEdits).not.toHaveBeenCalled();
   });
 
   it('SQLite 模式下非 SQL 内容走原生解析路径', () => {
@@ -268,11 +267,12 @@ describe('parseAndApplyTableEdits_ACU — SQL 分支', () => {
     expect(mockApplyEdits).not.toHaveBeenCalled();
   });
 
-  it('SQL 执行失败时抛出异常', () => {
+  it('SQLite SQL 内容在解析器阶段直接拒绝，不调用 provider', () => {
     const aiResponse = "<tableEdit>INSERT INTO inventory VALUES (2, '药水', 5);</tableEdit>";
     mockApplyEdits.mockImplementation(() => { throw new Error('SQL 语法错误'); });
 
-    expect(() => parseAndApplyTableEdits_ACU(aiResponse, 'standard')).toThrow('SQL 语法错误');
+    expect(() => parseAndApplyTableEdits_ACU(aiResponse, 'standard')).toThrow('table update commit model');
+    expect(mockApplyEdits).not.toHaveBeenCalled();
   });
 
   it('currentJsonTableData 为 null 时返回 false', () => {
@@ -286,12 +286,12 @@ describe('parseAndApplyTableEdits_ACU — SQL 分支', () => {
     expect(result).toBe(true);
   });
 
-  it('传递 updateMode 参数给 provider', () => {
+  it('SQLite SQL 内容不会把 updateMode 传给 provider 直写', () => {
     const aiResponse = "<tableEdit>INSERT INTO inventory VALUES (2, '药水', 5);</tableEdit>";
     mockApplyEdits.mockReturnValue({ success: true, modifiedKeys: [], appliedEdits: 1 });
 
-    parseAndApplyTableEdits_ACU(aiResponse, 'auto_standard');
-    expect(mockApplyEdits).toHaveBeenCalledWith(expect.any(String), 'auto_standard');
+    expect(() => parseAndApplyTableEdits_ACU(aiResponse, 'auto_standard')).toThrow('table update commit model');
+    expect(mockApplyEdits).not.toHaveBeenCalled();
   });
 });
 

@@ -20,7 +20,7 @@ import { topLevelWindow_ACU } from '../../shared/env';
 import { escapeHtml_ACU } from '../../shared/html-helpers';
 import { safeJsonStringify_ACU } from '../../shared/json-helpers';
 import { applySheetOrderNumbers_ACU, ensureSheetOrderNumbers_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
-import { saveIndependentTableToChatHistory_ACU } from '../../service/table/table-service';
+import { runTableUpdateCommit_ACU } from '../../service/table/table-update-commit';
 import { applyTemplatePresetToCurrent_ACU, resolveActiveTemplatePresetName_ACU, upsertTemplatePreset_ACU } from '../../service/template/template-preset-service';
 import { loadTemplatePresetSelect_ACU } from '../components/template-preset-ui';
 import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-display';
@@ -302,7 +302,32 @@ import { enqueueSummaryVectorIndexFlush_ACU } from '../../service/vector/summary
               for (const [indexStr, keys] of Object.entries(bucketByIndex)) {
                   const idx = parseInt(indexStr, 10);
                   if (Number.isNaN(idx)) continue;
-                  await saveIndependentTableToChatHistory_ACU(idx, keys as string[], null, true);
+                  const sheetKeys = keys as string[];
+                  const writeSet = sheetKeys.map(sheetKey => ({ kind: 'sheet' as const, sheetKey }));
+                  const commitResult = await runTableUpdateCommit_ACU<null>({
+                      source: 'manual_crud',
+                      reason: 'visualizer_save',
+                      isolationKey,
+                      writeSet,
+                      revisionWriteSet: writeSet,
+                      initialData: currentJsonTableData_ACU as any,
+                      targetMessageIndex: idx,
+                      targetSheetKeys: sheetKeys,
+                      updateGroupKeys: null,
+                      trackingSheetKeys: [],
+                      trackAsUpdate: false,
+                      operations: sheetKeys
+                          .filter(sheetKey => Boolean((currentJsonTableData_ACU as any)?.[sheetKey]))
+                          .map(sheetKey => ({ kind: 'sheet_replace' as const, sheetKey, sheet: (currentJsonTableData_ACU as any)[sheetKey], reason: 'manual_crud' as const })),
+                  }, () => ({
+                      success: true,
+                      value: null,
+                      tableData: currentJsonTableData_ACU as any,
+                      mutationResult: { changes: sheetKeys.length, errors: [] },
+                  }));
+                  if (!commitResult.success) {
+                      logWarn_ACU(`[VisualizerSave] 保存楼层 ${idx} 失败: ${commitResult.error || 'unknown error'}`);
+                  }
               }
 
               // 2.4.5 [关键] 如果本次在可视化编辑器删除了表格，则此处追溯整个聊天记录做“硬删除”

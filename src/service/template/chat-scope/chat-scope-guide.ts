@@ -74,6 +74,40 @@ export function ensureStableRowIdsForSheetContent_ACU(content: any[] | null | un
     return [headerRow, ...assignMissingStableRowIds_ACU(normalizedRows)];
 }
 
+function messageHasTableData_ACU(message: any, isolationKey: string) {
+    try {
+        if (!message || message.is_user) return false;
+        const tagData = readIsolatedTagData_ACU(message, isolationKey);
+        if (tagData?.independentData && Object.keys(tagData.independentData).some(k => k.startsWith('sheet_'))) return true;
+        if (isLegacyMatchForIsolation_ACU(message, { enabled: settings_ACU.dataIsolationEnabled, code: settings_ACU.dataIsolationCode })) {
+            const legacyIndependent = readLegacyIndependentData_ACU(message);
+            if (legacyIndependent && Object.keys(legacyIndependent).some(k => k.startsWith('sheet_'))) return true;
+            const legacyStandard = readLegacyStandardData_ACU(message);
+            if (legacyStandard && Object.keys(legacyStandard).some(k => k.startsWith('sheet_'))) return true;
+            const legacySummary = readLegacySummaryData_ACU(message);
+            if (legacySummary && Object.keys(legacySummary).some(k => k.startsWith('sheet_'))) return true;
+        }
+    } catch (_) {}
+    return false;
+}
+
+export function shouldUseInitialSeedRows_ACU(): boolean {
+    try {
+        const chat = getChatArray_ACU();
+        if (!Array.isArray(chat) || chat.length === 0) return false;
+        const userCount = chat.filter(m => m && m.is_user).length;
+        if (userCount !== 1) return false;
+        const isolationKey = String(getCurrentIsolationKey_ACU() ?? '');
+        return !chat.some(message => messageHasTableData_ACU(message, isolationKey));
+    } catch (_) {
+        return false;
+    }
+}
+
+export function shouldUseOpeningSeedRows_ACU(): boolean {
+    return shouldUseInitialSeedRows_ACU();
+}
+
   export function materializeDataFromSheetGuide_ACU(guideData: Record<string, any> | null, { includeSeedRows = true } = {}) {
       const normalized = normalizeGuideData_ACU(guideData);
       if (!normalized) return { mate: { type: 'chatSheets', version: 1 } };
@@ -498,6 +532,7 @@ export function ensureStableRowIdsForSheetContent_ACU(content: any[] | null | un
   export function getEffectiveSeedRowsForSheet_ACU(sheetKey: string, { guideData = null as Record<string, any> | null, allowTemplateFallback = true } = {}) {
       try {
           if (!sheetKey || !String(sheetKey).startsWith('sheet_')) return [];
+          if (!shouldUseInitialSeedRows_ACU()) return [];
           const direct = currentJsonTableData_ACU?.[sheetKey]?.[CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU];
           if (Array.isArray(direct) && direct.length > 0) return ensureStableRowIdsForSeedRows_ACU(direct);
 

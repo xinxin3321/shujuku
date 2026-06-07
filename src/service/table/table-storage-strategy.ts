@@ -19,13 +19,25 @@ let currentProvider: ITableStorageProvider | null = null;
  * 如果尚未初始化，会根据当前设置自动创建
  */
 export function getStorageProvider(): ITableStorageProvider {
-  if (!currentProvider) {
+  const mode = getCurrentStorageMode();
+  if (!currentProvider || currentProvider.mode !== mode) {
+    if (currentProvider) {
+      logDebug_ACU(`[StorageStrategy] Provider 模式变化，重建: ${currentProvider.mode} → ${mode}`);
+      currentProvider.dispose();
+    }
     // 懒初始化：根据当前模式创建 Provider
-    const mode = getCurrentStorageMode();
     currentProvider = createProvider(mode);
     logDebug_ACU(`[StorageStrategy] 懒初始化 Provider: ${mode}`);
   }
   return currentProvider;
+}
+
+export async function ensureStorageProviderReady_ACU(): Promise<ITableStorageProvider> {
+  const expectedMode = getCurrentStorageMode();
+  const provider = getStorageProvider();
+  if (provider.mode === expectedMode && provider.isReady()) return provider;
+  await initStorageProvider();
+  return getStorageProvider();
 }
 
 /**
@@ -158,7 +170,10 @@ export async function reloadStorageProvider(): Promise<void> {
   }
 
   try {
-    await currentProvider.loadFromChat();
+    const result = await currentProvider.loadFromChat();
+    if (mode === 'sqlite' && !result.loaded && result.error) {
+      throw new Error(result.error);
+    }
   } catch (e: any) {
     logError_ACU(`[StorageStrategy] 重新加载失败: ${e?.message}`);
     // SQLite 失败时 fallback

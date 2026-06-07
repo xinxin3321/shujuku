@@ -10,7 +10,6 @@ import {
 import { saveSettings_ACU } from '../../service/settings/settings-service';
 import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-readers';
 import { getSortedSheetKeys_ACU } from '../../service/template/chat-scope';
-import { reloadStorageProvider } from '../../service/table/table-storage-strategy';
 import {
   executeCardUpdateCore_ACU,
   orchestrateManualUpdate_ACU,
@@ -18,6 +17,7 @@ import {
   type BatchUpdateProgressContext,
   type CardUpdateProgressEvent,
 } from '../../service/table/update-orchestrator';
+import { refreshMergedDataAndNotify_ACU } from '../../service/worldbook/pipeline';
 import { useDialogStore } from '../stores/dialog-store';
 import { useToastStore } from '../stores/toast-store';
 
@@ -328,7 +328,7 @@ export function useManualUpdate(): ManualUpdateState {
         result = await orchestrateManualUpdate_ACU(
           selectedManualTableKeys.value,
           runProcessBatch,
-          async () => { await reloadStorageProvider(); },
+          async () => { await refreshMergedDataAndNotify_ACU(); },
           { clearBeforeUpdate, onProgress: handleProgress },
         );
       } finally {

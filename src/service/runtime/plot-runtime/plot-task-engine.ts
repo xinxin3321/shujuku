@@ -537,24 +537,17 @@ import { abortableDelay } from '../../../shared/abortable-delay';
 
       logDebug_ACU(`[剧情推进] 阶段 ${stageGroup.stage} 开始执行，任务级API预设将按各任务独立决议。`);
 
-      const stageResults: any[] = [];
-      for (const task of stageGroup.tasks) {
+      const stageRelayTagMap = new Map(aggregatedTags);
+      const stageResults: any[] = await Promise.all(stageGroup.tasks.map((task: any) => {
         const stageTask = stageEffectivePreset
           ? { ...task, taskApiPreset: stageEffectivePreset }
           : task;
-        const result = await executeSinglePlotTask_ACU(stageTask, sharedContext, {
-          relayTagMap: aggregatedTags,
+        return executeSinglePlotTask_ACU(stageTask, sharedContext, {
+          relayTagMap: stageRelayTagMap,
           historyTagMap,
           historyLookupOptions,
         });
-        stageResults.push(result);
-        if (result?.success) {
-          completedSuccessfulResults = [...completedSuccessfulResults, result];
-          const { aggregated: stageAggregated, injectOnlyTagNames: stageInjectOnly } = aggregatePlotTaskTags_ACU(completedSuccessfulResults);
-          aggregatedTags = stageAggregated;
-          stageInjectOnly.forEach((name: string) => aggregatedInjectOnlyTagNames.add(name));
-        }
-      }
+      }));
       checkPlotAbortRequested_ACU();
 
       const stageSuccessfulResults = stageResults.filter((result: any) => result?.success);
@@ -582,6 +575,9 @@ import { abortableDelay } from '../../../shared/abortable-delay';
         };
       }
 
+      const { aggregated: stageAggregated, injectOnlyTagNames: stageInjectOnly } = aggregatePlotTaskTags_ACU(completedSuccessfulResults);
+      aggregatedTags = stageAggregated;
+      stageInjectOnly.forEach((name: string) => aggregatedInjectOnlyTagNames.add(name));
       logDebug_ACU(`[剧情推进] 阶段 ${stageGroup.stage} 已完成，成功任务数: ${stageSuccessfulResults.length}`);
     }
 

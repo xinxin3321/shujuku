@@ -41,6 +41,8 @@ export {
     getEffectiveSeedRowsForSheet_ACU,
     ensureStableRowIdsForSeedRows_ACU,
     ensureStableRowIdsForSheetContent_ACU,
+    shouldUseInitialSeedRows_ACU,
+    shouldUseOpeningSeedRows_ACU,
     attachSeedRowsToCurrentDataFromGuide_ACU,
     buildChatSheetGuideDataFromData_ACU,
     buildChatSheetGuideDataFromTemplateObj_ACU,

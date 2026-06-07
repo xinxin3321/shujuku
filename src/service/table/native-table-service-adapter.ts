@@ -15,10 +15,9 @@ import type {
 import type { TableDataObject_ACU } from '../../shared/models/table-data';
 import {
   loadOrCreateJsonTableFromChatHistory_ACU,
-  saveIndependentTableToChatHistory_ACU,
 } from './table-service';
 import { parseAndApplyTableEdits_ACU } from '../ai/prompt-builder/table-edit-parser';
-import { currentJsonTableData_ACU } from '../runtime/state-manager';
+import { currentJsonTableData_ACU, _set_currentJsonTableData_ACU } from '../runtime/state-manager';
 import { logDebug_ACU, logError_ACU } from '../../shared/utils';
 
 export class NativeTableServiceAdapter implements ITableStorageProvider {
@@ -39,19 +38,23 @@ export class NativeTableServiceAdapter implements ITableStorageProvider {
     return result;
   }
 
+  isReady(): boolean {
+    return true;
+  }
+
   /**
-   * 保存当前数据到聊天消息
-   * 委托给 saveIndependentTableToChatHistory_ACU
+   * 禁止 provider 自行保存聊天记录。
+   * 所有写入必须通过 table-update-commit 公共提交模型完成。
    */
   async saveToChat(
-    targetSheetKeys?: string[] | null,
-    updateGroupKeys?: string[] | null,
+    _targetSheetKeys?: string[] | null,
+    _updateGroupKeys?: string[] | null,
+    _trackingSheetKeys?: string[] | null,
+    _options?: { source?: string; requestId?: string; batchId?: string; operations?: unknown[]; transactionContext?: unknown },
   ): Promise<{ saved: boolean; messageIndex?: number; error?: string }> {
-    return saveIndependentTableToChatHistory_ACU(
-      -1,
-      targetSheetKeys ?? null,
-      updateGroupKeys ?? null,
-    );
+    const message = 'NativeTableServiceAdapter.saveToChat is disabled; use table update commit model.';
+    logError_ACU(`[原生适配器] ${message}`);
+    return { saved: false, error: message };
   }
 
   /**
@@ -60,6 +63,13 @@ export class NativeTableServiceAdapter implements ITableStorageProvider {
    */
   getCurrentData(): TableDataObject_ACU | null {
     return currentJsonTableData_ACU;
+  }
+
+  replaceAllData(data: TableDataObject_ACU): ApplyEditsResult {
+    const cloned = JSON.parse(JSON.stringify(data || {}));
+    _set_currentJsonTableData_ACU(cloned);
+    const modifiedKeys = Object.keys(cloned).filter(key => key.startsWith('sheet_'));
+    return { success: true, modifiedKeys, appliedEdits: modifiedKeys.length };
   }
 
   /**

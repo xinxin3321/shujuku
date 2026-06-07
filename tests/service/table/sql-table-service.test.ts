@@ -47,8 +47,10 @@ vi.mock('../../../src/service/table/table-service', () => ({
 
 // mock helpers-data-merge
 const mockMergeAll = vi.fn();
+const mockSeedGreetingLocalData = vi.fn().mockResolvedValue(false);
 vi.mock('../../../src/service/runtime/helpers-data-merge', () => ({
   mergeAllIndependentTables_ACU: (...args: any[]) => mockMergeAll(...args),
+  seedGreetingLocalDataFromTemplate_ACU: (...args: any[]) => mockSeedGreetingLocalData(...args),
 }));
 
 // mock name-mapper
@@ -60,9 +62,11 @@ vi.mock('../../../src/service/runtime/template-vars/name-mapper', () => ({
 // mock chat-scope（getEffectiveSeedRowsForSheet_ACU + getCurrentChatTemplateScopeState_ACU）
 const mockGetEffectiveSeedRows = vi.fn().mockReturnValue([]);
 const mockGetCurrentChatTemplateScopeState = vi.fn().mockReturnValue(null);
+const mockShouldUseInitialSeedRows = vi.fn().mockReturnValue(false);
 vi.mock('../../../src/service/template/chat-scope', () => ({
   getEffectiveSeedRowsForSheet_ACU: (...args: any[]) => mockGetEffectiveSeedRows(...args),
   getCurrentChatTemplateScopeState_ACU: (...args: any[]) => mockGetCurrentChatTemplateScopeState(...args),
+  shouldUseInitialSeedRows_ACU: (...args: any[]) => mockShouldUseInitialSeedRows(...args),
   ensureStableRowIdsForSheetContent_ACU: vi.fn((content: any) => {
     if (!Array.isArray(content) || content.length === 0) return [];
     const header = Array.isArray(content[0]) ? [...content[0]] : ['row_id'];
@@ -102,6 +106,7 @@ import {
   splitSqlStatements,
   extractTableNamesFromStatements,
 } from '../../../src/service/table/sql-table-service';
+import { parseTableTemplateJson_ACU } from '../../../src/shared/utils';
 
 // ═══════════════════════════════════════════════════════════════
 // 纯函数测试：splitSqlStatements
@@ -345,7 +350,10 @@ describe('SqlTableService', () => {
     // 重置 mock 返回值，防止测试之间的状态泄漏
     mockGetEffectiveSeedRows.mockReturnValue([]);
     mockGetCurrentChatTemplateScopeState.mockReturnValue(null);
+    mockShouldUseInitialSeedRows.mockReturnValue(false);
+    mockSeedGreetingLocalData.mockResolvedValue(false);
     mockGetTemplatePreset.mockReturnValue(null);
+    vi.mocked(parseTableTemplateJson_ACU).mockReturnValue(null);
     service = new SqlTableService();
   });
 
@@ -375,11 +383,54 @@ describe('SqlTableService', () => {
   // loadFromChat
   // ═══════════════════════════════════════════════════════════════
   describe('loadFromChat', () => {
-    it('无数据时返回 empty', async () => {
+    it('无数据且无可解析模板时返回 empty', async () => {
       mockMergeAll.mockResolvedValue(null);
       const result = await service.loadFromChat();
       expect(result.loaded).toBe(false);
       expect(result.source).toBe('empty');
+    });
+
+    it('首个用户消息后、首个真实 AI 回复前将模板 seedRows 写入运行时 SQLite，支持首次 SQL 读取', async () => {
+      mockShouldUseInitialSeedRows.mockReturnValue(true);
+      mockMergeAll.mockResolvedValue(null);
+      const { parseTableTemplateJson_ACU } = await import('../../../src/shared/utils');
+      vi.mocked(parseTableTemplateJson_ACU).mockReturnValue({
+        mate: { type: 'acu', version: 1 },
+        sheet_0: {
+          uid: 'inventory',
+          name: '背包物品表',
+          sourceData: { note: '', initNode: '', deleteNode: '', updateNode: '', insertNode: '', ddl: TEST_DDL },
+          content: [
+            ['row_id', 'item_name', 'quantity'],
+            ['1', '铁剑', '3'],
+            ['2', '治疗药水', '5'],
+          ],
+          updateConfig: {},
+          exportConfig: {},
+          orderNo: 0,
+        },
+      } as any);
+
+      const result = await service.loadFromChat();
+      expect(mockSeedGreetingLocalData).not.toHaveBeenCalled();
+      expect(result.loaded).toBe(true);
+      expect(result.source).toBe('initialized');
+      const queryResult = service.executeQuery('SELECT * FROM inventory ORDER BY row_id');
+      expect(queryResult.rowCount).toBe(2);
+      expect(queryResult.values[0]).toContain('铁剑');
+    });
+
+    it('仅有基底状态数据时也写入运行时 SQLite，但不保留内部标记', async () => {
+      const baseStateData = JSON.parse(JSON.stringify(testTableData));
+      baseStateData.sheet_0._acu_from_base_state = true;
+      mockMergeAll.mockResolvedValue(baseStateData);
+
+      const result = await service.loadFromChat();
+      expect(result.loaded).toBe(true);
+      expect(result.source).toBe('initialized');
+      const queryResult = service.executeQuery('SELECT * FROM inventory ORDER BY row_id');
+      expect(queryResult.rowCount).toBe(2);
+      expect((mockCurrentJsonTableData as any).sheet_0._acu_from_base_state).toBeUndefined();
     });
 
     it('有数据时成功加载', async () => {
@@ -428,6 +479,28 @@ describe('SqlTableService', () => {
       const result = service.applyEdits(sql);
       expect(result.success).toBe(true);
       expect(result.appliedEdits).toBe(2);
+    });
+
+    it('同一组 SQL 修改多张表时，后续表失败会回滚前面表的写入', async () => {
+      const weaponDDL = `CREATE TABLE weapon_log (row_id INTEGER PRIMARY KEY, value TEXT NOT NULL);`;
+      const questDDL = `CREATE TABLE quest_log (row_id INTEGER PRIMARY KEY, value TEXT NOT NULL);`;
+      const data = {
+        mate: { type: 'acu', version: 1 },
+        sheet_0: { uid: 'inventory', name: '背包', sourceData: { ddl: TEST_DDL }, content: [['row_id', 'item_name', 'quantity'], ['1', '铁剑', '3']], updateConfig: {}, exportConfig: {}, orderNo: 0 },
+        sheet_1: { uid: 'weapon_log', name: '武器记录', sourceData: { ddl: weaponDDL }, content: [['row_id', 'value']], updateConfig: {}, exportConfig: {}, orderNo: 1 },
+        sheet_2: { uid: 'quest_log', name: '任务记录', sourceData: { ddl: questDDL }, content: [['row_id', 'value']], updateConfig: {}, exportConfig: {}, orderNo: 2 },
+      };
+      mockMergeAll.mockResolvedValue(JSON.parse(JSON.stringify(data)));
+      await service.loadFromChat();
+
+      expect(() => service.applyEdits([
+        "INSERT INTO weapon_log VALUES (1, 'A表已写');",
+        "INSERT INTO quest_log VALUES (1, 'B表已写');",
+        "INSERT INTO inventory (missing_col) VALUES ('C表报错');",
+      ].join('\n'))).toThrow();
+
+      expect(service.executeQuery('SELECT COUNT(*) FROM weapon_log').values[0][0]).toBe(0);
+      expect(service.executeQuery('SELECT COUNT(*) FROM quest_log').values[0][0]).toBe(0);
     });
 
     it('空字符串返回成功（无操作）', () => {
@@ -1048,20 +1121,11 @@ describe('SqlTableService', () => {
       await service.loadFromChat();
     });
 
-    it('成功保存到聊天', async () => {
+    it('拒绝 provider 直接保存，要求走公共提交模型', async () => {
       const result = await service.saveToChat();
-      expect(result.saved).toBe(true);
-      expect(mockSaveIndependentTable).toHaveBeenCalled();
-    });
-
-    it('传递 targetSheetKeys 参数', async () => {
-      await service.saveToChat(['sheet_0'], ['group_1']);
-      expect(mockSaveIndependentTable).toHaveBeenCalledWith(-1, ['sheet_0'], ['group_1']);
-    });
-
-    it('null 参数转为 null', async () => {
-      await service.saveToChat(null, null);
-      expect(mockSaveIndependentTable).toHaveBeenCalledWith(-1, null, null);
+      expect(result.saved).toBe(false);
+      expect(result.error).toContain('table update commit model');
+      expect(mockSaveIndependentTable).not.toHaveBeenCalled();
     });
   });
 

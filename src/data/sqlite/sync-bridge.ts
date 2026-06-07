@@ -9,7 +9,7 @@
  */
 
 import { SqliteEngine } from './sqlite-engine';
-import { generateDDL, generateInserts, resultToContent, parseDDLTableName, buildColumnNameMap, validateDDLAgainstHeaders } from './schema-mapper';
+import { generateDDL, generateInserts, resultToContent, parseDDLTableName, parseDDLColumnNames, buildColumnNameMap, validateDDLAgainstHeaders } from './schema-mapper';
 import type { TableDataObject_ACU, Sheet_ACU, Mate_ACU } from '../../shared/models/table-data';
 import { logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
 
@@ -169,8 +169,11 @@ export class SyncBridge {
     const ddl = meta.sourceData?.ddl || this.engine.getTableDDL(tableName) || '';
     const { sqlToChinese } = buildColumnNameMap(ddl);
 
-    // 转换为 content
-    const content = resultToContent(queryResult.columns, queryResult.values, sqlToChinese);
+    // 转换为 content。
+    // sql.js 对空表 SELECT * 可能返回空结果集且不带 columns；此时必须从 DDL 恢复列名，
+    // 否则空表会被导出成只有 ['row_id'] 的坏表头，污染后续 checkpoint/可视化编辑器。
+    const columns = queryResult.columns.length > 0 ? queryResult.columns : parseDDLColumnNames(ddl);
+    const content = resultToContent(columns, queryResult.values, sqlToChinese);
 
     return {
       uid: meta.uid,

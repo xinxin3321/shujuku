@@ -11,17 +11,15 @@ import {
     settings_ACU,
     getCurrentIsolationKey_ACU,
 } from '../../../service/runtime/state-manager';
-import { saveIndependentTableToChatHistory_ACU } from '../../../service/table/table-service';
-import { saveCurrentDataForTable_ACU } from '../../triggers/update-process';
 import { refreshMergedDataAndNotifyWithUI_ACU } from '../../components/pipeline-ui-helpers';
 import type { ApiGroupContext } from './callback-api';
 import { isSqliteMode } from '../../../service/table/storage-mode';
-import { getStorageProvider } from '../../../service/table/table-storage-strategy';
 import { getNameMapper } from '../../../service/runtime/template-vars/name-mapper';
 import { parseDDLTableName } from '../../../shared/ddl-utils';
 import { resolveTableHistoryStateFromChat_ACU } from '../../../service/table/table-history';
 import { enqueueSummaryVectorIndexFlush_ACU } from '../../../service/vector/summary-vector-index-flush-queue';
 import { getCurrentWorldbookConfig_ACU } from '../../../service/settings/settings-readers';
+import { runSqliteRuntimeMutationCommit_ACU, runTableUpdateCommit_ACU } from '../../../service/table/table-update-commit';
 
 /**
  * 从 sheet 解析英文物理表名
@@ -41,15 +39,16 @@ function getEnglishTableName(sheet: any, fallback: string): string {
  * 支持中文显示名、英文物理表名、中英混用
  * 返回值包含英文物理表名（用于 SQL 拼接）
  */
-export function findTargetSheet(
+function findTargetSheetInData_ACU(
+    tableData: Record<string, any> | null | undefined,
     tableName: string,
 ): { sheet: any; sheetKey: string; englishTableName: string } | null {
-    if (!currentJsonTableData_ACU) return null;
+    if (!tableData) return null;
 
     // 路径 1：按 sheet.name（中文显示名）直接匹配
-    for (const sheetKey in currentJsonTableData_ACU) {
+    for (const sheetKey in tableData) {
         if (!sheetKey.startsWith('sheet_')) continue;
-        const sheet = currentJsonTableData_ACU[sheetKey];
+        const sheet = tableData[sheetKey];
         if (sheet?.name === tableName) {
             return {
                 sheet,
@@ -63,9 +62,9 @@ export function findTargetSheet(
     const mapper = getNameMapper();
     const maybeChineseName = mapper.getChineseTableName(tableName);
     if (maybeChineseName && maybeChineseName !== tableName) {
-        for (const sheetKey in currentJsonTableData_ACU) {
+        for (const sheetKey in tableData) {
             if (!sheetKey.startsWith('sheet_')) continue;
-            const sheet = currentJsonTableData_ACU[sheetKey];
+            const sheet = tableData[sheetKey];
             if (sheet?.name === maybeChineseName) {
                 return {
                     sheet,
@@ -77,9 +76,9 @@ export function findTargetSheet(
     }
 
     // 路径 3：直接从 DDL 的英文表名匹配（兜底，覆盖 NameMapper 未构建的场景）
-    for (const sheetKey in currentJsonTableData_ACU) {
+    for (const sheetKey in tableData) {
         if (!sheetKey.startsWith('sheet_')) continue;
-        const sheet = currentJsonTableData_ACU[sheetKey];
+        const sheet = tableData[sheetKey];
         const english = getEnglishTableName(sheet, '');
         if (english && english === tableName) {
             return {
@@ -91,6 +90,12 @@ export function findTargetSheet(
     }
 
     return null;
+}
+
+export function findTargetSheet(
+    tableName: string,
+): { sheet: any; sheetKey: string; englishTableName: string } | null {
+    return findTargetSheetInData_ACU(currentJsonTableData_ACU, tableName);
 }
 
 /**
@@ -149,6 +154,7 @@ function normalizeTableNameArg_ACU(value: any, methodName: string): string | nul
 type TableCrudMutationOptions_ACU = {
     skipChatSave: boolean;
     skipNotify: boolean;
+    assumeCommitLock?: boolean;
 };
 
 type ParsedUpdateCellArgs_ACU = TableCrudMutationOptions_ACU & {
@@ -306,13 +312,14 @@ function parseDeleteRowArgs_ACU(
 function assertSqlMutationChanged_ACU(
     methodName: string,
     actionLabel: string,
-    result: { changes: number; errors: string[] },
+    result: { changes?: number; errors?: string[]; success?: boolean; error?: string },
 ): boolean {
-    if (result.errors.length > 0) {
-        logError_ACU(`${methodName} SQL failed: ${result.errors.join(', ')}`);
+    const errors = result.errors || (result.error ? [result.error] : []);
+    if (result.success === false || errors.length > 0) {
+        logError_ACU(`${methodName} SQL failed: ${errors.join(', ') || 'unknown error'}`);
         return false;
     }
-    if (result.changes <= 0) {
+    if ((result.changes ?? 0) <= 0) {
         logWarn_ACU(`${methodName}: SQL executed but affected 0 rows. action=${actionLabel}`);
         return false;
     }
@@ -370,45 +377,16 @@ async function syncSummaryVectorIndexAfterTableEdit_ACU(
     }
 }
 
-/**
- * 保存表格到最新楼层并刷新世界书（updateCell / updateRow / insertRow / deleteRow 共享）
- */
-async function saveToLatestFloorAndRefresh(
-    targetSheetKey: string,
+async function finalizeTableEditAfterCommit_ACU(
     tableName: string,
-    ctx: ApiGroupContext,
     methodName: string,
-    options: TableCrudMutationOptions_ACU = { skipChatSave: false, skipNotify: false },
+    tableLatestFloorIndex: number,
+    options: TableCrudMutationOptions_ACU,
 ): Promise<void> {
-    const tableLatestFloorIndex = findTableLatestFloor(targetSheetKey, tableName);
     let didNotifyThroughRefresh = false;
-
-    if (tableLatestFloorIndex !== -1) {
-        if (!options.skipChatSave) {
-            logDebug_ACU(`${methodName}: Saving [${tableName}] to its latest floor ${tableLatestFloorIndex}`);
-            const chat = SillyTavern_API_ACU.chat as ACUMessage[];
-            const history = resolveTableHistoryStateFromChat_ACU(chat, {
-                sheetKey: targetSheetKey,
-                isSummaryTable: isSummaryOrOutlineTable_ACU(tableName),
-                isolationKey: getCurrentIsolationKey_ACU(),
-                settings: settings_ACU,
-            });
-            const shouldTrackAsUpdate = history.latestDataMessageIndex === -1;
-            await saveIndependentTableToChatHistory_ACU(
-                tableLatestFloorIndex,
-                [targetSheetKey],
-                shouldTrackAsUpdate ? [targetSheetKey] : null,
-                true,
-            );
-        }
-        await refreshMergedDataAndNotifyWithUI_ACU({ skipNotify: options.skipNotify });
-        didNotifyThroughRefresh = !options.skipNotify;
-        logDebug_ACU(`${methodName}: Worldbook refreshed after saving [${tableName}]`);
-    } else {
-        logDebug_ACU(`${methodName}: No AI floor found, falling back to saveCurrentDataForTable_ACU`);
-        await saveCurrentDataForTable_ACU(targetSheetKey);
-    }
-
+    await refreshMergedDataAndNotifyWithUI_ACU({ skipNotify: options.skipNotify });
+    didNotifyThroughRefresh = !options.skipNotify;
+    logDebug_ACU(`${methodName}: Worldbook refreshed after saving [${tableName}]`);
     await syncSummaryVectorIndexAfterTableEdit_ACU(tableName, methodName, tableLatestFloorIndex, options.skipChatSave);
     if (!options.skipNotify && !didNotifyThroughRefresh) {
         (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
@@ -485,41 +463,88 @@ export function createTableCrudApi(ctx: ApiGroupContext): Record<string, Functio
                 }
 
                 if (isSqliteMode()) {
-                    // SQLite 模式：用英文物理表名和英文列名生成 UPDATE SQL；值统一走参数绑定，避免 row_id/单元格值字符串破坏 SQL。
-                    const rowId = targetSheet.content[normalizedRowIndex][0]; // row_id 是第一列
+                    const rowId = targetSheet.content[normalizedRowIndex][0];
                     if (rowId === undefined || rowId === null) {
                         logError_ACU(`updateCell: row_id not found at index ${normalizedRowIndex}`);
                         return false;
                     }
+                    const tableLatestFloorIndex = findTableLatestFloor(targetSheetKey, targetSheet.name);
+                    if (!skipChatSave && tableLatestFloorIndex === -1) return false;
                     const sql = `UPDATE ${quoteIdentifier(englishTableName)} SET ${quoteIdentifier(englishColName)} = ? WHERE ${quoteIdentifier('row_id')} = ?;`;
-                    const result = getStorageProvider().executeMutation(sql, [
-                        toSqlValueParam_ACU(normalizedValue),
-                        toSqlValueParam_ACU(rowId),
-                    ]);
-                    if (!assertSqlMutationChanged_ACU('updateCell', `table=${englishTableName}, row_id=${rowId}, col=${englishColName}`, result)) {
-                        return false;
-                    }
-                    logDebug_ACU(`updateCell: [SQLite] Updated [${englishTableName}] row_id=${rowId}, col=${englishColName}`);
+                    const params = [toSqlValueParam_ACU(normalizedValue), toSqlValueParam_ACU(rowId)];
+                    const result = await runSqliteRuntimeMutationCommit_ACU<boolean>({
+                        source: 'manual_crud',
+                        reason: 'updateCell:sqlite',
+                        isolationKey: getCurrentIsolationKey_ACU(),
+                        writeSet: [{ kind: 'cell', sheetKey: targetSheetKey, rowId: String(rowId), columnKey: String(chineseColName) }],
+                        revisionWriteSet: [{ kind: 'cell', sheetKey: targetSheetKey, rowId: String(rowId), columnKey: String(chineseColName) }],
+                        initialData: currentJsonTableData_ACU,
+                        targetMessageIndex: tableLatestFloorIndex,
+                        targetSheetKeys: [targetSheetKey],
+                        updateGroupKeys: null,
+                        trackingSheetKeys: [],
+                        trackAsUpdate: false,
+                        skipChatSave,
+                        sql,
+                        params,
+                        validate: ({ mutationResult }) => assertSqlMutationChanged_ACU('updateCell', `table=${englishTableName}, row_id=${rowId}, col=${englishColName}`, mutationResult) ? null : 'updateCell SQLite mutation affected 0 rows',
+                        mapValue: () => true,
+                    });
+                    if (!result.success) return false;
+                    await finalizeTableEditAfterCommit_ACU(targetSheet.name, 'updateCell', tableLatestFloorIndex, { skipChatSave, skipNotify });
+                    return true;
                 } else {
-                    // 原生模式：直接操作 JSON 数组，用中文列名在 headers 中定位
-                    let colIndex = -1;
-                    if (numericColIdentifier !== null) {
-                        colIndex = numericColIdentifier;
-                    } else {
-                        const headers = targetSheet.content[0] || [];
-                        colIndex = headers.indexOf(chineseColName);
-                    }
-                    if (colIndex < 0) {
-                        logError_ACU(`updateCell: Column "${normalizedColIdentifier}" not found in table "${tableName}".`);
-                        return false;
-                    }
-                    targetSheet.content[normalizedRowIndex][colIndex] = normalizedValue;
-                    logDebug_ACU(`updateCell: Updated [${tableName}] row ${normalizedRowIndex}, col ${normalizedColIdentifier} = ${normalizedValue}`);
+                    const tableLatestFloorIndex = findTableLatestFloor(targetSheetKey, targetSheet.name);
+                    if (!skipChatSave && tableLatestFloorIndex === -1) return false;
+                    const writeSet = [{ kind: 'cell' as const, sheetKey: targetSheetKey, rowId: String(targetSheet.content[normalizedRowIndex][0] ?? ''), columnKey: String(chineseColName) }];
+                    const commitResult = await runTableUpdateCommit_ACU<boolean>({
+                        source: 'manual_crud',
+                        reason: 'updateCell',
+                        isolationKey: getCurrentIsolationKey_ACU(),
+                        writeSet,
+                        revisionWriteSet: writeSet,
+                        initialData: currentJsonTableData_ACU,
+                        targetMessageIndex: tableLatestFloorIndex,
+                        targetSheetKeys: [targetSheetKey],
+                        updateGroupKeys: null,
+                        trackingSheetKeys: [],
+                        trackAsUpdate: false,
+                        skipChatSave,
+                    }, ({ workingData }) => {
+                        const workingTarget = findTargetSheetInData_ACU(workingData as any, tableName);
+                        if (!workingTarget) {
+                            logError_ACU(`updateCell: Table "${tableName}" not found.`);
+                            return { success: false, error: `Table "${tableName}" not found.` };
+                        }
+                        const workingSheet = workingTarget.sheet;
+                        let colIndex = -1;
+                        if (numericColIdentifier !== null) {
+                            colIndex = numericColIdentifier;
+                        } else {
+                            const headers = workingSheet.content[0] || [];
+                            colIndex = headers.indexOf(chineseColName);
+                        }
+                        if (colIndex < 0) {
+                            logError_ACU(`updateCell: Column "${normalizedColIdentifier}" not found in table "${tableName}".`);
+                            return { success: false, error: `Column "${normalizedColIdentifier}" not found.` };
+                        }
+                        workingSheet.content[normalizedRowIndex][colIndex] = normalizedValue;
+                        const row = workingSheet.content[normalizedRowIndex];
+                        const rowId = String(row?.[0] ?? '');
+                        logDebug_ACU(`updateCell: Updated [${tableName}] row ${normalizedRowIndex}, col ${normalizedColIdentifier} = ${normalizedValue}`);
+                        return {
+                            success: true,
+                            value: true,
+                            tableData: workingData as any,
+                            persist: {
+                                operations: rowId ? [{ kind: 'row_upsert', sheetKey: targetSheetKey, rowId, cells: [...row] }] : [],
+                            },
+                        };
+                    });
+                    if (!commitResult.success || !commitResult.value) return false;
+                    await finalizeTableEditAfterCommit_ACU(targetSheet.name, 'updateCell', tableLatestFloorIndex, { skipChatSave, skipNotify });
+                    return true;
                 }
-
-                await saveToLatestFloorAndRefresh(targetSheetKey, targetSheet.name, ctx, 'updateCell', { skipChatSave, skipNotify });
-
-                return true;
             } catch (e) {
                 logError_ACU('updateCell failed:', e);
                 return false;
@@ -557,72 +582,119 @@ export function createTableCrudApi(ctx: ApiGroupContext): Record<string, Functio
                 const { sheet: targetSheet, sheetKey: targetSheetKey, englishTableName } = target;
 
                 if (isSqliteMode()) {
-                    // SQLite 模式：用英文物理表名和英文列名生成 UPDATE SQL
-                    const rowId = targetSheet.content[normalizedRowIndex]?.[0];
-                    if (rowId === undefined || rowId === null) {
-                        logError_ACU(`updateRow: row_id not found at index ${normalizedRowIndex}`);
-                        return false;
-                    }
-                    const setClauses: string[] = [];
-                    const params: (string | number | null)[] = [];
-                    const headers = targetSheet.content[0] || [];
-                    for (const colName in normalizedData) {
-                        if (colName === 'isImportMode') continue; // 跳过内部标记
-                        const { englishColName, chineseColName } = resolveColumnForSheet(englishTableName, colName);
-                        if (!headers.includes(chineseColName)) {
-                            logWarn_ACU(`updateRow: Column "${colName}" not found in table "${tableName}".`);
-                            continue;
+                        // SQLite 模式：统一交给公共提交模型执行运行时 SQL 和持久化。
+                        const rowId = targetSheet.content[normalizedRowIndex]?.[0];
+                        if (rowId === undefined || rowId === null) {
+                            logError_ACU(`updateRow: row_id not found at index ${normalizedRowIndex}`);
+                            return false;
                         }
-                        setClauses.push(`${quoteIdentifier(englishColName)} = ?`);
-                        params.push(toSqlValueParam_ACU(normalizedData[colName]));
-                    }
-                    if (setClauses.length === 0) {
-                        logWarn_ACU('updateRow: No valid columns to update.');
-                        return false;
-                    }
-                    params.push(toSqlValueParam_ACU(rowId));
-                    const sql = `UPDATE ${quoteIdentifier(englishTableName)} SET ${setClauses.join(', ')} WHERE ${quoteIdentifier('row_id')} = ?;`;
-                    const result = getStorageProvider().executeMutation(sql, params);
-                    if (!assertSqlMutationChanged_ACU('updateRow', `table=${englishTableName}, row_id=${rowId}, cols=${setClauses.length}`, result)) {
-                        return false;
-                    }
-                    logDebug_ACU(`updateRow: [SQLite] Updated ${setClauses.length} cols in [${englishTableName}] row_id=${rowId}`);
+                        const setClauses: string[] = [];
+                        const params: (string | number | null)[] = [];
+                        const headers = targetSheet.content[0] || [];
+                        for (const colName in normalizedData) {
+                            if (colName === 'isImportMode') continue; // 跳过内部标记
+                            const { englishColName, chineseColName } = resolveColumnForSheet(englishTableName, colName);
+                            if (!headers.includes(chineseColName)) {
+                                logWarn_ACU(`updateRow: Column "${colName}" not found in table "${tableName}".`);
+                                continue;
+                            }
+                            setClauses.push(`${quoteIdentifier(englishColName)} = ?`);
+                            params.push(toSqlValueParam_ACU(normalizedData[colName]));
+                        }
+                        if (setClauses.length === 0) {
+                            logWarn_ACU('updateRow: No valid columns to update.');
+                            return false;
+                        }
+                        params.push(toSqlValueParam_ACU(rowId));
+                        const tableLatestFloorIndex = findTableLatestFloor(targetSheetKey, targetSheet.name);
+                        if (!skipChatSave && tableLatestFloorIndex === -1) return false;
+                        const sql = `UPDATE ${quoteIdentifier(englishTableName)} SET ${setClauses.join(', ')} WHERE ${quoteIdentifier('row_id')} = ?;`;
+                        const result = await runSqliteRuntimeMutationCommit_ACU<boolean>({
+                            source: 'manual_crud',
+                            reason: 'updateRow:sqlite',
+                            isolationKey: getCurrentIsolationKey_ACU(),
+                            writeSet: [{ kind: 'sheet', sheetKey: targetSheetKey }],
+                            revisionWriteSet: [{ kind: 'sheet', sheetKey: targetSheetKey }],
+                            initialData: currentJsonTableData_ACU,
+                            targetMessageIndex: tableLatestFloorIndex,
+                            targetSheetKeys: [targetSheetKey],
+                            updateGroupKeys: null,
+                            trackingSheetKeys: [],
+                            trackAsUpdate: false,
+                            skipChatSave,
+                            sql,
+                            params,
+                            validate: ({ mutationResult }) => assertSqlMutationChanged_ACU('updateRow', `table=${englishTableName}, row_id=${rowId}, cols=${setClauses.length}`, mutationResult) ? null : 'updateRow SQLite mutation affected 0 rows',
+                            mapValue: () => true,
+                        });
+                        if (!result.success) return false;
+                        await finalizeTableEditAfterCommit_ACU(targetSheet.name, 'updateRow', tableLatestFloorIndex, { skipChatSave, skipNotify });
+                        return true;
                 } else {
-                    // 原生模式：直接操作 JSON 数组
-                    while (targetSheet.content.length <= normalizedRowIndex) {
-                        const newRow = new Array((targetSheet.content[0] || []).length).fill('');
-                        targetSheet.content.push(newRow);
-                    }
-
-                    const headers = targetSheet.content[0] || [];
-                    const row = targetSheet.content[normalizedRowIndex];
-
-                    let updated = 0;
-                    for (const colName in normalizedData) {
-                        if (colName === 'isImportMode') continue;
-                        // 将用户传入的列名翻译为中文（原生模式 headers 是中文）。
-                        // 原生模式下 NameMapper 未构建时 resolveColumnForSheet 原样返回，
-                        // 行为与旧版一致。
-                        const { chineseColName } = resolveColumnForSheet(englishTableName, colName);
-                        const colIndex = headers.indexOf(chineseColName);
-                        if (colIndex !== -1) {
-                            row[colIndex] = normalizedData[colName];
-                            updated++;
-                        } else {
-                            logWarn_ACU(`updateRow: Column "${colName}" not found in table "${tableName}".`);
+                    const tableLatestFloorIndex = findTableLatestFloor(targetSheetKey, targetSheet.name);
+                    if (!skipChatSave && tableLatestFloorIndex === -1) return false;
+                    const writeSet = [{ kind: 'sheet' as const, sheetKey: targetSheetKey }];
+                    const commitResult = await runTableUpdateCommit_ACU<boolean>({
+                        source: 'manual_crud',
+                        reason: 'updateRow',
+                        isolationKey: getCurrentIsolationKey_ACU(),
+                        writeSet,
+                        revisionWriteSet: writeSet,
+                        initialData: currentJsonTableData_ACU,
+                        targetMessageIndex: tableLatestFloorIndex,
+                        targetSheetKeys: [targetSheetKey],
+                        updateGroupKeys: null,
+                        trackingSheetKeys: [],
+                        trackAsUpdate: false,
+                        skipChatSave,
+                    }, ({ workingData }) => {
+                        const workingTarget = findTargetSheetInData_ACU(workingData as any, tableName);
+                        if (!workingTarget) {
+                            logError_ACU(`updateRow: Table "${tableName}" not found.`);
+                            return { success: false, error: `Table "${tableName}" not found.` };
                         }
-                    }
+                        const workingSheet = workingTarget.sheet;
+                        while (workingSheet.content.length <= normalizedRowIndex) {
+                            const newRow = new Array((workingSheet.content[0] || []).length).fill('');
+                            workingSheet.content.push(newRow);
+                        }
 
-                    if (updated === 0) {
-                        logWarn_ACU(`updateRow: No valid columns updated in [${tableName}] row ${normalizedRowIndex}.`);
-                        return false;
-                    }
-                    logDebug_ACU(`updateRow: Updated ${updated} cells in [${tableName}] row ${normalizedRowIndex}`);
+                        const headers = workingSheet.content[0] || [];
+                        const row = workingSheet.content[normalizedRowIndex];
+
+                        let updated = 0;
+                        for (const colName in normalizedData) {
+                            if (colName === 'isImportMode') continue;
+                            const { chineseColName } = resolveColumnForSheet(workingTarget.englishTableName, colName);
+                            const colIndex = headers.indexOf(chineseColName);
+                            if (colIndex !== -1) {
+                                row[colIndex] = normalizedData[colName];
+                                updated++;
+                            } else {
+                                logWarn_ACU(`updateRow: Column "${colName}" not found in table "${tableName}".`);
+                            }
+                        }
+
+                        if (updated === 0) {
+                            logWarn_ACU(`updateRow: No valid columns updated in [${tableName}] row ${normalizedRowIndex}.`);
+                            return { success: false, error: 'No valid columns updated.' };
+                        }
+                        const rowId = String(row?.[0] ?? '');
+                        logDebug_ACU(`updateRow: Updated ${updated} cells in [${tableName}] row ${normalizedRowIndex}`);
+                        return {
+                            success: true,
+                            value: true,
+                            tableData: workingData as any,
+                            persist: {
+                                operations: rowId ? [{ kind: 'row_upsert', sheetKey: targetSheetKey, rowId, cells: [...row] }] : [],
+                            },
+                        };
+                    });
+                    if (!commitResult.success || !commitResult.value) return false;
+                    await finalizeTableEditAfterCommit_ACU(targetSheet.name, 'updateRow', tableLatestFloorIndex, { skipChatSave, skipNotify });
+                    return true;
                 }
 
-                await saveToLatestFloorAndRefresh(targetSheetKey, targetSheet.name, ctx, 'updateRow', { skipChatSave, skipNotify });
-
-                return true;
             } catch (e) {
                 logError_ACU('updateRow failed:', e);
                 return false;
@@ -655,57 +727,110 @@ export function createTableCrudApi(ctx: ApiGroupContext): Record<string, Functio
                 const headers = targetSheet.content[0] || [];
 
                 if (isSqliteMode()) {
-                    // SQLite 模式：用英文物理表名和英文列名生成 INSERT SQL
-                    const beforeLength = targetSheet.content.length;
-                    const colNames: string[] = [];
-                    const params: (string | number | null)[] = [];
-                    for (const colName in normalizedData) {
-                        const { englishColName, chineseColName } = resolveColumnForSheet(englishTableName, colName);
-                        // 跳过 row_id（自增主键），同时检查英文形态和原始名，防止用户传中文"行号"等变体
-                        if (englishColName === 'row_id' || colName === 'row_id') continue;
-                        if (!headers.includes(chineseColName)) continue;
-                        colNames.push(quoteIdentifier(englishColName));
-                        params.push(toSqlValueParam_ACU(normalizedData[colName]));
-                    }
-                    const placeholders = colNames.map(() => '?').join(', ');
-                    const sql = colNames.length > 0
-                        ? `INSERT INTO ${quoteIdentifier(englishTableName)} (${colNames.join(', ')}) VALUES (${placeholders});`
-                        : `INSERT INTO ${quoteIdentifier(englishTableName)} DEFAULT VALUES;`;
-                    const result = getStorageProvider().executeMutation(sql, params);
-                    if (!assertSqlMutationChanged_ACU('insertRow', `table=${englishTableName}, cols=${colNames.length}`, result)) {
-                        return -1;
-                    }
-                    const refreshedTarget = findTargetSheet(tableName);
-                    const refreshedLength = refreshedTarget?.sheet?.content?.length ?? 0;
-                    if (!refreshedTarget || refreshedLength <= beforeLength) {
-                        logError_ACU(`insertRow: SQLite mutation succeeded but refreshed JSON view did not contain a new row for [${tableName}].`);
-                        return -1;
-                    }
-                    const newIndex = refreshedLength - 1;
-                    logDebug_ACU(`insertRow: [SQLite] Inserted row in [${englishTableName}] at index ${newIndex}`);
-
-                    await saveToLatestFloorAndRefresh(targetSheetKey, targetSheet.name, ctx, 'insertRow', { skipChatSave, skipNotify });
-                    return newIndex;
-                } else {
-                    // 原生模式：直接操作 JSON 数组，用中文列名在 headers 中定位
-                    const newRow = new Array(headers.length).fill('');
-
-                    for (const colName in normalizedData) {
-                        const { chineseColName } = resolveColumnForSheet(englishTableName, colName);
-                        const colIndex = headers.indexOf(chineseColName);
-                        if (colIndex !== -1) {
-                            newRow[colIndex] = normalizedData[colName];
+                        // SQLite 模式：统一交给公共提交模型执行运行时 SQL 和持久化。
+                        const beforeLength = targetSheet.content.length;
+                        const colNames: string[] = [];
+                        const params: (string | number | null)[] = [];
+                        for (const colName in normalizedData) {
+                            const { englishColName, chineseColName } = resolveColumnForSheet(englishTableName, colName);
+                            // 跳过 row_id（自增主键），同时检查英文形态和原始名，防止用户传中文"行号"等变体
+                            if (englishColName === 'row_id' || colName === 'row_id') continue;
+                            if (!headers.includes(chineseColName)) continue;
+                            colNames.push(quoteIdentifier(englishColName));
+                            params.push(toSqlValueParam_ACU(normalizedData[colName]));
                         }
-                    }
+                        const placeholders = colNames.map(() => '?').join(', ');
+                        const tableLatestFloorIndex = findTableLatestFloor(targetSheetKey, targetSheet.name);
+                        if (!skipChatSave && tableLatestFloorIndex === -1) return -1;
+                        const sql = colNames.length > 0
+                            ? `INSERT INTO ${quoteIdentifier(englishTableName)} (${colNames.join(', ')}) VALUES (${placeholders});`
+                            : `INSERT INTO ${quoteIdentifier(englishTableName)} DEFAULT VALUES;`;
+                        const result = await runSqliteRuntimeMutationCommit_ACU<number>({
+                            source: 'manual_crud',
+                            reason: 'insertRow:sqlite',
+                            isolationKey: getCurrentIsolationKey_ACU(),
+                            writeSet: [{ kind: 'sheet', sheetKey: targetSheetKey }],
+                            revisionWriteSet: [{ kind: 'sheet', sheetKey: targetSheetKey }],
+                            initialData: currentJsonTableData_ACU,
+                            targetMessageIndex: tableLatestFloorIndex,
+                            targetSheetKeys: [targetSheetKey],
+                            updateGroupKeys: null,
+                            trackingSheetKeys: [],
+                            trackAsUpdate: false,
+                            skipChatSave,
+                            sql,
+                            params,
+                            validate: ({ mutationResult, tableData }) => {
+                                if (!assertSqlMutationChanged_ACU('insertRow', `table=${englishTableName}, cols=${colNames.length}`, mutationResult)) return 'insertRow SQLite mutation affected 0 rows';
+                                const refreshedTarget = findTargetSheetInData_ACU(tableData as any, tableName);
+                                const refreshedLength = refreshedTarget?.sheet?.content?.length ?? 0;
+                                return refreshedTarget && refreshedLength > beforeLength
+                                    ? null
+                                    : `insertRow: SQLite runtime mutation succeeded but exported JSON view did not contain a new row for [${tableName}].`;
+                            },
+                            mapValue: ({ tableData }) => {
+                                const refreshedTarget = findTargetSheetInData_ACU(tableData as any, tableName);
+                                return (refreshedTarget?.sheet?.content?.length ?? 1) - 1;
+                            },
+                        });
+                        if (!result.success || typeof result.value !== 'number') return -1;
+                        await finalizeTableEditAfterCommit_ACU(targetSheet.name, 'insertRow', tableLatestFloorIndex, { skipChatSave, skipNotify });
+                        return result.value;
+                } else {
+                    const tableLatestFloorIndex = findTableLatestFloor(targetSheetKey, targetSheet.name);
+                    if (!skipChatSave && tableLatestFloorIndex === -1) return -1;
+                    const writeSet = [{ kind: 'sheet' as const, sheetKey: targetSheetKey }];
+                    const commitResult = await runTableUpdateCommit_ACU<number>({
+                        source: 'manual_crud',
+                        reason: 'insertRow',
+                        isolationKey: getCurrentIsolationKey_ACU(),
+                        writeSet,
+                        revisionWriteSet: writeSet,
+                        initialData: currentJsonTableData_ACU,
+                        targetMessageIndex: tableLatestFloorIndex,
+                        targetSheetKeys: [targetSheetKey],
+                        updateGroupKeys: null,
+                        trackingSheetKeys: [],
+                        trackAsUpdate: false,
+                        skipChatSave,
+                    }, ({ workingData }) => {
+                        const workingTarget = findTargetSheetInData_ACU(workingData as any, tableName);
+                        if (!workingTarget) {
+                            logError_ACU(`insertRow: Table "${tableName}" not found.`);
+                            return { success: false, error: `Table "${tableName}" not found.` };
+                        }
+                        const workingSheet = workingTarget.sheet;
+                        const workingHeaders = workingSheet.content[0] || [];
+                        const newRow = new Array(workingHeaders.length).fill('');
 
-                    targetSheet.content.push(newRow);
-                    const newIndex = targetSheet.content.length - 1;
+                        for (const colName in normalizedData) {
+                            const { chineseColName } = resolveColumnForSheet(workingTarget.englishTableName, colName);
+                            const colIndex = workingHeaders.indexOf(chineseColName);
+                            if (colIndex !== -1) {
+                                newRow[colIndex] = normalizedData[colName];
+                            }
+                        }
 
-                    logDebug_ACU(`insertRow: Inserted row at index ${newIndex} in [${tableName}]`);
+                        workingSheet.content.push(newRow);
+                        const newIndex = workingSheet.content.length - 1;
+                        if (newRow[0] === undefined || newRow[0] === null || newRow[0] === '') {
+                            newRow[0] = String(newIndex);
+                        }
+                        const rowId = String(newRow[0]);
 
-                    await saveToLatestFloorAndRefresh(targetSheetKey, targetSheet.name, ctx, 'insertRow', { skipChatSave, skipNotify });
-
-                    return newIndex;
+                        logDebug_ACU(`insertRow: Inserted row at index ${newIndex} in [${tableName}]`);
+                        return {
+                            success: true,
+                            value: newIndex,
+                            tableData: workingData as any,
+                            persist: {
+                                operations: [{ kind: 'row_upsert', sheetKey: targetSheetKey, rowId, cells: [...newRow] }],
+                            },
+                        };
+                    });
+                    if (!commitResult.success || typeof commitResult.value !== 'number') return -1;
+                    await finalizeTableEditAfterCommit_ACU(targetSheet.name, 'insertRow', tableLatestFloorIndex, { skipChatSave, skipNotify });
+                    return commitResult.value;
                 }
             } catch (e) {
                 logError_ACU('insertRow failed:', e);
@@ -748,27 +873,85 @@ export function createTableCrudApi(ctx: ApiGroupContext): Record<string, Functio
                 }
 
                 if (isSqliteMode()) {
-                    // SQLite 模式：用英文物理表名生成 DELETE SQL；row_id 走参数绑定，避免字符串 row_id 删除失效。
                     const rowId = targetSheet.content[normalizedRowIndex]?.[0];
-                    if (rowId === undefined || rowId === null) {
-                        logError_ACU(`deleteRow: row_id not found at index ${normalizedRowIndex}`);
-                        return false;
-                    }
-                    const sql = `DELETE FROM ${quoteIdentifier(englishTableName)} WHERE ${quoteIdentifier('row_id')} = ?;`;
-                    const result = getStorageProvider().executeMutation(sql, [toSqlValueParam_ACU(rowId)]);
-                    if (!assertSqlMutationChanged_ACU('deleteRow', `table=${englishTableName}, row_id=${rowId}`, result)) {
-                        return false;
-                    }
-                    logDebug_ACU(`deleteRow: [SQLite] Deleted row_id=${rowId} from [${englishTableName}]`);
+                        // SQLite 模式：统一交给公共提交模型执行运行时 SQL 和持久化。
+                        if (rowId === undefined || rowId === null) {
+                            logError_ACU(`deleteRow: row_id not found at index ${normalizedRowIndex}`);
+                            return false;
+                        }
+                        const tableLatestFloorIndex = findTableLatestFloor(targetSheetKey, targetSheet.name);
+                        if (!skipChatSave && tableLatestFloorIndex === -1) return false;
+                        const sql = `DELETE FROM ${quoteIdentifier(englishTableName)} WHERE ${quoteIdentifier('row_id')} = ?;`;
+                        const params = [toSqlValueParam_ACU(rowId)];
+                        const result = await runSqliteRuntimeMutationCommit_ACU<boolean>({
+                            source: 'manual_crud',
+                            reason: 'deleteRow:sqlite',
+                            isolationKey: getCurrentIsolationKey_ACU(),
+                            writeSet: [{ kind: 'row', sheetKey: targetSheetKey, rowId: String(rowId) }],
+                            revisionWriteSet: [{ kind: 'row', sheetKey: targetSheetKey, rowId: String(rowId) }],
+                            initialData: currentJsonTableData_ACU,
+                            targetMessageIndex: tableLatestFloorIndex,
+                            targetSheetKeys: [targetSheetKey],
+                            updateGroupKeys: null,
+                            trackingSheetKeys: [],
+                            trackAsUpdate: false,
+                            skipChatSave,
+                            sql,
+                            params,
+                            validate: ({ mutationResult }) => assertSqlMutationChanged_ACU('deleteRow', `table=${englishTableName}, row_id=${rowId}`, mutationResult) ? null : 'deleteRow SQLite mutation affected 0 rows',
+                            mapValue: () => true,
+                        });
+                        if (!result.success) return false;
+                        await finalizeTableEditAfterCommit_ACU(targetSheet.name, 'deleteRow', tableLatestFloorIndex, { skipChatSave, skipNotify });
+                        return true;
                 } else {
-                    // 原生模式：直接操作 JSON 数组
-                    targetSheet.content.splice(normalizedRowIndex, 1);
-                    logDebug_ACU(`deleteRow: Deleted row ${normalizedRowIndex} from [${tableName}]`);
+                    const rowId = targetSheet.content[normalizedRowIndex]?.[0];
+                    const tableLatestFloorIndex = findTableLatestFloor(targetSheetKey, targetSheet.name);
+                    if (!skipChatSave && tableLatestFloorIndex === -1) return false;
+                    const writeSet = rowId === undefined || rowId === null
+                        ? [{ kind: 'sheet' as const, sheetKey: targetSheetKey }]
+                        : [{ kind: 'row' as const, sheetKey: targetSheetKey, rowId: String(rowId) }];
+                    const commitResult = await runTableUpdateCommit_ACU<boolean>({
+                        source: 'manual_crud',
+                        reason: 'deleteRow',
+                        isolationKey: getCurrentIsolationKey_ACU(),
+                        writeSet,
+                        revisionWriteSet: writeSet,
+                        initialData: currentJsonTableData_ACU,
+                        targetMessageIndex: tableLatestFloorIndex,
+                        targetSheetKeys: [targetSheetKey],
+                        updateGroupKeys: null,
+                        trackingSheetKeys: [],
+                        trackAsUpdate: false,
+                        skipChatSave,
+                    }, ({ workingData }) => {
+                        const workingTarget = findTargetSheetInData_ACU(workingData as any, tableName);
+                        if (!workingTarget) {
+                            logError_ACU(`deleteRow: Table "${tableName}" not found.`);
+                            return { success: false, error: `Table "${tableName}" not found.` };
+                        }
+                        const workingSheet = workingTarget.sheet;
+                        if (normalizedRowIndex >= workingSheet.content.length) {
+                            logError_ACU(`deleteRow: Row index ${normalizedRowIndex} out of bounds.`);
+                            return { success: false, error: `Row index ${normalizedRowIndex} out of bounds.` };
+                        }
+                        const deletedRowId = String(workingSheet.content[normalizedRowIndex]?.[0] ?? rowId ?? '');
+                        workingSheet.content.splice(normalizedRowIndex, 1);
+                        logDebug_ACU(`deleteRow: Deleted row ${normalizedRowIndex} from [${tableName}]`);
+                        return {
+                            success: true,
+                            value: true,
+                            tableData: workingData as any,
+                            persist: {
+                                operations: deletedRowId ? [{ kind: 'row_delete', sheetKey: targetSheetKey, rowId: deletedRowId }] : [],
+                            },
+                        };
+                    });
+                    if (!commitResult.success || !commitResult.value) return false;
+                    await finalizeTableEditAfterCommit_ACU(targetSheet.name, 'deleteRow', tableLatestFloorIndex, { skipChatSave, skipNotify });
+                    return true;
                 }
 
-                await saveToLatestFloorAndRefresh(targetSheetKey, targetSheet.name, ctx, 'deleteRow', { skipChatSave, skipNotify });
-
-                return true;
             } catch (e) {
                 logError_ACU('deleteRow failed:', e);
                 return false;

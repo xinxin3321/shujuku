@@ -26,6 +26,7 @@ vi.mock('../../../src/shared/utils', () => ({
 vi.mock('../../../src/service/runtime/state-manager', () => ({
   currentJsonTableData_ACU: null,
   settings_ACU: {},
+  currentChatFileIdentifier_ACU: 'test-chat',
   independentTableStates_ACU: {},
   suppressWorldbookInjectionInGreeting_ACU: false,
   _set_suppressWorldbookInjectionInGreeting_ACU: vi.fn(),
@@ -70,6 +71,8 @@ vi.mock('../../../src/data/repositories/chat-message-data-repo', () => ({
   readMessageIdentity_ACU: vi.fn(() => null),
   isLegacyMatchForIsolation_ACU: vi.fn(() => false),
   initIsolatedTagSlot_ACU: vi.fn(() => ({ independentData: {}, modifiedKeys: [], updateGroupKeys: [] })),
+  cloneIsolatedData_ACU: vi.fn((message: any) => JSON.parse(JSON.stringify(message?.TavernDB_ACU_IsolatedData || {}))),
+  writeMessageIdentity_ACU: vi.fn(),
   writeLegacyCompatData_ACU: vi.fn(),
 }));
 
@@ -546,7 +549,7 @@ describe('mergeAllIndependentTables_ACU', () => {
 // ═══════════════════════════════════════════════════════════════
 // formatJsonToReadable_ACU — JSON 表格数据转 Markdown 可读文本
 // ═══════════════════════════════════════════════════════════════
-import { formatJsonToReadable_ACU, fillFirstLayerWithTemplateData_ACU, shouldSuppressWorldbookInjection_ACU, maybeLiftWorldbookSuppression_ACU, getEffectiveAutoUpdateThreshold_ACU, isNewChatGreetingStage_ACU, isSingleAiNoUserChat_ACU, buildTemplateBaseStateDataForLocalStorage_ACU, seedGreetingLocalDataFromTemplate_ACU, parseReadableToJson_ACU, GREETING_LOCAL_BASE_STATE_MARKER_ACU } from '../../../src/service/runtime/helpers-data-merge';
+import { formatJsonToReadable_ACU, fillFirstLayerWithTemplateData_ACU, shouldSuppressWorldbookInjection_ACU, maybeLiftWorldbookSuppression_ACU, getEffectiveAutoUpdateThreshold_ACU, isNewChatGreetingStage_ACU, isSingleAiNoUserChat_ACU, buildTemplateBaseStateDataForLocalStorage_ACU, ensureInitialSeedCheckpoint_ACU, parseReadableToJson_ACU, GREETING_LOCAL_BASE_STATE_MARKER_ACU } from '../../../src/service/runtime/helpers-data-merge';
 import { settings_ACU, suppressWorldbookInjectionInGreeting_ACU, _set_suppressWorldbookInjectionInGreeting_ACU } from '../../../src/service/runtime/state-manager';
 import { saveChatToHost_ACU } from '../../../src/data/gateways/chat-gateway';
 import { initIsolatedTagSlot_ACU, writeLegacyCompatData_ACU } from '../../../src/data/repositories/chat-message-data-repo';
@@ -978,12 +981,12 @@ describe('buildTemplateBaseStateDataForLocalStorage_ACU', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// seedGreetingLocalDataFromTemplate_ACU — 新建对话时将模板基础状态写入首楼
+// ensureInitialSeedCheckpoint_ACU — 首个真实 AI 回复前将模板基础状态写入 0 层
 // ═══════════════════════════════════════════════════════════════
 import { parseTableTemplateJson_ACU, ensureSheetOrderNumbers_ACU } from '../../../src/shared/utils';
 import { deleteAllGeneratedEntries_ACU } from '../../../src/service/worldbook/pipeline';
 
-describe('seedGreetingLocalDataFromTemplate_ACU', () => {
+describe('ensureInitialSeedCheckpoint_ACU', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getCurrentIsolationKey_ACU).mockReturnValue('');
@@ -991,20 +994,22 @@ describe('seedGreetingLocalDataFromTemplate_ACU', () => {
       data ? Object.keys(data).filter((k: string) => k.startsWith('sheet_')).sort() : [],
     );
     vi.mocked(reorderDataBySheetKeys_ACU).mockImplementation((data: any) => data);
+    vi.mocked(readIsolatedTagData_ACU).mockReturnValue(null);
+    vi.mocked(readLegacyIndependentData_ACU).mockReturnValue(null);
+    vi.mocked(isLegacyMatchForIsolation_ACU).mockReturnValue(false);
   });
 
-  it('非新对话阶段（有用户消息）时返回 false', async () => {
+  it('只有开场白、还没有用户消息时返回 false', async () => {
     vi.mocked(getChatArray_ACU).mockReturnValue([
       { is_user: false, mes: 'AI开场白' },
-      { is_user: true, mes: '用户消息' },
     ]);
-    const result = await seedGreetingLocalDataFromTemplate_ACU();
+    const result = await ensureInitialSeedCheckpoint_ACU();
     expect(result).toBe(false);
   });
 
   it('空聊天记录时返回 false', async () => {
     vi.mocked(getChatArray_ACU).mockReturnValue([]);
-    const result = await seedGreetingLocalDataFromTemplate_ACU();
+    const result = await ensureInitialSeedCheckpoint_ACU();
     expect(result).toBe(false);
   });
 
@@ -1014,8 +1019,8 @@ describe('seedGreetingLocalDataFromTemplate_ACU', () => {
       mes: 'AI开场白',
       _acu_local_template_base_state_seeded: GREETING_LOCAL_BASE_STATE_MARKER_ACU,
     };
-    vi.mocked(getChatArray_ACU).mockReturnValue([greetingMsg]);
-    const result = await seedGreetingLocalDataFromTemplate_ACU();
+    vi.mocked(getChatArray_ACU).mockReturnValue([greetingMsg, { is_user: true, mes: '用户消息' }]);
+    const result = await ensureInitialSeedCheckpoint_ACU();
     expect(result).toBe(false);
     // 不应调用任何写入函数
     expect(vi.mocked(initIsolatedTagSlot_ACU)).not.toHaveBeenCalled();
@@ -1024,44 +1029,37 @@ describe('seedGreetingLocalDataFromTemplate_ACU', () => {
   it('模板为 null 时返回 false', async () => {
     vi.mocked(getChatArray_ACU).mockReturnValue([
       { is_user: false, mes: 'AI开场白' },
+      { is_user: true, mes: '用户消息' },
     ]);
     vi.mocked(parseTableTemplateJson_ACU).mockReturnValue(null);
-    const result = await seedGreetingLocalDataFromTemplate_ACU();
+    const result = await ensureInitialSeedCheckpoint_ACU();
     expect(result).toBe(false);
   });
 
-  it('正常首次写入：写入隔离标签、同步旧格式、保存聊天、清理世界书、更新内存', async () => {
+  it('首个用户消息后首次写入：默认写入 V2 full checkpoint、保存聊天、清理世界书、更新内存', async () => {
     const greetingMsg: any = { is_user: false, mes: 'AI开场白' };
-    vi.mocked(getChatArray_ACU).mockReturnValue([greetingMsg]);
+    vi.mocked(getChatArray_ACU).mockReturnValue([greetingMsg, { is_user: true, mes: '用户消息' }]);
     vi.mocked(parseTableTemplateJson_ACU).mockReturnValue({
       sheet_0: { name: '背包物品表', content: [['row_id', '物品名称'], ['1', '铁剑']] },
     });
-    const tagSlot = { independentData: {}, modifiedKeys: [] as string[], updateGroupKeys: [] as string[], _acu_base_state: '' };
-    vi.mocked(initIsolatedTagSlot_ACU).mockReturnValue(tagSlot);
 
-    const result = await seedGreetingLocalDataFromTemplate_ACU();
+    const result = await ensureInitialSeedCheckpoint_ACU();
 
-    // 返回成功
     expect(result).toEqual({ success: true, messageIndex: 0 });
-    // 写入了隔离标签数据
-    expect(vi.mocked(initIsolatedTagSlot_ACU)).toHaveBeenCalledTimes(1);
-    // tagSlot 的 independentData 被填充
-    expect(tagSlot.independentData).toHaveProperty('sheet_0');
-    // modifiedKeys 为空（基底数据不算AI更新）
-    expect(tagSlot.modifiedKeys).toEqual([]);
-    // 同步了旧格式
-    expect(vi.mocked(writeLegacyCompatData_ACU)).toHaveBeenCalledTimes(1);
-    // 标记了幂等
+    expect(vi.mocked(initIsolatedTagSlot_ACU)).not.toHaveBeenCalled();
+    expect(vi.mocked(writeLegacyCompatData_ACU)).not.toHaveBeenCalled();
+    const tagData = greetingMsg.TavernDB_ACU_IsolatedData?.[''];
+    expect(tagData?._acu_storage_version).toBe(2);
+    expect(tagData?.storageFrame?.version).toBe(2);
+    expect(tagData?.storageFrame?.checkpoint?.kind).toBe('full');
+    expect(tagData?.storageFrame?.checkpoint?.data?.sheet_0?.content?.[1]?.[1]).toBe('铁剑');
     expect(greetingMsg._acu_local_template_base_state_seeded).toBe(GREETING_LOCAL_BASE_STATE_MARKER_ACU);
-    // 保存了聊天
     expect(vi.mocked(saveChatToHost_ACU)).toHaveBeenCalledTimes(1);
-    // 清理了世界书
     expect(vi.mocked(deleteAllGeneratedEntries_ACU)).toHaveBeenCalledTimes(1);
-    // 更新了内存
     expect(vi.mocked(_set_currentJsonTableData_ACU)).toHaveBeenCalledTimes(1);
   });
 
-  it('deleteAllGeneratedEntries_ACU 抛错时不影响整体流程（错误被捕获）', async () => {
+  it('用户消息尚未落聊天记录但发送已触发时，允许提前写入 0 层初始化 checkpoint', async () => {
     const greetingMsg: any = { is_user: false, mes: 'AI开场白' };
     vi.mocked(getChatArray_ACU).mockReturnValue([greetingMsg]);
     vi.mocked(parseTableTemplateJson_ACU).mockReturnValue({
@@ -1070,9 +1068,24 @@ describe('seedGreetingLocalDataFromTemplate_ACU', () => {
     vi.mocked(initIsolatedTagSlot_ACU).mockReturnValue({
       independentData: {}, modifiedKeys: [], updateGroupKeys: [], _acu_base_state: '',
     });
+
+    const result = await ensureInitialSeedCheckpoint_ACU({ allowPendingFirstUserMessage: true });
+
+    expect(result).toEqual({ success: true, messageIndex: 0 });
+  });
+
+  it('deleteAllGeneratedEntries_ACU 抛错时不影响整体流程（错误被捕获）', async () => {
+    const greetingMsg: any = { is_user: false, mes: 'AI开场白' };
+    vi.mocked(getChatArray_ACU).mockReturnValue([greetingMsg, { is_user: true, mes: '用户消息' }]);
+    vi.mocked(parseTableTemplateJson_ACU).mockReturnValue({
+      sheet_0: { name: '表', content: [['row_id', 'col'], ['1', 'val']] },
+    });
+    vi.mocked(initIsolatedTagSlot_ACU).mockReturnValue({
+      independentData: {}, modifiedKeys: [], updateGroupKeys: [], _acu_base_state: '',
+    });
     vi.mocked(deleteAllGeneratedEntries_ACU).mockRejectedValue(new Error('世界书清理失败'));
 
-    const result = await seedGreetingLocalDataFromTemplate_ACU();
+    const result = await ensureInitialSeedCheckpoint_ACU();
     // 即使世界书清理失败，整体流程仍然成功
     expect(result).toEqual({ success: true, messageIndex: 0 });
     // 内存仍然被更新
@@ -1080,15 +1093,10 @@ describe('seedGreetingLocalDataFromTemplate_ACU', () => {
   });
 
   it('找不到第一条AI消息时返回 false', async () => {
-    // isNewChatGreetingStage_ACU 内部会检查 firstAiIndex !== -1
-    // 但如果 chat 全是用户消息，isNewChatGreetingStage_ACU 就返回 false 了
-    // 这里测试一个边界：chat 非空但 findIndex 返回 -1 的情况不会发生
-    // 因为 isNewChatGreetingStage_ACU 已经保证了 firstAiIndex !== -1
-    // 所以这个测试验证的是：只有用户消息时，函数正确返回 false
     vi.mocked(getChatArray_ACU).mockReturnValue([
       { is_user: true, mes: '用户消息' },
     ]);
-    const result = await seedGreetingLocalDataFromTemplate_ACU();
+    const result = await ensureInitialSeedCheckpoint_ACU();
     expect(result).toBe(false);
   });
 });

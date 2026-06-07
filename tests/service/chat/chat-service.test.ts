@@ -51,6 +51,7 @@ vi.mock('../../../src/service/optimization/content-optimization', () => ({
 vi.mock('../../../src/service/runtime/state-manager', () => ({
   settings_ACU: mockSettings,
   currentJsonTableData_ACU: mockCurrentJsonTableData,
+  currentChatFileIdentifier_ACU: 'chat-test',
   getCurrentIsolationKey_ACU: mockGetCurrentIsolationKey,
 }));
 
@@ -78,6 +79,7 @@ beforeEach(() => {
   mockSettings.dataIsolationCode = '';
   mockGetCurrentIsolationKey.mockReturnValue('');
   mockSaveChatToHost.mockResolvedValue(undefined);
+  mockPersistTablesToChatMessage.mockResolvedValue({ saved: true, messageIndex: 0 });
 });
 
 // ═══ replaceChatMessage_ACU ═══
@@ -258,7 +260,12 @@ describe('overrideLatestLayerWithTemplateCore_ACU', () => {
     };
     const count = await overrideLatestLayerWithTemplateCore_ACU(templateData);
     expect(count).toBe(1);
-    expect(mockSaveChatToHost).toHaveBeenCalled();
+    expect(mockPersistTablesToChatMessage).toHaveBeenCalledWith(expect.objectContaining({
+      targetMessageIndex: 1,
+      targetSheetKeys: ['sheet_0'],
+      source: 'system',
+    }));
+    expect(mockSaveChatToHost).not.toHaveBeenCalled();
   });
 
   it('空聊天记录返回 0', async () => {
@@ -280,8 +287,10 @@ describe('overrideLatestLayerWithTemplateCore_ACU', () => {
       sheet_0: { name: '物品表', content: [['row_id', '物品名'], ['1', '剑'], ['2', '盾']] },
     };
     await overrideLatestLayerWithTemplateCore_ACU(templateData);
-    const isolatedData = chat[0].TavernDB_ACU_IsolatedData?.[''];
-    expect(isolatedData.independentData.sheet_0.content.length).toBe(1); // 只有表头
+    const call = mockPersistTablesToChatMessage.mock.calls[0]?.[0];
+    expect(call.operations[0].kind).toBe('sheet_replace');
+    expect(call.operations[0].sheet.content.length).toBe(1); // 只有表头
+    expect(chat[0].TavernDB_ACU_IsolatedData).toBeUndefined();
   });
 });
 

@@ -30,6 +30,10 @@ const serviceMock = vi.hoisted(() => ({
   setSpecialIndexLockEnabled_ACU: vi.fn(),
   getCurrentWorldbookConfig_ACU: vi.fn(() => ({ summaryVectorIndexModeEnabled: false })),
   saveIndependentTableToChatHistory_ACU: vi.fn(async () => undefined),
+  runTableUpdateCommit_ACU: vi.fn(async (_options: any, apply: any) => {
+    const applied = await apply({ transactionContext: { runCommit: async (task: any) => task() }, workingData: null });
+    return { success: applied.success !== false, value: applied.value, tableData: applied.tableData, saved: true };
+  }),
   getLatestAiMessageIndexFromChat_ACU: vi.fn(() => 0),
   resolveTableHistoryStateFromChat_ACU: vi.fn(() => ({
     latestDataMessageIndex: -1,
@@ -77,6 +81,9 @@ vi.mock('../../../src/service/settings/settings-readers', () => ({
 }));
 vi.mock('../../../src/service/table/table-service', () => ({
   saveIndependentTableToChatHistory_ACU: serviceMock.saveIndependentTableToChatHistory_ACU,
+}));
+vi.mock('../../../src/service/table/table-update-commit', () => ({
+  runTableUpdateCommit_ACU: serviceMock.runTableUpdateCommit_ACU,
 }));
 vi.mock('../../../src/service/table/table-history', () => ({
   getLatestAiMessageIndexFromChat_ACU: serviceMock.getLatestAiMessageIndexFromChat_ACU,
@@ -146,7 +153,11 @@ describe('useVisualizerSave', () => {
     expect(saved).toBe(true);
     expect(runtimeMock._set_currentJsonTableData_ACU).toHaveBeenCalledTimes(1);
     expect(runtimeMock.getCurrentData().sheet_test_vz2.content[1][2]).toBe('紧张');
-    expect(serviceMock.saveIndependentTableToChatHistory_ACU).toHaveBeenCalledWith(0, ['sheet_test_vz2'], null, true);
+    expect(serviceMock.runTableUpdateCommit_ACU).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'manual_crud',
+      reason: 'visualizer_v2_save',
+      targetSheetKeys: ['sheet_test_vz2'],
+    }), expect.any(Function));
     expect(store.dirty).toBe(false);
     expect(store.lastSavedTarget).toBe('chat');
   });
@@ -195,7 +206,11 @@ describe('useVisualizerSave', () => {
       save: true,
       persistChatScope: false,
     }));
-    expect(serviceMock.saveIndependentTableToChatHistory_ACU).toHaveBeenCalledWith(0, ['sheet_test_vz2'], null, true);
+    expect(serviceMock.runTableUpdateCommit_ACU).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'manual_crud',
+      reason: 'visualizer_v2_save',
+      targetSheetKeys: ['sheet_test_vz2'],
+    }), expect.any(Function));
     expect(store.dirty).toBe(false);
     expect(store.lastSavedTarget).toBe('global');
   });

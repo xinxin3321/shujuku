@@ -16,19 +16,41 @@ function mockSqlConsoleDeps(opts: {
     return opts.queryResult ?? { columns: ['name'], values: [['items']], rowCount: 1 };
   });
   const executeMutation = vi.fn(() => opts.mutationResult ?? { changes: 2, errors: [] });
-  const getStorageProvider = vi.fn(() => ({
+  const provider = {
     executeQuery,
     executeMutation,
-  }));
+    getCurrentData: vi.fn(() => ({ mate: { type: 'acu', version: 1 }, sheet_0: { name: 'T', content: [['row_id'], ['1']] } })),
+  };
+  const getStorageProvider = vi.fn(() => provider);
+  const ensureStorageProviderReady = vi.fn(async () => provider);
 
   vi.doMock('../../../src/service/table/storage-mode', () => ({
     isSqliteMode: () => opts.sqlite !== false,
   }));
   vi.doMock('../../../src/service/table/table-storage-strategy', () => ({
     getStorageProvider,
+    ensureStorageProviderReady_ACU: ensureStorageProviderReady,
   }));
   vi.doMock('../../../src/service/runtime/state-manager', () => ({
     settings_ACU: { toastMuteEnabled: false },
+    currentJsonTableData_ACU: { mate: { type: 'acu', version: 1 }, sheet_0: { name: 'T', content: [['row_id'], ['1']] } },
+    currentChatFileIdentifier_ACU: 'chat-a',
+    getCurrentIsolationKey_ACU: vi.fn(() => 'iso-a'),
+    _set_currentJsonTableData_ACU: vi.fn(),
+  }));
+  vi.doMock('../../../src/service/table/table-service', () => ({
+    persistTablesToChatMessage_ACU: vi.fn().mockResolvedValue({ saved: true, messageIndex: 1 }),
+  }));
+  vi.doMock('../../../src/service/table/table-write-transaction', () => ({
+    runTableWriteTransaction_ACU: vi.fn(async (_options: any, task: any) => task({
+      transactionId: 'tx-test',
+      chatKey: 'chat-a',
+      isolationKey: 'iso-a',
+      source: _options.source,
+      baseRevision: null,
+      writeSet: _options.writeSet,
+      runCommit: async (commitTask: any) => commitTask(),
+    }, _options.initialData || null)),
   }));
 
   return { executeQuery, executeMutation, getStorageProvider };
@@ -55,7 +77,7 @@ describe('useSqlConsole', () => {
   it('空 SQL 不调用 provider，并提示 warning', async () => {
     const deps = mockSqlConsoleDeps({});
     const { flow, toast } = await freshFlow();
-    flow.executeCurrent();
+    await flow.executeCurrent();
 
     expect(deps.getStorageProvider).not.toHaveBeenCalled();
     expect(toast.items.at(-1)).toMatchObject({ kind: 'warning' });
@@ -72,7 +94,7 @@ describe('useSqlConsole', () => {
     });
     const { flow } = await freshFlow();
     flow.sqlText.value = 'SELECT id, name FROM item;';
-    flow.executeCurrent();
+    await flow.executeCurrent();
 
     expect(deps.executeQuery).toHaveBeenCalledWith('SELECT id, name FROM item;');
     expect(flow.result.value.kind).toBe('query');
@@ -88,9 +110,9 @@ describe('useSqlConsole', () => {
     });
     const { flow, toast } = await freshFlow();
     flow.sqlText.value = "UPDATE item SET name = 'x';";
-    flow.executeCurrent();
+    await flow.executeCurrent();
 
-    expect(deps.executeMutation).toHaveBeenCalledWith("UPDATE item SET name = 'x';");
+    expect(deps.executeMutation).toHaveBeenCalledWith("UPDATE item SET name = 'x';", undefined);
     expect(flow.result.value.kind).toBe('error');
     expect(flow.result.value.error).toContain('no such table');
     expect(flow.history.value[0]).toMatchObject({ success: false });
@@ -101,7 +123,7 @@ describe('useSqlConsole', () => {
     const deps = mockSqlConsoleDeps({ sqlite: false });
     const { flow } = await freshFlow();
     flow.sqlText.value = 'SELECT 1;';
-    flow.executeCurrent();
+    await flow.executeCurrent();
 
     expect(deps.getStorageProvider).not.toHaveBeenCalled();
     expect(flow.result.value.kind).toBe('error');

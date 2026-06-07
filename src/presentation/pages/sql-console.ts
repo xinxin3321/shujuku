@@ -8,9 +8,10 @@ import { escapeHtml_ACU } from '../../shared/html-helpers';
 import { logDebug_ACU, logError_ACU } from '../../shared/utils';
 import { jQuery_API_ACU } from '../dom-utils';
 import { showToastr_ACU } from '../theme/toast';
-import { getStorageProvider } from '../../service/table/table-storage-strategy';
+import { ensureStorageProviderReady_ACU } from '../../service/table/table-storage-strategy';
 import { isSqliteMode } from '../../service/table/storage-mode';
 import { $popupInstance_ACU } from '../state/ui-refs';
+import { createSqlApi } from '../bootstrap/api-groups/sql-api';
 
 /** SQL 执行历史记录（内存中保留，不持久化） */
 export const sqlHistory: { sql: string; timestamp: number; success: boolean }[] = [];
@@ -93,7 +94,7 @@ export async function bindSqlConsoleEvents_ACU(): Promise<void> {
             return;
         }
 
-        executeSql(sql, $resultArea, $execStatus);
+        void executeSql(sql, $resultArea, $execStatus);
     });
 
     // Ctrl+Enter 快捷键执行
@@ -146,11 +147,11 @@ export function isSelectQuery(sql: string): boolean {
 /**
  * 执行 SQL 并渲染结果
  */
-export function executeSql(sql: string, $resultArea: any, $execStatus: any): void {
+export async function executeSql(sql: string, $resultArea: any, $execStatus: any): Promise<void> {
     const startTime = performance.now();
 
     try {
-        const provider = getStorageProvider();
+        const provider = await ensureStorageProviderReady_ACU();
         const isSelect = isSelectQuery(sql);
 
         if (isSelect) {
@@ -171,8 +172,8 @@ export function executeSql(sql: string, $resultArea: any, $execStatus: any): voi
             $execStatus.html(`<span style="color: #a6e3a1;">✓ ${result.rowCount} 行, ${elapsed}ms</span>`);
             logDebug_ACU(`[SQL Console] SELECT 成功: ${result.rowCount} 行, ${elapsed}ms`);
         } else {
-            // INSERT/UPDATE/DELETE 变更
-            const result = provider.executeMutation(sql);
+            // INSERT/UPDATE/DELETE 变更：走统一 update+persist 提交模型
+            const result = await createSqlApi({} as any).executeSqlMutation({ sql, trackingSheetKeys: [] });
             const elapsed = (performance.now() - startTime).toFixed(1);
 
             if (result.errors.length > 0) {

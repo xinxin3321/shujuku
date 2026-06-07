@@ -630,14 +630,14 @@ describe('runPlotTasksRuntime_ACU', () => {
     expect(mockPlanningGuard.ignoreNextGenerationEndedCount).toBe(2);
   });
 
-  it('标签来源按任务执行顺序切换：T1/T2/T3 用历史，T3 产出后 T4/T5 用本轮', async () => {
+  it('标签来源按阶段切换：阶段1用历史，阶段1产出后阶段2用本轮', async () => {
     const plotSettings = {
       tasks: [
         { id: 't1', name: '任务1', stage: 1, order: 1, maxRetries: 1, extractTags: 'recall', promptGroup: [{ role: 'user', content: 'T1 {{recall}}' }] },
         { id: 't2', name: '任务2', stage: 1, order: 2, maxRetries: 1, extractTags: 'recall', promptGroup: [{ role: 'user', content: 'T2 {{recall}}' }] },
         { id: 't3', name: '任务3', stage: 1, order: 3, maxRetries: 1, extractTags: 'recall', promptGroup: [{ role: 'user', content: 'T3 {{recall}}' }] },
-        { id: 't4', name: '任务4', stage: 1, order: 4, maxRetries: 1, extractTags: 'recall', promptGroup: [{ role: 'user', content: 'T4 {{recall}}' }] },
-        { id: 't5', name: '任务5', stage: 1, order: 5, maxRetries: 1, extractTags: 'recall', promptGroup: [{ role: 'user', content: 'T5 {{recall}}' }] },
+        { id: 't4', name: '任务4', stage: 2, order: 4, maxRetries: 1, extractTags: 'recall', promptGroup: [{ role: 'user', content: 'T4 {{recall}}' }] },
+        { id: 't5', name: '任务5', stage: 2, order: 5, maxRetries: 1, extractTags: 'recall', promptGroup: [{ role: 'user', content: 'T5 {{recall}}' }] },
       ],
     };
 
@@ -697,7 +697,7 @@ describe('runPlotTasksRuntime_ACU', () => {
     expect(calls[3][2]).toBe(historyTagMap);
     expect(calls[4][2]).toBe(historyTagMap);
 
-    // T1/T2/T3 渲染时本轮无 recall；T4/T5 渲染时本轮已含 recall
+    // 阶段1的 T1/T2/T3 渲染时本轮无 recall；阶段2的 T4/T5 渲染时本轮已含 recall
     expect(calls[0][1] instanceof Map ? calls[0][1].has('recall') : false).toBe(false);
     expect(calls[1][1] instanceof Map ? calls[1][1].has('recall') : false).toBe(false);
     expect(calls[2][1] instanceof Map ? calls[2][1].has('recall') : false).toBe(false);
@@ -708,8 +708,16 @@ describe('runPlotTasksRuntime_ACU', () => {
   // ═══════════════════════════════════════════════════════════════
   // stage 级统一 effective preset
   // ═══════════════════════════════════════════════════════════════
-  it('同 stage 多任务时，统一使用第一个有显式 taskApiPreset 的任务的预设', async () => {
-    mockCallApiWithPlotPreset.mockResolvedValue('AI回复内容');
+  it('同 stage 多任务并发执行，并统一使用第一个有显式 taskApiPreset 的任务的预设', async () => {
+    let activeCalls = 0;
+    let maxActiveCalls = 0;
+    mockCallApiWithPlotPreset.mockImplementation(async () => {
+      activeCalls += 1;
+      maxActiveCalls = Math.max(maxActiveCalls, activeCalls);
+      await Promise.resolve();
+      activeCalls -= 1;
+      return 'AI回复内容';
+    });
     mockExtractPlotTagsFromResponse.mockReturnValue({
       tagNames: ['tag1'],
       extractedTags: { tag1: '内容' },
@@ -742,6 +750,7 @@ describe('runPlotTasksRuntime_ACU', () => {
     expect(allCalls[0][1]).toBe('preset-A');
     // 第二个任务也应使用 stage 级统一后的 'preset-A'
     expect(allCalls[1][1]).toBe('preset-A');
+    expect(maxActiveCalls).toBeGreaterThan(1);
   });
 
   it('同 stage 无任务有显式 taskApiPreset 时，统一回退到全局 plotApiPreset', async () => {

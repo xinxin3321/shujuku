@@ -28,7 +28,7 @@ import {
   setSpecialIndexLockEnabled_ACU,
 } from '../../../service/runtime/helpers-remaining';
 import { getCurrentWorldbookConfig_ACU } from '../../../service/settings/settings-readers';
-import { saveIndependentTableToChatHistory_ACU } from '../../../service/table/table-service';
+import { runTableUpdateCommit_ACU } from '../../../service/table/table-update-commit';
 import {
   getLatestAiMessageIndexFromChat_ACU,
   resolveTableHistoryStateFromChat_ACU,
@@ -294,7 +294,31 @@ async function saveCurrentDataToChat(
   for (const [indexStr, keys] of Object.entries(bucketByIndex)) {
     const idx = Number.parseInt(indexStr, 10);
     if (Number.isNaN(idx)) continue;
-    await saveIndependentTableToChatHistory_ACU(idx, keys, null, true);
+    const writeSet = keys.map(sheetKey => ({ kind: 'sheet' as const, sheetKey }));
+    const commitResult = await runTableUpdateCommit_ACU<null>({
+      source: 'manual_crud',
+      reason: 'visualizer_v2_save',
+      isolationKey,
+      writeSet,
+      revisionWriteSet: writeSet,
+      initialData: currentJsonTableData_ACU as any,
+      targetMessageIndex: idx,
+      targetSheetKeys: keys,
+      updateGroupKeys: null,
+      trackingSheetKeys: [],
+      trackAsUpdate: false,
+      operations: keys
+        .filter(sheetKey => Boolean((currentJsonTableData_ACU as any)?.[sheetKey]))
+        .map(sheetKey => ({ kind: 'sheet_replace' as const, sheetKey, sheet: (currentJsonTableData_ACU as any)[sheetKey], reason: 'manual_crud' as const })),
+    }, () => ({
+      success: true,
+      value: null,
+      tableData: currentJsonTableData_ACU as any,
+      mutationResult: { changes: keys.length, errors: [] },
+    }));
+    if (!commitResult.success) {
+      logWarn_ACU('[ACU-V2 Visualizer] save commit failed:', commitResult.error);
+    }
   }
 
   if (deletedSheetKeys.length > 0) {

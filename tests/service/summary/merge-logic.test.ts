@@ -69,6 +69,15 @@ vi.mock('../../../src/service/worldbook/pipeline', () => ({
   updateReadableLorebookEntry_ACU: vi.fn(),
 }));
 
+const mockRunTableUpdateCommit = vi.hoisted(() => vi.fn(async (_options: any, apply: any) => {
+  const applied = await apply({ transactionContext: { runCommit: async (task: any) => task() }, workingData: mockCurrentJsonTableData });
+  return { success: applied.success !== false, value: applied.value, tableData: applied.tableData, saved: true };
+}));
+
+vi.mock('../../../src/service/table/table-update-commit', () => ({
+  runTableUpdateCommit_ACU: mockRunTableUpdateCommit,
+}));
+
 vi.mock('../../../src/service/table/table-service', () => ({
   saveIndependentTableToChatHistory_ACU: vi.fn(),
 }));
@@ -287,10 +296,9 @@ describe('finalizeAutoMerge_ACU', () => {
   });
 
   it('有累积行时写入表格并保存', async () => {
-    const { saveIndependentTableToChatHistory_ACU } = await import('../../../src/service/table/table-service');
     const { updateReadableLorebookEntry_ACU } = await import('../../../src/service/worldbook/pipeline');
-    vi.mocked(saveIndependentTableToChatHistory_ACU).mockResolvedValue(undefined);
     vi.mocked(updateReadableLorebookEntry_ACU).mockResolvedValue(undefined);
+    mockRunTableUpdateCommit.mockClear();
 
     const accumulatedSummary = [
       [null, '合并纪要1', 'auto_merged'],
@@ -301,7 +309,10 @@ describe('finalizeAutoMerge_ACU', () => {
       accumulatedSummary,
     );
     expect(result.mergedRows).toBe(2);
-    expect(saveIndependentTableToChatHistory_ACU).toHaveBeenCalled();
+    expect(mockRunTableUpdateCommit).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'merge_summary',
+      targetSheetKeys: ['sheet_0'],
+    }), expect.any(Function));
     expect(updateReadableLorebookEntry_ACU).toHaveBeenCalled();
   });
 });

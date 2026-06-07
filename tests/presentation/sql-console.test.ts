@@ -38,8 +38,9 @@ vi.mock('../../src/service/table/storage-mode', () => ({
 
 const mockExecuteQuery = vi.fn(() => ({ columns: ['id'], values: [[1]], rowCount: 1 }));
 const mockExecuteMutation = vi.fn(() => ({ errors: [], changes: 1 }));
+const mockExecuteSqlMutation = vi.fn(async (_options: any) => ({ errors: [], changes: 1 }));
 vi.mock('../../src/service/table/table-storage-strategy', () => ({
-  getStorageProvider: vi.fn(() => ({
+  ensureStorageProviderReady_ACU: vi.fn(async () => ({
     executeQuery: mockExecuteQuery,
     executeMutation: mockExecuteMutation,
   })),
@@ -47,6 +48,12 @@ vi.mock('../../src/service/table/table-storage-strategy', () => ({
 
 vi.mock('../../src/presentation/state/ui-refs', () => ({
   $popupInstance_ACU: null,
+}));
+
+vi.mock('../../src/presentation/bootstrap/api-groups/sql-api', () => ({
+  createSqlApi: vi.fn(() => ({
+    executeSqlMutation: mockExecuteSqlMutation,
+  })),
 }));
 
 import {
@@ -149,57 +156,58 @@ describe('executeSql', () => {
     $execStatus = { html: vi.fn() };
   });
 
-  it('SELECT 查询调用 executeQuery', () => {
+  it('SELECT 查询调用 executeQuery', async () => {
     mockExecuteQuery.mockReturnValue({ columns: ['id'], values: [[1]], rowCount: 1 });
-    executeSql('SELECT * FROM t;', $resultArea, $execStatus);
+    await executeSql('SELECT * FROM t;', $resultArea, $execStatus);
     expect(mockExecuteQuery).toHaveBeenCalledWith('SELECT * FROM t;');
     expect($execStatus.html).toHaveBeenCalledWith(expect.stringContaining('1 行'));
   });
 
-  it('SELECT 查询无结果', () => {
+  it('SELECT 查询无结果', async () => {
     mockExecuteQuery.mockReturnValue({ columns: ['id'], values: [], rowCount: 0 });
-    executeSql('SELECT * FROM t WHERE 1=0;', $resultArea, $execStatus);
+    await executeSql('SELECT * FROM t WHERE 1=0;', $resultArea, $execStatus);
     expect($resultArea.html).toHaveBeenCalledWith(expect.stringContaining('无结果'));
   });
 
-  it('INSERT 变更调用 executeMutation', () => {
-    mockExecuteMutation.mockReturnValue({ errors: [], changes: 1 });
-    executeSql("INSERT INTO t VALUES (1);", $resultArea, $execStatus);
-    expect(mockExecuteMutation).toHaveBeenCalledWith("INSERT INTO t VALUES (1);");
+  it('INSERT 变更调用 SQL API 公共提交模型', async () => {
+    mockExecuteSqlMutation.mockResolvedValue({ errors: [], changes: 1 });
+    await executeSql("INSERT INTO t VALUES (1);", $resultArea, $execStatus);
+    expect(mockExecuteSqlMutation).toHaveBeenCalledWith({ sql: "INSERT INTO t VALUES (1);", trackingSheetKeys: [] });
+    expect(mockExecuteMutation).not.toHaveBeenCalled();
     expect($execStatus.html).toHaveBeenCalledWith(expect.stringContaining('1 行受影响'));
   });
 
-  it('变更失败显示错误', () => {
-    mockExecuteMutation.mockReturnValue({ errors: ['SQL 语法错误'], changes: 0 });
-    executeSql('INVALID SQL', $resultArea, $execStatus);
+  it('变更失败显示错误', async () => {
+    mockExecuteSqlMutation.mockResolvedValue({ errors: ['SQL 语法错误'], changes: 0 });
+    await executeSql('INVALID SQL', $resultArea, $execStatus);
     expect($resultArea.html).toHaveBeenCalledWith(expect.stringContaining('SQL 语法错误'));
     expect($execStatus.html).toHaveBeenCalledWith(expect.stringContaining('失败'));
   });
 
-  it('provider 抛出异常时显示错误', () => {
+  it('provider 抛出异常时显示错误', async () => {
     mockExecuteQuery.mockImplementation(() => { throw new Error('数据库未初始化'); });
-    executeSql('SELECT 1;', $resultArea, $execStatus);
+    await executeSql('SELECT 1;', $resultArea, $execStatus);
     expect($resultArea.html).toHaveBeenCalledWith(expect.stringContaining('数据库未初始化'));
     expect($execStatus.html).toHaveBeenCalledWith(expect.stringContaining('失败'));
   });
 
-  it('执行后记录历史（成功）', () => {
+  it('执行后记录历史（成功）', async () => {
     mockExecuteQuery.mockReturnValue({ columns: ['id'], values: [[1]], rowCount: 1 });
-    executeSql('SELECT 1;', $resultArea, $execStatus);
+    await executeSql('SELECT 1;', $resultArea, $execStatus);
     expect(sqlHistory.length).toBe(1);
     expect(sqlHistory[0].success).toBe(true);
   });
 
-  it('执行后记录历史（失败）', () => {
-    mockExecuteMutation.mockReturnValue({ errors: ['错误'], changes: 0 });
-    executeSql('BAD SQL', $resultArea, $execStatus);
+  it('执行后记录历史（失败）', async () => {
+    mockExecuteSqlMutation.mockResolvedValue({ errors: ['错误'], changes: 0 });
+    await executeSql('BAD SQL', $resultArea, $execStatus);
     expect(sqlHistory.length).toBe(1);
     expect(sqlHistory[0].success).toBe(false);
   });
 
-  it('PRAGMA 走查询路径', () => {
+  it('PRAGMA 走查询路径', async () => {
     mockExecuteQuery.mockReturnValue({ columns: ['name'], values: [['inventory']], rowCount: 1 });
-    executeSql('PRAGMA table_info(inventory);', $resultArea, $execStatus);
+    await executeSql('PRAGMA table_info(inventory);', $resultArea, $execStatus);
     expect(mockExecuteQuery).toHaveBeenCalled();
     expect(mockExecuteMutation).not.toHaveBeenCalled();
   });

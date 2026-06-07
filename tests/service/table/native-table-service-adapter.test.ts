@@ -19,10 +19,8 @@ vi.mock('../../../src/shared/utils', () => ({
 
 // mock table-service
 const mockLoadOrCreate = vi.fn();
-const mockSaveIndependentTable = vi.fn();
 vi.mock('../../../src/service/table/table-service', () => ({
   loadOrCreateJsonTableFromChatHistory_ACU: (...args: any[]) => mockLoadOrCreate(...args),
-  saveIndependentTableToChatHistory_ACU: (...args: any[]) => mockSaveIndependentTable(...args),
 }));
 
 // mock table-edit-parser
@@ -87,24 +85,10 @@ describe('NativeTableServiceAdapter', () => {
   // saveToChat
   // ═══════════════════════════════════════════════════════════════
   describe('saveToChat', () => {
-    it('委托给 saveIndependentTableToChatHistory_ACU', async () => {
-      mockSaveIndependentTable.mockResolvedValue({ saved: true, messageIndex: 5 });
+    it('拒绝 provider 直接保存，要求走公共提交模型', async () => {
       const result = await adapter.saveToChat(['sheet_0'], ['group_1']);
-      expect(result.saved).toBe(true);
-      expect(result.messageIndex).toBe(5);
-      expect(mockSaveIndependentTable).toHaveBeenCalledWith(-1, ['sheet_0'], ['group_1']);
-    });
-
-    it('null 参数正确传递', async () => {
-      mockSaveIndependentTable.mockResolvedValue({ saved: true });
-      await adapter.saveToChat(null, null);
-      expect(mockSaveIndependentTable).toHaveBeenCalledWith(-1, null, null);
-    });
-
-    it('无参数时传递 null', async () => {
-      mockSaveIndependentTable.mockResolvedValue({ saved: true });
-      await adapter.saveToChat();
-      expect(mockSaveIndependentTable).toHaveBeenCalledWith(-1, null, null);
+      expect(result.saved).toBe(false);
+      expect(result.error).toContain('table update commit model');
     });
   });
 

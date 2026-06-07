@@ -6,7 +6,7 @@ import { addAutoCardMenuItem_ACU } from './startup';
 import { newMessageDebounceTimer_ACU, _set_newMessageDebounceTimer_ACU} from '../../service/runtime/state-manager';
 import { showToastr_ACU } from '../theme/toast';
 import { attemptToLoadCoreApis_ACU } from '../triggers/settings-ui-sync';
-import { handleChatCompletionReady_ACU, loadPresetAndCleanCharacterData_ACU } from '../../service/runtime/helpers-remaining';
+import { ensureInitialSeedCheckpoint_ACU, handleChatCompletionReady_ACU, loadPresetAndCleanCharacterData_ACU } from '../../service/runtime/helpers-remaining';
 import { SillyTavern_API_ACU } from '../../shared/host-api';
 import { currentChatFileIdentifier_ACU, generationGate_ACU, markUserSendIntent_ACU, isProcessing_Plot_ACU, isQuietLikeGeneration_ACU, isRecentUserSendIntent_ACU, loopState_ACU, recordGenerationContext_ACU, recordLastUserSend_ACU, settings_ACU, shouldProcessAutoTableUpdateForGenerationEnded_ACU, shouldProcessPlotForGeneration_ACU, shouldProcessSummaryVectorIndexForGeneration_ACU, _set_isProcessing_Plot_ACU} from '../../service/runtime/state-manager';
 import { applyTemplateScopeForCurrentChat_ACU, loadSettings_ACU } from '../../service/settings/settings-service';
@@ -28,6 +28,19 @@ import { preloadSummaryVectorIndexCacheForCurrentChat_ACU } from '../../service/
 import { restoreSummaryVectorIndexFlushQueueForCurrentChat_ACU } from '../../service/vector/summary-vector-index-flush-queue';
 
 // [从 state-manager.ts 搬入 presentation 层] 安装发送意图捕捉钩子（DOM 事件绑定）
+async function ensureInitialSeedCheckpointBeforeGeneration_ACU(reason: string, { allowPendingFirstUserMessage = true } = {}) {
+  try {
+    const result = await ensureInitialSeedCheckpoint_ACU({ reason, allowPendingFirstUserMessage });
+    if ((result as any)?.success && isSqliteMode()) {
+      await reloadStorageProvider();
+    }
+    return result;
+  } catch (error) {
+    logWarn_ACU(`[InitialSeed] ${reason} 初始化 checkpoint 失败，继续生成流程:`, error);
+    return false;
+  }
+}
+
 function installSendIntentCaptureHooks_ACU() {
   try {
     const parentDoc = (window.parent || window).document;
@@ -143,6 +156,11 @@ export   function mainInitialize_ACU() {
                 // quiet/automatic_trigger 直接透传
                 if (isQuietLikeGeneration_ACU('tavernhelper', { quiet_prompt: options.quiet_prompt }) || options.automatic_trigger) {
                   return (window as any).original_TavernHelper_generate_ACU.apply(this, args);
+                }
+
+                const userInputForInitialSeed = String(options.user_input || options.prompt || getSendTextareaValue_ACU() || '').trim();
+                if (userInputForInitialSeed) {
+                  await ensureInitialSeedCheckpointBeforeGeneration_ACU('tavernhelper_generate_before_ai', { allowPendingFirstUserMessage: true });
                 }
 
                 if (shouldProcessSummaryVectorIndexForGeneration_ACU('tavernhelper', { quiet_prompt: options.quiet_prompt, automatic_trigger: options.automatic_trigger }, false)) {
@@ -275,6 +293,14 @@ export   function mainInitialize_ACU() {
             if (params?._qrf_processed_by_hook) return;
             const shouldProcessSummaryVectorIndex = shouldProcessSummaryVectorIndexForGeneration_ACU(type, params, dryRun);
             const shouldProcessPlot = shouldProcessPlotForGeneration_ACU(type, params, dryRun);
+            const shouldEnsureInitialSeed = !dryRun
+              && type !== 'regenerate'
+              && !params?.automatic_trigger
+              && !isQuietLikeGeneration_ACU(type, params)
+              && (isRecentUserSendIntent_ACU() || shouldProcessSummaryVectorIndex || shouldProcessPlot);
+            if (shouldEnsureInitialSeed) {
+              await ensureInitialSeedCheckpointBeforeGeneration_ACU('generation_after_commands_before_ai', { allowPendingFirstUserMessage: true });
+            }
             if (!shouldProcessSummaryVectorIndex && !shouldProcessPlot) return;
             if (shouldProcessSummaryVectorIndex) {
               try {

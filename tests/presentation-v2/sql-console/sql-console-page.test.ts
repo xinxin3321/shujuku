@@ -22,10 +22,12 @@ async function mountAdvancedToolsSqlPanel(opts: {
     rowCount: 1,
   });
   const executeMutation = vi.fn(() => opts.mutationResult ?? { changes: 1, errors: [] });
-  const getStorageProvider = vi.fn(() => ({
+  const provider = {
     executeQuery,
     executeMutation,
-  }));
+  };
+  const getStorageProvider = vi.fn(() => provider);
+  const ensureStorageProviderReady = vi.fn(async () => provider);
 
   vi.doMock('../../../src/service/runtime/state-manager', () => ({
     settings_ACU: {
@@ -44,6 +46,7 @@ async function mountAdvancedToolsSqlPanel(opts: {
   }));
   vi.doMock('../../../src/service/table/table-storage-strategy', () => ({
     getStorageProvider,
+    ensureStorageProviderReady_ACU: ensureStorageProviderReady,
   }));
 
   const sqlConsole = await import('../../../src/presentation-v2/composables/useSqlConsole');
@@ -184,7 +187,7 @@ describe('AdvancedToolsPage SQL panel', () => {
     executeButton!.click();
     await new Promise(r => setTimeout(r, 0));
 
-    expect(executeMutation).toHaveBeenCalledWith("UPDATE item SET name = 'x';");
+    expect(executeMutation).toHaveBeenCalledWith("UPDATE item SET name = 'x';", undefined);
     const text = document.querySelector('.acu-v2-advanced-tools-page')?.textContent || '';
     expect(text).toContain('no such table: item');
     expect(text).toContain('失败');

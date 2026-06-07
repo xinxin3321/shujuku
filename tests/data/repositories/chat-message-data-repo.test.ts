@@ -214,13 +214,20 @@ describe('initIsolatedTagSlot_ACU', () => {
 
 describe('writeLegacyCompatData_ACU', () => {
   it('null msg 不抛错', () => {
-    expect(() => writeLegacyCompatData_ACU(null, {}, [], [])).not.toThrow();
+    expect(() => writeLegacyCompatData_ACU(null, {}, [], [], { legacyConfirmed: true })).not.toThrow();
+  });
+
+  it('未显式确认 legacy-v1 时不写入', () => {
+    const msg: any = {};
+    const indep = { sheet_0: { name: '表' } } as any;
+    writeLegacyCompatData_ACU(msg, indep, ['sheet_0'], ['sheet_0'], {} as any);
+    expect(msg.TavernDB_ACU_IndependentData).toBeUndefined();
   });
 
   it('写入三个旧版字段', () => {
     const msg: any = {};
     const indep = { sheet_0: { name: '表' } } as any;
-    writeLegacyCompatData_ACU(msg, indep, ['sheet_0'], ['sheet_0']);
+    writeLegacyCompatData_ACU(msg, indep, ['sheet_0'], ['sheet_0'], { legacyConfirmed: true });
     expect(msg.TavernDB_ACU_IndependentData).toBe(indep);
     expect(msg.TavernDB_ACU_ModifiedKeys).toEqual(['sheet_0']);
     expect(msg.TavernDB_ACU_UpdateGroupKeys).toEqual(['sheet_0']);
@@ -229,21 +236,28 @@ describe('writeLegacyCompatData_ACU', () => {
 
 describe('writeLegacyStandardAndSummary_ACU', () => {
   it('null msg 不抛错', () => {
-    expect(() => writeLegacyStandardAndSummary_ACU(null, null, null)).not.toThrow();
+    expect(() => writeLegacyStandardAndSummary_ACU(null, null, null, { legacyConfirmed: true })).not.toThrow();
+  });
+
+  it('未显式确认 legacy-v1 时不写入', () => {
+    const msg: any = {};
+    const std = { sheet_0: { name: '标准表' } } as any;
+    writeLegacyStandardAndSummary_ACU(msg, std, null, {} as any);
+    expect(msg.TavernDB_ACU_Data).toBeUndefined();
   });
 
   it('有 sheet_ 键时写入', () => {
     const msg: any = {};
     const std = { sheet_0: { name: '标准表' } } as any;
     const sum = { sheet_1: { name: '摘要表' } } as any;
-    writeLegacyStandardAndSummary_ACU(msg, std, sum);
+    writeLegacyStandardAndSummary_ACU(msg, std, sum, { legacyConfirmed: true });
     expect(msg.TavernDB_ACU_Data).toBe(std);
     expect(msg.TavernDB_ACU_SummaryData).toBe(sum);
   });
 
   it('无 sheet_ 键时不写入', () => {
     const msg: any = {};
-    writeLegacyStandardAndSummary_ACU(msg, { noSheet: true } as any, null);
+    writeLegacyStandardAndSummary_ACU(msg, { noSheet: true } as any, null, { legacyConfirmed: true });
     expect(msg.TavernDB_ACU_Data).toBeUndefined();
   });
 });

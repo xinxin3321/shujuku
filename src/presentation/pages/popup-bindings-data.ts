@@ -19,7 +19,8 @@ import { importCombinedSettings_ACU } from '../triggers/admin-ui';
 import { applyTemplateScopeForCurrentChat_ACU, getDataIsolationHistory_ACU, removeDataIsolationHistory_ACU, switchIsolationProfile_ACU, persistCurrentTemplatePresetName_ACU, setSummaryVectorIndexMode_ACU } from '../../service/settings/settings-service';
 import { deleteAllGeneratedEntries_ACU, updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
 import { refreshMergedDataAndNotifyWithUI_ACU, refreshPresetUIAfterSwitch_ACU } from '../components/pipeline-ui-helpers';
-import { loadOrCreateJsonTableFromChatHistory_ACU, saveIndependentTableToChatHistory_ACU } from '../../service/table/table-service';
+import { loadOrCreateJsonTableFromChatHistory_ACU } from '../../service/table/table-service';
+import { runTableUpdateCommit_ACU } from '../../service/table/table-update-commit';
 import { getTemplatePreset_ACU, applyTemplatePresetToCurrent_ACU, applyTemplateSnapshotToScope_ACU, deleteTemplatePreset_ACU, ensureUniqueTemplatePresetName_ACU, normalizeTemplateForPresetSave_ACU, parseImportedTemplateData_ACU, persistTemplateScopeSelectionState_ACU, resolveActiveTemplatePresetName_ACU, upsertTemplatePreset_ACU } from '../../service/template/template-preset-service';
 import { getChatSheetGuideDataForIsolationKey_ACU, getCurrentChatTemplateScopeState_ACU, sanitizeTemplateSnapshotForChat_ACU } from '../../service/template/chat-scope';
 import { loadTemplatePresetSelect_ACU } from '../components/template-preset-ui';
@@ -363,7 +364,26 @@ export async function bindDataEvents_ACU(): Promise<void> {
                       return name === '纪要表' || name === '总结表' || name === '总体大纲' || name.includes('纪要') || name.includes('总结');
                   });
                   if (summaryKey) {
-                      await saveIndependentTableToChatHistory_ACU(getLastMessageIndex_ACU(), [summaryKey], [summaryKey]);
+                      const writeSet = [{ kind: 'sheet' as const, sheetKey: summaryKey }];
+                      await runTableUpdateCommit_ACU<null>({
+                          source: 'system',
+                          reason: 'vector_index_rebuild_snapshot',
+                          isolationKey: getCurrentIsolationKey_ACU(),
+                          writeSet,
+                          revisionWriteSet: writeSet,
+                          initialData: currentJsonTableData_ACU as any,
+                          targetMessageIndex: getLastMessageIndex_ACU(),
+                          targetSheetKeys: [summaryKey],
+                          updateGroupKeys: null,
+                          trackingSheetKeys: [],
+                          trackAsUpdate: false,
+                          operations: [{ kind: 'sheet_replace', sheetKey: summaryKey, sheet: (currentJsonTableData_ACU as any)[summaryKey], reason: 'system' }],
+                      }, () => ({
+                          success: true,
+                          value: null,
+                          tableData: currentJsonTableData_ACU as any,
+                          mutationResult: { changes: 1, errors: [] },
+                      }));
                   }
                   const result = await archiveSummaryVectorIndexNow_ACU({ mode: 'sync' });
                   await refreshVectorIndexStatsPanel_ACU();

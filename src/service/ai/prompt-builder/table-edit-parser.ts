@@ -10,7 +10,6 @@ import { isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } 
 import { applySummaryIndexSequenceToTable_ACU, formatSummaryIndexCode_ACU, getSummaryIndexColumnIndex_ACU, getTableLocksForSheet_ACU, isSpecialIndexLockEnabled_ACU } from '../../runtime/helpers-remaining';
 import { sanitizeJsonPipeline_ACU, coerceLooseRowObject_ACU } from './json-sanitizer';
 import { isSqliteMode } from '../../table/storage-mode';
-import { getStorageProvider } from '../../table/table-storage-strategy';
 
   function normalizeAiResponseForTableEditParsing_ACU(text: string) {
     if (typeof text !== 'string') return '';
@@ -115,18 +114,11 @@ import { getStorageProvider } from '../../table/table-storage-strategy';
         return true;
     }
 
-    // [新增] SQLite 模式：检测是否为 SQL 语句，是则走 SQL 执行路径
+    // SQLite SQL 写入必须由 table-update-commit 公共提交模型执行；解析器不得直接改运行时 DB。
     if (isSqliteMode() && isSqlContent(editsString)) {
-        try {
-            const provider = getStorageProvider();
-            const result = provider.applyEdits(editsString, updateMode);
-            logDebug_ACU(`[SQL Mode] applyEdits 完成: success=${result.success}, appliedEdits=${result.appliedEdits}, modifiedKeys=${result.modifiedKeys.join(',')}`);
-            return result;
-        } catch (e: any) {
-            // SQL 执行失败，抛出错误供上层重试循环捕获
-            logError_ACU(`[SQL Mode] SQL 执行失败: ${e?.message}`);
-            throw e;
-        }
+        const message = 'SQLite SQL tableEdit must be applied through table update commit model.';
+        logError_ACU(`[SQL Mode] ${message}`);
+        throw new Error(message);
     }
     
     // 指令重组：处理 AI 生成的多行指令

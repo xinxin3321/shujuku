@@ -54,6 +54,13 @@ vi.mock('../../../src/service/table/table-service', () => ({
   saveIndependentTableToChatHistory_ACU: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock('../../../src/service/table/table-update-commit', () => ({
+  runTableUpdateCommit_ACU: vi.fn(async (_options: any, apply: any) => {
+    const applied = await apply({ transactionContext: { runCommit: async (task: any) => task() }, workingData: null });
+    return { success: applied.success !== false, value: applied.value, tableData: applied.tableData, saved: true };
+  }),
+}));
+
 vi.mock('../../../src/service/chat/chat-service', () => ({
   getLastMessageIndex_ACU: vi.fn(() => 5),
 }));

@@ -4,7 +4,7 @@
  */
 import { getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
 import { CHAT_SHEET_GUIDE_FIELD_ACU } from '../../data/storage/chat-history';
-import { currentChatFileIdentifier_ACU, currentJsonTableData_ACU, generationGate_ACU, settings_ACU, _set_currentChatFileIdentifier_ACU, _set_allChatMessages_ACU, _set_lastTotalAiMessages_ACU } from '../runtime/state-manager';
+import { currentChatFileIdentifier_ACU, currentJsonTableData_ACU, generationGate_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentChatFileIdentifier_ACU, _set_allChatMessages_ACU, _set_lastTotalAiMessages_ACU } from '../runtime/state-manager';
 import { getLorebookEntries_ACU, deleteLorebookEntries_ACU, getCurrentCharPrimaryLorebook_ACU as gwGetCurrentCharPrimaryLorebook_ACU, listLorebooks_ACU } from '../../data/gateways/worldbook-gateway';
 import { getChatArray_ACU, saveChatToHost_ACU } from '../../data/gateways/chat-gateway';
 import { applyTemplateScopeForCurrentChat_ACU, loadSettings_ACU, saveSettings_ACU } from '../settings/settings-service';
@@ -13,6 +13,7 @@ import { loadAllChatMessages_ACU } from './pipeline';
 import { cleanChatName_ACU, getChatFirstLayerMessage_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
 import { loadOrCreateJsonTableFromChatHistory_ACU } from '../table/table-service';
 import { purgeSheetKeysFromMessage_ACU } from '../../data/repositories/chat-message-data-repo';
+import { runTableWriteTransaction_ACU } from '../table/table-write-transaction';
 
   async function enforceCleanupOfCharacterWorldbook_ACU() {
       // 延迟一段时间，确保其他操作完成
@@ -248,12 +249,7 @@ import { purgeSheetKeysFromMessage_ACU } from '../../data/repositories/chat-mess
   // [可视化删表-硬删除] 追溯整个聊天记录，删除指定 sheetKey 的所有本地表格数据（新版+旧版）
   // 设计目标：即使后续有"按原楼层写回"的流程，也不会把旧表复活
   // =========================
-  export async function purgeSheetKeysFromChatHistoryHard_ACU(sheetKeysToPurge: string[]) {
-      const keys = Array.isArray(sheetKeysToPurge)
-          ? [...new Set(sheetKeysToPurge.filter(k => typeof k === 'string' && k.startsWith('sheet_')))]
-          : [];
-      if (keys.length === 0) return { changed: false, changedCount: 0 };
-
+  async function purgeSheetKeysFromChatHistoryHardCore_ACU(keys: string[]) {
       const chat = getChatArray_ACU();
       if (!Array.isArray(chat) || chat.length === 0) return { changed: false, changedCount: 0 };
 
@@ -314,4 +310,19 @@ import { purgeSheetKeysFromMessage_ACU } from '../../data/repositories/chat-mess
           try { await loadAllChatMessages_ACU(); } catch (e) {}
       }
       return { changed: changedAny, changedCount };
+  }
+
+  export async function purgeSheetKeysFromChatHistoryHard_ACU(sheetKeysToPurge: string[]) {
+      const keys = Array.isArray(sheetKeysToPurge)
+          ? [...new Set(sheetKeysToPurge.filter(k => typeof k === 'string' && k.startsWith('sheet_')))]
+          : [];
+      if (keys.length === 0) return { changed: false, changedCount: 0 };
+
+      return runTableWriteTransaction_ACU({
+          source: 'system_cleanup',
+          reason: 'purgeSheetKeysFromChatHistoryHard',
+          isolationKey: getCurrentIsolationKey_ACU(),
+          writeSet: keys.map(sheetKey => ({ kind: 'sheet' as const, sheetKey })),
+          maintenanceMode: 'exclusive',
+      }, () => purgeSheetKeysFromChatHistoryHardCore_ACU(keys));
   }

@@ -243,13 +243,14 @@ export function writeTableCheckpointToMessage_ACU(
     msg: any,
     isolationKey: string,
     independentData: Record<string, Sheet_ACU>,
-    options?: {
+    options: {
+        legacyConfirmed: true;
         modifiedKeys?: string[];
         updateGroupKeys?: string[];
         baseState?: string;
     },
 ): void {
-    if (!msg) return;
+    if (!msg || options?.legacyConfirmed !== true) return;
     const tagData = initIsolatedTagSlot_ACU(msg, isolationKey);
     tagData.independentData = independentData;
     tagData.modifiedKeys = options?.modifiedKeys ?? [];
@@ -275,8 +276,9 @@ export function writeLegacyCompatData_ACU(
     independentData: Record<string, Sheet_ACU>,
     modifiedKeys: string[],
     updateGroupKeys: string[],
+    options: { legacyConfirmed: true },
 ): void {
-    if (!msg) return;
+    if (!msg || options?.legacyConfirmed !== true) return;
     msg.TavernDB_ACU_IndependentData = independentData;
     msg.TavernDB_ACU_ModifiedKeys = modifiedKeys;
     msg.TavernDB_ACU_UpdateGroupKeys = updateGroupKeys;
@@ -293,8 +295,9 @@ export function writeLegacyStandardAndSummary_ACU(
     msg: any,
     standardData: LegacyTableContainer_ACU | null,
     summaryData: LegacyTableContainer_ACU | null,
+    options: { legacyConfirmed: true },
 ): void {
-    if (!msg) return;
+    if (!msg || options?.legacyConfirmed !== true) return;
     if (standardData && hasAnySheetKey(standardData)) {
         msg.TavernDB_ACU_Data = standardData;
     }

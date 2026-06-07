@@ -45,6 +45,7 @@ function createMockProvider(mode: 'native' | 'sqlite') {
       return { loaded: true, source: 'merged' as const };
     }),
     saveToChat: vi.fn().mockResolvedValue({ saved: true }),
+    isReady: vi.fn().mockReturnValue(true),
     getCurrentData: vi.fn().mockReturnValue({ mate: {} }),
     applyEdits: vi.fn().mockReturnValue({ success: true, modifiedKeys: [], appliedEdits: 1 }),
     executeQuery: vi.fn(),

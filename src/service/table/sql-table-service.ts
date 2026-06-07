@@ -15,11 +15,9 @@ import type {
   ApplyEditsResult,
 } from '../../shared/table-storage-provider';
 import type { TableDataObject_ACU, Mate_ACU } from '../../shared/models/table-data';
+import type { TableMutationOperationV2_ACU } from './storage-frame-v2-types';
 import { SqliteEngine } from '../../data/sqlite/sqlite-engine';
 import { SyncBridge } from '../../data/sqlite/sync-bridge';
-import {
-  saveIndependentTableToChatHistory_ACU,
-} from './table-service';
 import {
   currentJsonTableData_ACU,
   _set_currentJsonTableData_ACU,
@@ -29,12 +27,14 @@ import { logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU, st
 import { buildGlobalNameMapper, disposeGlobalNameMapper } from '../runtime/template-vars/name-mapper';
 import { parseDDLTableName, generateDDL, generateInserts } from '../../data/sqlite/schema-mapper';
 import { normalizeSqlStructure, normalizeStatementValues } from '../../data/sqlite/sql-normalizer';
-import { ensureStableRowIdsForSheetContent_ACU, getEffectiveSeedRowsForSheet_ACU, getCurrentChatTemplateScopeState_ACU, sanitizeTemplateSnapshotForChat_ACU } from '../template/chat-scope';
+import { ensureStableRowIdsForSheetContent_ACU, getEffectiveSeedRowsForSheet_ACU, getCurrentChatTemplateScopeState_ACU, sanitizeTemplateSnapshotForChat_ACU, shouldUseInitialSeedRows_ACU } from '../template/chat-scope';
 import { getTemplatePreset_ACU } from '../template/template-preset-service';
 import { safeJsonParse_ACU } from '../../shared/json-helpers';
 
 export interface SnapshotSqlApplyResult_ACU extends ApplyEditsResult {
   workingData?: TableDataObject_ACU;
+  changes?: number;
+  operations?: TableMutationOperationV2_ACU[];
 }
 
 const DEFAULT_MATE_ACU: Mate_ACU = {
@@ -55,15 +55,28 @@ function resolveSnapshotMate_ACU(tableData: TableDataObject_ACU): Mate_ACU {
   return JSON.parse(JSON.stringify(DEFAULT_MATE_ACU));
 }
 
-function mapSqlTableNamesToSheetKeys_ACU(tableData: TableDataObject_ACU, tableNames: string[]): string[] {
+export function normalizeSqlStatementsForRuntimeLog_ACU(sqlStatements: string): string[] {
+  const cleaned = String(sqlStatements || '').replace(/<!--|-->/g, '').trim();
+  if (!cleaned) return [];
+  return splitSqlStatements(cleaned)
+    .map(stmt => normalizeStatementValues(normalizeSqlStructure(stmt)))
+    .filter(Boolean);
+}
+
+export function mapSqlTableNamesToSheetKeys_ACU(tableData: TableDataObject_ACU | null | undefined, tableNames: string[]): string[] {
   if (!tableData || !Array.isArray(tableNames) || tableNames.length === 0) return [];
   const matchedKeys = new Set<string>();
   for (const [sheetKey, value] of Object.entries(tableData)) {
     if (!sheetKey.startsWith('sheet_')) continue;
     const sheet = value as any;
     const tableNameFromUid = typeof sheet?.uid === 'string' ? sheet.uid.trim() : '';
+    const tableNameFromName = typeof sheet?.name === 'string' ? sheet.name.trim() : '';
     const tableNameFromDDL = typeof sheet?.sourceData?.ddl === 'string' ? parseDDLTableName(sheet.sourceData.ddl) : '';
-    if ((tableNameFromUid && tableNames.includes(tableNameFromUid)) || (tableNameFromDDL && tableNames.includes(tableNameFromDDL))) {
+    if (
+      (tableNameFromUid && tableNames.includes(tableNameFromUid))
+      || (tableNameFromName && tableNames.includes(tableNameFromName))
+      || (tableNameFromDDL && tableNames.includes(tableNameFromDDL))
+    ) {
       matchedKeys.add(sheetKey);
     }
   }
@@ -80,6 +93,26 @@ export class SqlTableService implements ITableStorageProvider {
   constructor() {
     this.engine = new SqliteEngine();
     this.syncBridge = new SyncBridge(this.engine);
+  }
+
+  isReady(): boolean {
+    return this._initialized && this.engine.isReady;
+  }
+
+  createRuntimeSnapshot(): Uint8Array | null {
+    if (!this._initialized || !this.engine.isReady) return null;
+    return this.engine.exportBinary();
+  }
+
+  async restoreRuntimeSnapshot(snapshot: unknown): Promise<void> {
+    if (!(snapshot instanceof Uint8Array)) return;
+    await this.engine.loadFromBinary(snapshot);
+    this._initialized = true;
+    this._existingTableSet = undefined;
+    this._syncToJson();
+    if (currentJsonTableData_ACU) {
+      this._buildNameMapper(currentJsonTableData_ACU as TableDataObject_ACU);
+    }
   }
 
   /**
@@ -118,18 +151,24 @@ export class SqlTableService implements ITableStorageProvider {
         });
 
       if (!mergedData || !hasRealDataRows) {
-        // 新开卡场景（mergedData=null）或空壳结构（只有表头）：
-        // 只初始化引擎，不建表——建表延迟到第一次写操作（applyEdits/executeMutation）时
-        // 这样用户在新开卡后还能修改表结构（DDL），直到真正填数据时才锁定表结构
-        // 注意：executeQuery（只读）不触发建表，避免前端查询意外提前锁定表结构
-        if (mergedData) {
-          // 空壳结构：仍然更新 JSON 视图（前端需要显示表头），但不建 SQLite 表
-          _set_currentJsonTableData_ACU(mergedData as TableDataObject_ACU);
-          this._buildNameMapper(mergedData as TableDataObject_ACU);
-          logDebug_ACU('[SqlTableService] 检测到空壳结构（仅表头无数据行），引擎已就绪，等待第一次填表时建表');
-        } else {
-          logDebug_ACU('[SqlTableService] 没有找到表格数据，引擎已就绪，等待第一次填表时从模板建表');
+        // 首个用户消息后、首个真实 AI 回复前，把 seedRows 作为本轮初始上下文物化进运行时 SQLite。
+        // 这一步只更新运行时视图；第一个持久化 checkpoint 由第一次填表保存链路写入。
+        const runtimeSeedSource = (mergedData as TableDataObject_ACU | null) || currentJsonTableData_ACU || null;
+        const runtimeSeedData = this._buildInitialRuntimeTableData_ACU(runtimeSeedSource);
+        if (runtimeSeedData) {
+          this.syncBridge.loadFromTableData(runtimeSeedData);
+          _set_currentJsonTableData_ACU(runtimeSeedData);
+          this._buildNameMapper(runtimeSeedData);
+          this._initialized = true;
+          this._existingTableSet = undefined;
+          const hasSeedRows = Object.keys(runtimeSeedData)
+            .filter(k => k.startsWith('sheet_'))
+            .some(k => Array.isArray((runtimeSeedData as any)[k]?.content) && (runtimeSeedData as any)[k].content.length > 1);
+          logDebug_ACU(`[SqlTableService] 初始 seedRows 已写入运行时 SQLite: hasSeedRows=${hasSeedRows}`);
+          return { loaded: hasSeedRows, source: hasSeedRows ? 'initialized' : 'empty' };
         }
+
+        logDebug_ACU('[SqlTableService] 没有找到表格数据，引擎已就绪，等待第一次填表时从模板建表');
         this._initialized = true;
         this._existingTableSet = undefined;
         return { loaded: false, source: 'empty' };
@@ -156,33 +195,39 @@ export class SqlTableService implements ITableStorageProvider {
   }
 
   /**
-   * 从 SQLite 导出并保存到聊天消息
-   * 1. exportToTableData() 导出最新状态
-   * 2. 更新 currentJsonTableData_ACU
-   * 3. saveIndependentTableToChatHistory_ACU() 写入聊天
+   * 禁止 provider 自行把运行时数据写入聊天记录。
+   * 所有写入必须通过 table-update-commit 公共提交模型完成。
    */
   async saveToChat(
-    targetSheetKeys?: string[] | null,
-    updateGroupKeys?: string[] | null,
+    _targetSheetKeys?: string[] | null,
+    _updateGroupKeys?: string[] | null,
+    _trackingSheetKeys?: string[] | null,
+    _options?: { source?: string; requestId?: string; batchId?: string; operations?: unknown[]; transactionContext?: unknown },
   ): Promise<{ saved: boolean; messageIndex?: number; error?: string }> {
-    this._ensureInitialized();
+    const message = 'SqlTableService.saveToChat is disabled; use table update commit model.';
+    logError_ACU(`[SqlTableService] ${message}`);
+    return { saved: false, error: message };
+  }
 
+  async replaceAllData(data: TableDataObject_ACU): Promise<ApplyEditsResult> {
     try {
-      // 从 SQLite 导出最新数据到 JSON 视图
-      const mate = (currentJsonTableData_ACU?.mate as Mate_ACU) || { type: 'acu', version: 1, updateConfigUiSentinel: 0, globalInjectionConfig: { readableEntryPlacement: { position: '', depth: 0, order: 0 }, wrapperPlacement: { position: '', depth: 0, order: 0 } } };
-      const exportedData = this.syncBridge.exportToTableData(mate);
-      _set_currentJsonTableData_ACU(exportedData);
-
-      // 写入聊天消息
-      return saveIndependentTableToChatHistory_ACU(
-        -1,
-        targetSheetKeys ?? null,
-        updateGroupKeys ?? null,
-      );
+      const cloned = JSON.parse(JSON.stringify(data || {})) as TableDataObject_ACU;
+      this.engine.dispose();
+      this.engine = new SqliteEngine();
+      this.syncBridge = new SyncBridge(this.engine);
+      await this.engine.init();
+      this.syncBridge.loadFromTableData(cloned);
+      _set_currentJsonTableData_ACU(cloned);
+      this._buildNameMapper(cloned);
+      this._initialized = true;
+      this._existingTableSet = undefined;
+      const modifiedKeys = Object.keys(cloned).filter(key => key.startsWith('sheet_'));
+      logDebug_ACU(`[SqlTableService] 运行时全量替换完成: tables=${modifiedKeys.length}`);
+      return { success: true, modifiedKeys, appliedEdits: modifiedKeys.length };
     } catch (e: any) {
-      const errMsg = e?.message || String(e);
-      logError_ACU(`[SqlTableService] 保存失败: ${errMsg}`);
-      return { saved: false, error: errMsg };
+      const message = e?.message || String(e);
+      logError_ACU(`[SqlTableService] 运行时全量替换失败: ${message}`);
+      return { success: false, modifiedKeys: [], appliedEdits: 0, error: message };
     }
   }
 
@@ -216,56 +261,38 @@ export class SqlTableService implements ITableStorageProvider {
    * 失败时抛出包含详细报错的 Error，供上层重试循环捕获
    */
   applyEdits(sqlStatements: string, _updateMode?: string): ApplyEditsResult {
+    return this.applyEditsBatch([sqlStatements], _updateMode);
+  }
+
+  applyEditsBatch(sqlTexts: string[], _updateMode?: string): ApplyEditsResult {
     this._ensureInitialized();
     this._ensureTablesFromTemplate();
 
-    // 去掉 HTML 注释标记（AI 可能在 <tableEdit> 中用 <!-- --> 包裹）
-    const cleaned = sqlStatements.replace(/<!--|-->/g, '').trim();
-    if (!cleaned) {
+    const userStatements = (Array.isArray(sqlTexts) ? sqlTexts : [])
+      .flatMap(sqlText => normalizeSqlStatementsForRuntimeLog_ACU(sqlText));
+    if (userStatements.length === 0) {
       return { success: true, modifiedKeys: [], appliedEdits: 0 };
     }
 
-    // 按分号拆分为多条语句（跳过字符串内的分号）
-    const rawStatements = splitSqlStatements(cleaned);
-    if (rawStatements.length === 0) {
-      return { success: true, modifiedKeys: [], appliedEdits: 0 };
-    }
-
-    // 对每条语句做规范化：结构字符兼容化 + 受约束字段值规范化
-    const statements = rawStatements.map(stmt => {
-      const structNormalized = normalizeSqlStructure(stmt);
-      return normalizeStatementValues(structNormalized);
-    });
-
-    // 收集空表 seedRows INSERT，前置到 statements（同一事务，失败一起回滚）
-    const reseedInserts = this._collectReseedInsertsForEmptyTables();
-    if (reseedInserts.length > 0) {
-      statements.unshift(...reseedInserts);
-    }
+    const statements = [...this._collectReseedInsertsForEmptyTables(), ...userStatements];
 
     try {
-      // 事务执行
       const result = this.engine.runBatch(statements);
-
-      // 同步到 JSON 视图
       this._syncToJson();
 
-      // 收集受影响的表名（从 SQL 语句中提取）
       const modifiedTables = extractTableNamesFromStatements(statements);
       const modifiedKeys = this._tableNamesToSheetKeys(modifiedTables);
 
-      logDebug_ACU(`[SqlTableService] SQL 执行成功: ${statements.length} 条语句, ${result.totalChanges} 行受影响`);
+      logDebug_ACU(`[SqlTableService] SQL 批量执行成功: ${statements.length} 条语句, ${result.totalChanges} 行受影响`);
 
       return {
         success: true,
         modifiedKeys,
-        appliedEdits: rawStatements.length,
+        appliedEdits: userStatements.length,
       };
     } catch (e: any) {
-      // 事务已回滚，数据保持原样
       const errMsg = e?.message || String(e);
-      logError_ACU(`[SqlTableService] SQL 执行失败: ${errMsg}`);
-      // 抛出错误，供上层重试循环捕获并注入到 AI prompt
+      logError_ACU(`[SqlTableService] SQL 批量执行失败: ${errMsg}`);
       throw e;
     }
   }
@@ -328,6 +355,30 @@ export class SqlTableService implements ITableStorageProvider {
   // ═══════════════════════════════════════════════════════════════
   // 内部方法
   // ═══════════════════════════════════════════════════════════════
+
+  private _buildInitialRuntimeTableData_ACU(sourceData: TableDataObject_ACU | null): TableDataObject_ACU | null {
+    const baseData = sourceData
+      ? JSON.parse(JSON.stringify(sourceData)) as TableDataObject_ACU
+      : this._resolveCurrentChatTemplate(!shouldUseInitialSeedRows_ACU());
+    if (!baseData || typeof baseData !== 'object') return null;
+
+    let hasSheet = false;
+    for (const key of Object.keys(baseData).filter(k => k.startsWith('sheet_'))) {
+      const sheet = (baseData as any)[key];
+      if (!sheet || typeof sheet !== 'object') continue;
+      hasSheet = true;
+      delete sheet._acu_from_base_state;
+
+      const headerRow = Array.isArray(sheet.content?.[0]) ? sheet.content[0] : ['row_id'];
+      if (!Array.isArray(sheet.content) || sheet.content.length <= 1) {
+        const seedRows = getEffectiveSeedRowsForSheet_ACU(key, { allowTemplateFallback: true });
+        sheet.content = [headerRow, ...(Array.isArray(seedRows) ? seedRows : [])];
+      }
+      sheet.content = ensureStableRowIdsForSheetContent_ACU(sheet.content);
+    }
+
+    return hasSheet ? baseData : null;
+  }
 
   /**
    * 收集已存在空表的 seedRows INSERT 语句，用于 SQL 写入前补齐基底数据。
@@ -576,7 +627,7 @@ export class SqlTableService implements ITableStorageProvider {
    * 2. preset_link  —— 当前聊天链接的全局预设
    * 3. inherit_global / 无聊天级模板 —— fallback 到 parseTableTemplateJson_ACU（全局模板）
    */
-  private _resolveCurrentChatTemplate(): TableDataObject_ACU | null {
+  private _resolveCurrentChatTemplate(stripSeedRows = true): TableDataObject_ACU | null {
     try {
       const scopeState = getCurrentChatTemplateScopeState_ACU();
 
@@ -597,9 +648,10 @@ export class SqlTableService implements ITableStorageProvider {
         if (templateStr) {
           const parsed = safeJsonParse_ACU(templateStr, null);
           if (parsed && typeof parsed === 'object') {
-            const stripped = stripSeedRowsFromTemplate_ACU(JSON.parse(JSON.stringify(parsed)));
-            logDebug_ACU(`[SqlTableService] 使用当前聊天模板预设 (mode=${scopeState.mode})`);
-            return stripped as TableDataObject_ACU;
+                  const cloned = JSON.parse(JSON.stringify(parsed));
+                  const resolved = stripSeedRows ? stripSeedRowsFromTemplate_ACU(cloned) : cloned;
+                  logDebug_ACU(`[SqlTableService] 使用当前聊天模板预设 (mode=${scopeState.mode})`);
+                  return resolved as TableDataObject_ACU;
           }
         }
       }
@@ -609,13 +661,52 @@ export class SqlTableService implements ITableStorageProvider {
 
     // 场景 3：inherit_global 或无聊天级模板，fallback 到全局模板
     logDebug_ACU('[SqlTableService] 使用全局模板 (inherit_global)');
-    return parseTableTemplateJson_ACU({ stripSeedRows: true }) as TableDataObject_ACU | null;
+    return parseTableTemplateJson_ACU({ stripSeedRows }) as TableDataObject_ACU | null;
   }
 }
 
 // ═══════════════════════════════════════════════════════════════
 // 快照级 SQL 应用（用于 grouped unified commit）
 // ═══════════════════════════════════════════════════════════════
+
+export async function applyParameterizedSqlMutationToTableDataSnapshot_ACU(
+  sql: string,
+  params: (string | number | null)[] | undefined,
+  tableData: TableDataObject_ACU,
+): Promise<SnapshotSqlApplyResult_ACU> {
+  const engine = new SqliteEngine();
+  const syncBridge = new SyncBridge(engine);
+  try {
+    const normalizedSql = normalizeStatementValues(normalizeSqlStructure(sql));
+    const snapshotCopy = JSON.parse(JSON.stringify(tableData || {})) as TableDataObject_ACU;
+    await engine.init();
+    syncBridge.loadFromTableData(snapshotCopy);
+    const result = engine.run(normalizedSql, params);
+    const workingData = syncBridge.exportToTableData(resolveSnapshotMate_ACU(snapshotCopy));
+    const modifiedTableNames = extractTableNamesFromStatements([normalizedSql]);
+    const modifiedKeys = mapSqlTableNamesToSheetKeys_ACU(workingData, modifiedTableNames);
+
+    logDebug_ACU(`[SqlTableService] 参数化快照 SQL 执行成功: changes=${result.changes}, modifiedKeys=${modifiedKeys.join(',')}`);
+    return {
+      success: true,
+      modifiedKeys,
+      appliedEdits: 1,
+      changes: result.changes,
+      workingData,
+      operations: [{
+        kind: 'sql_batch',
+        statements: [normalizedSql],
+        ...(Array.isArray(params) && params.length > 0 ? { params: [params.map(value => value ?? null)] } : {}),
+      }],
+    };
+  } catch (e: any) {
+    const errMsg = e?.message || String(e);
+    logError_ACU(`[SqlTableService] 参数化快照 SQL 执行失败: ${errMsg}`);
+    return { success: false, modifiedKeys: [], appliedEdits: 0, changes: 0, error: errMsg };
+  } finally {
+    engine.dispose();
+  }
+}
 
 export async function applySqlEditsToTableDataSnapshot_ACU(
   sqlStatements: string,
@@ -646,7 +737,13 @@ export async function applySqlEditsToTableDataSnapshot_ACU(
     const modifiedKeys = mapSqlTableNamesToSheetKeys_ACU(workingData, modifiedTableNames);
 
     logDebug_ACU(`[SqlTableService] 快照 SQL 执行成功: ${statements.length} 条语句, modifiedKeys=${modifiedKeys.join(',')}`);
-    return { success: true, modifiedKeys, appliedEdits: statements.length, workingData };
+    return {
+      success: true,
+      modifiedKeys,
+      appliedEdits: statements.length,
+      workingData,
+      operations: [{ kind: 'sql_batch', statements }],
+    };
   } catch (e: any) {
     const errMsg = e?.message || String(e);
     logError_ACU(`[SqlTableService] 快照 SQL 执行失败: ${errMsg}`);
@@ -710,18 +807,20 @@ export function splitSqlStatements(sql: string): string[] {
  */
 export function extractTableNamesFromStatements(statements: string[]): string[] {
   const tableNames = new Set<string>();
+  const ident = '(?:`([^`]+)`|"([^"]+)"|\\[([^\\]]+)\\]|([A-Za-z_][A-Za-z0-9_]*))';
   const patterns = [
-    /INSERT\s+(?:OR\s+\w+\s+)?INTO\s+(\w+)/i,
-    /UPDATE\s+(?:OR\s+\w+\s+)?(\w+)/i,
-    /DELETE\s+FROM\s+(\w+)/i,
-    /ALTER\s+TABLE\s+(\w+)/i,
+    new RegExp(`\\bINSERT\\s+(?:OR\\s+\\w+\\s+)?INTO\\s+${ident}`, 'i'),
+    new RegExp(`\\bUPDATE\\s+(?:OR\\s+\\w+\\s+)?${ident}`, 'i'),
+    new RegExp(`\\bDELETE\\s+FROM\\s+${ident}`, 'i'),
+    new RegExp(`\\bALTER\\s+TABLE\\s+${ident}`, 'i'),
   ];
 
   for (const stmt of statements) {
     for (const pattern of patterns) {
       const match = stmt.match(pattern);
       if (match) {
-        tableNames.add(match[1]);
+        const tableName = match.slice(1).find(Boolean);
+        if (tableName) tableNames.add(tableName);
         break;
       }
     }

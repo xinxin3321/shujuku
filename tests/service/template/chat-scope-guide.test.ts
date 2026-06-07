@@ -372,6 +372,10 @@ describe('setChatSheetGuideDataForIsolationKey_ACU', () => {
 
 // ═══ getEffectiveSeedRowsForSheet_ACU ═══
 describe('getEffectiveSeedRowsForSheet_ACU', () => {
+  beforeEach(() => {
+    mockGetChatArray.mockReturnValue([{ is_user: true, mes: '第一条用户消息' }]);
+  });
+
   it('无效 sheetKey 返回空数组', () => {
     expect(getEffectiveSeedRowsForSheet_ACU('')).toEqual([]);
     expect(getEffectiveSeedRowsForSheet_ACU('invalid')).toEqual([]);

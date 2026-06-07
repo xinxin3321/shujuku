@@ -23,10 +23,14 @@ import { getLastOptimizationBase_ACU, setLastOptimizationBase_ACU } from '../opt
 import { settings_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU } from '../runtime/state-manager';
 import { sanitizeSheetForStorage_ACU } from '../template/chat-scope';
 import { clearTableFieldsForIsolation_ACU } from '../../data/repositories/chat-message-data-repo';
-import { persistTablesToChatMessage_ACU } from '../table/table-service';
+import { runTableUpdateCommit_ACU } from '../table/table-update-commit';
 import { getLatestAiMessageIndexFromChat_ACU, resolveTableHistoryStateFromChat_ACU } from '../table/table-history';
 import { deleteSummaryVectorIndexExternal_ACU } from '../vector/summary-vector-index-storage-service';
 import { assignSummaryVectorIndexStateToTagData_ACU } from '../vector/summary-vector-index-state-service';
+import { isV2TagData_ACU, resolveTableStorageStrategy_ACU } from '../table/storage-strategy-resolver';
+import { collectScheduleSummaryFromFramesV2_ACU, loadTableStateFromFramesV2_ACU } from '../table/storage-frame-v2-replay';
+import { runTableWriteTransaction_ACU } from '../table/table-write-transaction';
+import type { TableMutationOperationV2_ACU, TableStorageFrameV2_ACU } from '../table/storage-frame-v2-types';
 
 // ─── 业务逻辑函数（从 presentation 层搬迁） ───
 
@@ -83,6 +87,68 @@ function tableListContainsSummaryOrOutline_ACU(targetSheetKeys: string[]): boole
         const table = currentJsonTableData_ACU?.[sheetKey];
         return !!table?.name && isSummaryOrOutlineTable_ACU(String(table.name || ''));
     });
+}
+
+function collectIsolationKeysWithV2Frames_ACU(chat: any[]): string[] {
+    const keys = new Set<string>();
+    for (const msg of chat) {
+        if (!msg || msg.is_user) continue;
+        const isolatedData = msg.TavernDB_ACU_IsolatedData;
+        if (!isolatedData || typeof isolatedData !== 'object' || Array.isArray(isolatedData)) continue;
+        for (const [isolationKey, tagData] of Object.entries(isolatedData)) {
+            if (isV2TagData_ACU(tagData)) {
+                keys.add(isolationKey);
+            }
+        }
+    }
+    return [...keys];
+}
+
+async function writeV2BoundaryCheckpointBeforePurge_ACU(chat: any[], anchorIndex: number): Promise<boolean> {
+    if (anchorIndex < 0 || !chat[anchorIndex] || chat[anchorIndex].is_user) return false;
+
+    let changed = false;
+    const isolationConfig = {
+        enabled: settings_ACU.dataIsolationEnabled,
+        code: settings_ACU.dataIsolationCode,
+    };
+
+    for (const isolationKey of collectIsolationKeysWithV2Frames_ACU(chat)) {
+        const strategy = resolveTableStorageStrategy_ACU(chat, isolationKey, isolationConfig);
+        if (strategy.mode !== 'v2') continue;
+
+        const data = await loadTableStateFromFramesV2_ACU(chat, isolationKey, { maxMessageIndex: anchorIndex });
+        if (!data) continue;
+
+        const anchorMsg = chat[anchorIndex];
+        if (!anchorMsg.TavernDB_ACU_IsolatedData || typeof anchorMsg.TavernDB_ACU_IsolatedData !== 'object' || Array.isArray(anchorMsg.TavernDB_ACU_IsolatedData)) {
+            anchorMsg.TavernDB_ACU_IsolatedData = {};
+        }
+
+        const existingTagData = anchorMsg.TavernDB_ACU_IsolatedData[isolationKey];
+        const frame: TableStorageFrameV2_ACU = {
+            version: 2,
+            checkpoint: {
+                kind: 'full',
+                createdAt: Date.now(),
+                reason: 'compaction',
+                data,
+                scheduleSummary: collectScheduleSummaryFromFramesV2_ACU(chat, isolationKey, { maxMessageIndex: anchorIndex }),
+            },
+            logEntries: [],
+        };
+
+        anchorMsg.TavernDB_ACU_IsolatedData[isolationKey] = {
+            ...(existingTagData?.summaryVectorIndexState !== undefined ? { summaryVectorIndexState: existingTagData.summaryVectorIndexState } : {}),
+            ...(existingTagData?.summaryVectorIndexManifest !== undefined ? { summaryVectorIndexManifest: existingTagData.summaryVectorIndexManifest } : {}),
+            storageFrame: frame,
+            _acu_storage_version: 2,
+        };
+        changed = true;
+        logDebug_ACU(`[V2 Compaction] 已在边界楼层 #${anchorIndex} 写入 isolationKey=[${isolationKey || '无标签'}] 的 full checkpoint。`);
+    }
+
+    return changed;
 }
 
 /**
@@ -210,12 +276,26 @@ export async function saveCurrentDataForTable_ACU(sheetKey: string) {
             return;
         }
 
-        await persistTablesToChatMessage_ACU({
+        const commitResult = await runTableUpdateCommit_ACU<void>({
+            source: 'system',
+            reason: 'saveCurrentDataForTable',
+            isolationKey: getCurrentIsolationKey_ACU(),
+            writeSet: [{ kind: 'sheet', sheetKey }],
+            revisionWriteSet: [{ kind: 'sheet', sheetKey }],
+            initialData: currentJsonTableData_ACU,
             targetMessageIndex,
             targetSheetKeys: [sheetKey],
             updateGroupKeys: null,
+            trackingSheetKeys: [sheetKey],
             trackAsUpdate: history.latestDataMessageIndex === -1,
-        });
+            operations: [{ kind: 'sheet_replace', sheetKey, sheet: (currentJsonTableData_ACU as any)[sheetKey], reason: 'system' }],
+        }, () => ({
+            success: true,
+            tableData: currentJsonTableData_ACU as any,
+        }));
+        if (!commitResult.success) {
+            logWarn_ACU(`saveCurrentDataForTable_ACU: commit failed: ${commitResult.error || 'unknown error'}`);
+        }
     } catch (e) {
         logError_ACU('saveCurrentDataForTable_ACU failed:', e);
     }
@@ -228,7 +308,7 @@ export async function saveCurrentDataForTable_ACU(sheetKey: string) {
  * 按消息计数，仅保留最近N层的数据，更早楼层的 TavernDB_ACU_* 和 qrf_plot 字段将被删除。
  * 不会删除聊天第一层的"空白指导表"（TavernDB_ACU_InternalSheetGuide）。
  */
-export async function purgeOldLayerData_ACU() {
+async function purgeOldLayerDataCore_ACU() {
     const retainCount = settings_ACU.retainRecentLayers || 0;
     if (retainCount <= 0) {
         logDebug_ACU('[数据清理] retainRecentLayers 为 0 或未设置，跳过清理。');
@@ -265,8 +345,20 @@ export async function purgeOldLayerData_ACU() {
 
     logDebug_ACU(`[数据清理] 将清理 ${indicesToPurge.length} 层消息的本地数据（保留最近 ${retainCount} 层）...`);
 
-    // ── [兜底快照] 在删除旧楼层之前，迁移冷表数据到边界保留楼层 ──
+    // ── [V2 边界 checkpoint] 在删除旧 frame 前，先把恢复锚点压缩到边界保留楼层 ──
     const anchorIndex = dataMessageIndices[cutoffIndex];
+    if (anchorIndex !== undefined && anchorIndex >= 1 && chat[anchorIndex]) {
+        try {
+            if (await writeV2BoundaryCheckpointBeforePurge_ACU(chat, anchorIndex)) {
+                await saveChatToHost_ACU();
+            }
+        } catch (error) {
+            logError_ACU('[V2 Compaction] 写入边界 checkpoint 失败，已中止本次清理以避免恢复链断裂:', error);
+            return;
+        }
+    }
+
+    // ── [兜底快照] 在删除旧楼层之前，迁移冷表数据到边界保留楼层 ──
     const retainedSet = new Set<number>(dataMessageIndices.slice(cutoffIndex));
 
     // 确认边界楼层有效且不是 chat[0]
@@ -318,6 +410,15 @@ export async function purgeOldLayerData_ACU() {
             }
 
             for (const [isoKey, sheetMap] of orphanedData) {
+                const strategy = resolveTableStorageStrategy_ACU(chat, isoKey, {
+                    enabled: settings_ACU.dataIsolationEnabled,
+                    code: settings_ACU.dataIsolationCode,
+                });
+                if (strategy.mode !== 'legacy-v1') {
+                    logDebug_ACU(`[数据清理] isolationKey=[${isoKey || '无标签'}] 未确认为 legacy-v1，跳过 V1 兜底快照写入。`);
+                    continue;
+                }
+
                 // 初始化该 isolationKey 槽（如果不存在）
                 if (!anchorMsg.TavernDB_ACU_IsolatedData[isoKey]) {
                     anchorMsg.TavernDB_ACU_IsolatedData[isoKey] = {
@@ -398,6 +499,16 @@ export async function purgeOldLayerData_ACU() {
     } else {
         logDebug_ACU('[数据清理] 目标楼层中未发现需要清理的数据字段。');
     }
+}
+
+export async function purgeOldLayerData_ACU() {
+    return runTableWriteTransaction_ACU({
+        source: 'system_cleanup',
+        reason: 'purgeOldLayerData',
+        isolationKey: getCurrentIsolationKey_ACU(),
+        writeSet: [{ kind: 'all' }],
+        maintenanceMode: 'exclusive',
+    }, () => purgeOldLayerDataCore_ACU());
 }
 
 /**
@@ -538,7 +649,7 @@ function collectAllSheetDataFromMessage_ACU(
  * 只负责数据操作（遍历 chat 删除字段 + saveChatToHost），不涉及 UI（toast/status display）。
  * @returns 删除的消息数量
  */
-export async function deleteLocalDataInChatCore_ACU(
+async function deleteLocalDataInChatCoreInner_ACU(
     mode: 'current' | 'all' = 'current',
     startFloor: number | null = null,
     endFloor: number | null = null
@@ -644,6 +755,20 @@ export async function deleteLocalDataInChatCore_ACU(
     return deletedCount;
 }
 
+export async function deleteLocalDataInChatCore_ACU(
+    mode: 'current' | 'all' = 'current',
+    startFloor: number | null = null,
+    endFloor: number | null = null
+): Promise<number> {
+    return runTableWriteTransaction_ACU({
+        source: 'system_cleanup',
+        reason: 'deleteLocalDataInChat',
+        isolationKey: getCurrentIsolationKey_ACU(),
+        writeSet: [{ kind: 'all' }],
+        maintenanceMode: 'exclusive',
+    }, () => deleteLocalDataInChatCoreInner_ACU(mode, startFloor, endFloor));
+}
+
 /**
  * 使用模板覆盖最新层的表格数据（核心业务逻辑）
  * 从 presentation/triggers/data-admin-ui.ts 的 overrideLatestLayerWithTemplate_ACU 中提取
@@ -673,21 +798,7 @@ export async function overrideLatestLayerWithTemplateCore_ACU(templateData: any)
         return 0;
     }
 
-    const latestMessage = chat[latestAiIndex];
-    let modifiedCount = 0;
-
-    // 初始化或获取按标签分组的数据结构
-    if (!latestMessage.TavernDB_ACU_IsolatedData) {
-        latestMessage.TavernDB_ACU_IsolatedData = {};
-    }
-    if (!latestMessage.TavernDB_ACU_IsolatedData[currentIsolationKey]) {
-        latestMessage.TavernDB_ACU_IsolatedData[currentIsolationKey] = {};
-    }
-
-    const tagData = latestMessage.TavernDB_ACU_IsolatedData[currentIsolationKey];
-    if (!tagData.independentData) {
-        tagData.independentData = {};
-    }
+    const overrideSheets: Record<string, any> = {};
 
     // 遍历模板中的所有表格，使用模板数据覆盖本地数据
     Object.keys(templateData).forEach(sheetKey => {
@@ -702,25 +813,53 @@ export async function overrideLatestLayerWithTemplateCore_ACU(templateData: any)
             overrideTable.content = [overrideTable.content[0]]; // 只保留表头
         }
 
-        // 覆盖本地数据
-        tagData.independentData[sheetKey] = overrideTable;
-        modifiedCount++;
-
+        overrideSheets[sheetKey] = sanitizeSheetForStorage_ACU(overrideTable);
         logDebug_ACU(`Overrode table "${templateTable.name}" (${sheetKey}) in latest layer with template data.`);
     });
 
-    if (modifiedCount > 0) {
-        // 更新修改标记
-        tagData.modifiedKeys = Object.keys(tagData.independentData);
-        tagData.updateGroupKeys = tagData.modifiedKeys;
-        tagData._acu_storage_mode = 'checkpoint';
-        tagData._acu_storage_version = 1;
-
-        // 保存聊天记录
-        await saveChatToHost_ACU();
+    const modifiedSheetKeys = Object.keys(overrideSheets);
+    if (modifiedSheetKeys.length === 0) {
+        return 0;
     }
 
-    return modifiedCount;
+    const nextTableData = JSON.parse(JSON.stringify(currentJsonTableData_ACU || {}));
+    if (!nextTableData.mate && templateData?.mate) {
+        nextTableData.mate = JSON.parse(JSON.stringify(templateData.mate));
+    }
+    for (const sheetKey of modifiedSheetKeys) {
+        nextTableData[sheetKey] = overrideSheets[sheetKey];
+    }
+
+    const operations: TableMutationOperationV2_ACU[] = modifiedSheetKeys.map(sheetKey => ({
+        kind: 'sheet_replace',
+        sheetKey,
+        sheet: overrideSheets[sheetKey],
+        reason: 'system',
+    }));
+    const commitResult = await runTableUpdateCommit_ACU<number>({
+        source: 'system',
+        reason: 'overrideLatestLayerWithTemplate',
+        isolationKey: currentIsolationKey,
+        writeSet: modifiedSheetKeys.map(sheetKey => ({ kind: 'sheet' as const, sheetKey })),
+        revisionWriteSet: modifiedSheetKeys.map(sheetKey => ({ kind: 'sheet' as const, sheetKey })),
+        initialData: currentJsonTableData_ACU,
+        targetMessageIndex: latestAiIndex,
+        targetSheetKeys: modifiedSheetKeys,
+        updateGroupKeys: modifiedSheetKeys,
+        trackingSheetKeys: modifiedSheetKeys,
+        trackAsUpdate: true,
+        operations,
+    }, () => ({
+        success: true,
+        value: modifiedSheetKeys.length,
+        tableData: nextTableData as any,
+    }));
+    if (!commitResult.success) {
+        logWarn_ACU(`[模板覆盖] 公共提交失败：${commitResult.error || 'unknown error'}`);
+        return 0;
+    }
+
+    return commitResult.value || 0;
 }
 
 /**
@@ -736,7 +875,7 @@ export async function overrideLatestLayerWithTemplateCore_ACU(templateData: any)
  * @param targetMessageIndices 需要清空的目标 AI 消息物理索引列表（已去重）
  * @returns 实际被清空的消息数量
  */
-export async function clearTableDataAtFloors_ACU(targetMessageIndices: number[], targetSheetKeys: string[] | null = null): Promise<number> {
+async function clearTableDataAtFloorsCore_ACU(targetMessageIndices: number[], targetSheetKeys: string[] | null = null): Promise<number> {
     if (!targetMessageIndices || targetMessageIndices.length === 0) return 0;
 
     const chat = getChatArray_ACU();
@@ -782,12 +921,32 @@ export async function clearTableDataAtFloors_ACU(targetMessageIndices: number[],
     return clearedCount;
 }
 
+export async function clearTableDataAtFloors_ACU(targetMessageIndices: number[], targetSheetKeys: string[] | null = null): Promise<number> {
+    const writeSet = Array.isArray(targetSheetKeys) && targetSheetKeys.length > 0
+        ? targetSheetKeys.map(sheetKey => ({ kind: 'sheet' as const, sheetKey }))
+        : [{ kind: 'all' as const }];
+    return runTableWriteTransaction_ACU({
+        source: 'system_cleanup',
+        reason: 'clearTableDataAtFloors',
+        isolationKey: getCurrentIsolationKey_ACU(),
+        writeSet,
+        maintenanceMode: 'exclusive',
+    }, () => clearTableDataAtFloorsCore_ACU(targetMessageIndices, targetSheetKeys));
+}
+
 function purgeTargetSheetKeysFromMessage_ACU(msg: any, targetSheetKeys: string[]): boolean {
     if (!msg || !Array.isArray(targetSheetKeys) || targetSheetKeys.length === 0) return false;
 
     let changed = false;
     const isolationKey = getCurrentIsolationKey_ACU();
     const tagData = msg?.TavernDB_ACU_IsolatedData?.[isolationKey];
+    if (isV2TagData_ACU(tagData)) {
+        delete msg.TavernDB_ACU_IsolatedData[isolationKey];
+        if (Object.keys(msg.TavernDB_ACU_IsolatedData).length === 0) {
+            delete msg.TavernDB_ACU_IsolatedData;
+        }
+        return true;
+    }
     if (tagData && typeof tagData === 'object') {
         if (tagData.independentData && typeof tagData.independentData === 'object') {
             targetSheetKeys.forEach(sheetKey => {

@@ -1,4 +1,6 @@
 import type { ACUMessage } from '../../shared/host-api';
+import { readIsolatedTagData_ACU } from '../../data/repositories/chat-message-data-repo';
+import { isV2TagData_ACU } from './storage-strategy-resolver';
 
 export interface TableHistoryState_ACU {
     latestAiMessageIndex: number;
@@ -25,10 +27,74 @@ function isLegacyMatchForMessage_ACU(msg: any, settings: any): boolean {
     return !msgIdentity;
 }
 
+function keyListHasSheet_ACU(value: unknown, sheetKey: string): boolean {
+    return Array.isArray(value) && value.includes(sheetKey);
+}
+
+function v2EventTouchesSheetData_ACU(event: any, sheetKey: string): boolean {
+    return keyListHasSheet_ACU(event?.changedSheetKeys, sheetKey)
+        || keyListHasSheet_ACU(event?.filledSheetKeys, sheetKey)
+        || keyListHasSheet_ACU(event?.groupKeys, sheetKey);
+}
+
+function v2EventTracksFill_ACU(event: any, sheetKey: string): boolean {
+    return keyListHasSheet_ACU(event?.filledSheetKeys, sheetKey)
+        || keyListHasSheet_ACU(event?.groupKeys, sheetKey);
+}
+
+function v2ScheduleFilledFloor_ACU(tagData: any, sheetKey: string): number {
+    const value = tagData?.storageFrame?.checkpoint?.scheduleSummary?.[sheetKey]?.lastFilledAiFloor;
+    return Number.isFinite(value) && value > 0 ? Number(value) : 0;
+}
+
+function v2EntryAiFloor_ACU(entry: any, fallbackAiFloor: number): number {
+    const value = Number(entry?.aiFloor);
+    return Number.isFinite(value) && value > 0 ? value : fallbackAiFloor;
+}
+
+function v2OperationTouchesSheet_ACU(operation: any, sheetKey: string): boolean {
+    if (!operation || typeof operation !== 'object') return false;
+    if (operation.kind === 'sheet_replace') return operation.sheetKey === sheetKey;
+    if (operation.kind === 'row_upsert' || operation.kind === 'row_delete' || operation.kind === 'meta_update') return operation.sheetKey === sheetKey;
+    if (operation.kind === 'data_replace') return !!operation.data?.[sheetKey];
+    return false;
+}
+
+function v2FrameHasSheetData_ACU(tagData: any, sheetKey: string): boolean {
+    if (!isV2TagData_ACU(tagData)) return false;
+    if (tagData.storageFrame.checkpoint?.kind === 'full' && tagData.storageFrame.checkpoint.data?.[sheetKey]) {
+        return true;
+    }
+    return (tagData.storageFrame.logEntries || []).some((entry: any) =>
+        v2EventTouchesSheetData_ACU(entry, sheetKey)
+        || (Array.isArray(entry.operations) && entry.operations.some((operation: any) => v2OperationTouchesSheet_ACU(operation, sheetKey)))
+    );
+}
+
+function v2FrameTrackedUpdateFloor_ACU(tagData: any, sheetKey: string, messageAiFloor: number): number {
+    if (!isV2TagData_ACU(tagData)) return 0;
+    let latestFloor = v2ScheduleFilledFloor_ACU(tagData, sheetKey);
+    const checkpointEvent = tagData.storageFrame.checkpoint?.event;
+    if (v2EventTracksFill_ACU(checkpointEvent, sheetKey)) {
+        latestFloor = Math.max(latestFloor, messageAiFloor);
+    }
+    for (const entry of tagData.storageFrame.logEntries || []) {
+        if (v2EventTracksFill_ACU(entry, sheetKey)) {
+            latestFloor = Math.max(latestFloor, v2EntryAiFloor_ACU(entry, messageAiFloor));
+        }
+    }
+    return latestFloor;
+}
+
 function hasTableDataInMessage_ACU(msg: any, options: ResolveTableHistoryOptions_ACU): boolean {
     const { sheetKey, isSummaryTable, isolationKey, settings } = options;
+    const tagData = readIsolatedTagData_ACU(msg, isolationKey) as any;
 
-    if (msg?.TavernDB_ACU_IsolatedData?.[isolationKey]?.independentData?.[sheetKey]) {
+    if (v2FrameHasSheetData_ACU(tagData, sheetKey)) {
+        return true;
+    }
+
+    if (tagData?.independentData?.[sheetKey]) {
         return true;
     }
 
@@ -44,23 +110,29 @@ function hasTableDataInMessage_ACU(msg: any, options: ResolveTableHistoryOptions
     );
 }
 
-function hasTrackedUpdateInMessage_ACU(msg: any, options: ResolveTableHistoryOptions_ACU): boolean {
+function getTrackedUpdateFloorInMessage_ACU(msg: any, options: ResolveTableHistoryOptions_ACU, messageAiFloor: number): number {
     const { sheetKey, isolationKey, settings } = options;
-    const tagData = msg?.TavernDB_ACU_IsolatedData?.[isolationKey];
+    const tagData = readIsolatedTagData_ACU(msg, isolationKey) as any;
+
+    const v2Floor = v2FrameTrackedUpdateFloor_ACU(tagData, sheetKey, messageAiFloor);
+    if (v2Floor > 0) {
+        return v2Floor;
+    }
+
     const isolatedModifiedKeys = Array.isArray(tagData?.modifiedKeys) ? tagData.modifiedKeys : [];
     const isolatedUpdateGroupKeys = Array.isArray(tagData?.updateGroupKeys) ? tagData.updateGroupKeys : [];
 
     if (isolatedUpdateGroupKeys.includes(sheetKey) || isolatedModifiedKeys.includes(sheetKey)) {
-        return true;
+        return messageAiFloor;
     }
 
     if (!isLegacyMatchForMessage_ACU(msg, settings)) {
-        return false;
+        return 0;
     }
 
     const legacyModifiedKeys = Array.isArray(msg?.TavernDB_ACU_ModifiedKeys) ? msg.TavernDB_ACU_ModifiedKeys : [];
     const legacyUpdateGroupKeys = Array.isArray(msg?.TavernDB_ACU_UpdateGroupKeys) ? msg.TavernDB_ACU_UpdateGroupKeys : [];
-    return legacyUpdateGroupKeys.includes(sheetKey) || legacyModifiedKeys.includes(sheetKey);
+    return legacyUpdateGroupKeys.includes(sheetKey) || legacyModifiedKeys.includes(sheetKey) ? messageAiFloor : 0;
 }
 
 export function getLatestAiMessageIndexFromChat_ACU(chat: ACUMessage[] | any[]): number {
@@ -87,18 +159,24 @@ export function resolveTableHistoryStateFromChat_ACU(
     const latestAiMessageIndex = getLatestAiMessageIndexFromChat_ACU(chat);
     let latestDataMessageIndex = -1;
     let lastTrackedUpdateMessageIndex = -1;
+    let lastTrackedUpdateAiFloor = 0;
 
     if (Array.isArray(chat)) {
         for (let i = chat.length - 1; i >= 0; i -= 1) {
             const msg = chat[i];
             if (!msg || msg.is_user) continue;
+            const messageAiFloor = countAiMessagesUpToIndex_ACU(chat, i);
 
             if (latestDataMessageIndex === -1 && hasTableDataInMessage_ACU(msg, options)) {
                 latestDataMessageIndex = i;
             }
 
-            if (lastTrackedUpdateMessageIndex === -1 && hasTrackedUpdateInMessage_ACU(msg, options)) {
-                lastTrackedUpdateMessageIndex = i;
+            if (lastTrackedUpdateMessageIndex === -1) {
+                const trackedFloor = getTrackedUpdateFloorInMessage_ACU(msg, options, messageAiFloor);
+                if (trackedFloor > 0) {
+                    lastTrackedUpdateMessageIndex = i;
+                    lastTrackedUpdateAiFloor = trackedFloor;
+                }
             }
 
             if (latestDataMessageIndex !== -1 && lastTrackedUpdateMessageIndex !== -1) {
@@ -112,8 +190,8 @@ export function resolveTableHistoryStateFromChat_ACU(
         latestDataMessageIndex,
         lastTrackedUpdateMessageIndex,
         latestDataAiFloor: countAiMessagesUpToIndex_ACU(chat, latestDataMessageIndex),
-        lastTrackedUpdateAiFloor: countAiMessagesUpToIndex_ACU(chat, lastTrackedUpdateMessageIndex),
+        lastTrackedUpdateAiFloor,
         hasAnyData: latestDataMessageIndex !== -1,
-        hasTrackedUpdate: lastTrackedUpdateMessageIndex !== -1,
+        hasTrackedUpdate: lastTrackedUpdateAiFloor > 0,
     };
 }

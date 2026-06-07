@@ -62,6 +62,9 @@ export interface ITableStorageProvider {
     error?: string;
   }>;
 
+  /** 当前运行时是否已经可用。native 恒为 true；sqlite 需引擎已初始化。 */
+  isReady(): boolean;
+
   /**
    * 保存当前运行时数据到聊天消息
    * - native：调用 saveIndependentTableToChatHistory_ACU
@@ -70,6 +73,8 @@ export interface ITableStorageProvider {
   saveToChat(
     targetSheetKeys?: string[] | null,
     updateGroupKeys?: string[] | null,
+    trackingSheetKeys?: string[] | null,
+    options?: { source?: string; requestId?: string; batchId?: string; operations?: unknown[]; transactionContext?: unknown },
   ): Promise<{ saved: boolean; messageIndex?: number; error?: string }>;
 
   /**
@@ -77,6 +82,12 @@ export interface ITableStorageProvider {
    * 两种模式都返回 TableDataObject_ACU，保证上层代码零改动
    */
   getCurrentData(): TableDataObject_ACU | null;
+
+  /**
+   * 在公共提交模型内替换完整运行时数据。
+   * 注意：只负责运行时更新，不负责持久化聊天记录。
+   */
+  replaceAllData?(data: TableDataObject_ACU): Promise<ApplyEditsResult> | ApplyEditsResult;
 
   /**
    * 应用 AI 返回的编辑指令
@@ -88,6 +99,18 @@ export interface ITableStorageProvider {
    * @returns 应用结果
    */
   applyEdits(edits: string, updateMode?: string): ApplyEditsResult;
+
+  /**
+   * 批量应用多段 AI SQL/编辑内容。
+   * sqlite 模式必须把所有 SQL 放进同一个运行时事务；native 可不实现。
+   */
+  applyEditsBatch?(editsList: string[], updateMode?: string): ApplyEditsResult;
+
+  /** 创建运行时快照，用于提交失败或重试前回滚。sqlite 返回二进制 DB 快照；native 可不实现。 */
+  createRuntimeSnapshot?(): unknown;
+
+  /** 恢复 createRuntimeSnapshot 创建的运行时快照。 */
+  restoreRuntimeSnapshot?(snapshot: unknown): Promise<void>;
 
   /**
    * 执行 SQL 查询（仅 sqlite 模式支持）
