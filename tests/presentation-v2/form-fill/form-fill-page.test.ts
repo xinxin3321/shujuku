@@ -285,7 +285,7 @@ describe('FormFillPage', () => {
     expect(text).toContain('本次填表附加要求');
     expect(text).toContain('当前 full checkpoint');
     expect(text).toContain('AI 第 1 层、AI 第 3 层');
-    expect(text).toContain('本次重填范围');
+    expect(text).toContain('预计处理范围');
     expect(text).toContain('执行手动填表');
     expect(text).toContain('表格模板预设');
     expect(text).toContain('打开可视化表格编辑器');
@@ -771,7 +771,7 @@ describe('FormFillPage · 手动填表面板', () => {
     mount.__resetAcuV2MountForTests();
   });
 
-  it('所有 checkpoint 都落入重填范围时在面板和确认弹窗中显示红色风险提示', async () => {
+  it('所有 checkpoint 都落入重填范围时仅在确认弹窗中显示红色风险提示', async () => {
     const settings = createSettings();
     settings.manualUpdateContextDepth = 3;
     const { mount } = await mountFormFillPage(settings, 'form-fill', [
@@ -781,9 +781,10 @@ describe('FormFillPage · 手动填表面板', () => {
 
     const panel = Array.from(document.querySelectorAll<HTMLElement>('.acu-v2-form-fill-page__grid > .acu-panel'))
       .find(item => item.querySelector('.acu-panel__title')?.textContent?.includes('手动填表'))!;
-    expect(panel.textContent || '').toContain('当前聊天的所有 full checkpoint 都在本次重填范围内');
     expect(panel.textContent || '').toContain('AI 第 1 层、AI 第 3 层');
-    expect(panel.querySelector('.acu-v2-form-fill-page__checkpoint-risk')).not.toBeNull();
+    expect(panel.textContent || '').toContain('按当前设置预计处理范围：AI 第 1~3 层');
+    expect(panel.textContent || '').not.toContain('危险：当前聊天的所有 full checkpoint');
+    expect(panel.querySelector('.acu-v2-form-fill-page__checkpoint-risk')).toBeNull();
 
     const button = Array.from(panel.querySelectorAll('button'))
       .find(btn => btn.textContent?.includes('执行手动填表')) as HTMLButtonElement;
@@ -792,7 +793,8 @@ describe('FormFillPage · 手动填表面板', () => {
 
     const danger = document.querySelector<HTMLElement>('.acu-dialog__danger-message');
     expect(danger).not.toBeNull();
-    expect(danger!.textContent || '').toContain('重填起点前没有可回放 checkpoint');
+    expect(danger!.textContent || '').toContain('所有 full checkpoint 都在即将执行的重填范围内');
+    expect(danger!.textContent || '').toContain('确认执行后，重填起点前将没有可回放 checkpoint');
     const confirmButton = Array.from(document.querySelectorAll<HTMLButtonElement>('.acu-dialog-layer button'))
       .find(btn => btn.textContent?.includes('确认并继续'))!;
     expect(confirmButton.className).toContain('danger');

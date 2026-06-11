@@ -305,7 +305,7 @@ export function useManualUpdate(): ManualUpdateState {
     const coveredCheckpoints = checkpoints.filter(item => checkpointIndexSet.has(item.messageIndex));
     if (coveredCheckpoints.length !== checkpoints.length) return '';
     const coveredFloors = coveredCheckpoints.map(item => `AI 第 ${item.aiFloor} 层`).join('、');
-    return `危险：当前聊天的所有 full checkpoint 都在本次重填范围内（${coveredFloors}）。继续重填将导致重填起点前没有可回放 checkpoint，选中表可能从空白结构开始重填，是否是预期行为？`;
+    return `危险：当前聊天的所有 full checkpoint 都在即将执行的重填范围内（${coveredFloors}）。确认执行后，重填起点前将没有可回放 checkpoint，选中表可能从空白结构开始重填，是否是预期行为？`;
   });
 
   const vectorIndexWarning = computed<boolean>(() => {

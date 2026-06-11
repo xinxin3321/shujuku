@@ -32,14 +32,7 @@
         </AcuText>
 
         <AcuMessage kind="info">
-          本次重填范围：{{ manualUpdate.manualRefillRangeLabel.value }}。
-        </AcuMessage>
-        <AcuMessage
-          v-if="manualUpdate.checkpointRiskMessage.value"
-          kind="error"
-          class="acu-v2-form-fill-page__checkpoint-risk"
-        >
-          {{ manualUpdate.checkpointRiskMessage.value }}
+          按当前手动填表设置，预计处理范围：{{ manualUpdate.manualRefillRangeLabel.value }}。
         </AcuMessage>
 
         <AcuMessage v-if="!dashboard.hasTables.value" kind="info">
@@ -129,14 +122,7 @@
         </div>
 
         <AcuMessage kind="info">
-          当前 full checkpoint：{{ manualUpdate.checkpointFloorsLabel.value }}；本次重填范围：{{ manualUpdate.manualRefillRangeLabel.value }}。
-        </AcuMessage>
-        <AcuMessage
-          v-if="manualUpdate.checkpointRiskMessage.value"
-          kind="error"
-          class="acu-v2-form-fill-page__checkpoint-risk"
-        >
-          {{ manualUpdate.checkpointRiskMessage.value }}
+          当前 full checkpoint：{{ manualUpdate.checkpointFloorsLabel.value }}；按当前设置预计处理范围：{{ manualUpdate.manualRefillRangeLabel.value }}。
         </AcuMessage>
 
         <TableSelector
