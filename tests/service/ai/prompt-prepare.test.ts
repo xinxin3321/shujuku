@@ -50,8 +50,18 @@ vi.mock('../../../src/service/runtime/helpers-remaining', () => ({
   applyContextTagFilters_ACU: vi.fn((c: string) => c),
 }));
 
+let mockIsSqliteMode = true;
 vi.mock('../../../src/service/table/storage-mode', () => ({
-  isSqliteMode: vi.fn(() => true),
+  isSqliteMode: vi.fn(() => mockIsSqliteMode),
+}));
+
+const mockRuntimeProvider = {
+  mode: 'sqlite',
+  isReady: vi.fn(() => true),
+  getCurrentData: vi.fn(() => mockCurrentJsonTableData),
+};
+vi.mock('../../../src/service/table/table-storage-strategy', () => ({
+  ensureStorageProviderReady_ACU: vi.fn(() => Promise.resolve(mockRuntimeProvider)),
 }));
 
 import { formatTableForSqliteMode, prepareAIInput_ACU } from '../../../src/service/ai/prompt-builder/prompt-prepare';
@@ -62,6 +72,9 @@ describe('formatTableForSqliteMode', () => {
     mockGetEffectiveSeedRows.mockReturnValue([]);
     mockEnsureChatSheetGuideSeeded.mockResolvedValue(null);
     mockAttachSeedRows.mockReset();
+    mockRuntimeProvider.mode = 'sqlite';
+    mockRuntimeProvider.getCurrentData.mockImplementation(() => mockCurrentJsonTableData);
+    mockIsSqliteMode = true;
     mockCurrentJsonTableData = null;
     mockSettings = {
       tableContextExtractTags: '',
@@ -234,6 +247,9 @@ describe('prepareAIInput_ACU — 显式 tableData 模式', () => {
     mockGetEffectiveSeedRows.mockReturnValue([]);
     mockEnsureChatSheetGuideSeeded.mockResolvedValue(null);
     mockAttachSeedRows.mockReset();
+    mockRuntimeProvider.mode = 'sqlite';
+    mockRuntimeProvider.getCurrentData.mockImplementation(() => mockCurrentJsonTableData);
+    mockIsSqliteMode = false;
     mockCurrentJsonTableData = null;
     mockSettings = {
       tableContextExtractTags: '',

@@ -53,6 +53,15 @@ vi.mock('../../../src/service/table/storage-mode', () => ({
   isSqliteMode: vi.fn(() => mockIsSqliteMode),
 }));
 
+const mockRuntimeProvider = {
+  mode: 'sqlite',
+  isReady: vi.fn(() => true),
+  getCurrentData: vi.fn(() => mockCurrentJsonTableData),
+};
+vi.mock('../../../src/service/table/table-storage-strategy', () => ({
+  ensureStorageProviderReady_ACU: vi.fn(() => Promise.resolve(mockRuntimeProvider)),
+}));
+
 import { prepareAIInput_ACU } from '../../../src/service/ai/prompt-builder/prompt-prepare';
 
 // ═══════════════════════════════════════════════════════════════
@@ -62,6 +71,8 @@ describe('prepareAIInput_ACU — SQL 模式', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetEffectiveSeedRows.mockReturnValue([]);
+    mockRuntimeProvider.mode = 'sqlite';
+    mockRuntimeProvider.getCurrentData.mockImplementation(() => mockCurrentJsonTableData);
     mockIsSqliteMode = true;
     mockSettings = {
       tableContextExtractTags: '',
@@ -122,7 +133,7 @@ describe('prepareAIInput_ACU — SQL 模式', () => {
     expect(result!.tableDataText).toContain('Columns:');
   });
 
-  it('首个真实 AI 回复前，SQL 模式会把 seedRows 作为当前数据发给 AI', async () => {
+  it('SQL 模式下 $0 不直接从模板 seedRows 兜底，数据必须来自运行时 DB', async () => {
     mockGetEffectiveSeedRows.mockReturnValue([['1', '格里芬临时基地-指挥室', '2062-07-18 14:35', 1]]);
     mockCurrentJsonTableData = {
       sheet_0: {
@@ -139,9 +150,8 @@ describe('prepareAIInput_ACU — SQL 模式', () => {
     const result = await prepareAIInput_ACU([], 'standard');
 
     expect(result).not.toBeNull();
-    expect(result!.tableDataText).toContain('-- 当前数据 (1 rows)');
-    expect(result!.tableDataText).toContain('-- | 1 | 格里芬临时基地-指挥室 | 2062-07-18 14:35 | 1 |');
-    expect(result!.tableDataText).not.toContain('-- (该表格为空，请进行初始化。)');
+    expect(result!.tableDataText).toContain('-- (该表格为空，请进行初始化。)');
+    expect(result!.tableDataText).not.toContain('格里芬临时基地-指挥室');
   });
 
   it('SQL 编辑格式说明被追加到 tableDataText 末尾', async () => {
@@ -210,6 +220,37 @@ describe('prepareAIInput_ACU — SQL 模式', () => {
     expect(result!.tableDataText).toContain('CREATE TABLE inventory');
     // 无 DDL 的表走原生格式化
     expect(result!.tableDataText).toContain('[1:角色表]');
+  });
+
+  it('SQL 模式下忽略显式 tableData，优先使用运行时 DB 数据', async () => {
+    mockCurrentJsonTableData = {
+      sheet_0: {
+        name: '运行时表',
+        sourceData: {
+          ddl: 'CREATE TABLE runtime_table (row_id INTEGER PRIMARY KEY, value TEXT);',
+        },
+        content: [['row_id', 'value'], ['1', '运行时值']],
+        updateConfig: {},
+      },
+    };
+    const explicitTableData = {
+      sheet_0: {
+        name: '显式快照表',
+        sourceData: {
+          ddl: 'CREATE TABLE explicit_table (row_id INTEGER PRIMARY KEY, value TEXT);',
+        },
+        content: [['row_id', 'value'], ['1', '显式快照值']],
+        updateConfig: {},
+      },
+    };
+
+    const result = await prepareAIInput_ACU([], 'standard', null, { tableData: explicitTableData });
+
+    expect(result).not.toBeNull();
+    expect(result!.tableDataText).toContain('CREATE TABLE runtime_table');
+    expect(result!.tableDataText).toContain('运行时值');
+    expect(result!.tableDataText).not.toContain('explicit_table');
+    expect(result!.tableDataText).not.toContain('显式快照值');
   });
 
   it('targetSheetKeys 过滤只输出指定表', async () => {
