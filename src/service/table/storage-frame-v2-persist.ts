@@ -1,6 +1,7 @@
 import { getChatArray_ACU, saveChatToHost_ACU } from '../../data/gateways/chat-gateway';
 import { cloneIsolatedData_ACU, writeMessageIdentity_ACU } from '../../data/repositories/chat-message-data-repo';
 import type { TableDataObject_ACU } from '../../shared/models/table-data';
+import { DEFAULT_CHECKPOINT_CUMULATIVE_OPERATION_RATIO_PERCENT_ACU, DEFAULT_CHECKPOINT_MAX_ENTRIES_AFTER_CHECKPOINT_ACU, DEFAULT_CHECKPOINT_MAX_OPERATION_COUNT_AFTER_CHECKPOINT_ACU, DEFAULT_CHECKPOINT_MAX_OPERATION_KB_AFTER_CHECKPOINT_ACU, DEFAULT_CHECKPOINT_SINGLE_OPERATION_RATIO_PERCENT_ACU } from '../../shared/defaults';
 import { logDebug_ACU, logWarn_ACU } from '../../shared/utils';
 import { getCurrentIsolationKey_ACU, settings_ACU } from '../runtime/state-manager';
 import type { ManualRefillProgressV2_ACU, TableMutationLogEntryV2_ACU, TableMutationSourceV2_ACU, TableStorageFrameV2_ACU, TableCheckpointV2_ACU, TableMutationWriteSetV2_ACU, TableMutationOperationV2_ACU } from './storage-frame-v2-types';
@@ -8,11 +9,27 @@ import { isV2TagData_ACU } from './storage-strategy-resolver';
 import { collectScheduleSummaryFromFramesV2_ACU } from './storage-frame-v2-replay';
 import type { TableWriteTransactionContext_ACU } from './table-write-transaction';
 
-const MAX_ENTRIES_AFTER_CHECKPOINT_ACU = 50;
-const MAX_OPERATION_BYTES_AFTER_CHECKPOINT_ACU = 256 * 1024;
-const MAX_OPERATION_COUNT_AFTER_CHECKPOINT_ACU = 2000;
-const SINGLE_OPERATION_CHECKPOINT_RATIO_ACU = 0.5;
-const CUMULATIVE_OPERATION_CHECKPOINT_RATIO_ACU = 0.35;
+export interface TableCheckpointGenerationConfig_ACU {
+  maxEntriesAfterCheckpoint: number;
+  maxOperationKbAfterCheckpoint: number;
+  maxOperationBytesAfterCheckpoint: number;
+  maxOperationCountAfterCheckpoint: number;
+  cumulativeOperationRatioPercent: number;
+  singleOperationRatioPercent: number;
+  cumulativeOperationRatio: number;
+  singleOperationRatio: number;
+}
+
+export interface TableCheckpointGenerationStatus_ACU {
+  latestCheckpointMessageIndex?: number;
+  latestCheckpointAiFloor?: number;
+  entryCountAfterCheckpoint: number;
+  cumulativeOperationBytes: number;
+  cumulativeOperationCount: number;
+  fullCheckpointBytes: number;
+  nextWriteKind: 'incremental' | 'full';
+  config: TableCheckpointGenerationConfig_ACU;
+}
 
 export interface PersistTableMutationV2Options_ACU {
   targetMessageIndex?: number;
@@ -52,6 +69,43 @@ function countOperationUnits_ACU(operations: unknown[]): number {
     if (operation?.kind === 'data_replace' || operation?.kind === 'sheet_replace') return sum + 1;
     return sum + 1;
   }, 0);
+}
+
+function normalizePositiveIntegerSetting_ACU(value: unknown, fallback: number): number {
+  const num = Number(value);
+  return Number.isFinite(num) && num >= 1 ? Math.floor(num) : fallback;
+}
+
+export function resolveCheckpointGenerationConfig_ACU(): TableCheckpointGenerationConfig_ACU {
+  const maxOperationKbAfterCheckpoint = normalizePositiveIntegerSetting_ACU(
+    settings_ACU.checkpointMaxOperationKbAfterCheckpoint,
+    DEFAULT_CHECKPOINT_MAX_OPERATION_KB_AFTER_CHECKPOINT_ACU,
+  );
+  const cumulativeOperationRatioPercent = normalizePositiveIntegerSetting_ACU(
+    settings_ACU.checkpointCumulativeOperationRatioPercent,
+    DEFAULT_CHECKPOINT_CUMULATIVE_OPERATION_RATIO_PERCENT_ACU,
+  );
+  const singleOperationRatioPercent = normalizePositiveIntegerSetting_ACU(
+    settings_ACU.checkpointSingleOperationRatioPercent,
+    DEFAULT_CHECKPOINT_SINGLE_OPERATION_RATIO_PERCENT_ACU,
+  );
+
+  return {
+    maxEntriesAfterCheckpoint: normalizePositiveIntegerSetting_ACU(
+      settings_ACU.checkpointMaxEntriesAfterCheckpoint,
+      DEFAULT_CHECKPOINT_MAX_ENTRIES_AFTER_CHECKPOINT_ACU,
+    ),
+    maxOperationKbAfterCheckpoint,
+    maxOperationBytesAfterCheckpoint: maxOperationKbAfterCheckpoint * 1024,
+    maxOperationCountAfterCheckpoint: normalizePositiveIntegerSetting_ACU(
+      settings_ACU.checkpointMaxOperationCountAfterCheckpoint,
+      DEFAULT_CHECKPOINT_MAX_OPERATION_COUNT_AFTER_CHECKPOINT_ACU,
+    ),
+    cumulativeOperationRatioPercent,
+    singleOperationRatioPercent,
+    cumulativeOperationRatio: cumulativeOperationRatioPercent / 100,
+    singleOperationRatio: singleOperationRatioPercent / 100,
+  };
 }
 
 function deepClone_ACU<T>(value: T): T {
@@ -118,15 +172,23 @@ export function getLatestTableStorageHeadRevisionV2_ACU(chat: any[] | null | und
   return headRevision;
 }
 
-function getLogEntriesAfterLatestCheckpoint_ACU(chat: any[], isolationKey: string): TableMutationLogEntryV2_ACU[] {
-  let latestCheckpointIndex = -1;
-  for (let i = 0; i < chat.length; i += 1) {
+function findLatestFullCheckpoint_ACU(
+  chat: any[] | null | undefined,
+  isolationKey: string,
+): { message: any; index: number; checkpoint: TableCheckpointV2_ACU } | null {
+  if (!Array.isArray(chat) || chat.length === 0) return null;
+  for (let i = chat.length - 1; i >= 0; i -= 1) {
     const tagData = chat[i]?.TavernDB_ACU_IsolatedData?.[isolationKey];
     if (isV2TagData_ACU(tagData) && tagData.storageFrame.checkpoint?.kind === 'full') {
-      latestCheckpointIndex = i;
+      return { message: chat[i], index: i, checkpoint: tagData.storageFrame.checkpoint };
     }
   }
+  return null;
+}
 
+function getLogEntriesAfterLatestCheckpoint_ACU(chat: any[], isolationKey: string): TableMutationLogEntryV2_ACU[] {
+  const latestCheckpoint = findLatestFullCheckpoint_ACU(chat, isolationKey);
+  const latestCheckpointIndex = latestCheckpoint?.index ?? -1;
   const entries: TableMutationLogEntryV2_ACU[] = [];
   for (let i = Math.max(0, latestCheckpointIndex); i < chat.length; i += 1) {
     const tagData = chat[i]?.TavernDB_ACU_IsolatedData?.[isolationKey];
@@ -137,15 +199,49 @@ function getLogEntriesAfterLatestCheckpoint_ACU(chat: any[], isolationKey: strin
   return entries;
 }
 
+export function collectCheckpointGenerationStatusV2_ACU(
+  chat: any[] | null | undefined,
+  isolationKey: string,
+  currentData?: TableDataObject_ACU | null,
+): TableCheckpointGenerationStatus_ACU {
+  const config = resolveCheckpointGenerationConfig_ACU();
+  const safeChat = Array.isArray(chat) ? chat : [];
+  const latestCheckpoint = findLatestFullCheckpoint_ACU(safeChat, isolationKey);
+  const previousEntries = getLogEntriesAfterLatestCheckpoint_ACU(safeChat, isolationKey);
+  const previousOperations = previousEntries.flatMap(entry => entry.operations || []);
+  const fullCheckpointSource = currentData || latestCheckpoint?.checkpoint?.data || {};
+  const fullCheckpointBytes = Math.max(1, safeJsonByteLength_ACU(fullCheckpointSource));
+  const cumulativeOperationBytes = safeJsonByteLength_ACU(previousOperations);
+  const cumulativeOperationCount = countOperationUnits_ACU(previousOperations);
+  const nextWriteWillFull = !latestCheckpoint
+    || previousEntries.length + 1 >= config.maxEntriesAfterCheckpoint
+    || (cumulativeOperationBytes >= config.maxOperationBytesAfterCheckpoint && cumulativeOperationBytes >= fullCheckpointBytes * config.cumulativeOperationRatio)
+    || cumulativeOperationCount + 1 >= config.maxOperationCountAfterCheckpoint;
+
+  return {
+    ...(latestCheckpoint ? {
+      latestCheckpointMessageIndex: latestCheckpoint.index,
+      latestCheckpointAiFloor: countAiFloor_ACU(safeChat, latestCheckpoint.index),
+    } : {}),
+    entryCountAfterCheckpoint: previousEntries.length,
+    cumulativeOperationBytes,
+    cumulativeOperationCount,
+    fullCheckpointBytes,
+    nextWriteKind: nextWriteWillFull ? 'full' : 'incremental',
+    config,
+  };
+}
+
 function shouldCreatePeriodicCheckpoint_ACU(
   chat: any[],
   isolationKey: string,
   operations: unknown[],
   afterData: TableDataObject_ACU,
 ): boolean {
+  const config = resolveCheckpointGenerationConfig_ACU();
   const previousEntries = getLogEntriesAfterLatestCheckpoint_ACU(chat, isolationKey);
   const entryCount = previousEntries.length + 1;
-  if (entryCount >= MAX_ENTRIES_AFTER_CHECKPOINT_ACU) return true;
+  if (entryCount >= config.maxEntriesAfterCheckpoint) return true;
 
   const previousOperations = previousEntries.flatMap(entry => entry.operations || []);
   const cumulativeOperations = [...previousOperations, ...operations];
@@ -154,9 +250,9 @@ function shouldCreatePeriodicCheckpoint_ACU(
   const latestOperationBytes = safeJsonByteLength_ACU(operations);
   const cumulativeOperationCount = countOperationUnits_ACU(cumulativeOperations);
 
-  return (cumulativeOperationBytes >= MAX_OPERATION_BYTES_AFTER_CHECKPOINT_ACU && cumulativeOperationBytes >= fullCheckpointBytes * CUMULATIVE_OPERATION_CHECKPOINT_RATIO_ACU)
-    || cumulativeOperationCount >= MAX_OPERATION_COUNT_AFTER_CHECKPOINT_ACU
-    || (latestOperationBytes >= MAX_OPERATION_BYTES_AFTER_CHECKPOINT_ACU && latestOperationBytes >= fullCheckpointBytes * SINGLE_OPERATION_CHECKPOINT_RATIO_ACU);
+  return (cumulativeOperationBytes >= config.maxOperationBytesAfterCheckpoint && cumulativeOperationBytes >= fullCheckpointBytes * config.cumulativeOperationRatio)
+    || cumulativeOperationCount >= config.maxOperationCountAfterCheckpoint
+    || (latestOperationBytes >= config.maxOperationBytesAfterCheckpoint && latestOperationBytes >= fullCheckpointBytes * config.singleOperationRatio);
 }
 
 function normalizeKeys_ACU(keys: string[] | null | undefined, data?: TableDataObject_ACU): string[] {

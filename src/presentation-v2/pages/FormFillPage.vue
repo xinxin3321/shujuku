@@ -82,6 +82,11 @@
         class="acu-v2-form-fill-page__panel--update"
       />
 
+      <FormFillCheckpointSettingsPanel
+        id="form-fill-checkpoint-panel"
+        class="acu-v2-form-fill-page__panel--checkpoint"
+      />
+
       <TableTemplatePresetPanel
         id="form-fill-template-panel"
         class="acu-v2-form-fill-page__panel--template"
@@ -188,6 +193,7 @@ import AcuPanel from "../components/_lib/AcuPanel.vue";
 import AcuPanelGrid from "../components/_lib/AcuPanelGrid.vue";
 import AcuText from "../components/_lib/AcuText.vue";
 import AcuTextarea from "../components/_lib/AcuTextarea.vue";
+import FormFillCheckpointSettingsPanel from "../components/FormFillCheckpointSettingsPanel.vue";
 import FormFillUpdateSettingsPanel from "../components/FormFillUpdateSettingsPanel.vue";
 import TableTemplatePresetPanel from "../components/TableTemplatePresetPanel.vue";
 import TableSelector from "../components/TableSelector.vue";
@@ -201,6 +207,7 @@ const dashboard = useDashboardPage();
 const manualUpdate = useManualUpdate();
 const panelNavItems = [
   { id: "form-fill-status-panel", label: formFillCopy.nav.status },
+  { id: "form-fill-checkpoint-panel", label: formFillCopy.nav.checkpoint },
   { id: "form-fill-update-panel", label: formFillCopy.nav.update },
   { id: "form-fill-manual-panel", label: formFillCopy.nav.manual },
   { id: "form-fill-template-panel", label: tableCopy.panels.templatePreset.title },
@@ -232,6 +239,7 @@ watch(useChatChangedTick(), () => {
 .acu-v2-form-fill-page__grid {
   grid-template-areas:
     "status update"
+    "checkpoint template"
     "manual template"
     "manual template";
 }
@@ -242,6 +250,10 @@ watch(useChatChangedTick(), () => {
 
 .acu-v2-form-fill-page__panel--update {
   grid-area: update;
+}
+
+.acu-v2-form-fill-page__panel--checkpoint {
+  grid-area: checkpoint;
 }
 
 .acu-v2-form-fill-page__panel--template {
@@ -347,6 +359,7 @@ watch(useChatChangedTick(), () => {
   .acu-v2-form-fill-page__grid {
     grid-template-areas:
       "status"
+      "checkpoint"
       "update"
       "manual"
       "template";

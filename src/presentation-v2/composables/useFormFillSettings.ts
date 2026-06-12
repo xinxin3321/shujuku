@@ -6,6 +6,11 @@ import {
   DEFAULT_AUTO_UPDATE_FREQUENCY_ACU,
   DEFAULT_AUTO_UPDATE_THRESHOLD_ACU,
   DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU,
+  DEFAULT_CHECKPOINT_CUMULATIVE_OPERATION_RATIO_PERCENT_ACU,
+  DEFAULT_CHECKPOINT_MAX_ENTRIES_AFTER_CHECKPOINT_ACU,
+  DEFAULT_CHECKPOINT_MAX_OPERATION_COUNT_AFTER_CHECKPOINT_ACU,
+  DEFAULT_CHECKPOINT_MAX_OPERATION_KB_AFTER_CHECKPOINT_ACU,
+  DEFAULT_CHECKPOINT_SINGLE_OPERATION_RATIO_PERCENT_ACU,
 } from "../../shared/defaults";
 import {
   DEFAULT_CHAR_CARD_PROMPT_ACU,
@@ -58,7 +63,12 @@ export type NumberSettingKey =
   | "skipUpdateFloors"
   | "retainRecentLayers"
   | "autoUpdateTokenThreshold"
-  | "tableMaxRetries";
+  | "tableMaxRetries"
+  | "checkpointMaxEntriesAfterCheckpoint"
+  | "checkpointMaxOperationKbAfterCheckpoint"
+  | "checkpointMaxOperationCountAfterCheckpoint"
+  | "checkpointCumulativeOperationRatioPercent"
+  | "checkpointSingleOperationRatioPercent";
 
 export interface FormFillSettingsState {
   numberFields: ComputedRef<FormFillNumberField[]>;
@@ -148,6 +158,41 @@ const NUMBER_FIELD_META: Array<Omit<FormFillNumberField, "value">> = [
     step: 1,
     hint: "失败时重试次数上限。",
   },
+  {
+    key: "checkpointMaxEntriesAfterCheckpoint",
+    label: "最大增量日志条数",
+    min: 1,
+    step: 1,
+    hint: "达到该条数后，下一次写入会生成 full checkpoint。",
+  },
+  {
+    key: "checkpointMaxOperationKbAfterCheckpoint",
+    label: "最大累计操作大小 KB",
+    min: 1,
+    step: 1,
+    hint: "checkpoint 后累计操作 JSON 达到该大小后，可能生成 full checkpoint。",
+  },
+  {
+    key: "checkpointMaxOperationCountAfterCheckpoint",
+    label: "最大累计操作单元数",
+    min: 1,
+    step: 1,
+    hint: "累计操作单元数达到上限后，下一次写入会生成 full checkpoint。",
+  },
+  {
+    key: "checkpointCumulativeOperationRatioPercent",
+    label: "累计操作 / 完整快照比例",
+    min: 1,
+    step: 1,
+    hint: "累计操作大小同时达到字节阈值和该比例时，生成 full checkpoint。",
+  },
+  {
+    key: "checkpointSingleOperationRatioPercent",
+    label: "单次操作 / 完整快照比例",
+    min: 1,
+    step: 1,
+    hint: "单次操作大小同时达到字节阈值和该比例时，生成 full checkpoint。",
+  },
 ];
 
 const FALLBACKS: Record<NumberSettingKey, number> = {
@@ -159,6 +204,11 @@ const FALLBACKS: Record<NumberSettingKey, number> = {
   retainRecentLayers: 100,
   autoUpdateTokenThreshold: DEFAULT_AUTO_UPDATE_TOKEN_THRESHOLD_ACU,
   tableMaxRetries: 3,
+  checkpointMaxEntriesAfterCheckpoint: DEFAULT_CHECKPOINT_MAX_ENTRIES_AFTER_CHECKPOINT_ACU,
+  checkpointMaxOperationKbAfterCheckpoint: DEFAULT_CHECKPOINT_MAX_OPERATION_KB_AFTER_CHECKPOINT_ACU,
+  checkpointMaxOperationCountAfterCheckpoint: DEFAULT_CHECKPOINT_MAX_OPERATION_COUNT_AFTER_CHECKPOINT_ACU,
+  checkpointCumulativeOperationRatioPercent: DEFAULT_CHECKPOINT_CUMULATIVE_OPERATION_RATIO_PERCENT_ACU,
+  checkpointSingleOperationRatioPercent: DEFAULT_CHECKPOINT_SINGLE_OPERATION_RATIO_PERCENT_ACU,
 };
 
 function clone<T>(value: T): T {
