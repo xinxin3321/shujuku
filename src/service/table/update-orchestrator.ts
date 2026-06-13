@@ -2078,13 +2078,13 @@ export async function orchestrateManualUpdate_ACU(
                 manualRefillInitialData = JSON.parse(JSON.stringify(latestBaseResult.data));
                 logDebug_ACU(`[Manual Refill] 检测到未完成重填进度，将从消息索引 ${matchedProgress.completedUntilMessageIndex + 1} 继续。`);
             } else {
-                manualRefillCheckpointData = JSON.parse(JSON.stringify(latestBaseResult.data));
                 manualRefillInitialData = await buildManualRefillInitialData_ACU(
                     getChatArray_ACU() || [],
                     contextScopeIndices[0],
                     targetKeys,
                     latestBaseResult.data,
                 );
+                manualRefillCheckpointData = JSON.parse(JSON.stringify(manualRefillInitialData));
             }
             const pendingStartIndex = matchedProgress ? matchedProgress.completedUntilMessageIndex + 1 : contextScopeIndices[0];
             const pendingContextScopeIndices = contextScopeIndices.filter(index => index >= pendingStartIndex);

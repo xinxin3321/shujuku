@@ -1092,6 +1092,42 @@ describe('orchestrateManualUpdate_ACU', () => {
     expect(clearTableDataAtFloors_ACU).not.toHaveBeenCalled();
   });
 
+  it('从头手动重填时，阶段 checkpoint 的未处理选中表也使用清空后的基底', async () => {
+    const { getChatArray_ACU } = await import('../../../src/service/chat/chat-service');
+    const { parseTableTemplateJson_ACU } = await import('../../../src/shared/utils');
+    vi.mocked(parseTableTemplateJson_ACU).mockReturnValue({
+      mate: { type: 'acu' },
+      sheet_0: { name: '测试表A', updateConfig: { groupId: 0 }, content: [['row_id', '值A']] },
+      sheet_1: { name: '测试表B', updateConfig: { groupId: 1 }, content: [['row_id', '值B']] },
+    });
+    vi.mocked(getChatArray_ACU).mockReturnValue([
+      { is_user: false, mes: 'AI回复1' },
+      { is_user: true },
+      { is_user: false, mes: 'AI回复2' },
+      { is_user: true },
+      { is_user: false, mes: 'AI回复3' },
+    ]);
+    mockSettings.maxConcurrentGroups = 1;
+    mockSettings.autoUpdateThreshold = 0;
+    mockCurrentJsonTableData = {
+      sheet_0: { name: '测试表A', updateConfig: {}, content: [['row_id', '值A'], ['1', '旧A']] },
+      sheet_1: { name: '测试表B', updateConfig: {}, content: [['row_id', '值B'], ['1', '旧B']] },
+    };
+    mockCallCustomOpenAI
+      .mockResolvedValueOnce('<tableEdit>sheet_0</tableEdit>')
+      .mockResolvedValueOnce('<tableEdit>sheet_1</tableEdit>');
+
+    const result = await orchestrateManualUpdate_ACU(['sheet_0', 'sheet_1'], vi.fn().mockResolvedValue({ success: true }), mockRefreshData, { clearBeforeUpdate: true });
+
+    expect(result.success).toBe(true);
+    expect(mockPersistTablesToChatMessage).toHaveBeenCalledTimes(2);
+    const firstCheckpointData = mockPersistTablesToChatMessage.mock.calls[0][0].tableData;
+    expect(firstCheckpointData.sheet_0.content).toEqual([['row_id', '值A'], ['2', '来自A']]);
+    expect(firstCheckpointData.sheet_1.content).toEqual([['row_id', '值B']]);
+    const finalCheckpointData = mockPersistTablesToChatMessage.mock.calls[1][0].tableData;
+    expect(finalCheckpointData.sheet_1.content).toEqual([['row_id', '值B'], ['2', '来自B']]);
+  });
+
   it('processBatch 失败时返回错误', async () => {
     const { getChatArray_ACU } = await import('../../../src/service/chat/chat-service');
     vi.mocked(getChatArray_ACU).mockReturnValue([
