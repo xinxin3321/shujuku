@@ -35,6 +35,7 @@ import {
 } from '../../../service/table/table-history';
 import { isSqliteMode } from '../../../service/table/storage-mode';
 import { reloadStorageProvider } from '../../../service/table/table-storage-strategy';
+import { applyTemplateScopeForCurrentChat_ACU } from '../../../service/settings/settings-service';
 import {
   buildChatSheetGuideDataFromData_ACU,
   getChatSheetGuideDataForIsolationKey_ACU,
@@ -412,6 +413,8 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
       }
       const orderedData = buildOrderedData(visualizer.tempData, visualizer.sheetOrder, visualizer.tableLockDrafts);
       syncChatSheetGuide(orderedData, [...visualizer.sheetOrder], false);
+      applyTemplateScopeForCurrentChat_ACU();
+      _set_currentJsonTableData_ACU(cloneData(orderedData));
       await saveChatToHost_ACU();
       saveLockDrafts(visualizer.tableLockDrafts);
       if (isSqliteMode()) await reloadStorageProvider();

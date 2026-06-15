@@ -24,17 +24,21 @@ const runtimeMock = vi.hoisted(() => {
 
 const serviceMock = vi.hoisted(() => ({
   getChatArray_ACU: vi.fn(() => [{ mes: 'ai message' }]),
+  saveChatToHost_ACU: vi.fn(async () => undefined),
   applySpecialIndexSequenceToSummaryTables_ACU: vi.fn(),
   getTableLocksForSheet_ACU: vi.fn(() => ({ rows: new Set<number>(), cols: new Set<number>(), cells: new Set<string>() })),
   saveTableLocksForSheet_ACU: vi.fn(),
   setSpecialIndexLockEnabled_ACU: vi.fn(),
   getCurrentWorldbookConfig_ACU: vi.fn(() => ({ summaryVectorIndexModeEnabled: false })),
   saveIndependentTableToChatHistory_ACU: vi.fn(async () => undefined),
-  runTableUpdateCommit_ACU: vi.fn(async (_options: any, apply: any) => {
-    const applied = await apply({ transactionContext: { runCommit: async (task: any) => task() }, workingData: null });
+  runTableUpdateCommit_ACU: vi.fn(async (options: any, apply: any) => {
+    const workingData = options.initialData ? JSON.parse(JSON.stringify(options.initialData)) : runtimeMock.getCurrentData();
+    const applied = await apply({ transactionContext: { runCommit: async (task: any) => task() }, workingData });
+    if (applied.tableData) runtimeMock._set_currentJsonTableData_ACU(applied.tableData);
     return { success: applied.success !== false, value: applied.value, tableData: applied.tableData, saved: true };
   }),
   getLatestAiMessageIndexFromChat_ACU: vi.fn(() => 0),
+  getLatestTableAppendMessageIndexFromChat_ACU: vi.fn(() => 0),
   resolveTableHistoryStateFromChat_ACU: vi.fn(() => ({
     latestDataMessageIndex: -1,
     latestAiMessageIndex: 0,
@@ -42,6 +46,7 @@ const serviceMock = vi.hoisted(() => ({
   })),
   isSqliteMode: vi.fn(() => false),
   reloadStorageProvider: vi.fn(async () => undefined),
+  applyTemplateScopeForCurrentChat_ACU: vi.fn(() => ({ mode: 'chat_override' })),
   buildChatSheetGuideDataFromData_ACU: vi.fn((data: Record<string, any>) => data),
   getChatSheetGuideDataForIsolationKey_ACU: vi.fn(() => null),
   getSortedSheetKeys_ACU: vi.fn((data: Record<string, any>) =>
@@ -69,6 +74,7 @@ const toastMock = vi.hoisted(() => ({
 vi.mock('../../../src/service/runtime/state-manager', () => runtimeMock);
 vi.mock('../../../src/service/chat/chat-service', () => ({
   getChatArray_ACU: serviceMock.getChatArray_ACU,
+  saveChatToHost_ACU: serviceMock.saveChatToHost_ACU,
 }));
 vi.mock('../../../src/service/runtime/helpers-remaining', () => ({
   applySpecialIndexSequenceToSummaryTables_ACU: serviceMock.applySpecialIndexSequenceToSummaryTables_ACU,
@@ -87,10 +93,14 @@ vi.mock('../../../src/service/table/table-update-commit', () => ({
 }));
 vi.mock('../../../src/service/table/table-history', () => ({
   getLatestAiMessageIndexFromChat_ACU: serviceMock.getLatestAiMessageIndexFromChat_ACU,
+  getLatestTableAppendMessageIndexFromChat_ACU: serviceMock.getLatestTableAppendMessageIndexFromChat_ACU,
   resolveTableHistoryStateFromChat_ACU: serviceMock.resolveTableHistoryStateFromChat_ACU,
 }));
 vi.mock('../../../src/service/table/storage-mode', () => ({
   isSqliteMode: serviceMock.isSqliteMode,
+}));
+vi.mock('../../../src/service/settings/settings-service', () => ({
+  applyTemplateScopeForCurrentChat_ACU: serviceMock.applyTemplateScopeForCurrentChat_ACU,
 }));
 vi.mock('../../../src/service/table/table-storage-strategy', () => ({
   reloadStorageProvider: serviceMock.reloadStorageProvider,
@@ -127,7 +137,7 @@ function sheet(name = '角色状态') {
     uid: 'sheet_test_vz2',
     name,
     orderNo: 0,
-    content: [[null, '姓名', '状态'], [null, 'A', '平静']],
+    content: [[null, '姓名', '状态'], ['1', 'A', '平静']],
   };
 }
 
@@ -138,14 +148,17 @@ describe('useVisualizerSave', () => {
     vi.clearAllMocks();
   });
 
-  it('保存到当前聊天会写入运行数据、保存聊天并清理 dirty', async () => {
+  it('保存数据到当前消息会提交数据增量并清理 dirty', async () => {
     const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
     const { useVisualizerSave } = await import('../../../src/presentation-v2/composables/visualizer/useVisualizerSave');
     const store = useVisualizerStore();
-    store.loadSnapshot({
+    const initialData = {
       mate: { type: 'chatSheets', version: 1 },
       sheet_test_vz2: sheet(),
-    }, ['sheet_test_vz2']);
+    };
+    store.loadSnapshot(initialData, ['sheet_test_vz2']);
+    runtimeMock._set_currentJsonTableData_ACU(JSON.parse(JSON.stringify(initialData)));
+    runtimeMock._set_currentJsonTableData_ACU.mockClear();
     store.updateCell(0, 1, '紧张');
 
     const saved = await useVisualizerSave().saveToChat();
@@ -155,11 +168,11 @@ describe('useVisualizerSave', () => {
     expect(runtimeMock.getCurrentData().sheet_test_vz2.content[1][2]).toBe('紧张');
     expect(serviceMock.runTableUpdateCommit_ACU).toHaveBeenCalledWith(expect.objectContaining({
       source: 'manual_crud',
-      reason: 'visualizer_v2_save',
+      reason: 'visualizer_save_native_batch',
       targetSheetKeys: ['sheet_test_vz2'],
     }), expect.any(Function));
     expect(store.dirty).toBe(false);
-    expect(store.lastSavedTarget).toBe('chat');
+    expect(store.lastSavedTarget).toBe('data');
   });
 
   it('保存到全局模板被取消时不写入聊天、不清理 dirty', async () => {
@@ -184,7 +197,7 @@ describe('useVisualizerSave', () => {
     expect(store.lastSavedTarget).toBeNull();
   });
 
-  it('保存到全局模板确认后会写入预设、同步聊天并清理 dirty', async () => {
+  it('保存模板到全局确认后会写入预设并清理 dirty', async () => {
     const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
     const { useVisualizerSave } = await import('../../../src/presentation-v2/composables/visualizer/useVisualizerSave');
     const store = useVisualizerStore();
@@ -206,13 +219,9 @@ describe('useVisualizerSave', () => {
       save: true,
       persistChatScope: false,
     }));
-    expect(serviceMock.runTableUpdateCommit_ACU).toHaveBeenCalledWith(expect.objectContaining({
-      source: 'manual_crud',
-      reason: 'visualizer_v2_save',
-      targetSheetKeys: ['sheet_test_vz2'],
-    }), expect.any(Function));
+    expect(serviceMock.runTableUpdateCommit_ACU).not.toHaveBeenCalled();
     expect(store.dirty).toBe(false);
-    expect(store.lastSavedTarget).toBe('global');
+    expect(store.lastSavedTarget).toBe('template-global');
   });
 
   it('保存独立导出位置时用本次草稿同步聊天指导表', async () => {
@@ -236,7 +245,7 @@ describe('useVisualizerSave', () => {
     };
     store.setDirty(true);
 
-    const saved = await useVisualizerSave().saveToChat();
+    const saved = await useVisualizerSave().saveTemplateToCurrentChat();
 
     expect(saved).toBe(true);
     expect(runtimeMock.getCurrentData().sheet_test_vz2.exportConfig.entryPlacement).toEqual({
@@ -258,6 +267,32 @@ describe('useVisualizerSave', () => {
     );
   });
 
+  it('保存模板到当前聊天会写入聊天模板快照并刷新运行时结构', async () => {
+    const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
+    const { useVisualizerSave } = await import('../../../src/presentation-v2/composables/visualizer/useVisualizerSave');
+    const store = useVisualizerStore();
+    store.loadSnapshot({
+      mate: { type: 'chatSheets', version: 1 },
+      sheet_test_vz2: sheet('旧表名'),
+    }, ['sheet_test_vz2']);
+    store.currentSheet.name = '新表名';
+    store.setDirty(true);
+
+    const saved = await useVisualizerSave().saveTemplateToCurrentChat();
+
+    expect(saved).toBe(true);
+    expect(serviceMock.setChatSheetGuideDataForIsolationKey_ACU).toHaveBeenCalledWith(
+      'iso-test',
+      expect.any(Object),
+      expect.objectContaining({ syncTemplateScope: true }),
+    );
+    expect(serviceMock.applyTemplateScopeForCurrentChat_ACU).toHaveBeenCalled();
+    expect(runtimeMock._set_currentJsonTableData_ACU).toHaveBeenCalledWith(expect.objectContaining({
+      sheet_test_vz2: expect.objectContaining({ name: '新表名' }),
+    }));
+    expect(store.lastSavedTarget).toBe('template-chat');
+  });
+
   it('保存时提交 AI 助手暂存的锁变化并在成功后清空队列', async () => {
     const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
     const { useVisualizerSave } = await import('../../../src/presentation-v2/composables/visualizer/useVisualizerSave');
@@ -276,7 +311,7 @@ describe('useVisualizerSave', () => {
       },
     ]);
 
-    const saved = await useVisualizerSave().saveToChat();
+    const saved = await useVisualizerSave().saveTemplateToCurrentChat();
 
     expect(saved).toBe(true);
     expect(serviceMock.saveTableLocksForSheet_ACU).toHaveBeenCalledTimes(1);
