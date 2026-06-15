@@ -264,20 +264,32 @@ export class SqlTableService implements ITableStorageProvider {
     return this.applyEditsBatch([sqlStatements], _updateMode);
   }
 
-  applyEditsBatch(sqlTexts: string[], _updateMode?: string): ApplyEditsResult {
+  applyEditsBatch(sqlTexts: string[], _updateMode?: string, paramsList?: (string | number | null)[][]): ApplyEditsResult {
     this._ensureInitialized();
     this._ensureTablesFromTemplate();
 
-    const userStatements = (Array.isArray(sqlTexts) ? sqlTexts : [])
-      .flatMap(sqlText => normalizeSqlStatementsForRuntimeLog_ACU(sqlText));
+    const userStatements: string[] = [];
+    const userParams: ((string | number | null)[] | undefined)[] = [];
+    (Array.isArray(sqlTexts) ? sqlTexts : []).forEach((sqlText, index) => {
+      const normalizedStatements = normalizeSqlStatementsForRuntimeLog_ACU(sqlText);
+      normalizedStatements.forEach(statement => {
+        userStatements.push(statement);
+        userParams.push(normalizedStatements.length === 1 ? paramsList?.[index] : undefined);
+      });
+    });
     if (userStatements.length === 0) {
       return { success: true, modifiedKeys: [], appliedEdits: 0 };
     }
 
-    const statements = [...this._collectReseedInsertsForEmptyTables(), ...userStatements];
+    const reseedInserts = this._collectReseedInsertsForEmptyTables();
+    const statements = [...reseedInserts, ...userStatements];
+    const statementParams = [
+      ...reseedInserts.map((): undefined => undefined),
+      ...userParams,
+    ];
 
     try {
-      const result = this.engine.runBatch(statements);
+      const result = this.engine.runBatch(statements, statementParams);
       this._syncToJson();
 
       const modifiedTables = extractTableNamesFromStatements(statements);

@@ -93,6 +93,7 @@ vi.mock('../../src/service/table/table-write-transaction', () => ({
 }));
 
 vi.mock('../../src/service/table/table-history', () => ({
+  getLatestTableAppendMessageIndexFromChat_ACU: vi.fn(() => 0),
   resolveTableHistoryStateFromChat_ACU: vi.fn(() => ({
     latestAiMessageIndex: 0,
     latestDataMessageIndex: -1,

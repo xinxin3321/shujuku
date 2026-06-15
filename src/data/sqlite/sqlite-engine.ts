@@ -141,7 +141,7 @@ export class SqliteEngine {
    * @returns 所有语句的总受影响行数
    * @throws 任何一条语句失败时抛出，包含详细的错误定位信息
    */
-  runBatch(statements: string[]): BatchResult {
+  runBatch(statements: string[], paramsList?: (SqlJsBindParams | undefined)[]): BatchResult {
     this._ensureDb();
     if (statements.length === 0) return { totalChanges: 0 };
     logDebug_ACU(`[SQLite引擎] runBatch: 执行 ${statements.length} 条语句`);
@@ -153,7 +153,7 @@ export class SqliteEngine {
         const stmt = statements[i].trim();
         if (!stmt) continue;
         try {
-          this.db!.run(stmt);
+          this.db!.run(stmt, paramsList?.[i]);
           totalChanges += this.db!.getRowsModified();
         } catch (e: any) {
           // 回滚事务

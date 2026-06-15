@@ -104,7 +104,7 @@ export interface ITableStorageProvider {
    * 批量应用多段 AI SQL/编辑内容。
    * sqlite 模式必须把所有 SQL 放进同一个运行时事务；native 可不实现。
    */
-  applyEditsBatch?(editsList: string[], updateMode?: string): ApplyEditsResult;
+  applyEditsBatch?(editsList: string[], updateMode?: string, paramsList?: (string | number | null)[][]): ApplyEditsResult;
 
   /** 创建运行时快照，用于提交失败或重试前回滚。sqlite 返回二进制 DB 快照；native 可不实现。 */
   createRuntimeSnapshot?(): unknown;

@@ -2,32 +2,25 @@
  * presentation/pages/visualizer-main-save.ts
  * 可视化编辑器保存变更
  */
-/**
- * presentation/pages/visualizer-main.ts — 可视化编辑器主区域 + 保存
- * 从 visualizer.ts 拆出
- */
 import { TABLE_TEMPLATE_ACU } from '../../shared/defaults-json.js';
 import { isDefaultTemplatePresetSelection_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../shared/template-preset-utils';
 import { getOrderedSheetKeys_ACU } from './visualizer-sidebar';
 import { showToastr_ACU } from '../theme/toast';
-import { getChatArray_ACU } from '../../service/chat/chat-service';
-import { currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU} from '../../service/runtime/state-manager';
+import { getChatArray_ACU, saveChatToHost_ACU } from '../../service/chat/chat-service';
+import { currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU } from '../../service/runtime/state-manager';
 import { buildChatSheetGuideDataFromData_ACU, getChatSheetGuideDataForIsolationKey_ACU, sanitizeTemplateSnapshotForChat_ACU, setChatSheetGuideDataForIsolationKey_ACU } from '../../service/template/chat-scope';
 import { updateReadableLorebookEntry_ACU } from '../../service/worldbook/pipeline';
 import { refreshMergedDataAndNotifyWithUI_ACU } from '../components/pipeline-ui-helpers';
 import { SCRIPT_ID_PREFIX_ACU, TABLE_ORDER_FIELD_ACU } from '../../shared/constants';
 import { topLevelWindow_ACU } from '../../shared/env';
-import { escapeHtml_ACU } from '../../shared/html-helpers';
 import { safeJsonStringify_ACU } from '../../shared/json-helpers';
 import { applySheetOrderNumbers_ACU, ensureSheetOrderNumbers_ACU, isSummaryOrOutlineTable_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
-import { runTableUpdateCommit_ACU } from '../../service/table/table-update-commit';
 import { applyTemplatePresetToCurrent_ACU, resolveActiveTemplatePresetName_ACU, upsertTemplatePreset_ACU } from '../../service/template/template-preset-service';
 import { loadTemplatePresetSelect_ACU } from '../components/template-preset-ui';
 import { updateCardUpdateStatusDisplay_ACU } from '../components/update-status-display';
-import { applySpecialIndexSequenceToSummaryTables_ACU, getSummaryIndexColumnIndex_ACU, getTableLocksForSheet_ACU, isSpecialIndexLockEnabled_ACU, setSpecialIndexLockEnabled_ACU, toggleCellLock_ACU, toggleColLock_ACU, toggleRowLock_ACU } from '../../service/runtime/helpers-remaining';
+import { applySpecialIndexSequenceToSummaryTables_ACU } from '../../service/runtime/helpers-remaining';
 import { getSortedSheetKeys_ACU, materializeDataFromSheetGuide_ACU } from '../../service/template/chat-scope';
-import { DEFAULT_ENTRY_PLACEMENT_ACU, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU, buildDefaultGlobalInjectionConfig_ACU, ensureSheetExportConfigDefaults_ACU, getFixedPlacementDefaultsForTable_ACU, getGlobalInjectionConfigFromData_ACU, isImportantPersonsTableName_ACU, isOutlineTableName_ACU, isSummaryTableName_ACU, normalizeLorebookPosition_ACU, normalizePlacementConfig_ACU, purgeSheetKeysFromChatHistoryHard_ACU } from '../../service/worldbook/injection-engine';
-import { jQuery_API_ACU } from '../dom-utils';
+import { getGlobalInjectionConfigFromData_ACU } from '../../service/worldbook/injection-engine';
 import { _acuVisState } from './visualizer';
 import { $popupInstance_ACU } from '../state/ui-refs';
 import { closeACUWindow } from '../window/window-system';
@@ -36,338 +29,361 @@ import { reloadStorageProvider } from '../../service/table/table-storage-strateg
 import { getLatestAiMessageIndexFromChat_ACU, getLatestTableAppendMessageIndexFromChat_ACU } from '../../service/table/table-history';
 import { getCurrentWorldbookConfig_ACU } from '../../service/settings/settings-readers';
 import { enqueueSummaryVectorIndexFlush_ACU } from '../../service/vector/summary-vector-index-flush-queue';
+import { applyVisualizerPendingDataOps_ACU, hasVisualizerPendingDataOps_ACU } from './visualizer-data-ops';
+import { SqliteEngine } from '../../data/sqlite/sqlite-engine';
+import { SyncBridge } from '../../data/sqlite/sync-bridge';
+import { validateDDLTextAgainstHeaders_ACU } from '../../shared/ddl-utils';
 
+function cloneData_ACU<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value || {}));
+}
 
-  export async function saveVisualizerChanges_ACU(saveToTemplate = false) {
-      // 1. Check for Inheritance (Structure Mismatch)
-      // Compare _acuVisState.tempData with original TABLE_TEMPLATE_ACU
-      // But user might have just edited tempData to be different from template.
-      // The requirement says: "check mismatch between new current table data and the CURRENTLY USED TEMPLATE".
-      // If mismatch, prompt inheritance.
-      
-      // [新增] 按照用户调整的顺序重新组织数据
-      const orderedData: Record<string, any> = {};
-      const orderedKeys = getOrderedSheetKeys_ACU();
-      
-      // 先添加非表格数据（如 mate）
-      Object.keys(_acuVisState.tempData).forEach((key: string) => {
-          if (!key.startsWith('sheet_')) {
-              orderedData[key] = _acuVisState.tempData[key];
-          }
-      });
-      
-      // 按顺序添加表格数据
-      orderedKeys.forEach((key: string) => {
-          if (_acuVisState.tempData[key]) {
-              orderedData[key] = _acuVisState.tempData[key];
-          }
-      });
+function cloneMaybe_ACU(value: any): any {
+    return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
 
-      // [新机制] 保存前统一重编号：编号随当前顺序变化，并写入当前数据（可随导出/导入迁移）
-      applySheetOrderNumbers_ACU(orderedData, orderedKeys);
-      
-      // [新增] 若开启“编码索引列特殊锁定”，保存时强制按 AM 序列重排
-      applySpecialIndexSequenceToSummaryTables_ACU(orderedData);
-      
-      // First, apply changes to local variable (使用排序后的数据)
-      _set_currentJsonTableData_ACU(JSON.parse(JSON.stringify(orderedData)));
+function getDataSheetKeys_ACU(data: any): string[] {
+    return data && typeof data === 'object' ? Object.keys(data).filter(key => key.startsWith('sheet_')) : [];
+}
 
-      // [修复] 可视化编辑器属于"用户显式修改表结构/表名/顺序"的入口：
-      // 覆盖式更新聊天第一层的"空白指导表"（仅表头+参数，无数据行），让后续合并/显示/填表参数都以此为准。
-      // [Bug Fix] 无论"保存到当前聊天"还是"保存到全局"，都必须更新指导表，
-      // 否则"保存到全局"后点击填表时，指导表中的旧表头会覆盖用户的修改。
-      try {
-          const guideIsolationKey = getCurrentIsolationKey_ACU();
-          // 需求4（澄清版）：可视化编辑器触发指导表更新时，只更新表名/表头/表格参数，不修改指导表基础数据（seedRows）。
-          // - 若当前聊天/标签已存在指导表：必须继承其 seedRows
-          // - 若不存在指导表：从当前模板提取预置数据作为 seedRows（需求1）
-          const existingGuide = getChatSheetGuideDataForIsolationKey_ACU(guideIsolationKey);
-          const templateObjForSeed = parseTableTemplateJson_ACU({ stripSeedRows: false });
-          const guideData = buildChatSheetGuideDataFromData_ACU(currentJsonTableData_ACU, {
-              preserveSeedRowsFromGuideData: existingGuide,
-              seedRowsFromTemplateObj: templateObjForSeed,
-          });
-          if (guideData && Object.keys(guideData).some(k => k.startsWith('sheet_'))) {
-              const syncTemplateScope = !saveToTemplate; // "保存到全局"时不同步模板作用域（由 applyTemplatePresetToCurrent 处理）
-              const templateScopeSource = materializeDataFromSheetGuide_ACU(guideData, { includeSeedRows: true });
-              setChatSheetGuideDataForIsolationKey_ACU(guideIsolationKey, guideData, {
-                  reason: 'visualizer_save',
-                  syncTemplateScope,
-                  templateSource: templateScopeSource,
-                  presetName: resolveActiveTemplatePresetName_ACU({ fallbackToGlobal: true, isolationKey: guideIsolationKey }),
-                  source: 'visualizer_save',
-              });
-              logDebug_ACU(`[SheetGuide] Overwrote chat sheet guide from visualizer for tag [${guideIsolationKey || '无标签'}] (tables=${Object.keys(guideData).filter(k => k.startsWith('sheet_')).length}, saveToTemplate=${saveToTemplate}).`);
-          }
-      } catch (e) {
-          logWarn_ACU('[SheetGuide] Failed to overwrite sheet guide from visualizer:', e);
-      }
-      const shouldSyncSummaryVectorIndexAfterSave_ACU = getSortedSheetKeys_ACU(currentJsonTableData_ACU).some((sheetKey) => {
-          const table = currentJsonTableData_ACU?.[sheetKey];
-          return !!table?.name && isSummaryOrOutlineTable_ACU(String(table.name || ''));
-      });
+function prepareOrderedVisualizerData_ACU(): Record<string, any> {
+    const orderedData: Record<string, any> = {};
+    const orderedKeys = getOrderedSheetKeys_ACU();
 
-      // [新机制] 不再使用 settings_ACU.tableKeyOrder 强制固定顺序（顺序由每张表的 orderNo 决定）
-      // 记录本次需要彻底清理的 key（真正清理会在“写回所有楼层”之后执行，防止后续写回把旧表带回）
-      const deletedKeysToPurge_ACU = Array.isArray(_acuVisState.deletedSheetKeys) ? [..._acuVisState.deletedSheetKeys] : [];
-      
-      // Update template only if saveToTemplate is true
-      // “保存到全局”会把当前编辑结果同步进全局模板预设；“保存到当前聊天”只沉淀聊天级预设/数据
-      if (saveToTemplate) {
-          let templateObj: any = null;
-          try {
-              templateObj = JSON.parse(TABLE_TEMPLATE_ACU);
-              if (!templateObj || typeof templateObj !== 'object') templateObj = {};
-              // 同步全局注入配置（存入模板 mate，不走 settings）
-              const tempGlobalCfg = getGlobalInjectionConfigFromData_ACU(currentJsonTableData_ACU, { ensureWriteBack: true });
-              const prevGlobalCfgStr = safeJsonStringify_ACU(templateObj?.mate?.globalInjectionConfig || {}, '{}');
-              const nextGlobalCfgStr = safeJsonStringify_ACU(tempGlobalCfg || {}, '{}');
-              if (!templateObj.mate || typeof templateObj.mate !== 'object') templateObj.mate = { type: 'chatSheets', version: 1 };
-              if (!templateObj.mate.type) templateObj.mate.type = 'chatSheets';
-              if (!Number.isFinite(templateObj.mate.version)) templateObj.mate.version = 1;
-              templateObj.mate.globalInjectionConfig = tempGlobalCfg;
-              let templateChanged = false;
-              if (prevGlobalCfgStr !== nextGlobalCfgStr) templateChanged = true;
+    Object.keys(_acuVisState.tempData || {}).forEach((key: string) => {
+        if (!key.startsWith('sheet_')) orderedData[key] = _acuVisState.tempData[key];
+    });
 
-              // [优化] 全量同步：不仅更新现有表，也处理新增和删除的表
-              // 1. 同步 currentJsonTableData_ACU 中的所有表到 templateObj
-              Object.keys(currentJsonTableData_ACU).forEach(key => {
-                  if (!key.startsWith('sheet_')) return;
+    orderedKeys.forEach((key: string) => {
+        if (_acuVisState.tempData?.[key]) orderedData[key] = _acuVisState.tempData[key];
+    });
 
-                  const currentTable = currentJsonTableData_ACU[key];
+    applySheetOrderNumbers_ACU(orderedData, orderedKeys);
+    applySpecialIndexSequenceToSummaryTables_ACU(orderedData);
+    return orderedData;
+}
 
-                  // 如果模板中没有这个表，或者有这个key但名字变了(虽然key是唯一标识，但为了保险起见)，则新建/覆盖
-                  // 这里的逻辑是：以 currentJsonTableData_ACU 为准
+function hasTemplateStructureChanges_ACU(templateData: Record<string, any>): boolean {
+    const runtimeData = currentJsonTableData_ACU || {};
+    const sheetKeys = new Set([...getDataSheetKeys_ACU(runtimeData), ...getDataSheetKeys_ACU(templateData)]);
+    if (JSON.stringify(runtimeData?.mate?.globalInjectionConfig || {}) !== JSON.stringify(templateData?.mate?.globalInjectionConfig || {})) return true;
 
-                  if (!templateObj[key]) {
-                      // 新增表格：克隆整个结构，但清空数据行（保留表头）
-                      const newTemplateTable = JSON.parse(JSON.stringify(currentTable));
-                      if (newTemplateTable.content && newTemplateTable.content.length > 1) {
-                          newTemplateTable.content = [newTemplateTable.content[0]]; // 只保留表头
-                      }
-                      // [新机制] 同步顺序编号
-                      newTemplateTable[TABLE_ORDER_FIELD_ACU] = currentTable[TABLE_ORDER_FIELD_ACU];
-                      templateObj[key] = newTemplateTable;
-                      templateChanged = true;
-                      logDebug_ACU(`Added new table "${currentTable.name}" to template.`);
-                  } else {
-                      // 更新现有表格
-                      const templateTable = templateObj[key];
+    for (const sheetKey of sheetKeys) {
+        const before = runtimeData[sheetKey];
+        const after = templateData[sheetKey];
+        if (!before || !after) return true;
+        const fields = ['name', 'sourceData', 'updateConfig', 'exportConfig', TABLE_ORDER_FIELD_ACU];
+        for (const field of fields) {
+            if (JSON.stringify(before[field]) !== JSON.stringify(after[field])) return true;
+        }
+        const beforeHeader = Array.isArray(before?.content?.[0]) ? before.content[0] : [];
+        const afterHeader = Array.isArray(after?.content?.[0]) ? after.content[0] : [];
+        if (JSON.stringify(beforeHeader) !== JSON.stringify(afterHeader)) return true;
+    }
+    return false;
+}
 
-                      // 检查是否有实质性变更 (参数、表头、名称)
-                      let hasChanges = false;
+function buildTemplateCompatibilityCandidate_ACU(templateData: Record<string, any>, options: { includeRuntimeRows: boolean }): { data: Record<string, any>; issues: string[] } {
+    const runtimeData = options.includeRuntimeRows ? (currentJsonTableData_ACU || {}) : {};
+    const candidate = cloneData_ACU(templateData);
+    const issues: string[] = [];
 
-                      if (templateTable.name !== currentTable.name) {
-                          templateTable.name = currentTable.name;
-                          hasChanges = true;
-                      }
+    getDataSheetKeys_ACU(candidate).forEach((sheetKey: string) => {
+        const nextSheet = candidate[sheetKey];
+        const oldSheet = runtimeData[sheetKey];
+        const nextHeader = Array.isArray(nextSheet?.content?.[0]) ? cloneData_ACU(nextSheet.content[0]) : ['row_id'];
+        const oldHeader = Array.isArray(oldSheet?.content?.[0]) ? oldSheet.content[0] : [];
+        const oldRows = Array.isArray(oldSheet?.content) ? oldSheet.content.slice(1) : [];
+        const oldHeaderIndex = new Map<string, number>();
 
-                      // Deep compare and update sourceData
-                      if (JSON.stringify(templateTable.sourceData) !== JSON.stringify(currentTable.sourceData)) {
-                          templateTable.sourceData = currentTable.sourceData ? JSON.parse(JSON.stringify(currentTable.sourceData)) : {};
-                          hasChanges = true;
-                      }
+        oldHeader.forEach((header: any, index: number) => {
+            const key = String(header ?? '').trim();
+            if (key && !oldHeaderIndex.has(key)) oldHeaderIndex.set(key, index);
+        });
 
-                      // Deep compare and update updateConfig
-                      if (JSON.stringify(templateTable.updateConfig) !== JSON.stringify(currentTable.updateConfig)) {
-                          templateTable.updateConfig = currentTable.updateConfig ? JSON.parse(JSON.stringify(currentTable.updateConfig)) : {};
-                          hasChanges = true;
-                      }
+        const nextRows = oldRows.map((oldRow: any[]) => nextHeader.map((header: any, index: number) => {
+            if (index === 0) return Array.isArray(oldRow) ? (oldRow[0] ?? null) : null;
+            const oldIndex = oldHeaderIndex.get(String(header ?? '').trim());
+            return oldIndex === undefined || !Array.isArray(oldRow) ? '' : (oldRow[oldIndex] ?? '');
+        }));
+        nextSheet.content = [nextHeader, ...nextRows];
 
-                      // Deep compare and update exportConfig
-                      if (JSON.stringify(templateTable.exportConfig) !== JSON.stringify(currentTable.exportConfig)) {
-                          templateTable.exportConfig = currentTable.exportConfig ? JSON.parse(JSON.stringify(currentTable.exportConfig)) : {};
-                          hasChanges = true;
-                      }
+        if (isSqliteMode()) {
+            const ddl = String(nextSheet?.sourceData?.ddl || '').trim();
+            if (!ddl) {
+                issues.push(`表「${nextSheet?.name || sheetKey}」缺少 DDL，SQLite 模式下不能保存该模板。`);
+            } else {
+                const validation = validateDDLTextAgainstHeaders_ACU(ddl, nextHeader);
+                if (!validation.valid) issues.push(`表「${nextSheet?.name || sheetKey}」DDL 与表头不兼容：${validation.message}`);
+            }
+        }
+    });
 
-                      // [新机制] 同步顺序编号（顺序变化也属于模板变更）
-                      if (templateTable[TABLE_ORDER_FIELD_ACU] !== currentTable[TABLE_ORDER_FIELD_ACU]) {
-                          templateTable[TABLE_ORDER_FIELD_ACU] = currentTable[TABLE_ORDER_FIELD_ACU];
-                          hasChanges = true;
-                      }
+    return { data: candidate, issues };
+}
 
-                      // Update headers (content[0])
-                      if (currentTable.content && Array.isArray(currentTable.content) && currentTable.content.length > 0) {
-                          const currentHeaders = currentTable.content[0];
-                          const templateHeaders = templateTable.content[0];
-                          if (JSON.stringify(currentHeaders) !== JSON.stringify(templateHeaders)) {
-                              templateTable.content[0] = JSON.parse(JSON.stringify(currentHeaders));
-                              hasChanges = true;
-                          }
-                      }
+async function validateTemplateCompatibleWithRuntimeData_ACU(templateData: Record<string, any>, options: { includeRuntimeRows: boolean }): Promise<{ success: boolean; data?: Record<string, any>; error?: string }> {
+    const candidate = buildTemplateCompatibilityCandidate_ACU(templateData, options);
+    if (candidate.issues.length > 0) {
+        return { success: false, error: candidate.issues.slice(0, 5).join('\n') };
+    }
 
-                      if (hasChanges) {
-                          templateChanged = true;
-                      }
-                  }
-              });
+    if (!isSqliteMode()) return { success: true, data: candidate.data };
 
-              // 2. 删除模板中存在但在 currentJsonTableData_ACU 中已不存在的表
-              Object.keys(templateObj).forEach(key => {
-                  if (key.startsWith('sheet_') && !currentJsonTableData_ACU[key]) {
-                      delete templateObj[key];
-                      templateChanged = true;
-                      logDebug_ACU(`Removed table key "${key}" from template.`);
-                  }
-              });
+    const engine = new SqliteEngine();
+    const syncBridge = new SyncBridge(engine);
+    try {
+        await engine.init();
+        syncBridge.loadFromTableData(candidate.data as any, { strict: true });
+        return { success: true, data: candidate.data };
+    } catch (error: any) {
+        return { success: false, error: error?.message || String(error) };
+    } finally {
+        engine.dispose();
+    }
+}
 
-              // [新机制] 再做一次兜底：按当前顺序补齐/重建模板编号（避免极端情况下编号缺失/重复）
-              ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: orderedKeys, forceRebuild: false });
+function buildTemplateObjectFromVisualizerData_ACU(templateData: Record<string, any>, orderedKeys: string[]): { templateObj: any; changed: boolean } {
+    let templateObj: any = null;
+    try {
+        templateObj = JSON.parse(TABLE_TEMPLATE_ACU);
+    } catch (_) {
+        templateObj = {};
+    }
+    if (!templateObj || typeof templateObj !== 'object') templateObj = {};
 
-              if (templateChanged) {
-                  const isolationKey = getCurrentIsolationKey_ACU();
-                  const activePresetName = normalizeTemplatePresetSelectionValue_ACU(
-                      resolveActiveTemplatePresetName_ACU({ fallbackToGlobal: true, isolationKey }),
-                  );
-                  let finalGlobalPresetName = activePresetName;
-                  if (isDefaultTemplatePresetSelection_ACU(finalGlobalPresetName)) {
-                      const promptedName = prompt('请输入要保存到全局的模板预设名称：', '新模板预设');
-                      if (!promptedName) return;
-                      finalGlobalPresetName = normalizeTemplatePresetSelectionValue_ACU(String(promptedName).trim());
-                  } else if (!confirm(`确定要用当前编辑结果覆盖全局预设 "${finalGlobalPresetName}" 吗？`)) {
-                      return;
-                  }
-                  if (!finalGlobalPresetName) return;
+    const tempGlobalCfg = getGlobalInjectionConfigFromData_ACU(templateData, { ensureWriteBack: true });
+    const prevGlobalCfgStr = safeJsonStringify_ACU(templateObj?.mate?.globalInjectionConfig || {}, '{}');
+    const nextGlobalCfgStr = safeJsonStringify_ACU(tempGlobalCfg || {}, '{}');
+    if (!templateObj.mate || typeof templateObj.mate !== 'object') templateObj.mate = { type: 'chatSheets', version: 1 };
+    if (!templateObj.mate.type) templateObj.mate.type = 'chatSheets';
+    if (!Number.isFinite(templateObj.mate.version)) templateObj.mate.version = 1;
+    templateObj.mate.globalInjectionConfig = tempGlobalCfg;
 
-                  const preparedSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateObj);
-                  if (!preparedSnapshot?.templateStr) {
-                      throw new Error('可视化编辑器保存到全局失败：无法生成模板快照。');
-                  }
-                  const presetSaved = upsertTemplatePreset_ACU(finalGlobalPresetName, preparedSnapshot.templateStr);
-                  if (!presetSaved) {
-                      throw new Error('可视化编辑器保存到全局失败：无法写入全局预设库。');
-                  }
+    let changed = prevGlobalCfgStr !== nextGlobalCfgStr;
 
-                  const appliedGlobalTemplate = await applyTemplatePresetToCurrent_ACU(finalGlobalPresetName, {
-                      source: 'visualizer_save_to_global',
-                      updateGlobal: true,
-                      save: true,
-                      persistChatScope: false,
-                  });
-                  if (!appliedGlobalTemplate) {
-                      throw new Error('可视化编辑器保存到全局失败：模板快照应用失败。');
-                  }
-                  logDebug_ACU('Template fully synchronized via Visualizer.');
-                  showToastr_ACU('success', `更改已保存到全局预设：${finalGlobalPresetName}；当前聊天的本地预设不会被自动清除。`);
-              } else {
-                  showToastr_ACU('info', '模板无变化，无需保存。');
-              }
-          } catch (e) {
-              logError_ACU('Error updating template from visualizer:', e);
-          }
-      }
+    getDataSheetKeys_ACU(templateData).forEach((key: string) => {
+        const currentTable = templateData[key];
+        if (!templateObj[key]) {
+            const newTemplateTable = cloneData_ACU(currentTable);
+            if (Array.isArray(newTemplateTable.content) && newTemplateTable.content.length > 1) {
+                newTemplateTable.content = [newTemplateTable.content[0]];
+            }
+            newTemplateTable[TABLE_ORDER_FIELD_ACU] = currentTable[TABLE_ORDER_FIELD_ACU];
+            templateObj[key] = newTemplateTable;
+            changed = true;
+            return;
+        }
 
-      // 2. Save to Chat History (append to current effective latest AI floor)
-      const chat = getChatArray_ACU();
-      if (!chat.length) {
-          showToastr_ACU('warning', '聊天记录为空，更改仅保存在内存，未持久化。');
-      } else {
-          // 2.1 预先获取当前隔离标签与所有表
-          const isolationKey = getCurrentIsolationKey_ACU();
-          const allSheetKeys = getSortedSheetKeys_ACU(currentJsonTableData_ACU);
-          
-          // 2.2 计算当前有效追加楼层：所有 V2 追加日志必须落在最新可承载表数据的 AI 楼，不能按单表历史楼层回写。
-          const latestAiIndex = getLatestAiMessageIndexFromChat_ACU(chat);
-          const appendTargetIndex = getLatestTableAppendMessageIndexFromChat_ACU(chat, isolationKey, settings_ACU);
-          
-          if (appendTargetIndex === -1) {
-              showToastr_ACU('warning', '找不到AI消息，更改仅保存到内存，未持久化到聊天记录。');
-          } else {
-              // 2.4 统一保存到当前有效追加楼层，维护 V2 operation log 的时间顺序
-              const sheetKeys = [...allSheetKeys];
-              const idx = appendTargetIndex;
-                  const writeSet = sheetKeys.map(sheetKey => ({ kind: 'sheet' as const, sheetKey }));
-                  const commitResult = await runTableUpdateCommit_ACU<null>({
-                      source: 'manual_crud',
-                      reason: 'visualizer_save',
-                      isolationKey,
-                      writeSet,
-                      revisionWriteSet: writeSet,
-                      initialData: currentJsonTableData_ACU as any,
-                      targetMessageIndex: idx,
-                      targetSheetKeys: sheetKeys,
-                      updateGroupKeys: null,
-                      trackingSheetKeys: [],
-                      trackAsUpdate: false,
-                      operations: sheetKeys
-                          .filter(sheetKey => Boolean((currentJsonTableData_ACU as any)?.[sheetKey]))
-                          .map(sheetKey => ({ kind: 'sheet_replace' as const, sheetKey, sheet: (currentJsonTableData_ACU as any)[sheetKey], reason: 'manual_crud' as const })),
-                  }, () => ({
-                      success: true,
-                      value: null,
-                      tableData: currentJsonTableData_ACU as any,
-                      mutationResult: { changes: sheetKeys.length, errors: [] },
-                  }));
-                  if (!commitResult.success) {
-                      logWarn_ACU(`[VisualizerSave] 保存楼层 ${idx} 失败: ${commitResult.error || 'unknown error'}`);
-                  }
-              }
+        const templateTable = templateObj[key];
+        let tableChanged = false;
+        const fields = ['name', 'sourceData', 'updateConfig', 'exportConfig', TABLE_ORDER_FIELD_ACU];
+        fields.forEach((field: string) => {
+            if (JSON.stringify(templateTable[field]) !== JSON.stringify(currentTable[field])) {
+                if (currentTable[field] === undefined) delete templateTable[field];
+                else templateTable[field] = cloneMaybe_ACU(currentTable[field]);
+                tableChanged = true;
+            }
+        });
 
-              // 2.4.5 [关键] 如果本次在可视化编辑器删除了表格，则此处追溯整个聊天记录做“硬删除”
-              // 说明：saveIndependentTableToChatHistory_ACU 只会覆盖/追加 keys，不会自动移除旧 keys，因此必须额外做一次全局清理。
-              if (typeof purgeSheetKeysFromChatHistoryHard_ACU === 'function' && deletedKeysToPurge_ACU.length > 0) {
-                  try {
-                      const r = await purgeSheetKeysFromChatHistoryHard_ACU(deletedKeysToPurge_ACU);
-                    if (r?.changed) {
-                            logDebug_ACU(`[VisualizerDelete] Hard-purged ${deletedKeysToPurge_ACU.length} keys from ${r.changedCount} AI messages.`);
-                            if ((topLevelWindow_ACU as any)?.AutoCardUpdaterAPI) {
-                                (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
-                            }
-                            // SQLite 模式下重建运行时数据库实例，确保模板切换时不会残留旧表结构或旧数据
-                            if (isSqliteMode()) {
-                                try {
-                                    await reloadStorageProvider();
-                                    logDebug_ACU('[VisualizerDelete] SQLite 运行时数据库已重建');
-                                } catch (reloadError) {
-                                    logWarn_ACU(`[VisualizerDelete] reloadStorageProvider 失败: ${reloadError?.message}，继续使用当前 provider`);
-                                }
-                            }
-                        }
-                        _acuVisState.deletedSheetKeys = [];
-                  } catch (e) {
-                      logWarn_ACU('[VisualizerDelete] Hard purge failed:', e);
-                      // 不清空队列，让用户再次保存时有机会重试
-                  }
-              }
+        if (Array.isArray(currentTable.content?.[0])) {
+            if (!Array.isArray(templateTable.content)) templateTable.content = [];
+            if (JSON.stringify(templateTable.content[0]) !== JSON.stringify(currentTable.content[0])) {
+                templateTable.content[0] = cloneData_ACU(currentTable.content[0]);
+                templateChangedRowsOnly_ACU(templateTable);
+                tableChanged = true;
+            }
+        }
 
-              // 2.5 所有保存完成后再统一刷新，确保读取最新数据再进行后续操作
-              await refreshMergedDataAndNotifyWithUI_ACU();
-              if (shouldSyncSummaryVectorIndexAfterSave_ACU && getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
-                  try {
-                      const queueResult = await enqueueSummaryVectorIndexFlush_ACU({
-                          targetMessageIndex: appendTargetIndex !== -1 ? appendTargetIndex : (latestAiIndex !== -1 ? latestAiIndex : undefined),
-                          mode: 'sync',
-                          reason: 'visualizer_save',
-                      });
-                      if (!queueResult.queued && !queueResult.skipped) {
-                          logWarn_ACU('[VisualizerVectorIndex] 交火索引防抖归档入队失败:', queueResult.reason);
-                          showToastr_ACU('warning', `表格已保存，但交火索引防抖归档入队失败：${queueResult.reason || 'unknown'}`);
-                      } else if (queueResult.skipped) {
-                          logDebug_ACU(`[VisualizerVectorIndex] 交火索引防抖归档入队跳过: ${queueResult.reason || 'skipped'}`);
-                      } else {
-                          logDebug_ACU(`[VisualizerVectorIndex] 交火索引防抖归档已入队: scope=${queueResult.scopeKey || ''}`);
-                      }
-                  } catch (error) {
-                      logWarn_ACU('[VisualizerVectorIndex] 交火索引防抖归档入队异常:', error);
-                      showToastr_ACU('warning', '表格已保存，但交火索引防抖归档入队异常，请查看控制台日志。');
-                  }
-              }
-              if ($popupInstance_ACU && $popupInstance_ACU.length) {
-                  loadTemplatePresetSelect_ACU({ keepGlobalValue: false });
-              }
-              showToastr_ACU('success', '更改已追加保存到当前最新有效楼层！');
-      }
+        templateChangedRowsOnly_ACU(templateTable);
+        if (tableChanged) changed = true;
+    });
 
-      // 3. Trigger UI Update & Worldbook Injection
-      await updateReadableLorebookEntry_ACU(true);
-      (topLevelWindow_ACU as any).AutoCardUpdaterAPI._notifyTableUpdate();
-      if (typeof updateCardUpdateStatusDisplay_ACU === 'function') updateCardUpdateStatusDisplay_ACU();
+    getDataSheetKeys_ACU(templateObj).forEach((key: string) => {
+        if (!templateData[key]) {
+            delete templateObj[key];
+            changed = true;
+        }
+    });
 
-      // 4. Inheritance Check (已移除旧逻辑)
-      // await checkAndPerformInheritance_ACU(templateObj);
+    ensureSheetOrderNumbers_ACU(templateObj, { baseOrderKeys: orderedKeys, forceRebuild: false });
+    return { templateObj, changed };
+}
 
-      // Close
-      closeACUWindow(`${SCRIPT_ID_PREFIX_ACU}-visualizer-window`);
-  }
+function templateChangedRowsOnly_ACU(templateTable: any): void {
+    if (Array.isArray(templateTable?.content) && templateTable.content.length > 1) {
+        templateTable.content = [templateTable.content[0]];
+    }
+}
 
-  // --- [Inheritance Logic (Legacy Removed)] ---
+async function runPostSaveRefresh_ACU(reason: string, targetMessageIndex?: number): Promise<void> {
+    await refreshMergedDataAndNotifyWithUI_ACU();
+    const shouldSyncSummaryVectorIndexAfterSave = getSortedSheetKeys_ACU(currentJsonTableData_ACU).some((sheetKey: string) => {
+        const table = currentJsonTableData_ACU?.[sheetKey];
+        return !!table?.name && isSummaryOrOutlineTable_ACU(String(table.name || ''));
+    });
+
+    if (shouldSyncSummaryVectorIndexAfterSave && getCurrentWorldbookConfig_ACU().summaryVectorIndexModeEnabled === true) {
+        try {
+            const queueResult = await enqueueSummaryVectorIndexFlush_ACU({
+                targetMessageIndex,
+                mode: 'sync',
+                reason,
+            });
+            if (!queueResult.queued && !queueResult.skipped) {
+                logWarn_ACU('[VisualizerVectorIndex] 交火索引防抖归档入队失败:', queueResult.reason);
+                showToastr_ACU('warning', `表格已保存，但交火索引防抖归档入队失败：${queueResult.reason || 'unknown'}`);
+            }
+        } catch (error) {
+            logWarn_ACU('[VisualizerVectorIndex] 交火索引防抖归档入队异常:', error);
+            showToastr_ACU('warning', '表格已保存，但交火索引防抖归档入队异常，请查看控制台日志。');
+        }
+    }
+
+    await updateReadableLorebookEntry_ACU(true);
+    (topLevelWindow_ACU as any).AutoCardUpdaterAPI?._notifyTableUpdate?.();
+    if (typeof updateCardUpdateStatusDisplay_ACU === 'function') updateCardUpdateStatusDisplay_ACU();
+    if ($popupInstance_ACU && $popupInstance_ACU.length) loadTemplatePresetSelect_ACU({ keepGlobalValue: false });
+}
+
+export async function saveVisualizerDataChanges_ACU(): Promise<void> {
+    const orderedData = prepareOrderedVisualizerData_ACU();
+    if (hasTemplateStructureChanges_ACU(orderedData)) {
+        showToastr_ACU('error', '存在未保存的模板/结构变更；本次是数据保存，已阻止混合提交。请先保存模板，或刷新后只保存数据。');
+        return;
+    }
+
+    const result = await applyVisualizerPendingDataOps_ACU(_acuVisState);
+    if (!result.success) {
+        showToastr_ACU('error', result.error || '可视化编辑器保存失败：批量 SQL 写入运行时失败。');
+        return;
+    }
+    if (!result.changed) {
+        showToastr_ACU('info', '没有需要保存的数据增量。');
+        return;
+    }
+
+    const chat = getChatArray_ACU();
+    const isolationKey = getCurrentIsolationKey_ACU();
+    const latestAiIndex = getLatestAiMessageIndexFromChat_ACU(chat);
+    const appendTargetIndex = getLatestTableAppendMessageIndexFromChat_ACU(chat, isolationKey, settings_ACU);
+    await runPostSaveRefresh_ACU('visualizer_save_data', appendTargetIndex !== -1 ? appendTargetIndex : (latestAiIndex !== -1 ? latestAiIndex : undefined));
+    showToastr_ACU('success', '数据增量已通过批量 SQL 保存到当前消息。');
+    closeACUWindow(`${SCRIPT_ID_PREFIX_ACU}-visualizer-window`);
+}
+
+export async function saveVisualizerTemplateChanges_ACU(scope: 'chat' | 'global'): Promise<void> {
+    if (hasVisualizerPendingDataOps_ACU(_acuVisState)) {
+        showToastr_ACU('error', '存在未保存的数据增量；本次是模板保存，已阻止混合提交。请先保存数据，或刷新后只保存模板。');
+        return;
+    }
+
+    const orderedData = prepareOrderedVisualizerData_ACU();
+    const orderedKeys = getOrderedSheetKeys_ACU();
+    const hasCurrentChat = getChatArray_ACU().length > 0;
+    if (scope === 'chat' && !hasCurrentChat) {
+        showToastr_ACU('error', '当前没有聊天，不能保存模板到当前聊天。');
+        return;
+    }
+
+    const shouldValidateRuntimeRecovery = hasCurrentChat && isSqliteMode();
+    const compatibility = await validateTemplateCompatibleWithRuntimeData_ACU(orderedData, { includeRuntimeRows: shouldValidateRuntimeRecovery });
+    if (!compatibility.success || !compatibility.data) {
+        const prefix = shouldValidateRuntimeRecovery ? '模板与当前聊天旧数据不兼容，已阻止保存。' : '模板自身校验失败，已阻止保存。';
+        showToastr_ACU('error', `${prefix}\n${compatibility.error || ''}`);
+        return;
+    }
+
+    const templateData = compatibility.data;
+    _acuVisState.tempData = orderedData;
+
+    if (scope === 'chat') {
+        const isolationKey = getCurrentIsolationKey_ACU();
+        const existingGuide = getChatSheetGuideDataForIsolationKey_ACU(isolationKey);
+        const templateObjForSeed = parseTableTemplateJson_ACU({ stripSeedRows: false });
+        const guideData = buildChatSheetGuideDataFromData_ACU(templateData, {
+            preserveSeedRowsFromGuideData: existingGuide,
+            seedRowsFromTemplateObj: templateObjForSeed,
+            orderedKeys,
+        });
+        if (!guideData || !Object.keys(guideData).some(key => key.startsWith('sheet_'))) {
+            showToastr_ACU('error', '保存当前聊天模板失败：无法生成模板指导表。');
+            return;
+        }
+
+        const templateScopeSource = materializeDataFromSheetGuide_ACU(guideData, { includeSeedRows: true });
+        const saved = setChatSheetGuideDataForIsolationKey_ACU(isolationKey, guideData, {
+            reason: 'visualizer_template_save_chat',
+            syncTemplateScope: true,
+            templateSource: templateScopeSource,
+            presetName: resolveActiveTemplatePresetName_ACU({ fallbackToGlobal: true, isolationKey }),
+            source: 'visualizer_template_save_chat',
+        });
+        if (!saved) {
+            showToastr_ACU('error', '保存当前聊天模板失败：无法写入指导表。');
+            return;
+        }
+        await saveChatToHost_ACU();
+        if (isSqliteMode()) await reloadStorageProvider();
+        await runPostSaveRefresh_ACU('visualizer_save_template_chat');
+        showToastr_ACU('success', '模板/结构已保存到当前聊天。');
+        closeACUWindow(`${SCRIPT_ID_PREFIX_ACU}-visualizer-window`);
+        return;
+    }
+
+    const { templateObj, changed } = buildTemplateObjectFromVisualizerData_ACU(templateData, orderedKeys);
+    if (!changed) {
+        showToastr_ACU('info', '全局模板无变化，无需保存。');
+        return;
+    }
+
+    const isolationKey = getCurrentIsolationKey_ACU();
+    const activePresetName = normalizeTemplatePresetSelectionValue_ACU(
+        resolveActiveTemplatePresetName_ACU({ fallbackToGlobal: true, isolationKey }),
+    );
+    let finalGlobalPresetName = activePresetName;
+    if (isDefaultTemplatePresetSelection_ACU(finalGlobalPresetName)) {
+        const promptedName = prompt('请输入要保存到全局的模板预设名称：', '新模板预设');
+        if (!promptedName) return;
+        finalGlobalPresetName = normalizeTemplatePresetSelectionValue_ACU(String(promptedName).trim());
+    } else if (!confirm(`确定要用当前编辑结果覆盖全局预设 "${finalGlobalPresetName}" 吗？`)) {
+        return;
+    }
+    if (!finalGlobalPresetName) return;
+
+    const preparedSnapshot = sanitizeTemplateSnapshotForChat_ACU(templateObj);
+    if (!preparedSnapshot?.templateStr) {
+        showToastr_ACU('error', '保存全局模板失败：无法生成模板快照。');
+        return;
+    }
+    const presetSaved = upsertTemplatePreset_ACU(finalGlobalPresetName, preparedSnapshot.templateStr);
+    if (!presetSaved) {
+        showToastr_ACU('error', '保存全局模板失败：无法写入全局预设库。');
+        return;
+    }
+
+    const appliedGlobalTemplate = await applyTemplatePresetToCurrent_ACU(finalGlobalPresetName, {
+        source: 'visualizer_save_template_global',
+        updateGlobal: true,
+        save: true,
+        persistChatScope: false,
+    });
+    if (!appliedGlobalTemplate) {
+        showToastr_ACU('error', '保存全局模板失败：模板快照应用失败。');
+        return;
+    }
+    if (isSqliteMode()) await reloadStorageProvider();
+    await runPostSaveRefresh_ACU('visualizer_save_template_global');
+    showToastr_ACU('success', `模板/结构已保存到全局预设：${finalGlobalPresetName}。`);
+    closeACUWindow(`${SCRIPT_ID_PREFIX_ACU}-visualizer-window`);
+}
+
+export async function saveVisualizerChanges_ACU(saveToTemplate = false): Promise<void> {
+    if (saveToTemplate) {
+        await saveVisualizerTemplateChanges_ACU('global');
+        return;
+    }
+    await saveVisualizerDataChanges_ACU();
+}
+
+// --- [Inheritance Logic (Legacy Removed)] ---

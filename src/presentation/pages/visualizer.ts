@@ -1,5 +1,5 @@
 import { renderVisualizerMain_ACU } from './visualizer-main-render';
-import { saveVisualizerChanges_ACU } from './visualizer-main-save';
+import { saveVisualizerDataChanges_ACU, saveVisualizerTemplateChanges_ACU } from './visualizer-main-save';
 import { renderVisualizerSidebar_ACU } from './visualizer-sidebar';
 import { showToastr_ACU } from '../theme/toast';
 import { toggleACUTheme_ACU } from '../window/window-styles';
@@ -14,12 +14,14 @@ import { logDebug_ACU, logWarn_ACU } from '../../shared/utils';
 import { getActiveTemplatePresetMeta_ACU } from '../../service/template/template-preset-service';
 import { mergeAllIndependentTables_ACU } from '../../service/runtime/helpers-remaining';
 import { VISUALIZER_CSS_ACU } from './visualizer-styles';
+import { resetVisualizerPendingDataOps_ACU } from './visualizer-data-ops';
 
   // Internal state for visualizer
   export let _acuVisState: any = {
       currentSheetKey: null,
       mode: 'data', // 'data' or 'config'
       tempData: null, // Deep copy of currentJsonTableData_ACU
+      pendingDataOps: null, // 用户在数据模式产生的显式增量 CRUD 操作队列
       sheetOrder: null as string[] | null, // 有序表格键列表
       deletedSheetKeys: [] as string[] // 在可视化编辑器中删除的表格key列表
   };
@@ -42,6 +44,7 @@ import { VISUALIZER_CSS_ACU } from './visualizer-styles';
           // 如果失败，回退到使用当前内存数据（如果存在）
           if (currentJsonTableData_ACU) {
               _acuVisState.tempData = JSON.parse(JSON.stringify(currentJsonTableData_ACU));
+              resetVisualizerPendingDataOps_ACU(_acuVisState);
           } else {
               return;
           }
@@ -50,6 +53,7 @@ import { VISUALIZER_CSS_ACU } from './visualizer-styles';
           const stableKeys = getSortedSheetKeys_ACU(freshData);
           _set_currentJsonTableData_ACU(reorderDataBySheetKeys_ACU(freshData, stableKeys));
           _acuVisState.tempData = JSON.parse(JSON.stringify(currentJsonTableData_ACU));
+          resetVisualizerPendingDataOps_ACU(_acuVisState);
       }
       
       // 2. Validate current sheet key
@@ -84,6 +88,7 @@ import { VISUALIZER_CSS_ACU } from './visualizer-styles';
 
       // Initial Load
       _acuVisState.tempData = JSON.parse(JSON.stringify(currentJsonTableData_ACU));
+      resetVisualizerPendingDataOps_ACU(_acuVisState);
       _acuVisState.currentSheetKey = getSortedSheetKeys_ACU(_acuVisState.tempData)[0] || null; // Default to first sheet
       const activeTemplateMeta_ACU = getActiveTemplatePresetMeta_ACU();
       const activeTemplatePresetText_ACU = `当前生效模板预设：${activeTemplateMeta_ACU.displayName}（${activeTemplateMeta_ACU.scopeLabel}）`;
@@ -104,10 +109,11 @@ import { VISUALIZER_CSS_ACU } from './visualizer-styles';
                           <div id="acu-vis-template-preset-indicator" class="acu-hint" style="font-size: 12px; color: var(--vis-text-mute);">${escapeHtml_ACU(activeTemplatePresetText_ACU)}</div>
                       </div>
                   </div>
-                  <div class="acu-vis-actions" style="display: flex; gap: 10px;">
+                  <div class="acu-vis-actions" style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
                       <button id="acu-vis-theme-btn" class="acu-btn-secondary acu-vis-theme-btn" title="切换主题"><span class="acu-theme-toggle-text">素纱</span></button>
-                      <button id="acu-vis-save-btn" class="acu-btn-primary"><i class="fa-solid fa-save"></i> 保存到当前聊天</button>
-                      <button id="acu-vis-save-template-btn" class="acu-btn-secondary"><i class="fa-solid fa-save"></i> 保存到全局</button>
+                      <button id="acu-vis-save-data-btn" class="acu-btn-primary"><i class="fa-solid fa-database"></i> 保存数据到当前消息</button>
+                      <button id="acu-vis-save-template-chat-btn" class="acu-btn-secondary"><i class="fa-solid fa-layer-group"></i> 保存模板到当前聊天</button>
+                      <button id="acu-vis-save-template-global-btn" class="acu-btn-secondary"><i class="fa-solid fa-globe"></i> 保存模板到全局</button>
                   </div>
               </div>
               <div class="acu-vis-content" style="flex: 1; display: flex; overflow: hidden;">
@@ -143,13 +149,17 @@ import { VISUALIZER_CSS_ACU } from './visualizer-styles';
               }
           },
           onReady: ($window: JQuery<HTMLElement>) => {
-              // 绑定事件
-              $window.find('#acu-vis-save-btn').on('click', async () => {
-                  await saveVisualizerChanges_ACU(false);
+              // 绑定事件：数据保存与模板保存彻底分离
+              $window.find('#acu-vis-save-data-btn').on('click', async () => {
+                  await saveVisualizerDataChanges_ACU();
               });
 
-              $window.find('#acu-vis-save-template-btn').on('click', async () => {
-                  await saveVisualizerChanges_ACU(true);
+              $window.find('#acu-vis-save-template-chat-btn').on('click', async () => {
+                  await saveVisualizerTemplateChanges_ACU('chat');
+              });
+
+              $window.find('#acu-vis-save-template-global-btn').on('click', async () => {
+                  await saveVisualizerTemplateChanges_ACU('global');
               });
 
               $window.find('.acu-mode-btn').on('click', function() {

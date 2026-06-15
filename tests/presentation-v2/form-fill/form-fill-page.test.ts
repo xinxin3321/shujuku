@@ -293,10 +293,10 @@ describe('FormFillPage', () => {
     expect(page!.querySelector('.acu-prompt-segs')).toBeNull();
     const panelTitles = Array.from(page!.querySelectorAll('.acu-v2-form-fill-page__grid > .acu-panel .acu-panel__title'))
       .map(title => (title.textContent || '').trim());
-    expect(panelTitles).toEqual(['表格状态', '自动更新设置', '表格模板预设', '手动填表']);
+    expect(panelTitles).toEqual(['表格状态', '自动更新设置', 'Checkpoint 设置', '表格模板预设', '手动填表']);
     const mobileNavItems = Array.from(page!.querySelectorAll('.acu-mobile-panel-nav__item'))
       .map(item => (item.textContent || '').trim());
-    expect(mobileNavItems).toEqual(['表格状态', '自动更新', '手动填表', '表格模板预设']);
+    expect(mobileNavItems).toEqual(['表格状态', 'Checkpoint', '自动更新', '手动填表', '表格模板预设']);
     expect(document.getElementById('form-fill-update-panel')).not.toBeNull();
     expect(page!.querySelector('.acu-v2-form-fill-page__panel--manual')).not.toBeNull();
 

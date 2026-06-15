@@ -160,14 +160,8 @@ async function applySqlBatchOperationV2_ACU(
   const statements = normalizeSqlStatementsForReplay_ACU(operation.statements || []);
   if (statements.length === 0) return;
   await ensureSqlReplayRuntime_ACU(runtime, state);
-  const params = Array.isArray(operation.params) ? operation.params : [];
-  if (params.length > 0) {
-    statements.forEach((statement, index) => {
-      runtime.engine.run(statement, params[index] || []);
-    });
-    return;
-  }
-  runtime.engine.runBatch(statements);
+  const params = Array.isArray(operation.params) ? operation.params : undefined;
+  runtime.engine.runBatch(statements, params);
 }
 
 export function applyTablePatchV2_ACU(state: TableDataObject_ACU, patch: TablePatchV2_ACU): void {

@@ -34,6 +34,13 @@ import { closeACUWindow } from '../window/window-system';
 
 // 循环 import — 运行时安全
 import { renderVisualizerConfigMode_ACU } from './visualizer-main-config';
+import {
+    createVisualizerTempRowId_ACU,
+    recordVisualizerCellUpdate_ACU,
+    recordVisualizerRowDelete_ACU,
+    recordVisualizerRowInsert_ACU,
+    recordVisualizerSheetRowsUpdate_ACU,
+} from './visualizer-data-ops';
 
   export function renderVisualizerMain_ACU() {
       const $main = jQuery_API_ACU('#acu-vis-main-area');
@@ -226,16 +233,21 @@ import { renderVisualizerConfigMode_ACU } from './visualizer-main-config';
           
           // Update temp data (rIdx + 1 because row 0 is header)
           if (sheet.content[rIdx + 1]) {
+              const rowId = sheet.content[rIdx + 1][0];
+              const columnName = headers[cIdx + 1];
               sheet.content[rIdx + 1][cIdx + 1] = val;
+              if (sheetKey) recordVisualizerCellUpdate_ACU(_acuVisState, sheetKey, rowId, columnName, val);
           }
       });
       
       $container.find('#acu-vis-add-row').on('click', () => {
           const newRow = new Array(headers.length).fill('');
-          newRow[0] = null; // convention
+          newRow[0] = createVisualizerTempRowId_ACU();
           sheet.content.push(newRow);
+          if (sheetKey) recordVisualizerRowInsert_ACU(_acuVisState, sheetKey, String(newRow[0]));
           if (isSummaryTable && sheetKey && isSpecialIndexLockEnabled_ACU(sheetKey)) {
               applySpecialIndexSequenceToSummaryTables_ACU(_acuVisState.tempData);
+              recordVisualizerSheetRowsUpdate_ACU(_acuVisState, sheetKey);
           }
           renderVisualizerDataMode_ACU($container, sheet);
       });
@@ -243,9 +255,12 @@ import { renderVisualizerConfigMode_ACU } from './visualizer-main-config';
       $container.find('.acu-vis-del-row').on('click', function() {
           const rIdx = parseInt(jQuery_API_ACU(this).data('idx'));
           if (confirm('确定删除此行吗？')) {
+              const rowId = sheet.content[rIdx + 1]?.[0];
+              if (sheetKey) recordVisualizerRowDelete_ACU(_acuVisState, sheetKey, rowId);
               sheet.content.splice(rIdx + 1, 1);
               if (isSummaryTable && sheetKey && isSpecialIndexLockEnabled_ACU(sheetKey)) {
                   applySpecialIndexSequenceToSummaryTables_ACU(_acuVisState.tempData);
+                  recordVisualizerSheetRowsUpdate_ACU(_acuVisState, sheetKey);
               }
               renderVisualizerDataMode_ACU($container, sheet);
           }
@@ -291,6 +306,7 @@ import { renderVisualizerConfigMode_ACU } from './visualizer-main-config';
           setSpecialIndexLockEnabled_ACU(sheetKey, next);
           if (next) {
               applySpecialIndexSequenceToSummaryTables_ACU(_acuVisState.tempData);
+              recordVisualizerSheetRowsUpdate_ACU(_acuVisState, sheetKey);
           }
           renderVisualizerDataMode_ACU($container, sheet);
       });

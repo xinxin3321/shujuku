@@ -37,6 +37,7 @@ import { updateDDLColumnComment, parseDDLColumnNames, validateDDLTextAgainstHead
 
 // 循环 import — 运行时安全
 import { renderVisualizerMain_ACU } from './visualizer-main-render';
+import { recordVisualizerSheetRowsUpdate_ACU } from './visualizer-data-ops';
 
 /**
  * DDL 校验纯函数 — 从 jQuery 事件处理器中提取，方便单元测试
@@ -449,6 +450,7 @@ export function validateDDLText(ddlText: string, tableHeaders: string[]): { vali
               setSpecialIndexLockEnabled_ACU(sheetKey, enabled);
               if (enabled) {
                   applySpecialIndexSequenceToSummaryTables_ACU(_acuVisState.tempData);
+                  recordVisualizerSheetRowsUpdate_ACU(_acuVisState, sheetKey);
               }
               renderVisualizerMain_ACU();
           });
