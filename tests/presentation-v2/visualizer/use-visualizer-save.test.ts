@@ -61,6 +61,7 @@ const serviceMock = vi.hoisted(() => ({
   getGlobalInjectionConfigFromData_ACU: vi.fn(() => ({})),
   purgeSheetKeysFromChatHistoryHard_ACU: vi.fn(async () => ({ changed: true })),
   refreshMergedDataAndNotify_ACU: vi.fn(async () => undefined),
+  updateReadableLorebookEntry_ACU: vi.fn(async () => undefined),
   enqueueSummaryVectorIndexFlush_ACU: vi.fn(async () => undefined),
 }));
 
@@ -290,6 +291,7 @@ describe('useVisualizerSave', () => {
     expect(runtimeMock._set_currentJsonTableData_ACU).toHaveBeenCalledWith(expect.objectContaining({
       sheet_test_vz2: expect.objectContaining({ name: '新表名' }),
     }));
+    expect(serviceMock.refreshMergedDataAndNotify_ACU).toHaveBeenCalled();
     expect(store.lastSavedTarget).toBe('template-chat');
   });
 

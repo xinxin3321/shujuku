@@ -117,7 +117,11 @@ vi.mock('../../../src/service/table/table-write-transaction', () => ({
   })),
 }));
 
-import { migrateContentNullToRowId } from '../../../src/service/runtime/helpers-data-merge';
+import { migrateContentNullToRowId, mergeAllIndependentTables_ACU } from '../../../src/service/runtime/helpers-data-merge';
+import { getChatArray_ACU } from '../../../src/data/gateways/chat-gateway';
+import { getChatSheetGuideDataForIsolationKey_ACU, materializeDataFromSheetGuide_ACU } from '../../../src/service/template/chat-scope';
+import { resolveTableStorageStrategy_ACU } from '../../../src/service/table/storage-strategy-resolver';
+import { loadTableStateFromFramesV2_ACU } from '../../../src/service/table/storage-frame-v2-replay';
 
 describe('migrateContentNullToRowId', () => {
   // ═══════════════════════════════════════════════════════════════
@@ -354,6 +358,8 @@ describe('mergeAllIndependentTables_ACU', () => {
       data ? Object.keys(data).filter((k: string) => k.startsWith('sheet_')).sort() : [],
     );
     vi.mocked(reorderDataBySheetKeys_ACU).mockImplementation((data: any) => data);
+    vi.mocked(resolveTableStorageStrategy_ACU).mockReturnValue({ mode: 'none' } as any);
+    vi.mocked(loadTableStateFromFramesV2_ACU).mockResolvedValue(null);
   });
 
   // ═══ 空聊天记录 ═══
@@ -573,6 +579,65 @@ describe('mergeAllIndependentTables_ACU', () => {
     expect(result!.sheet_0.updateConfig.batchSize).toBe(3); // 非0值不变
     expect(result!.sheet_0.updateConfig.skipFloors).toBe(-1);
     expect(result!.sheet_0.updateConfig.uiSentinel).toBe(-1);
+  });
+
+  it('V2 回放后用当前聊天指导表结构覆盖旧数据结构', async () => {
+    vi.mocked(getChatArray_ACU).mockReturnValue([{ is_user: false, mes: 'AI回复' }] as any);
+    vi.mocked(resolveTableStorageStrategy_ACU).mockReturnValue({ mode: 'v2' } as any);
+    vi.mocked(loadTableStateFromFramesV2_ACU).mockResolvedValue({
+      mate: { type: 'chatSheets', version: 1 },
+      sheet_test: {
+        uid: 'sheet_test',
+        name: '旧表名',
+        sourceData: { note: '旧说明' },
+        updateConfig: { uiSentinel: 0 },
+        exportConfig: { enabled: false },
+        orderNo: 9,
+        content: [['row_id', '旧列'], ['1', '旧值']],
+      },
+      sheet_removed: {
+        uid: 'sheet_removed',
+        name: '旧表',
+        content: [['row_id', '旧列'], ['1', '旧值']],
+      },
+    } as any);
+    vi.mocked(getChatSheetGuideDataForIsolationKey_ACU).mockReturnValue({
+      sheet_test: {
+        uid: 'sheet_test',
+        name: '新表名',
+        sourceData: { note: '新说明' },
+        updateConfig: { uiSentinel: -1 },
+        exportConfig: { enabled: true },
+        orderNo: 1,
+        content: [['row_id', '新列', '新增列']],
+        seedRows: [['seed', '模板种子']],
+      },
+    } as any);
+    vi.mocked(materializeDataFromSheetGuide_ACU).mockReturnValue({
+      sheet_test: {
+        uid: 'sheet_test',
+        name: '新表名',
+        sourceData: { note: '新说明' },
+        updateConfig: { uiSentinel: -1 },
+        exportConfig: { enabled: true },
+        orderNo: 1,
+        content: [['row_id', '新列', '新增列']],
+        seedRows: [['seed', '模板种子']],
+      },
+    } as any);
+
+    const result = await mergeAllIndependentTables_ACU();
+
+    expect(result).not.toBeNull();
+    expect(result!.sheet_test.name).toBe('新表名');
+    expect(result!.sheet_test.sourceData).toEqual({ note: '新说明' });
+    expect(result!.sheet_test.updateConfig).toEqual({ uiSentinel: -1 });
+    expect(result!.sheet_test.exportConfig).toEqual({ enabled: true });
+    expect(result!.sheet_test.orderNo).toBe(1);
+    expect(result!.sheet_test.content[0]).toEqual(['row_id', '新列', '新增列']);
+    expect(result!.sheet_test.content[1]).toEqual(['1', '旧值', '']);
+    expect(result!.sheet_test.seedRows).toEqual([['seed', '模板种子']]);
+    expect(result!.sheet_removed).toBeUndefined();
   });
 });
 

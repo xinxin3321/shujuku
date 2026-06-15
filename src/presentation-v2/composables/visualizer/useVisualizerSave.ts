@@ -53,7 +53,7 @@ import {
   getGlobalInjectionConfigFromData_ACU,
   purgeSheetKeysFromChatHistoryHard_ACU,
 } from '../../../service/worldbook/injection-engine';
-import { refreshMergedDataAndNotify_ACU } from '../../../service/worldbook/pipeline';
+import { refreshMergedDataAndNotify_ACU, updateReadableLorebookEntry_ACU } from '../../../service/worldbook/pipeline';
 import { enqueueSummaryVectorIndexFlush_ACU } from '../../../service/vector/summary-vector-index-flush-queue';
 import { useToastStore } from '../../stores/toast-store';
 import { useVisualizerStore, type VisualizerLockDraft, type VisualizerSaveTarget } from '../../stores/visualizer-store';
@@ -419,6 +419,9 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
       saveLockDrafts(visualizer.tableLockDrafts);
       if (isSqliteMode()) await reloadStorageProvider();
       await refreshMergedDataAndNotify_ACU();
+      try {
+        (topLevelWindow_ACU as any).AutoCardUpdaterAPI?._notifyTableUpdate?.();
+      } catch {}
       visualizer.markSaved('template-chat');
       toastStore.success('模板/结构已保存到当前聊天。', { muteable: false });
       return true;

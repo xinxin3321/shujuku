@@ -60,6 +60,54 @@ import { runTableWriteTransaction_ACU } from '../table/table-write-transaction';
       return data;
   }
 
+  function hasUsableSheetGuide_ACU(sheetGuideData: any): boolean {
+      return !!(sheetGuideData && typeof sheetGuideData === 'object' && Object.keys(sheetGuideData).some(k => k.startsWith('sheet_')));
+  }
+
+  function mergeSheetGuideStructureIntoData_ACU(mergedData: Record<string, any>, sheetGuideData: any): Record<string, any> {
+      const guided = materializeDataFromSheetGuide_ACU(sheetGuideData, { includeSeedRows: false });
+      const guideKeys = getSortedSheetKeys_ACU(guided, { ignoreChatGuide: true, includeMissingFromGuide: true });
+      guideKeys.forEach(k => {
+          if (!k || !k.startsWith('sheet_')) return;
+          const guideSheet = guided[k];
+          const hist = mergedData[k];
+          if (hist && typeof hist === 'object') {
+              const next = JSON.parse(JSON.stringify(hist));
+              next.uid = k;
+              if (guideSheet?.name) next.name = guideSheet.name;
+              if (guideSheet?.sourceData) next.sourceData = JSON.parse(JSON.stringify(guideSheet.sourceData));
+              if (guideSheet?.updateConfig) next.updateConfig = JSON.parse(JSON.stringify(guideSheet.updateConfig));
+              if (guideSheet?.exportConfig) next.exportConfig = JSON.parse(JSON.stringify(guideSheet.exportConfig));
+              const guideHeader = (guideSheet && Array.isArray(guideSheet.content) && Array.isArray(guideSheet.content[0]))
+                  ? JSON.parse(JSON.stringify(guideSheet.content[0]))
+                  : null;
+              if (!Array.isArray(next.content)) next.content = guideHeader ? [guideHeader] : [['row_id']];
+              if (guideHeader) {
+                  next.content[0] = guideHeader;
+                  const targetLen = guideHeader.length;
+                  for (let r = 1; r < next.content.length; r++) {
+                      const row = next.content[r];
+                      if (!Array.isArray(row)) continue;
+                      const hasAutoMergedTag = row.length > 0 && row[row.length - 1] === 'auto_merged';
+                      if (row.length < targetLen) {
+                          while (row.length < targetLen) row.push('');
+                          if (hasAutoMergedTag && row[row.length - 1] !== 'auto_merged') row.push('auto_merged');
+                      } else if (row.length > targetLen) {
+                          row.splice(targetLen);
+                          if (hasAutoMergedTag) row.push('auto_merged');
+                      }
+                  }
+              }
+              if (Number.isFinite(guideSheet?.[TABLE_ORDER_FIELD_ACU])) next[TABLE_ORDER_FIELD_ACU] = Math.trunc(guideSheet[TABLE_ORDER_FIELD_ACU]);
+              if (Array.isArray(guideSheet?.seedRows)) next.seedRows = JSON.parse(JSON.stringify(guideSheet.seedRows));
+              guided[k] = next;
+          } else if (Number.isFinite(guideSheet?.[TABLE_ORDER_FIELD_ACU])) {
+              guided[k][TABLE_ORDER_FIELD_ACU] = Math.trunc(guideSheet[TABLE_ORDER_FIELD_ACU]);
+          }
+      });
+      return guided;
+  }
+
   export async function mergeAllIndependentTablesLegacyV1_ACU() {
       const chat = getChatArray_ACU();
       if (!chat || chat.length === 0) {
@@ -74,7 +122,7 @@ import { runTableWriteTransaction_ACU } from '../table/table-write-transaction';
       // [新增] 聊天级"空白指导表"：一旦存在，本聊天合并/显示顺序都按指导表，不再按模板
       // 注意：该指导表按隔离标签分槽，因此切换标识时可拥有不同的"参数/表头/顺序总指导"
       const sheetGuideData = getChatSheetGuideDataForIsolationKey_ACU(currentIsolationKey);
-      const hasSheetGuide = !!(sheetGuideData && typeof sheetGuideData === 'object' && Object.keys(sheetGuideData).some(k => k.startsWith('sheet_')));
+      const hasSheetGuide = hasUsableSheetGuide_ACU(sheetGuideData);
 
       // [新增] 获取当前模板/指导表的表格键列表，用于过滤非当前模板的数据
       // 优先使用指导表（如果存在），否则使用当前模板
@@ -300,59 +348,7 @@ import { runTableWriteTransaction_ACU } from '../table/table-write-transaction';
       // 2) 对指导表中缺失的表：使用指导表结构作为初始值（seedRows 仅保留字段，不默认展开到 content）
       // 3) 对于存在历史数据的表：以历史数据为主，但表名/表头/参数/顺序以指导表为准；不把 seedRows 合并进真实数据行
       if (hasSheetGuide) {
-          const guided = materializeDataFromSheetGuide_ACU(sheetGuideData, { includeSeedRows: false });
-          const guideKeys = getSortedSheetKeys_ACU(guided, { ignoreChatGuide: true, includeMissingFromGuide: true });
-          guideKeys.forEach(k => {
-              if (!k || !k.startsWith('sheet_')) return;
-              const guideSheet = guided[k];
-              const hist = mergedData[k];
-              if (hist && typeof hist === 'object') {
-                  const next = JSON.parse(JSON.stringify(hist));
-                  next.uid = k;
-                  // 需求4（视觉编辑器改名/改表头/改参数）：合并展示以指导表为准（不影响历史真实数据行，仅覆盖"元信息/表头/参数/顺序"）
-                  if (guideSheet?.name) next.name = guideSheet.name;
-                  if (guideSheet?.sourceData) next.sourceData = JSON.parse(JSON.stringify(guideSheet.sourceData));
-                  if (guideSheet?.updateConfig) next.updateConfig = JSON.parse(JSON.stringify(guideSheet.updateConfig));
-                  if (guideSheet?.exportConfig) next.exportConfig = JSON.parse(JSON.stringify(guideSheet.exportConfig));
-                  // 表头：以指导表为准，并对行做简单对齐（pad/truncate）
-                  const guideHeader = (guideSheet && Array.isArray(guideSheet.content) && Array.isArray(guideSheet.content[0]))
-                      ? JSON.parse(JSON.stringify(guideSheet.content[0]))
-                      : null;
-if (!Array.isArray(next.content)) next.content = guideHeader ? [guideHeader] : [["row_id"]];
-                  if (guideHeader) {
-                      next.content[0] = guideHeader;
-                      const targetLen = guideHeader.length;
-                      for (let r = 1; r < next.content.length; r++) {
-                          const row = next.content[r];
-                          if (!Array.isArray(row)) continue;
-                          // [修复] 在对齐行长度之前，保留 auto_merged 标签
-                          const hasAutoMergedTag = row.length > 0 && row[row.length - 1] === 'auto_merged';
-                          if (row.length < targetLen) {
-                              while (row.length < targetLen) row.push('');
-                              // 如果原本有 auto_merged 标签，在填充后重新添加
-                              if (hasAutoMergedTag && row[row.length - 1] !== 'auto_merged') {
-                                  row.push('auto_merged');
-                              }
-                          } else if (row.length > targetLen) {
-                              // [修复] 截断时保留 auto_merged 标签
-                              row.splice(targetLen);
-                              if (hasAutoMergedTag) {
-                                  row.push('auto_merged');
-                              }
-                          }
-                      }
-                  }
-                  // 顺序编号以指导表为准
-                  if (Number.isFinite(guideSheet?.[TABLE_ORDER_FIELD_ACU])) next[TABLE_ORDER_FIELD_ACU] = Math.trunc(guideSheet[TABLE_ORDER_FIELD_ACU]);
-                  // 保留 seedRows 字段（不参与实际 content 合并）
-                  if (Array.isArray(guideSheet?.seedRows)) next.seedRows = JSON.parse(JSON.stringify(guideSheet.seedRows));
-                  guided[k] = next;
-              } else {
-                  // 无历史数据：直接使用指导表物化结果（不展开 seedRows）
-                  if (Number.isFinite(guideSheet?.[TABLE_ORDER_FIELD_ACU])) guided[k][TABLE_ORDER_FIELD_ACU] = Math.trunc(guideSheet[TABLE_ORDER_FIELD_ACU]);
-              }
-          });
-          mergedData = guided;
+          mergedData = mergeSheetGuideStructureIntoData_ACU(mergedData, sheetGuideData);
       }
 
       // [修复] 合并结果按"用户手动顺序/模板顺序"重排，避免合并过程导致的随机乱序
@@ -375,7 +371,14 @@ if (!Array.isArray(next.content)) next.content = guideHeader ? [guideHeader] : [
       });
 
       if (strategy.mode === 'v2') {
-          return loadTableStateFromFramesV2_ACU(chat, currentIsolationKey);
+          let mergedData = await loadTableStateFromFramesV2_ACU(chat, currentIsolationKey) as Record<string, any> | null;
+          const sheetGuideData = getChatSheetGuideDataForIsolationKey_ACU(currentIsolationKey);
+          if (mergedData && hasUsableSheetGuide_ACU(sheetGuideData)) {
+              mergedData = mergeSheetGuideStructureIntoData_ACU(mergedData, sheetGuideData);
+              const orderedKeys = getSortedSheetKeys_ACU(mergedData);
+              return migrateContentNullToRowId(reorderDataBySheetKeys_ACU(mergedData, orderedKeys));
+          }
+          return mergedData;
       }
 
       if (strategy.mode === 'legacy-v1' && strategy.warning) {
