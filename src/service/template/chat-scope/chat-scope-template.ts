@@ -5,7 +5,7 @@
 import { DEFAULT_TABLE_TEMPLATE_ACU, TABLE_TEMPLATE_ACU, _set_TABLE_TEMPLATE_ACU} from '../../../shared/defaults-json.js';
 import { readProfileTemplateFromStorage_ACU, saveCurrentProfileTemplate_ACU } from '../../../data/repositories/profile-repo';
 import { DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU, deriveTemplatePresetNameForImport_ACU, getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../../shared/template-preset-utils';
-import { CHAT_SCOPED_CONFIG_FIELD_ACU, CHAT_SHEET_GUIDE_FIELD_ACU, CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU, CHAT_SHEET_GUIDE_VERSION_ACU, CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU, LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU, MAX_CHAT_TEMPLATE_ARCHIVES_PER_TAG_ACU, getChatScopedConfigContainer_ACU, getChatSheetGuideContainer_ACU, normalizeChatScopedConfigContainer_ACU } from '../../../data/storage/chat-history';
+import { CHAT_SCOPED_CONFIG_FIELD_ACU, CHAT_SHEET_GUIDE_FIELD_ACU, CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU, CHAT_SHEET_GUIDE_VERSION_ACU, CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU, LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU, MAX_CHAT_TEMPLATE_ARCHIVES_PER_TAG_ACU, getChatScopedConfigContainer_ACU, getChatSheetGuideContainer_ACU, normalizeChatScopedConfigContainer_ACU, setChatScopedConfigContainer_ACU } from '../../../data/storage/chat-history';
 import { getDefaultTemplateSnapshot_ACU, getTemplatePreset_ACU } from '../template-preset-service';
 import { currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../../runtime/state-manager';
 import { getChatArray_ACU, saveChatToHost_ACU } from '../../../data/gateways/chat-gateway';
@@ -284,11 +284,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       }
 
       const hasPayload = Object.keys(container).some(key => key !== 'version');
-      if (hasPayload) {
-          first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
-      } else {
-          delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
-      }
+      setChatScopedConfigContainer_ACU(chat, hasPayload ? container : null);
 
       return getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey });
   }
@@ -448,11 +444,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       }
 
       const hasPayload = Object.keys(container).some(key => key !== 'version');
-      if (hasPayload) {
-          first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
-      } else {
-          delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
-      }
+      setChatScopedConfigContainer_ACU(chat, hasPayload ? container : null);
 
       return getCurrentChatTemplateScopeState_ACU({ chat, isolationKey: normalizedKey });
   }
@@ -509,7 +501,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
 
       if (!first) return result;
 
-      const hadScopedConfigField = Object.prototype.hasOwnProperty.call(first, CHAT_SCOPED_CONFIG_FIELD_ACU);
+      const hadScopedConfigField = !!getChatScopedConfigContainer_ACU(chat);
       const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
       let scopedConfigChanged = false;
 
@@ -552,9 +544,9 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
 
       const hasScopedPayload = Object.keys(container).some(key => key !== 'version');
       if (scopedConfigChanged && hasScopedPayload) {
-          first[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
+          setChatScopedConfigContainer_ACU(chat, container);
       } else if (!hasScopedPayload && hadScopedConfigField) {
-          delete first[CHAT_SCOPED_CONFIG_FIELD_ACU];
+          setChatScopedConfigContainer_ACU(chat, null);
           result.changed = true;
       }
 

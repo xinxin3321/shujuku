@@ -10,7 +10,8 @@
 
 /** 聊天级作用域配置的字段名（挂载在 chat[0] 上） */
 import { safeJsonParse_ACU } from '../../shared/json-helpers';
-import { cloneScopedConfigData_ACU, getChatFirstLayerMessage_ACU } from '../../shared/utils';
+import { SillyTavern_API_ACU } from '../../shared/host-api';
+import { cloneScopedConfigData_ACU } from '../../shared/utils';
 
 export const CHAT_SCOPED_CONFIG_FIELD_ACU = 'TavernDB_ACU_ScopedConfig';
 
@@ -37,18 +38,48 @@ export const MAX_CHAT_TEMPLATE_ARCHIVES_PER_TAG_ACU = 8;
 
 // ── 底层容器读取函数 ──
 
+function getChatFirstLayerMessageLocal_ACU(chat: unknown[]): Record<string, unknown> | null {
+    return Array.isArray(chat) && chat.length > 0 && chat[0] && typeof chat[0] === 'object'
+        ? chat[0] as Record<string, unknown>
+        : null;
+}
+
+function getChatMetadata_ACU(): Record<string, unknown> | null {
+    const metadata = (SillyTavern_API_ACU as any)?.chatMetadata;
+    return metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata as Record<string, unknown> : null;
+}
+
+function readContainer_ACU(raw: unknown): Record<string, unknown> | null {
+    if (!raw) return null;
+    const obj = (typeof raw === 'string') ? safeJsonParse_ACU(raw, null) : raw;
+    return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj as Record<string, unknown> : null;
+}
+
+function writeChatMetadataField_ACU(field: string, value: Record<string, unknown> | null): void {
+    const metadata = getChatMetadata_ACU();
+    if (!metadata) return;
+    if (value && Object.keys(value).length > 0) metadata[field] = value;
+    else delete metadata[field];
+    try {
+        const updater = (SillyTavern_API_ACU as any)?.updateChatMetadata;
+        if (typeof updater === 'function') updater({ [field]: value || undefined }, false);
+    } catch (_) {}
+}
+
 /**
- * 从 chat[0] 读取作用域配置容器
+ * 从 chat_metadata 优先读取作用域配置容器；兼容旧版 chat[0] 字段。
  * @param chat SillyTavern 聊天数组
  * @returns 解析后的配置对象，或 null
  */
 export function getChatScopedConfigContainer_ACU(chat: unknown[]): Record<string, unknown> | null {
-    const first = getChatFirstLayerMessage_ACU(chat);
+    const metadataContainer = readContainer_ACU(getChatMetadata_ACU()?.[CHAT_SCOPED_CONFIG_FIELD_ACU]);
+    if (metadataContainer) return metadataContainer;
+
+    const first = getChatFirstLayerMessageLocal_ACU(chat);
     if (!first) return null;
-    const raw = (first as Record<string, unknown>)[CHAT_SCOPED_CONFIG_FIELD_ACU];
-    if (!raw) return null;
-    const obj = (typeof raw === 'string') ? safeJsonParse_ACU(raw, null) : raw;
-    return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj as Record<string, unknown> : null;
+    const legacyContainer = readContainer_ACU((first as Record<string, unknown>)[CHAT_SCOPED_CONFIG_FIELD_ACU]);
+    if (legacyContainer) writeChatMetadataField_ACU(CHAT_SCOPED_CONFIG_FIELD_ACU, legacyContainer);
+    return legacyContainer;
 }
 
 /**
@@ -74,10 +105,34 @@ export function normalizeChatScopedConfigContainer_ACU(container: unknown): Reco
  * @returns 解析后的 guide 对象，或 null
  */
 export function getChatSheetGuideContainer_ACU(chat: unknown[]): Record<string, unknown> | null {
-    const first = getChatFirstLayerMessage_ACU(chat);
+    const metadataContainer = readContainer_ACU(getChatMetadata_ACU()?.[CHAT_SHEET_GUIDE_FIELD_ACU]);
+    if (metadataContainer) return metadataContainer;
+
+    const first = getChatFirstLayerMessageLocal_ACU(chat);
     if (!first) return null;
-    const raw = (first as Record<string, unknown>)[CHAT_SHEET_GUIDE_FIELD_ACU];
-    if (!raw) return null;
-    const obj = (typeof raw === 'string') ? safeJsonParse_ACU(raw, null) : raw;
-    return (obj && typeof obj === 'object') ? obj as Record<string, unknown> : null;
+    const legacyContainer = readContainer_ACU((first as Record<string, unknown>)[CHAT_SHEET_GUIDE_FIELD_ACU]);
+    if (legacyContainer) writeChatMetadataField_ACU(CHAT_SHEET_GUIDE_FIELD_ACU, legacyContainer);
+    return legacyContainer;
+}
+
+export function setChatScopedConfigContainer_ACU(chat: unknown[], container: Record<string, unknown> | null): void {
+    writeChatMetadataField_ACU(CHAT_SCOPED_CONFIG_FIELD_ACU, container);
+    const first = getChatFirstLayerMessageLocal_ACU(chat);
+    if (!first) return;
+    if (container && Object.keys(container).length > 0) {
+        (first as Record<string, unknown>)[CHAT_SCOPED_CONFIG_FIELD_ACU] = container;
+    } else {
+        delete (first as Record<string, unknown>)[CHAT_SCOPED_CONFIG_FIELD_ACU];
+    }
+}
+
+export function setChatSheetGuideContainer_ACU(chat: unknown[], container: Record<string, unknown> | null): void {
+    writeChatMetadataField_ACU(CHAT_SHEET_GUIDE_FIELD_ACU, container);
+    const first = getChatFirstLayerMessageLocal_ACU(chat);
+    if (!first) return;
+    if (container && Object.keys(container).length > 0) {
+        (first as Record<string, unknown>)[CHAT_SHEET_GUIDE_FIELD_ACU] = container;
+    } else {
+        delete (first as Record<string, unknown>)[CHAT_SHEET_GUIDE_FIELD_ACU];
+    }
 }

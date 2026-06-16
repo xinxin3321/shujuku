@@ -1,4 +1,5 @@
 import { getChatArray_ACU } from '../../data/gateways/chat-gateway';
+import { getChatSheetGuideContainer_ACU } from '../../data/storage/chat-history';
 import { getCurrentIsolationKey_ACU, independentTableStates_ACU } from '../runtime/state-manager';
 import type { TableDataObject_ACU, Sheet_ACU, Mate_ACU } from '../../shared/models/table-data';
 import { logError_ACU, logWarn_ACU } from '../../shared/utils';
@@ -8,7 +9,7 @@ import { normalizeSqlStructure, normalizeStatementValues } from '../../data/sqli
 import type { TableCheckpointV2_ACU, TableMutationLogEntryV2_ACU, TableMutationOperationV2_ACU, TablePatchV2_ACU, TableStorageFrameV2_ACU } from './storage-frame-v2-types';
 import { isV2TagData_ACU } from './storage-strategy-resolver';
 import { readIsolatedTagData_ACU } from '../../data/repositories/chat-message-data-repo';
-import { getSortedSheetKeys_ACU } from '../template/chat-scope';
+import { getSortedSheetKeys_ACU, materializeDataFromSheetGuide_ACU } from '../template/chat-scope';
 
 interface V2FrameRef_ACU {
   messageIndex: number;
@@ -83,6 +84,64 @@ function replayCheckpointSchedule_ACU(checkpoint: TableCheckpointV2_ACU, fallbac
 function replaceState_ACU(state: TableDataObject_ACU, next: TableDataObject_ACU): void {
   Object.keys(state).forEach(key => delete (state as any)[key]);
   Object.assign(state, deepClone_ACU(next));
+}
+
+function getReplayGuideData_ACU(chat: any[], isolationKey: string): Record<string, any> | null {
+  const container = getChatSheetGuideContainer_ACU(chat as any);
+  const slot = container?.tags && typeof container.tags === 'object'
+    ? (container.tags as Record<string, any>)[String(isolationKey ?? '')]
+    : null;
+  if (slot?.data && typeof slot.data === 'object') return slot.data as Record<string, any>;
+  return null;
+}
+
+function applyGuideStructureBeforeReplay_ACU(state: TableDataObject_ACU, guideData: Record<string, any> | null): void {
+  if (!guideData || typeof guideData !== 'object') return;
+  const guided = materializeDataFromSheetGuide_ACU(guideData, { includeSeedRows: false }) as TableDataObject_ACU;
+  const guideKeys = getSortedSheetKeys_ACU(guided as any, { ignoreChatGuide: true, includeMissingFromGuide: true });
+  for (const sheetKey of guideKeys) {
+    if (!sheetKey || !String(sheetKey).startsWith('sheet_')) continue;
+    const guideSheet = guided[sheetKey] as Sheet_ACU | undefined;
+    if (!guideSheet || typeof guideSheet !== 'object') continue;
+    const targetSheet = state[sheetKey] as Sheet_ACU | undefined;
+    if (!targetSheet || typeof targetSheet !== 'object') {
+      state[sheetKey] = deepClone_ACU(guideSheet) as any;
+      continue;
+    }
+    if (guideSheet.uid) targetSheet.uid = guideSheet.uid;
+    if (guideSheet.name) targetSheet.name = guideSheet.name;
+    if ((guideSheet as any).sourceData && typeof (guideSheet as any).sourceData === 'object') {
+      (targetSheet as any).sourceData = deepClone_ACU((guideSheet as any).sourceData);
+    }
+    if ((guideSheet as any).updateConfig && typeof (guideSheet as any).updateConfig === 'object') {
+      (targetSheet as any).updateConfig = deepClone_ACU((guideSheet as any).updateConfig);
+    }
+    if ((guideSheet as any).exportConfig && typeof (guideSheet as any).exportConfig === 'object') {
+      (targetSheet as any).exportConfig = deepClone_ACU((guideSheet as any).exportConfig);
+    }
+    if ((guideSheet as any).orderNo !== undefined) (targetSheet as any).orderNo = (guideSheet as any).orderNo;
+    if (Array.isArray((guideSheet as any).content?.[0])) {
+      if (!Array.isArray((targetSheet as any).content)) (targetSheet as any).content = [];
+      (targetSheet as any).content[0] = deepClone_ACU((guideSheet as any).content[0]);
+      const targetLen = (targetSheet as any).content[0].length;
+      for (let rowIndex = 1; rowIndex < (targetSheet as any).content.length; rowIndex += 1) {
+        const row = (targetSheet as any).content[rowIndex];
+        if (!Array.isArray(row)) continue;
+        const hasAutoMergedTag = row.length > 0 && row[row.length - 1] === 'auto_merged';
+        if (row.length < targetLen) {
+          while (row.length < targetLen) row.push('');
+          if (hasAutoMergedTag && row[row.length - 1] !== 'auto_merged') row.push('auto_merged');
+        } else if (row.length > targetLen) {
+          row.splice(targetLen);
+          if (hasAutoMergedTag) row.push('auto_merged');
+        }
+      }
+    }
+    if (Array.isArray((guideSheet as any).seedRows)) (targetSheet as any).seedRows = deepClone_ACU((guideSheet as any).seedRows);
+  }
+  for (const sheetKey of Object.keys(state)) {
+    if (sheetKey.startsWith('sheet_') && !guideKeys.includes(sheetKey)) delete (state as any)[sheetKey];
+  }
 }
 
 function splitSqlStatementsForReplay_ACU(sql: string): string[] {
@@ -409,6 +468,7 @@ export async function loadTableStateFromFramesV2_ACU(
 
   const checkpoint = checkpointRef.frame.checkpoint;
   const state: TableDataObject_ACU = deepClone_ACU(checkpoint.data);
+  applyGuideStructureBeforeReplay_ACU(state, getReplayGuideData_ACU(chat, isolationKey));
   const replayStartMessageIndex = checkpointRef.messageIndex;
   replayCheckpointSchedule_ACU(checkpoint, checkpointRef.aiFloor);
 

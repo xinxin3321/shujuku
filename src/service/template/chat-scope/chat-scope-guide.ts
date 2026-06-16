@@ -5,7 +5,7 @@
 import { DEFAULT_TABLE_TEMPLATE_ACU, TABLE_TEMPLATE_ACU, _set_TABLE_TEMPLATE_ACU} from '../../../shared/defaults-json.js';
 import { readProfileTemplateFromStorage_ACU, saveCurrentProfileTemplate_ACU } from '../../../data/repositories/profile-repo';
 import { DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU, deriveTemplatePresetNameForImport_ACU, getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU } from '../../../shared/template-preset-utils';
-import { CHAT_SCOPED_CONFIG_FIELD_ACU, CHAT_SHEET_GUIDE_FIELD_ACU, CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU, CHAT_SHEET_GUIDE_VERSION_ACU, CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU, LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU, MAX_CHAT_TEMPLATE_ARCHIVES_PER_TAG_ACU, getChatScopedConfigContainer_ACU, getChatSheetGuideContainer_ACU, normalizeChatScopedConfigContainer_ACU } from '../../../data/storage/chat-history';
+import { CHAT_SCOPED_CONFIG_FIELD_ACU, CHAT_SHEET_GUIDE_FIELD_ACU, CHAT_SHEET_GUIDE_SEED_ROWS_FIELD_ACU, CHAT_SHEET_GUIDE_VERSION_ACU, CHAT_TEMPLATE_ARCHIVE_OPTION_PREFIX_ACU, LEGACY_CHAT_TABLE_HEADER_GUIDE_FIELD_ACU, MAX_CHAT_TEMPLATE_ARCHIVES_PER_TAG_ACU, getChatScopedConfigContainer_ACU, getChatSheetGuideContainer_ACU, normalizeChatScopedConfigContainer_ACU, setChatSheetGuideContainer_ACU } from '../../../data/storage/chat-history';
 import { getDefaultTemplateSnapshot_ACU, getTemplatePreset_ACU } from '../template-preset-service';
 import { currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU } from '../../runtime/state-manager';
 import { getChatArray_ACU, saveChatToHost_ACU } from '../../../data/gateways/chat-gateway';
@@ -324,10 +324,10 @@ export function shouldUseOpeningSeedRows_ACU(): boolean {
       delete nextContainer.tags[normalizedKey];
 
       if (Object.keys(nextContainer.tags).length === 0) {
-          delete first[CHAT_SHEET_GUIDE_FIELD_ACU];
+          setChatSheetGuideContainer_ACU(chat, null);
       } else {
           nextContainer.version = CHAT_SHEET_GUIDE_VERSION_ACU;
-          first[CHAT_SHEET_GUIDE_FIELD_ACU] = nextContainer;
+          setChatSheetGuideContainer_ACU(chat, nextContainer);
       }
       return true;
   }
@@ -401,7 +401,7 @@ export function shouldUseOpeningSeedRows_ACU(): boolean {
           reason: String(reason || ''),
           templateScopeMode: shouldSyncTemplateScope ? 'chat_override' : 'inherit_global',
       };
-      first[CHAT_SHEET_GUIDE_FIELD_ACU] = container;
+      setChatSheetGuideContainer_ACU(chat, container);
       if (shouldSyncTemplateScope) {
           const fallbackTemplateSource = existingTemplateScopeState?.templateStr || materializeDataFromSheetGuide_ACU(normalized, { includeSeedRows: true });
           const resolvedTemplateSource = templateSource || fallbackTemplateSource;

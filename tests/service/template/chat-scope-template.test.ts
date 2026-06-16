@@ -27,6 +27,8 @@ const {
   mockGetChatSheetGuideData,
   // chat-scope-sheet mocks
   mockSanitizeChatSheetsObject,
+  mockSetChatScopedConfigContainer,
+  mockSetChatSheetGuideContainer,
 } = vi.hoisted(() => ({
   mockSettings: { dataIsolationEnabled: false, dataIsolationCode: '' } as any,
   mockGetCurrentIsolationKey: vi.fn(() => ''),
@@ -47,6 +49,18 @@ const {
   mockMigrateLegacyTemplateScope: vi.fn(() => null),
   mockClearChatSheetGuideData: vi.fn(() => false),
   mockGetChatSheetGuideData: vi.fn(() => null),
+  mockSetChatScopedConfigContainer: vi.fn((chat: any[], container: any) => {
+    const first = Array.isArray(chat) ? chat[0] : null;
+    if (!first) return;
+    if (container) first._acu_scoped_config = container;
+    else delete first._acu_scoped_config;
+  }),
+  mockSetChatSheetGuideContainer: vi.fn((chat: any[], container: any) => {
+    const first = Array.isArray(chat) ? chat[0] : null;
+    if (!first) return;
+    if (container) first._acu_sheet_guide = container;
+    else delete first._acu_sheet_guide;
+  }),
   mockSanitizeChatSheetsObject: vi.fn((obj: any, opts: any) => {
     if (!obj || typeof obj !== 'object') return obj;
     const out: any = {};
@@ -89,6 +103,8 @@ vi.mock('../../../src/data/storage/chat-history', () => ({
   getChatScopedConfigContainer_ACU: mockGetChatScopedConfigContainer,
   getChatSheetGuideContainer_ACU: mockGetChatSheetGuideContainer,
   normalizeChatScopedConfigContainer_ACU: mockNormalizeChatScopedConfigContainer,
+  setChatScopedConfigContainer_ACU: mockSetChatScopedConfigContainer,
+  setChatSheetGuideContainer_ACU: mockSetChatSheetGuideContainer,
 }));
 
 vi.mock('../../../src/service/template/template-preset-service', () => ({

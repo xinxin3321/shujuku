@@ -150,6 +150,96 @@ describe('loadTableStateFromFramesV2_ACU', () => {
     expect(result?.sheet_0.content[1]).toEqual(['1', '钢剑']);
   });
 
+  it('回放 sql_batch 前先套用当前聊天 guide 的新 DDL/CHECK', async () => {
+    const oldData = {
+      mate: { type: 'acu', version: 1 },
+      sheet_MapElements: {
+        uid: 'sheet_MapElements',
+        name: '地图元素表',
+        content: [['row_id', '元素名称', '元素类型'], ['1', '旧点', '地标']],
+        sourceData: {
+          ddl: `CREATE TABLE map_elements (
+            row_id INTEGER PRIMARY KEY,
+            element_name TEXT NOT NULL, -- 元素名称
+            element_type TEXT NOT NULL CHECK(element_type IN ('地标')) -- 元素类型
+          );`,
+        },
+        updateConfig: {},
+        exportConfig: {},
+        orderNo: 0,
+      },
+    } as any;
+    const newGuide = {
+      version: 2,
+      tags: {
+        '': {
+          data: {
+            mate: { type: 'chatSheets', version: 2 },
+            sheet_MapElements: {
+              uid: 'sheet_MapElements',
+              name: '地图元素表',
+              content: [['row_id', '元素名称', '元素类型']],
+              sourceData: {
+                ddl: `CREATE TABLE map_elements (
+                  row_id INTEGER PRIMARY KEY,
+                  element_name TEXT NOT NULL, -- 元素名称
+                  element_type TEXT NOT NULL CHECK(element_type IN ('地标','地形')) -- 元素类型
+                );`,
+              },
+              updateConfig: {},
+              exportConfig: {},
+              orderNo: 0,
+            },
+          },
+          templateScopeMode: 'chat_override',
+        },
+      },
+    };
+    const chat = [{
+      is_user: false,
+      TavernDB_ACU_InternalSheetGuide: newGuide,
+      TavernDB_ACU_IsolatedData: {
+        '': {
+          _acu_storage_version: 2,
+          storageFrame: {
+            version: 2,
+            checkpoint: {
+              kind: 'full',
+              createdAt: 1,
+              reason: 'init',
+              data: oldData,
+              event: { filledSheetKeys: [], changedSheetKeys: [], groupKeys: [] },
+            },
+            logEntries: [{
+              seq: 1,
+              entryId: 'v2_sql_terrain',
+              createdAt: 2,
+              source: 'manual_crud',
+              targetMessageIndex: 0,
+              aiFloor: 1,
+              filledSheetKeys: [],
+              changedSheetKeys: ['sheet_MapElements'],
+              groupKeys: [],
+              operations: [{
+                kind: 'sql_batch',
+                statements: ["INSERT INTO map_elements (row_id, element_name, element_type) VALUES (2, '废弃集装箱', '地形')"],
+              }],
+            }],
+          },
+        },
+      },
+    }];
+
+    const result = await loadTableStateFromFramesV2_ACU(chat, '');
+
+    expect(result?.sheet_MapElements.sourceData.ddl).toContain("'地形'");
+    expect(result?.sheet_MapElements.content).toEqual([
+      ['row_id', '元素名称', '元素类型'],
+      ['1', '旧点', '地标'],
+      ['2', '废弃集装箱', '地形'],
+    ]);
+  });
+
   it('回放无分号分隔且含前置文本的 table_edit_dsl', async () => {
     const chat = [
       {

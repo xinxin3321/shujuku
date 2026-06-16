@@ -91,20 +91,18 @@ describe('getChatScopedConfigContainer_ACU', () => {
 
   it('ScopedConfig 为 JSON 字符串时正确解析', () => {
     const config = { version: 1, template: {} };
-    mockGetChatFirstLayerMessage.mockReturnValue({
+    const result = getChatScopedConfigContainer_ACU([{
       [CHAT_SCOPED_CONFIG_FIELD_ACU]: JSON.stringify(config),
-    });
-    const result = getChatScopedConfigContainer_ACU([{}]);
+    }]);
     expect(result).not.toBeNull();
     expect(result!.version).toBe(1);
   });
 
   it('ScopedConfig 为对象时直接返回', () => {
     const config = { version: 1, plot: { mode: 'chat_override' } };
-    mockGetChatFirstLayerMessage.mockReturnValue({
+    const result = getChatScopedConfigContainer_ACU([{
       [CHAT_SCOPED_CONFIG_FIELD_ACU]: config,
-    });
-    const result = getChatScopedConfigContainer_ACU([{}]);
+    }]);
     expect(result).not.toBeNull();
     expect(result!.version).toBe(1);
   });
@@ -160,20 +158,18 @@ describe('getChatSheetGuideContainer_ACU', () => {
 
   it('SheetGuide 为 JSON 字符串时正确解析', () => {
     const guide = { version: 2, tags: {} };
-    mockGetChatFirstLayerMessage.mockReturnValue({
+    const result = getChatSheetGuideContainer_ACU([{
       [CHAT_SHEET_GUIDE_FIELD_ACU]: JSON.stringify(guide),
-    });
-    const result = getChatSheetGuideContainer_ACU([{}]);
+    }]);
     expect(result).not.toBeNull();
     expect(result!.version).toBe(2);
   });
 
   it('SheetGuide 为对象时直接返回', () => {
     const guide = { version: 2, tags: { '': { data: {} } } };
-    mockGetChatFirstLayerMessage.mockReturnValue({
+    const result = getChatSheetGuideContainer_ACU([{
       [CHAT_SHEET_GUIDE_FIELD_ACU]: guide,
-    });
-    const result = getChatSheetGuideContainer_ACU([{}]);
+    }]);
     expect(result).not.toBeNull();
     expect(result!.tags).toBeDefined();
   });
