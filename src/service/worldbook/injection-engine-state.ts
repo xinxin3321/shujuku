@@ -4,14 +4,14 @@
  */
 import { getCurrentWorldbookConfig_ACU } from '../settings/settings-readers';
 import { CHAT_SHEET_GUIDE_FIELD_ACU } from '../../data/storage/chat-history';
-import { currentChatFileIdentifier_ACU, currentJsonTableData_ACU, generationGate_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentChatFileIdentifier_ACU, _set_allChatMessages_ACU, _set_lastTotalAiMessages_ACU } from '../runtime/state-manager';
+import { currentChatFileIdentifier_ACU, currentJsonTableData_ACU, generationGate_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentChatFileIdentifier_ACU, _set_allChatMessages_ACU, _set_currentJsonTableData_ACU, _set_independentTableStates_ACU, _set_lastTotalAiMessages_ACU } from '../runtime/state-manager';
 import { getLorebookEntries_ACU, deleteLorebookEntries_ACU, getCurrentCharPrimaryLorebook_ACU as gwGetCurrentCharPrimaryLorebook_ACU, listLorebooks_ACU } from '../../data/gateways/worldbook-gateway';
 import { getChatArray_ACU, saveChatToHost_ACU } from '../../data/gateways/chat-gateway';
 import { applyTemplateScopeForCurrentChat_ACU, loadSettings_ACU, saveSettings_ACU } from '../settings/settings-service';
 import { getSortedSheetKeys_ACU } from '../template/chat-scope';
 import { loadAllChatMessages_ACU } from './pipeline';
 import { cleanChatName_ACU, getChatFirstLayerMessage_ACU, logDebug_ACU, logError_ACU, logWarn_ACU } from '../../shared/utils';
-import { loadOrCreateJsonTableFromChatHistory_ACU } from '../table/table-service';
+
 import { purgeSheetKeysFromMessage_ACU } from '../../data/repositories/chat-message-data-repo';
 import { runTableWriteTransaction_ACU } from '../table/table-write-transaction';
 
@@ -46,6 +46,20 @@ import { runTableWriteTransaction_ACU } from '../table/table-write-transaction';
     // 新逻辑：如果收到的 chatFileName 无效，则记录一个警告并忽略此事件，
     // 以保留当前的数据库状态，等待一个有效的 CHAT_CHANGED 事件。
     if (!chatFileName || typeof chatFileName !== 'string' || chatFileName.trim() === '' || chatFileName.trim() === 'null') {
+        if (!Array.isArray(getChatArray_ACU()) || getChatArray_ACU().length === 0) {
+            logDebug_ACU(`ACU: Received invalid chat file name "${chatFileName}" with no active chat. Clearing runtime state.`);
+            _set_currentChatFileIdentifier_ACU('');
+            _set_currentJsonTableData_ACU(null);
+            _set_independentTableStates_ACU({});
+            _set_allChatMessages_ACU([]);
+            _set_lastTotalAiMessages_ACU(0);
+            generationGate_ACU.lastUserMessageId = null;
+            generationGate_ACU.lastUserMessageText = '';
+            generationGate_ACU.lastUserMessageAt = 0;
+            generationGate_ACU.lastUserSendIntentAt = 0;
+            generationGate_ACU.lastGeneration = null;
+            return;
+        }
         logWarn_ACU(`ACU: Received invalid chat file name: "${chatFileName}". This can happen after an update error. Ignoring event to preserve current state.`);
         // 保持当前状态不变，防止数据库被意外清除
         return;
@@ -60,6 +74,8 @@ import { runTableWriteTransaction_ACU } from '../table/table-write-transaction';
     // MUST be called AFTER setting currentChatFileIdentifier_ACU so it loads the correct character settings.
     loadSettings_ACU();
 
+    _set_currentJsonTableData_ACU(null);
+    _set_independentTableStates_ACU({});
     _set_allChatMessages_ACU([]);
     _set_lastTotalAiMessages_ACU(0); // 重置 AI 消息计数
 
@@ -74,12 +90,10 @@ import { runTableWriteTransaction_ACU } from '../table/table-write-transaction';
       `ACU: currentChatFileIdentifier FINAL set to: "${currentChatFileIdentifier_ACU}" (Source: CHAT_CHANGED event)`,
     );
 
-    await loadAllChatMessages_ACU();
-    applyTemplateScopeForCurrentChat_ACU();
+    // 持久化聊天数据读取由 presentation/bootstrap/init.ts 的延迟 CHAT_CHANGED 阶段统一执行。
+    // 这里绝不从当前内存缓存派生表格/模板，避免在宿主 chatMetadata 尚未切换完成时读到旧上下文。
     
     // updateCardUpdateStatusDisplay 由 presentation 层的 init.ts CHAT_CHANGED 回调执行
-
-    await loadOrCreateJsonTableFromChatHistory_ACU();
 
   // [核心修复] 切换聊天时，强制刷新可视化编辑器数据
     // 这确保了无论编辑器是否打开（即是否绑定了事件），数据源都被更新，并且如果有监听者则触发

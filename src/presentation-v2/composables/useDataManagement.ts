@@ -23,6 +23,7 @@ import {
   switchIsolationProfile_ACU,
 } from '../../service/settings/settings-service';
 import { isSqliteMode } from '../../service/table/storage-mode';
+import { reloadStorageProvider } from '../../service/table/table-storage-strategy';
 import { getChatArray_ACU, deleteLocalDataInChatCore_ACU, overrideLatestLayerWithTemplateCore_ACU } from '../../service/chat/chat-service';
 import { loadOrCreateJsonTableFromChatHistory_ACU } from '../../service/table/table-service';
 import { cleanupWorldbookEntriesAfterDataDeletion_ACU } from '../../service/worldbook/worldbook-cleanup';
@@ -434,6 +435,7 @@ export function useDataManagement() {
       const deletedCount = await deleteLocalDataInChatCore_ACU(mode, start, end);
       if (deletedCount > 0) {
         await loadOrCreateJsonTableFromChatHistory_ACU();
+        if (isSqliteMode()) await reloadStorageProvider();
         await refreshMergedDataAndNotify_ACU();
         const worldbookDeleted = await cleanupWorldbookEntriesAfterDataDeletion_ACU();
         refresh();

@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const {
   mockSettings, mockCurrentChatFileIdentifier, mockCurrentJsonTableData,
   mockGenerationGate, mockSetCurrentChatFileIdentifier, mockSetAllChatMessages,
-  mockSetLastTotalAiMessages,
+  mockSetCurrentJsonTableData, mockSetIndependentTableStates, mockSetLastTotalAiMessages,
   mockGetCurrentWorldbookConfig,
   mockGetLorebookEntries, mockDeleteLorebookEntries, mockGwGetCurrentCharPrimaryLorebook,
   mockGetChatArray, mockSaveChatToHost,
@@ -38,6 +38,8 @@ const {
   },
   mockSetCurrentChatFileIdentifier: vi.fn(),
   mockSetAllChatMessages: vi.fn(),
+  mockSetCurrentJsonTableData: vi.fn(),
+  mockSetIndependentTableStates: vi.fn(),
   mockSetLastTotalAiMessages: vi.fn(),
   mockGetCurrentWorldbookConfig: vi.fn(() => ({
     injectionTarget: 'character',
@@ -88,6 +90,8 @@ vi.mock('../../../src/service/runtime/state-manager', () => ({
   getCurrentIsolationKey_ACU: vi.fn(() => ''),
   _set_currentChatFileIdentifier_ACU: mockSetCurrentChatFileIdentifier,
   _set_allChatMessages_ACU: mockSetAllChatMessages,
+  _set_currentJsonTableData_ACU: mockSetCurrentJsonTableData,
+  _set_independentTableStates_ACU: mockSetIndependentTableStates,
   _set_lastTotalAiMessages_ACU: mockSetLastTotalAiMessages,
 }));
 
@@ -156,6 +160,7 @@ beforeEach(() => {
   mockGenerationGate.lastUserMessageAt = 0;
   mockGenerationGate.lastUserSendIntentAt = 0;
   mockGenerationGate.lastGeneration = null;
+  mockGetChatArray.mockReturnValue([]);
   mockRunTableWriteTransaction.mockImplementation(async (_options: any, task: any) => task({
     transactionId: 'tx-cleanup-test',
     chatKey: 'test-chat',
@@ -220,9 +225,11 @@ describe('resetScriptStateForNewChat_ACU', () => {
     expect(mockLoadSettings).toHaveBeenCalled();
     expect(mockSetAllChatMessages).toHaveBeenCalledWith([]);
     expect(mockSetLastTotalAiMessages).toHaveBeenCalledWith(0);
-    expect(mockLoadAllChatMessages).toHaveBeenCalled();
-    expect(mockApplyTemplateScopeForCurrentChat).toHaveBeenCalled();
-    expect(mockLoadOrCreateJsonTableFromChatHistory).toHaveBeenCalled();
+    expect(mockSetCurrentJsonTableData).toHaveBeenCalledWith(null);
+    expect(mockSetIndependentTableStates).toHaveBeenCalledWith({});
+    expect(mockLoadAllChatMessages).not.toHaveBeenCalled();
+    expect(mockApplyTemplateScopeForCurrentChat).not.toHaveBeenCalled();
+    expect(mockLoadOrCreateJsonTableFromChatHistory).not.toHaveBeenCalled();
   });
 
   it('重置 generationGate 状态', async () => {
@@ -237,25 +244,43 @@ describe('resetScriptStateForNewChat_ACU', () => {
     expect(mockGenerationGate.lastGeneration).toBeNull();
   });
 
-  it('空 chatFileName 忽略事件', async () => {
+  it('无活动聊天且 chatFileName 为空时清空运行时状态', async () => {
+    mockGenerationGate.lastUserMessageId = 5;
+    mockGenerationGate.lastUserMessageText = '旧消息';
+    mockGenerationGate.lastUserMessageAt = 12345;
+
     await resetScriptStateForNewChat_ACU('');
+
+    expect(mockSetCurrentChatFileIdentifier).toHaveBeenCalledWith('');
+    expect(mockSetCurrentJsonTableData).toHaveBeenCalledWith(null);
+    expect(mockSetIndependentTableStates).toHaveBeenCalledWith({});
+    expect(mockSetAllChatMessages).toHaveBeenCalledWith([]);
+    expect(mockSetLastTotalAiMessages).toHaveBeenCalledWith(0);
+    expect(mockGenerationGate.lastUserMessageId).toBeNull();
+    expect(mockGenerationGate.lastUserMessageText).toBe('');
+    expect(mockGenerationGate.lastUserMessageAt).toBe(0);
+  });
+
+  it('有聊天数组但 chatFileName 临时无效时仍忽略事件保护当前状态', async () => {
+    mockGetChatArray.mockReturnValue([{ is_user: false }]);
+
+    await resetScriptStateForNewChat_ACU(null as any);
+
     expect(mockSetCurrentChatFileIdentifier).not.toHaveBeenCalled();
+    expect(mockSetCurrentJsonTableData).not.toHaveBeenCalled();
     expect(mockLogWarn).toHaveBeenCalledWith(expect.stringContaining('invalid chat file name'));
   });
 
-  it('null chatFileName 忽略事件', async () => {
-    await resetScriptStateForNewChat_ACU(null as any);
-    expect(mockSetCurrentChatFileIdentifier).not.toHaveBeenCalled();
-  });
-
-  it('"null" 字符串忽略事件', async () => {
+  it('"null" 字符串且无活动聊天时清空运行时状态', async () => {
     await resetScriptStateForNewChat_ACU('null');
-    expect(mockSetCurrentChatFileIdentifier).not.toHaveBeenCalled();
+    expect(mockSetCurrentChatFileIdentifier).toHaveBeenCalledWith('');
+    expect(mockSetCurrentJsonTableData).toHaveBeenCalledWith(null);
   });
 
-  it('纯空格 chatFileName 忽略事件', async () => {
+  it('纯空格 chatFileName 且无活动聊天时清空运行时状态', async () => {
     await resetScriptStateForNewChat_ACU('   ');
-    expect(mockSetCurrentChatFileIdentifier).not.toHaveBeenCalled();
+    expect(mockSetCurrentChatFileIdentifier).toHaveBeenCalledWith('');
+    expect(mockSetCurrentJsonTableData).toHaveBeenCalledWith(null);
   });
 });
 

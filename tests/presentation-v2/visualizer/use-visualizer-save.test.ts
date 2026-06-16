@@ -23,6 +23,7 @@ const runtimeMock = vi.hoisted(() => {
 });
 
 const serviceMock = vi.hoisted(() => ({
+  deleteLocalDataInChatCore_ACU: vi.fn(async () => 1),
   getChatArray_ACU: vi.fn(() => [{ mes: 'ai message' }]),
   saveChatToHost_ACU: vi.fn(async () => undefined),
   applySpecialIndexSequenceToSummaryTables_ACU: vi.fn(),
@@ -45,6 +46,8 @@ const serviceMock = vi.hoisted(() => ({
     latestDataAiFloor: 0,
   })),
   isSqliteMode: vi.fn(() => false),
+  ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU: vi.fn(async () => ({ success: true, dataWasReset: false })),
+  validateCurrentChatTableRecoveryWithGuide_ACU: vi.fn(async () => ({ success: true })),
   reloadStorageProvider: vi.fn(async () => undefined),
   applyTemplateScopeForCurrentChat_ACU: vi.fn(() => ({ mode: 'chat_override' })),
   buildChatSheetGuideDataFromData_ACU: vi.fn((data: Record<string, any>) => data),
@@ -74,6 +77,7 @@ const toastMock = vi.hoisted(() => ({
 
 vi.mock('../../../src/service/runtime/state-manager', () => runtimeMock);
 vi.mock('../../../src/service/chat/chat-service', () => ({
+  deleteLocalDataInChatCore_ACU: serviceMock.deleteLocalDataInChatCore_ACU,
   getChatArray_ACU: serviceMock.getChatArray_ACU,
   saveChatToHost_ACU: serviceMock.saveChatToHost_ACU,
 }));
@@ -99,6 +103,12 @@ vi.mock('../../../src/service/table/table-history', () => ({
 }));
 vi.mock('../../../src/service/table/storage-mode', () => ({
   isSqliteMode: serviceMock.isSqliteMode,
+}));
+vi.mock('../../../src/service/table/storage-frame-v2-replay', () => ({
+  validateCurrentChatTableRecoveryWithGuide_ACU: serviceMock.validateCurrentChatTableRecoveryWithGuide_ACU,
+}));
+vi.mock('../../../src/presentation-v2/composables/useTemplateRecoveryGuard', () => ({
+  ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU: serviceMock.ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU,
 }));
 vi.mock('../../../src/service/settings/settings-service', () => ({
   applyTemplateScopeForCurrentChat_ACU: serviceMock.applyTemplateScopeForCurrentChat_ACU,
@@ -282,6 +292,7 @@ describe('useVisualizerSave', () => {
     const saved = await useVisualizerSave().saveTemplateToCurrentChat();
 
     expect(saved).toBe(true);
+    expect(serviceMock.ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU).toHaveBeenCalledWith(expect.any(Object), 'save-template');
     expect(serviceMock.setChatSheetGuideDataForIsolationKey_ACU).toHaveBeenCalledWith(
       'iso-test',
       expect.any(Object),
@@ -293,6 +304,43 @@ describe('useVisualizerSave', () => {
     }));
     expect(serviceMock.refreshMergedDataAndNotify_ACU).toHaveBeenCalled();
     expect(store.lastSavedTarget).toBe('template-chat');
+  });
+
+  it('保存聊天模板需要重置旧数据时，统一 guard 通过后继续保存', async () => {
+    const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
+    const { useVisualizerSave } = await import('../../../src/presentation-v2/composables/visualizer/useVisualizerSave');
+    const store = useVisualizerStore();
+    store.loadSnapshot({
+      mate: { type: 'chatSheets', version: 1 },
+      sheet_test_vz2: sheet('结构变更表'),
+    }, ['sheet_test_vz2']);
+    store.setDirty(true);
+    serviceMock.ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU.mockResolvedValueOnce({ success: true, dataWasReset: true });
+
+    const saved = await useVisualizerSave().saveTemplateToCurrentChat();
+
+    expect(saved).toBe(true);
+    expect(serviceMock.ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU).toHaveBeenCalledWith(expect.any(Object), 'save-template');
+    expect(serviceMock.setChatSheetGuideDataForIsolationKey_ACU).toHaveBeenCalled();
+    expect(store.lastSavedTarget).toBe('template-chat');
+  });
+
+  it('保存聊天模板被统一 guard 拦截时，不保存模板', async () => {
+    const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
+    const { useVisualizerSave } = await import('../../../src/presentation-v2/composables/visualizer/useVisualizerSave');
+    const store = useVisualizerStore();
+    store.loadSnapshot({
+      mate: { type: 'chatSheets', version: 1 },
+      sheet_test_vz2: sheet('结构变更表'),
+    }, ['sheet_test_vz2']);
+    store.setDirty(true);
+    serviceMock.ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU.mockResolvedValueOnce({ success: false, dataWasReset: false });
+
+    const saved = await useVisualizerSave().saveTemplateToCurrentChat();
+
+    expect(saved).toBe(false);
+    expect(serviceMock.setChatSheetGuideDataForIsolationKey_ACU).not.toHaveBeenCalled();
+    expect(store.lastSavedTarget).toBeNull();
   });
 
   it('保存时提交 AI 助手暂存的锁变化并在成功后清空队列', async () => {

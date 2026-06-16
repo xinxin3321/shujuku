@@ -44,6 +44,10 @@ function getChatFirstLayerMessageLocal_ACU(chat: unknown[]): Record<string, unkn
         : null;
 }
 
+function cloneContainer_ACU(container: Record<string, unknown>): Record<string, unknown> {
+    return cloneScopedConfigData_ACU(container, {}) as Record<string, unknown>;
+}
+
 function getChatMetadata_ACU(): Record<string, unknown> | null {
     const metadata = (SillyTavern_API_ACU as any)?.chatMetadata;
     return metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata as Record<string, unknown> : null;
@@ -66,20 +70,67 @@ function writeChatMetadataField_ACU(field: string, value: Record<string, unknown
     } catch (_) {}
 }
 
+function mergeObjectSlots_ACU(target: Record<string, unknown>, fallback: Record<string, unknown>): boolean {
+    let changed = false;
+    Object.entries(fallback).forEach(([key, value]) => {
+        if (!Object.prototype.hasOwnProperty.call(target, key)) {
+            target[key] = cloneScopedConfigData_ACU(value, value as any) as unknown;
+            changed = true;
+        }
+    });
+    return changed;
+}
+
+function mergeLegacyScopedConfigIntoMetadata_ACU(metadataContainer: Record<string, unknown> | null, legacyContainer: Record<string, unknown> | null): { container: Record<string, unknown> | null; changed: boolean } {
+    if (!metadataContainer && !legacyContainer) return { container: null, changed: false };
+    if (!metadataContainer) return { container: cloneContainer_ACU(legacyContainer as Record<string, unknown>), changed: true };
+    if (!legacyContainer) return { container: cloneContainer_ACU(metadataContainer), changed: false };
+
+    const merged = cloneContainer_ACU(metadataContainer);
+    let changed = false;
+    Object.entries(legacyContainer).forEach(([key, value]) => {
+        if (key === 'version') return;
+        const targetValue = merged[key];
+        if (
+            value && typeof value === 'object' && !Array.isArray(value)
+            && targetValue && typeof targetValue === 'object' && !Array.isArray(targetValue)
+        ) {
+            changed = mergeObjectSlots_ACU(targetValue as Record<string, unknown>, value as Record<string, unknown>) || changed;
+        } else if (!Object.prototype.hasOwnProperty.call(merged, key)) {
+            merged[key] = cloneScopedConfigData_ACU(value, value as any) as unknown;
+            changed = true;
+        }
+    });
+    return { container: merged, changed };
+}
+
+function mergeLegacyGuideIntoMetadata_ACU(metadataContainer: Record<string, unknown> | null, legacyContainer: Record<string, unknown> | null): { container: Record<string, unknown> | null; changed: boolean } {
+    if (!metadataContainer && !legacyContainer) return { container: null, changed: false };
+    if (!metadataContainer) return { container: cloneContainer_ACU(legacyContainer as Record<string, unknown>), changed: true };
+    if (!legacyContainer) return { container: cloneContainer_ACU(metadataContainer), changed: false };
+
+    const merged = cloneContainer_ACU(metadataContainer);
+    const legacyTags = legacyContainer.tags;
+    if (legacyTags && typeof legacyTags === 'object' && !Array.isArray(legacyTags)) {
+        if (!merged.tags || typeof merged.tags !== 'object' || Array.isArray(merged.tags)) merged.tags = {};
+        const changed = mergeObjectSlots_ACU(merged.tags as Record<string, unknown>, legacyTags as Record<string, unknown>);
+        return { container: merged, changed };
+    }
+    return { container: merged, changed: false };
+}
+
 /**
- * 从 chat_metadata 优先读取作用域配置容器；兼容旧版 chat[0] 字段。
+ * 读取作用域配置容器；chat_metadata 为权威源，chat[0] 只补齐 metadata 缺失的旧槽位。
  * @param chat SillyTavern 聊天数组
  * @returns 解析后的配置对象，或 null
  */
 export function getChatScopedConfigContainer_ACU(chat: unknown[]): Record<string, unknown> | null {
     const metadataContainer = readContainer_ACU(getChatMetadata_ACU()?.[CHAT_SCOPED_CONFIG_FIELD_ACU]);
-    if (metadataContainer) return metadataContainer;
-
     const first = getChatFirstLayerMessageLocal_ACU(chat);
-    if (!first) return null;
-    const legacyContainer = readContainer_ACU((first as Record<string, unknown>)[CHAT_SCOPED_CONFIG_FIELD_ACU]);
-    if (legacyContainer) writeChatMetadataField_ACU(CHAT_SCOPED_CONFIG_FIELD_ACU, legacyContainer);
-    return legacyContainer;
+    const legacyContainer = first ? readContainer_ACU(first[CHAT_SCOPED_CONFIG_FIELD_ACU]) : null;
+    const merged = mergeLegacyScopedConfigIntoMetadata_ACU(metadataContainer, legacyContainer);
+    if (merged.changed && merged.container) writeChatMetadataField_ACU(CHAT_SCOPED_CONFIG_FIELD_ACU, merged.container);
+    return merged.container;
 }
 
 /**
@@ -100,19 +151,17 @@ export function normalizeChatScopedConfigContainer_ACU(container: unknown): Reco
 }
 
 /**
- * 从 chat[0] 读取 Sheet Guide 容器
+ * 读取 Sheet Guide 容器；chat_metadata 为权威源，chat[0] 只补齐 metadata 缺失的旧标签槽位。
  * @param chat SillyTavern 聊天数组
  * @returns 解析后的 guide 对象，或 null
  */
 export function getChatSheetGuideContainer_ACU(chat: unknown[]): Record<string, unknown> | null {
     const metadataContainer = readContainer_ACU(getChatMetadata_ACU()?.[CHAT_SHEET_GUIDE_FIELD_ACU]);
-    if (metadataContainer) return metadataContainer;
-
     const first = getChatFirstLayerMessageLocal_ACU(chat);
-    if (!first) return null;
-    const legacyContainer = readContainer_ACU((first as Record<string, unknown>)[CHAT_SHEET_GUIDE_FIELD_ACU]);
-    if (legacyContainer) writeChatMetadataField_ACU(CHAT_SHEET_GUIDE_FIELD_ACU, legacyContainer);
-    return legacyContainer;
+    const legacyContainer = first ? readContainer_ACU(first[CHAT_SHEET_GUIDE_FIELD_ACU]) : null;
+    const merged = mergeLegacyGuideIntoMetadata_ACU(metadataContainer, legacyContainer);
+    if (merged.changed && merged.container) writeChatMetadataField_ACU(CHAT_SHEET_GUIDE_FIELD_ACU, merged.container);
+    return merged.container;
 }
 
 export function setChatScopedConfigContainer_ACU(chat: unknown[], container: Record<string, unknown> | null): void {

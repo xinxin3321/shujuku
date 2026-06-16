@@ -21,7 +21,7 @@ import { ensureExportConfigDefaults_ACU, ensureGlobalInjectionConfigDefaults_ACU
 import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStandardData_ACU, readLegacySummaryData_ACU, isLegacyMatchForIsolation_ACU } from '../../../data/repositories/chat-message-data-repo';
 import { normalizeChatScopedConfigSource_ACU, normalizeGuideData_ACU } from './chat-scope-base';
 // 循环 import — 运行时安全（无模块级立即执行代码）
-import { migrateLegacyTemplateScopeForCurrentChat_ACU, clearChatSheetGuideDataForIsolationKey_ACU, getChatSheetGuideDataForIsolationKey_ACU } from './chat-scope-guide';
+import { migrateLegacyTemplateScopeForCurrentChat_ACU, clearChatSheetGuideDataForIsolationKey_ACU, getChatSheetGuideDataForIsolationKey_ACU, buildChatSheetGuideDataFromTemplateObj_ACU, setChatSheetGuideDataForIsolationKey_ACU } from './chat-scope-guide';
 import { sanitizeChatSheetsObject_ACU } from './chat-scope-sheet';
 import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
 
@@ -163,40 +163,59 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
           ensureCurrentChatTemplatePresetEntry_ACU({ isolationKey: normalizedKey });
       } catch (e) { logWarn_ACU('[模板作用域] ensureCurrentChatPresetEntry 失败:', e); }
 
+      let appliedFromLocalSnapshot = false;
       if (localEntry?.templateStr) {
           persistTemplateScopeSelectionState_ACU(normalizedPresetName, {
               source,
               updateGlobal: false,
-              save,
+              save: false,
               persistChatScope: true,
               templateSource: localEntry.templateStr,
               guideData: localEntry.guideData,
               scopeMode: 'chat_override',
               registerChatPresetEntry: false,
           });
+          if (localEntry.guideData) {
+              setChatSheetGuideDataForIsolationKey_ACU(normalizedKey, localEntry.guideData, {
+                  reason: `template_scope_${source}`,
+                  syncTemplateScope: false,
+              });
+          }
+          appliedFromLocalSnapshot = true;
       } else {
           if (!hasGlobalPreset) return false;
-          const linkState = buildChatTemplatePresetLinkState_ACU({
+          const snapshot = !normalizedPresetName
+              ? getDefaultTemplateSnapshot_ACU()
+              : sanitizeTemplateSnapshotForChat_ACU(getTemplatePreset_ACU(normalizedPresetName)?.templateStr || null);
+          if (!snapshot?.templateStr || !snapshot?.templateObj) return false;
+          const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(snapshot.templateObj, { stripSeedRows: false });
+          const templateState = buildChatTemplateScopeStateFromCurrent_ACU({
               isolationKey: normalizedKey,
               presetName: normalizedPresetName,
               source,
               originGlobalName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
               originGlobalRevision: 0,
               updatedAt: Date.now(),
+              templateSource: snapshot.templateStr,
+              guideData,
           });
-          setCurrentChatTemplateScopeState_ACU(linkState, {
+          if (!templateState) return false;
+          setCurrentChatTemplateScopeState_ACU(templateState, {
               isolationKey: normalizedKey,
               reason: `template_scope_${source}`,
           });
+          if (guideData) {
+              setChatSheetGuideDataForIsolationKey_ACU(normalizedKey, guideData, {
+                  reason: `template_scope_${source}`,
+                  syncTemplateScope: false,
+              });
+          }
+      }
+      if (save) {
           try {
-              clearChatSheetGuideDataForIsolationKey_ACU({ isolationKey: normalizedKey });
-          } catch (e) { logWarn_ACU('[模板作用域] clearChatSheetGuide 失败:', e); }
-          if (save) {
-              try {
-                  await saveChatToHost_ACU();
-              } catch (error) {
-                  logWarn_ACU('[TemplateScope] 保存聊天级模板预设引用失败:', error);
-              }
+              await saveChatToHost_ACU();
+          } catch (error) {
+              logWarn_ACU('[TemplateScope] 保存聊天级模板预设快照失败:', error);
           }
       }
 
@@ -204,8 +223,8 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       try { await refreshMergedDataAndNotify_ACU(); } catch (e) {}
       return {
           presetName: normalizedPresetName,
-          mode: localEntry?.templateStr ? 'chat_override' : 'preset_link',
-          fromLocalSnapshot: !!localEntry?.templateStr,
+          mode: 'chat_override',
+          fromLocalSnapshot: appliedFromLocalSnapshot,
       };
   }
 

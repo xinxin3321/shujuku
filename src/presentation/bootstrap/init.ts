@@ -8,7 +8,7 @@ import { showToastr_ACU } from '../theme/toast';
 import { attemptToLoadCoreApis_ACU } from '../triggers/settings-ui-sync';
 import { ensureInitialSeedCheckpoint_ACU, handleChatCompletionReady_ACU, loadPresetAndCleanCharacterData_ACU } from '../../service/runtime/helpers-remaining';
 import { SillyTavern_API_ACU } from '../../shared/host-api';
-import { currentChatFileIdentifier_ACU, generationGate_ACU, markUserSendIntent_ACU, isProcessing_Plot_ACU, isQuietLikeGeneration_ACU, isRecentUserSendIntent_ACU, loopState_ACU, recordGenerationContext_ACU, recordLastUserSend_ACU, settings_ACU, shouldProcessAutoTableUpdateForGenerationEnded_ACU, shouldProcessPlotForGeneration_ACU, shouldProcessSummaryVectorIndexForGeneration_ACU, _set_isProcessing_Plot_ACU} from '../../service/runtime/state-manager';
+import { currentChatFileIdentifier_ACU, generationGate_ACU, markUserSendIntent_ACU, isProcessing_Plot_ACU, isQuietLikeGeneration_ACU, isRecentUserSendIntent_ACU, loopState_ACU, recordGenerationContext_ACU, recordLastUserSend_ACU, settings_ACU, shouldProcessAutoTableUpdateForGenerationEnded_ACU, shouldProcessPlotForGeneration_ACU, shouldProcessSummaryVectorIndexForGeneration_ACU, _set_allChatMessages_ACU, _set_currentChatFileIdentifier_ACU, _set_currentJsonTableData_ACU, _set_independentTableStates_ACU, _set_isProcessing_Plot_ACU, _set_lastTotalAiMessages_ACU} from '../../service/runtime/state-manager';
 import { applyTemplateScopeForCurrentChat_ACU, loadSettings_ACU } from '../../service/settings/settings-service';
 import { resetScriptStateForNewChat_ACU } from '../../service/worldbook/injection-engine';
 import { reloadStorageProvider, disposeStorageProvider } from '../../service/table/table-storage-strategy';
@@ -26,6 +26,7 @@ import { runOptimizationLogicWithUI_ACU } from '../components/plot-planning-ui';
 import { processSummaryVectorIndexBeforeGenerationWithUI_ACU } from '../components/summary-vector-index-ui';
 import { preloadSummaryVectorIndexCacheForCurrentChat_ACU } from '../../service/vector/summary-vector-index-cache-service';
 import { restoreSummaryVectorIndexFlushQueueForCurrentChat_ACU } from '../../service/vector/summary-vector-index-flush-queue';
+import { topLevelWindow_ACU } from '../../shared/env';
 
 // [从 state-manager.ts 搬入 presentation 层] 安装发送意图捕捉钩子（DOM 事件绑定）
 async function ensureInitialSeedCheckpointBeforeGeneration_ACU(reason: string, { allowPendingFirstUserMessage = true } = {}) {
@@ -39,6 +40,41 @@ async function ensureInitialSeedCheckpointBeforeGeneration_ACU(reason: string, {
     logWarn_ACU(`[InitialSeed] ${reason} 初始化 checkpoint 失败，继续生成流程:`, error);
     return false;
   }
+}
+
+function isValidChatFileName_ACU(chatFileName: unknown): boolean {
+  return typeof chatFileName === 'string' && chatFileName.trim() !== '' && chatFileName.trim() !== 'null';
+}
+
+function hasActiveChatMessages_ACU(): boolean {
+  return Array.isArray((SillyTavern_API_ACU as any)?.chat) && ((SillyTavern_API_ACU as any).chat as any[]).length > 0;
+}
+
+function notifyRuntimeTableCleared_ACU(): void {
+  try {
+    (topLevelWindow_ACU as any).AutoCardUpdaterAPI?._notifyTableUpdate?.();
+  } catch (_) {}
+  if (typeof updateCardUpdateStatusDisplay_ACU === 'function') updateCardUpdateStatusDisplay_ACU();
+}
+
+function clearDerivedRuntimeState_ACU(): void {
+  disposeStorageProvider();
+  _set_currentJsonTableData_ACU(null);
+  _set_independentTableStates_ACU({});
+  _set_allChatMessages_ACU([]);
+  _set_lastTotalAiMessages_ACU(0);
+}
+
+function clearRuntimeForNoActiveChat_ACU(chatFileName: unknown): void {
+  clearDerivedRuntimeState_ACU();
+  _set_currentChatFileIdentifier_ACU('');
+  generationGate_ACU.lastUserMessageId = null;
+  generationGate_ACU.lastUserMessageText = '';
+  generationGate_ACU.lastUserMessageAt = 0;
+  generationGate_ACU.lastUserSendIntentAt = 0;
+  generationGate_ACU.lastGeneration = null;
+  notifyRuntimeTableCleared_ACU();
+  logDebug_ACU(`ACU: No active chat after CHAT_CHANGED (${String(chatFileName)}), runtime table state cleared.`);
 }
 
 function installSendIntentCaptureHooks_ACU() {
@@ -123,14 +159,18 @@ export   function mainInitialize_ACU() {
         SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes.CHAT_CHANGED, async (chatFileName: string) => {
           logDebug_ACU(`ACU CHAT_CHANGED event: ${chatFileName}`);
 
-          // [修复] 换卡/换聊天时，立即销毁旧的 SQLite 数据库实例
-          // 必须在 resetScriptStateForNewChat 之前执行，避免 1200ms 延迟窗口内的数据不一致
-          // 仅在 chatFileName 有效时才销毁（无效时 resetScriptState 会直接 return 保留现有状态）
-          if (chatFileName && typeof chatFileName === 'string' && chatFileName.trim() !== '' && chatFileName.trim() !== 'null') {
-            if (isSqliteMode()) {
-              disposeStorageProvider();
-              logDebug_ACU('[SQLite] CHAT_CHANGED: 立即销毁旧数据库实例');
-            }
+          const hasValidChatFileName_ACU = isValidChatFileName_ACU(chatFileName);
+          if (!hasValidChatFileName_ACU && !hasActiveChatMessages_ACU()) {
+            clearRuntimeForNoActiveChat_ACU(chatFileName);
+            return;
+          }
+
+          // [修复] 换卡/换聊天时立即丢弃所有派生缓存。
+          // 后续延迟阶段只从当前聊天持久化 metadata / 消息日志重建，避免旧表和旧模板在窗口期继续显示。
+          if (hasValidChatFileName_ACU) {
+            clearDerivedRuntimeState_ACU();
+            notifyRuntimeTableCleared_ACU();
+            if (isSqliteMode()) logDebug_ACU('[SQLite] CHAT_CHANGED: 立即销毁旧数据库实例');
           }
 
           await resetScriptStateForNewChat_ACU(chatFileName);
@@ -213,6 +253,14 @@ export   function mainInitialize_ACU() {
                  return;
              }
 
+             if (!hasActiveChatMessages_ACU()) {
+                 clearRuntimeForNoActiveChat_ACU(chatFileName);
+                 return;
+             }
+
+             // 先重新读取当前聊天持久化消息，再应用 chat_metadata 中的聊天模板快照。
+             // 此处是“持久化 → 派生缓存”的唯一重建入口，不能依赖切换前遗留的 TABLE_TEMPLATE/currentJsonTableData。
+             await loadAllChatMessages_ACU();
              applyTemplateScopeForCurrentChat_ACU();
 
             // [6.7.3] SQLite 模式下，切换聊天后需要重建内存数据库（初始化 SQLite 引擎）

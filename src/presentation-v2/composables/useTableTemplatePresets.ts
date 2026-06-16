@@ -2,6 +2,7 @@ import { computed, ref } from 'vue';
 import {
   applyTemplatePresetToCurrent_ACU,
   deleteTemplatePreset_ACU,
+  getActiveTemplatePresetMeta_ACU,
   ensureUniqueTemplatePresetName_ACU,
   getDefaultTemplateSnapshot_ACU,
   getTemplatePreset_ACU,
@@ -13,15 +14,21 @@ import {
   upsertTemplatePreset_ACU,
 } from '../../service/template/template-preset-service';
 import {
+  buildChatSheetGuideDataFromTemplateObj_ACU,
   listChatTemplatePresetEntries_ACU,
   sanitizeChatSheetsObject_ACU,
 } from '../../service/template/chat-scope';
+import { deleteLocalDataInChatCore_ACU } from '../../service/chat/chat-service';
 import { settings_ACU } from '../../service/runtime/state-manager';
+import { isSqliteMode } from '../../service/table/storage-mode';
+import { validateCurrentChatTableRecoveryWithGuide_ACU } from '../../service/table/storage-frame-v2-replay';
+import { reloadStorageProvider } from '../../service/table/table-storage-strategy';
 import { safeJsonParse_ACU } from '../../shared/json-helpers';
 import { getCurrentTemplatePresetName_ACU, normalizeTemplatePresetSelectionValue_ACU, sanitizeFilenameComponent_ACU } from '../../shared/template-preset-utils';
 import { deriveTemplatePresetNameForImport_ACU } from '../../shared/template-preset-utils';
 import { useDialogStore } from '../stores/dialog-store';
 import { useToastStore } from '../stores/toast-store';
+import { ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU } from './useTemplateRecoveryGuard';
 
 export type TemplateScope = 'global' | 'chat';
 
@@ -66,6 +73,20 @@ function downloadJson(jsonData: Record<string, any>, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
+function resolveGuideDataForPresetSelection(name: string): Record<string, any> | null {
+  const normalized = normalizeTemplatePresetSelectionValue_ACU(name);
+  const localEntry = listChatTemplatePresetEntries_ACU()
+    .find(entry => normalizeTemplatePresetSelectionValue_ACU(entry?.presetName || '') === normalized);
+  if (localEntry?.guideData && typeof localEntry.guideData === 'object') return localEntry.guideData;
+  const snapshot = normalized
+    ? getTemplatePreset_ACU(normalized)?.templateStr
+    : getDefaultTemplateSnapshot_ACU()?.templateObj;
+  const templateObj = typeof snapshot === 'string'
+    ? safeJsonParse_ACU(snapshot, null)
+    : snapshot;
+  return buildChatSheetGuideDataFromTemplateObj_ACU(templateObj, { stripSeedRows: false });
+}
+
 export function useTableTemplatePresets() {
   const dialogStore = useDialogStore();
   const toast = useToastStore();
@@ -76,8 +97,9 @@ export function useTableTemplatePresets() {
   const selectedGlobalPreset = ref('');
   const selectedChatPreset = ref('');
   const chatPresetItems = ref<Array<{ value: string; label: string; meta?: string }>>([]);
+  const activeTemplateScope = ref<'global' | 'chat'>('global');
 
-  const isChatOverridden = computed(() => selectedChatPreset.value !== selectedGlobalPreset.value);
+  const isChatOverridden = computed(() => activeTemplateScope.value === 'chat');
 
   function buildChatPresetItems(
     globalNames: string[],
@@ -111,14 +133,16 @@ export function useTableTemplatePresets() {
     const nextSelectedGlobal = normalizeTemplatePresetSelectionValue_ACU(
       getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
     );
+    const activeMeta = getActiveTemplatePresetMeta_ACU();
     const nextSelectedChat = normalizeTemplatePresetSelectionValue_ACU(
-      resolveActiveTemplatePresetName_ACU({ fallbackToGlobal: true }),
+      activeMeta.presetName || resolveActiveTemplatePresetName_ACU({ fallbackToGlobal: true }),
     );
 
     globalPresetNames.value = nextGlobalNames;
     chatPresetEntries.value = nextChatEntries;
     selectedGlobalPreset.value = nextSelectedGlobal;
     selectedChatPreset.value = nextSelectedChat;
+    activeTemplateScope.value = activeMeta.scope === 'chat' ? 'chat' : 'global';
     chatPresetItems.value = buildChatPresetItems(
       nextGlobalNames,
       nextChatEntries,
@@ -156,9 +180,17 @@ export function useTableTemplatePresets() {
     });
   }
 
+  async function ensureTemplateSwitchCanProceed(guideData: Record<string, any> | null): Promise<boolean> {
+    const recoveryGuard = await ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU(guideData, 'switch-template');
+    return recoveryGuard.success;
+  }
+
   async function selectChatPreset(name: string): Promise<void> {
     const normalized = normalizeTemplatePresetSelectionValue_ACU(name);
     await run(async () => {
+      const guideData = resolveGuideDataForPresetSelection(normalized);
+      const canProceed = await ensureTemplateSwitchCanProceed(guideData);
+      if (!canProceed) return;
       const result = await applyTemplatePresetToCurrent_ACU(normalized, {
         source: 'v2_table_chat_select',
         updateGlobal: false,
@@ -166,6 +198,7 @@ export function useTableTemplatePresets() {
         persistChatScope: true,
       });
       if (!result) throw new Error('当前聊天模板预设切换失败。');
+      if (isSqliteMode()) await reloadStorageProvider();
       message.value = null;
     });
   }
@@ -274,6 +307,10 @@ export function useTableTemplatePresets() {
       if (!baseName) throw new Error('无法确定导入预设名称。');
       const finalName = ensureUniqueTemplatePresetName_ACU(baseName);
       if (!upsertTemplatePreset_ACU(finalName, prepared.templateStr)) throw new Error('模板已解析，但保存到预设库失败。');
+      const canProceed = await ensureTemplateSwitchCanProceed(
+        buildChatSheetGuideDataFromTemplateObj_ACU(prepared.templateObj, { stripSeedRows: false }),
+      );
+      if (!canProceed) return;
       const result = await applyTemplatePresetToCurrent_ACU(finalName, {
         source: 'v2_table_import_current',
         updateGlobal: false,
@@ -281,6 +318,7 @@ export function useTableTemplatePresets() {
         persistChatScope: true,
       });
       if (!result) throw new Error('模板已保存，但切换到当前聊天失败。');
+      if (isSqliteMode()) await reloadStorageProvider();
       message.value = null;
       toast.success(`模板已保存并切换为「${finalName}」。`, { muteable: false });
     });

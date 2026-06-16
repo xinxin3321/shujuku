@@ -22,9 +22,11 @@ const {
   mockSetTableTemplate,
   mockReadProfileTemplate,
   // chat-scope-guide mocks
-  mockMigrateLegacyTemplateScope,
-  mockClearChatSheetGuideData,
-  mockGetChatSheetGuideData,
+    mockMigrateLegacyTemplateScope,
+    mockClearChatSheetGuideData,
+    mockGetChatSheetGuideData,
+    mockBuildChatSheetGuideDataFromTemplateObj,
+    mockSetChatSheetGuideDataForIsolationKey,
   // chat-scope-sheet mocks
   mockSanitizeChatSheetsObject,
   mockSetChatScopedConfigContainer,
@@ -49,6 +51,8 @@ const {
   mockMigrateLegacyTemplateScope: vi.fn(() => null),
   mockClearChatSheetGuideData: vi.fn(() => false),
   mockGetChatSheetGuideData: vi.fn(() => null),
+  mockBuildChatSheetGuideDataFromTemplateObj: vi.fn((templateObj: any) => templateObj ? { mate: { type: 'chatSheets', version: 1 }, sheet_test: { name: '测试表', content: [['row_id']] } } : null),
+  mockSetChatSheetGuideDataForIsolationKey: vi.fn(() => true),
   mockSetChatScopedConfigContainer: vi.fn((chat: any[], container: any) => {
     const first = Array.isArray(chat) ? chat[0] : null;
     if (!first) return;
@@ -178,6 +182,8 @@ vi.mock('../../../src/service/template/chat-scope/chat-scope-guide', () => ({
   migrateLegacyTemplateScopeForCurrentChat_ACU: mockMigrateLegacyTemplateScope,
   clearChatSheetGuideDataForIsolationKey_ACU: mockClearChatSheetGuideData,
   getChatSheetGuideDataForIsolationKey_ACU: mockGetChatSheetGuideData,
+  buildChatSheetGuideDataFromTemplateObj_ACU: mockBuildChatSheetGuideDataFromTemplateObj,
+  setChatSheetGuideDataForIsolationKey_ACU: mockSetChatSheetGuideDataForIsolationKey,
 }));
 
 // mock chat-scope-sheet

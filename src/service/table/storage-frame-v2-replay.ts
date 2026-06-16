@@ -451,7 +451,7 @@ export function collectScheduleSummaryFromFramesV2_ACU(
 export async function loadTableStateFromFramesV2_ACU(
   chatArg?: any[],
   isolationKeyArg?: string,
-  options: { maxMessageIndex?: number } = {},
+  options: { maxMessageIndex?: number; guideDataOverride?: Record<string, any> | null } = {},
 ): Promise<TableDataObject_ACU | null> {
   const chat = chatArg || getChatArray_ACU();
   if (!Array.isArray(chat) || chat.length === 0) return null;
@@ -468,7 +468,10 @@ export async function loadTableStateFromFramesV2_ACU(
 
   const checkpoint = checkpointRef.frame.checkpoint;
   const state: TableDataObject_ACU = deepClone_ACU(checkpoint.data);
-  applyGuideStructureBeforeReplay_ACU(state, getReplayGuideData_ACU(chat, isolationKey));
+  const replayGuideData = Object.prototype.hasOwnProperty.call(options, 'guideDataOverride')
+    ? options.guideDataOverride || null
+    : getReplayGuideData_ACU(chat, isolationKey);
+  applyGuideStructureBeforeReplay_ACU(state, replayGuideData);
   const replayStartMessageIndex = checkpointRef.messageIndex;
   replayCheckpointSchedule_ACU(checkpoint, checkpointRef.aiFloor);
 
@@ -509,5 +512,24 @@ export async function loadTableStateFromFramesV2_ACU(
     return state;
   } finally {
     runtime.engine.dispose();
+  }
+}
+
+export async function validateCurrentChatTableRecoveryWithGuide_ACU(
+  guideData: Record<string, any> | null | undefined,
+  options: { chat?: any[]; isolationKey?: string } = {},
+): Promise<{ success: true } | { success: false; error: string }> {
+  const chat = options.chat || getChatArray_ACU();
+  if (!Array.isArray(chat) || chat.length === 0) return { success: true };
+  try {
+    await loadTableStateFromFramesV2_ACU(chat, options.isolationKey ?? getCurrentIsolationKey_ACU(), {
+      guideDataOverride: guideData || null,
+    });
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error || '未知错误'),
+    };
   }
 }

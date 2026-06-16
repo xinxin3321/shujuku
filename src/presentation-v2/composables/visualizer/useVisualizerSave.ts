@@ -14,7 +14,7 @@ import {
   isDefaultTemplatePresetSelection_ACU,
   normalizeTemplatePresetSelectionValue_ACU,
 } from '../../../shared/template-preset-utils';
-import { getChatArray_ACU, saveChatToHost_ACU } from '../../../service/chat/chat-service';
+import { deleteLocalDataInChatCore_ACU, getChatArray_ACU, saveChatToHost_ACU } from '../../../service/chat/chat-service';
 import {
   currentJsonTableData_ACU,
   getCurrentIsolationKey_ACU,
@@ -34,6 +34,7 @@ import {
   resolveTableHistoryStateFromChat_ACU,
 } from '../../../service/table/table-history';
 import { isSqliteMode } from '../../../service/table/storage-mode';
+import { validateCurrentChatTableRecoveryWithGuide_ACU } from '../../../service/table/storage-frame-v2-replay';
 import { reloadStorageProvider } from '../../../service/table/table-storage-strategy';
 import { applyTemplateScopeForCurrentChat_ACU } from '../../../service/settings/settings-service';
 import {
@@ -56,6 +57,7 @@ import {
 import { refreshMergedDataAndNotify_ACU, updateReadableLorebookEntry_ACU } from '../../../service/worldbook/pipeline';
 import { enqueueSummaryVectorIndexFlush_ACU } from '../../../service/vector/summary-vector-index-flush-queue';
 import { useToastStore } from '../../stores/toast-store';
+import { ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU } from '../useTemplateRecoveryGuard';
 import { useVisualizerStore, type VisualizerLockDraft, type VisualizerSaveTarget } from '../../stores/visualizer-store';
 import {
   applyVisualizerPendingDataOps_ACU,
@@ -121,30 +123,39 @@ function saveLockDrafts(drafts: Record<string, VisualizerLockDraft>): void {
   });
 }
 
-function syncChatSheetGuide(orderedData: Record<string, any>, orderedKeys: string[], saveToTemplate: boolean): void {
+type ChatSheetGuideSyncPayload = {
+  isolationKey: string;
+  guideData: Record<string, any>;
+};
+
+function buildChatSheetGuideSyncPayload(orderedData: Record<string, any>, orderedKeys: string[]): ChatSheetGuideSyncPayload | null {
+  const guideIsolationKey = getCurrentIsolationKey_ACU();
+  const existingGuide = getChatSheetGuideDataForIsolationKey_ACU(guideIsolationKey);
+  const templateObjForSeed = parseTableTemplateJson_ACU({ stripSeedRows: false });
+  const guideData = buildChatSheetGuideDataFromData_ACU(orderedData, {
+    preserveSeedRowsFromGuideData: existingGuide,
+    seedRowsFromTemplateObj: templateObjForSeed,
+    orderedKeys,
+  });
+  if (!guideData || !Object.keys(guideData).some(key => key.startsWith('sheet_'))) return null;
+  return { isolationKey: guideIsolationKey, guideData };
+}
+
+function persistChatSheetGuideSyncPayload(payload: ChatSheetGuideSyncPayload | null, saveToTemplate: boolean): void {
+  if (!payload) return;
   try {
-    const guideIsolationKey = getCurrentIsolationKey_ACU();
-    const existingGuide = getChatSheetGuideDataForIsolationKey_ACU(guideIsolationKey);
-    const templateObjForSeed = parseTableTemplateJson_ACU({ stripSeedRows: false });
-    const guideData = buildChatSheetGuideDataFromData_ACU(orderedData, {
-      preserveSeedRowsFromGuideData: existingGuide,
-      seedRowsFromTemplateObj: templateObjForSeed,
-      orderedKeys,
+    const syncTemplateScope = !saveToTemplate;
+    const templateScopeSource = materializeDataFromSheetGuide_ACU(payload.guideData, { includeSeedRows: true });
+    setChatSheetGuideDataForIsolationKey_ACU(payload.isolationKey, payload.guideData, {
+      reason: 'visualizer_v2_save',
+      syncTemplateScope,
+      templateSource: templateScopeSource,
+      presetName: resolveActiveTemplatePresetName_ACU({
+        fallbackToGlobal: true,
+        isolationKey: payload.isolationKey,
+      }),
+      source: 'visualizer_v2_save',
     });
-    if (guideData && Object.keys(guideData).some(key => key.startsWith('sheet_'))) {
-      const syncTemplateScope = !saveToTemplate;
-      const templateScopeSource = materializeDataFromSheetGuide_ACU(guideData, { includeSeedRows: true });
-      setChatSheetGuideDataForIsolationKey_ACU(guideIsolationKey, guideData, {
-        reason: 'visualizer_v2_save',
-        syncTemplateScope,
-        templateSource: templateScopeSource,
-        presetName: resolveActiveTemplatePresetName_ACU({
-          fallbackToGlobal: true,
-          isolationKey: guideIsolationKey,
-        }),
-        source: 'visualizer_v2_save',
-      });
-    }
   } catch (error) {
     logWarn_ACU('[ACU-V2 Visualizer] Failed to sync chat sheet guide:', error);
   }
@@ -412,9 +423,18 @@ export function useVisualizerSave(interactions: VisualizerSaveInteractions = {})
         return false;
       }
       const orderedData = buildOrderedData(visualizer.tempData, visualizer.sheetOrder, visualizer.tableLockDrafts);
-      syncChatSheetGuide(orderedData, [...visualizer.sheetOrder], false);
+      const guidePayload = buildChatSheetGuideSyncPayload(orderedData, [...visualizer.sheetOrder]);
+      const recoveryGuard = await ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU(
+        guidePayload?.guideData || null,
+        'save-template',
+      );
+      if (!recoveryGuard.success) return false;
+      const dataWasResetForTemplateSave = recoveryGuard.dataWasReset;
+      persistChatSheetGuideSyncPayload(guidePayload, false);
       applyTemplateScopeForCurrentChat_ACU();
-      _set_currentJsonTableData_ACU(cloneData(orderedData));
+      _set_currentJsonTableData_ACU(dataWasResetForTemplateSave && guidePayload
+        ? materializeDataFromSheetGuide_ACU(guidePayload.guideData, { includeSeedRows: true })
+        : cloneData(orderedData));
       await saveChatToHost_ACU();
       saveLockDrafts(visualizer.tableLockDrafts);
       if (isSqliteMode()) await reloadStorageProvider();

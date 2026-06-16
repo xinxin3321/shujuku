@@ -9,13 +9,33 @@ async function importComposable() {
   vi.resetModules();
   let selectedGlobal = 'global-A';
   let selectedChat = 'global-A';
+  let activeScope: 'global' | 'chat' = 'global';
   const applyTemplatePresetToCurrent_ACU = vi.fn(async () => ({ presetName: selectedChat }));
   const resolveTemplateForExport_ACU = vi.fn(() => ({ jsonData: { sheet_1: {} }, fromPresetName: selectedChat || '默认预设' }));
+  const ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU = vi.fn(async () => ({ success: true, dataWasReset: false }));
+  const validateCurrentChatTableRecoveryWithGuide_ACU = vi.fn(async () => ({ success: true }));
+  const deleteLocalDataInChatCore_ACU = vi.fn(async () => 1);
 
   vi.doMock('../../../src/service/runtime/state-manager', () => ({
     settings_ACU: {},
   }));
+  vi.doMock('../../../src/service/table/storage-mode', () => ({
+    isSqliteMode: () => false,
+  }));
+  vi.doMock('../../../src/service/table/table-storage-strategy', () => ({
+    reloadStorageProvider: vi.fn(async () => undefined),
+  }));
+  vi.doMock('../../../src/service/table/storage-frame-v2-replay', () => ({
+    validateCurrentChatTableRecoveryWithGuide_ACU,
+  }));
+  vi.doMock('../../../src/service/chat/chat-service', () => ({
+    deleteLocalDataInChatCore_ACU,
+  }));
+  vi.doMock('../../../src/presentation-v2/composables/useTemplateRecoveryGuard', () => ({
+    ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU,
+  }));
   vi.doMock('../../../src/service/template/chat-scope', () => ({
+    buildChatSheetGuideDataFromTemplateObj_ACU: (value: any) => value ? { sheet_1: value.sheet_1 || {} } : null,
     listChatTemplatePresetEntries_ACU: () => [],
     sanitizeChatSheetsObject_ACU: (value: any) => value,
   }));
@@ -28,12 +48,13 @@ async function importComposable() {
   vi.doMock('../../../src/service/template/template-preset-service', () => ({
     applyTemplatePresetToCurrent_ACU,
     deleteTemplatePreset_ACU: vi.fn(() => true),
+    getActiveTemplatePresetMeta_ACU: () => ({ presetName: selectedChat, scope: activeScope, mode: activeScope === 'chat' ? 'chat_override' : 'inherit_global' }),
     ensureUniqueTemplatePresetName_ACU: (name: string) => name,
     getDefaultTemplateSnapshot_ACU: () => ({ templateObj: { sheet_1: {} }, templateStr: '{"sheet_1":{}}' }),
     getTemplatePreset_ACU: () => ({ templateStr: '{"sheet_1":{}}' }),
     listTemplatePresetNames_ACU: () => ['global-A', 'chat-A'],
     normalizeTemplateForPresetSave_ACU: () => ({ templateStr: '{"sheet_1":{}}' }),
-    parseImportedTemplateData_ACU: () => ({ templateStr: '{"sheet_1":{}}' }),
+    parseImportedTemplateData_ACU: () => ({ templateObj: { sheet_1: {} }, templateStr: '{"sheet_1":{}}' }),
     resolveActiveTemplatePresetName_ACU: () => selectedChat,
     resolveTemplateForExport_ACU,
     upsertTemplatePreset_ACU: vi.fn(() => true),
@@ -50,8 +71,12 @@ async function importComposable() {
     toast: useToastStore(),
     applyTemplatePresetToCurrent_ACU,
     resolveTemplateForExport_ACU,
+    ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU,
+    validateCurrentChatTableRecoveryWithGuide_ACU,
+    deleteLocalDataInChatCore_ACU,
     setSelectedGlobal: (value: string) => { selectedGlobal = value; },
     setSelectedChat: (value: string) => { selectedChat = value; },
+    setActiveScope: (value: 'global' | 'chat') => { activeScope = value; },
   };
 }
 
@@ -61,24 +86,37 @@ beforeEach(() => {
 });
 
 describe('useTableTemplatePresets', () => {
-  it('isChatOverridden 仅在当前聊天选择偏离全局默认时为 true', async () => {
-    const { useTableTemplatePresets, setSelectedChat, setSelectedGlobal } = await importComposable();
+  it('isChatOverridden 按实际聊天作用域判断，同名快照也算覆盖', async () => {
+    const { useTableTemplatePresets, setSelectedChat, setSelectedGlobal, setActiveScope } = await importComposable();
     const presets = useTableTemplatePresets();
 
     expect(presets.isChatOverridden.value).toBe(false);
 
+    setActiveScope('chat');
     setSelectedChat('chat-A');
     presets.refresh();
     expect(presets.isChatOverridden.value).toBe(true);
 
     setSelectedChat('global-A');
     presets.refresh();
-    expect(presets.isChatOverridden.value).toBe(false);
+    expect(presets.isChatOverridden.value).toBe(true);
 
+    setActiveScope('global');
     setSelectedGlobal('');
     setSelectedChat('');
     presets.refresh();
     expect(presets.isChatOverridden.value).toBe(false);
+  });
+
+  it('切换当前聊天模板前使用统一恢复 guard，guard 取消时不切换', async () => {
+    const { useTableTemplatePresets, applyTemplatePresetToCurrent_ACU, ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU } = await importComposable();
+    const presets = useTableTemplatePresets();
+    ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU.mockResolvedValueOnce({ success: false, dataWasReset: false });
+
+    await presets.selectChatPreset('chat-A');
+
+    expect(ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU).toHaveBeenCalledWith(expect.any(Object), 'switch-template');
+    expect(applyTemplatePresetToCurrent_ACU).not.toHaveBeenCalled();
   });
 
   it('操作失败时保留局部错误并显示短 toast', async () => {

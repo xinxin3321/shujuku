@@ -21,6 +21,7 @@ vi.mock('../../../src/shared/utils', () => ({
   cloneScopedConfigData_ACU: mockCloneScopedConfigData,
 }));
 
+import { _set_SillyTavern_API_ACU } from '../../../src/shared/host-api';
 import {
   CHAT_SCOPED_CONFIG_FIELD_ACU,
   CHAT_SCOPED_CONFIG_VERSION_ACU,
@@ -38,6 +39,8 @@ import {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetChatFirstLayerMessage.mockReturnValue(null);
+  mockCloneScopedConfigData.mockImplementation((data: any) => data ? JSON.parse(JSON.stringify(data)) : null);
+  _set_SillyTavern_API_ACU(undefined);
 });
 
 // ═══ 常量验证 ═══
@@ -108,10 +111,43 @@ describe('getChatScopedConfigContainer_ACU', () => {
   });
 
   it('ScopedConfig 为数组时返回 null', () => {
-    mockGetChatFirstLayerMessage.mockReturnValue({
+    expect(getChatScopedConfigContainer_ACU([{
       [CHAT_SCOPED_CONFIG_FIELD_ACU]: [1, 2],
-    });
-    expect(getChatScopedConfigContainer_ACU([{}])).toBeNull();
+    }])).toBeNull();
+  });
+
+  it('chatMetadata 已有槽位优先于 chat[0] 旧字段', () => {
+    const metadataConfig = { version: 1, template: { '': { mode: 'inherit_global' } } };
+    const chatConfig = { version: 1, template: { '': { mode: 'chat_override', templateStr: '{"sheet_a":{"content":[["row_id"]]}}' } } };
+    const metadata: any = { [CHAT_SCOPED_CONFIG_FIELD_ACU]: metadataConfig };
+    _set_SillyTavern_API_ACU({ chatMetadata: metadata } as any);
+
+    const result = getChatScopedConfigContainer_ACU([{ [CHAT_SCOPED_CONFIG_FIELD_ACU]: chatConfig }]);
+
+    expect((result!.template as any)[''].mode).toBe('inherit_global');
+    expect((metadata[CHAT_SCOPED_CONFIG_FIELD_ACU].template as any)[''].mode).toBe('inherit_global');
+  });
+
+  it('chatMetadata 缺失槽位时从 chat[0] 迁移补齐', () => {
+    const metadataConfig = { version: 1, template: { other: { mode: 'inherit_global' } } };
+    const chatConfig = { version: 1, template: { '': { mode: 'chat_override', templateStr: '{"sheet_a":{"content":[["row_id"]]}}' } } };
+    const metadata: any = { [CHAT_SCOPED_CONFIG_FIELD_ACU]: metadataConfig };
+    _set_SillyTavern_API_ACU({ chatMetadata: metadata } as any);
+
+    const result = getChatScopedConfigContainer_ACU([{ [CHAT_SCOPED_CONFIG_FIELD_ACU]: chatConfig }]);
+
+    expect((result!.template as any).other.mode).toBe('inherit_global');
+    expect((result!.template as any)[''].mode).toBe('chat_override');
+    expect((metadata[CHAT_SCOPED_CONFIG_FIELD_ACU].template as any)[''].mode).toBe('chat_override');
+  });
+
+  it('chat[0] 被删除或无字段时回退到 chatMetadata', () => {
+    const metadataConfig = { version: 1, template: { '': { mode: 'chat_override', templateStr: '{"sheet_b":{"content":[["row_id"]]}}' } } };
+    _set_SillyTavern_API_ACU({ chatMetadata: { [CHAT_SCOPED_CONFIG_FIELD_ACU]: metadataConfig } } as any);
+
+    const result = getChatScopedConfigContainer_ACU([{}]);
+
+    expect((result!.template as any)[''].mode).toBe('chat_override');
   });
 });
 
@@ -172,5 +208,39 @@ describe('getChatSheetGuideContainer_ACU', () => {
     }]);
     expect(result).not.toBeNull();
     expect(result!.tags).toBeDefined();
+  });
+
+  it('SheetGuide 的 chatMetadata 已有 tag 优先于 chat[0] 旧字段', () => {
+    const metadataGuide = { version: 2, tags: { '': { data: { sheet_old: { name: '旧' } } } } };
+    const chatGuide = { version: 2, tags: { '': { data: { sheet_new: { name: '新' } } } } };
+    const metadata: any = { [CHAT_SHEET_GUIDE_FIELD_ACU]: metadataGuide };
+    _set_SillyTavern_API_ACU({ chatMetadata: metadata } as any);
+
+    const result = getChatSheetGuideContainer_ACU([{ [CHAT_SHEET_GUIDE_FIELD_ACU]: chatGuide }]);
+
+    expect((result!.tags as any)[''].data.sheet_old.name).toBe('旧');
+    expect((result!.tags as any)[''].data.sheet_new).toBeUndefined();
+  });
+
+  it('SheetGuide 的 chatMetadata 缺失 tag 时从 chat[0] 迁移补齐', () => {
+    const metadataGuide = { version: 2, tags: { other: { data: { sheet_old: { name: '旧' } } } } };
+    const chatGuide = { version: 2, tags: { '': { data: { sheet_new: { name: '新' } } } } };
+    const metadata: any = { [CHAT_SHEET_GUIDE_FIELD_ACU]: metadataGuide };
+    _set_SillyTavern_API_ACU({ chatMetadata: metadata } as any);
+
+    const result = getChatSheetGuideContainer_ACU([{ [CHAT_SHEET_GUIDE_FIELD_ACU]: chatGuide }]);
+
+    expect((result!.tags as any).other.data.sheet_old.name).toBe('旧');
+    expect((result!.tags as any)[''].data.sheet_new.name).toBe('新');
+    expect((metadata[CHAT_SHEET_GUIDE_FIELD_ACU].tags as any)[''].data.sheet_new.name).toBe('新');
+  });
+
+  it('SheetGuide 在首条消息字段不存在时回退到 chatMetadata', () => {
+    const metadataGuide = { version: 2, tags: { '': { data: { sheet_meta: { name: '元数据' } } } } };
+    _set_SillyTavern_API_ACU({ chatMetadata: { [CHAT_SHEET_GUIDE_FIELD_ACU]: metadataGuide } } as any);
+
+    const result = getChatSheetGuideContainer_ACU([{}]);
+
+    expect((result!.tags as any)[''].data.sheet_meta.name).toBe('元数据');
   });
 });

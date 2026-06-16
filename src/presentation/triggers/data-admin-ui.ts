@@ -5,6 +5,7 @@ import { getDefaultTemplateSnapshot_ACU, getTemplatePreset_ACU, resolveTemplateF
 import { showToastr_ACU } from '../theme/toast';
 import { ACU_TOAST_CATEGORY_ACU } from '../../shared/constants';
 import { isSqliteMode } from '../../service/table/storage-mode';
+import { reloadStorageProvider } from '../../service/table/table-storage-strategy';
 import { getChatArray_ACU, saveChatToHost_ACU, deleteLocalDataInChatCore_ACU, overrideLatestLayerWithTemplateCore_ACU } from '../../service/chat/chat-service';
 import { isWorldbookApiAvailable_ACU } from '../../service/worldbook/worldbook-service';
 import { cleanupWorldbookEntriesAfterDataDeletion_ACU } from '../../service/worldbook/worldbook-cleanup';
@@ -134,8 +135,9 @@ import { migrateLegacySummaryVectorIndexToContentAddressed_ACU } from '../../ser
       const deletedCount = await deleteLocalDataInChatCore_ACU(mode, startFloor, endFloor);
 
       if (deletedCount > 0) {
-          // 刷新内存和UI
+          // 刷新内存和UI：删除楼层数据后，SQLite 运行时必须从当前聊天持久化模板/guide 重建
           await loadOrCreateJsonTableFromChatHistory_ACU();
+          if (isSqliteMode()) await reloadStorageProvider();
           await refreshMergedDataAndNotifyWithUI_ACU();
 
           // [重构] 调用 service 层清理世界书条目
