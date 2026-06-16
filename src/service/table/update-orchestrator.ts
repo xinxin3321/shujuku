@@ -1028,6 +1028,7 @@ export async function applyUnifiedGroupFillResponses_ACU(
         });
 
         if (!commitResult.success || !commitResult.value) {
+            _set_currentJsonTableData_ACU(JSON.parse(JSON.stringify(baseSnapshot || {})) as any);
             return { success: false, modifiedKeys: [], error: commitResult.error || '统一提交失败。' };
         }
         if (!options.isImportMode && commitResult.tableData) {

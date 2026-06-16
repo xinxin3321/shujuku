@@ -1561,10 +1561,18 @@ describe('applyUnifiedGroupFillResponses_ACU', () => {
   beforeEach(async () => {
     const { isSqliteMode } = await import('../../../src/service/table/storage-mode');
     const { disposeStorageProvider } = await import('../../../src/service/table/table-storage-strategy');
+    const { parseTableTemplateJson_ACU } = await import('../../../src/shared/utils');
+    const { getChatSheetGuideDataForIsolationKey_ACU, getEffectiveSeedRowsForSheet_ACU } = await import('../../../src/service/template/chat-scope');
     disposeStorageProvider();
     mockCheckIfFirstTimeInit.mockResolvedValue(false);
     vi.mocked(isSqliteMode).mockReturnValue(false);
     vi.clearAllMocks();
+    vi.mocked(parseTableTemplateJson_ACU).mockReturnValue({
+      mate: { type: 'acu' },
+      sheet_0: { name: '测试表', updateConfig: { groupId: 0 } },
+    } as any);
+    vi.mocked(getChatSheetGuideDataForIsolationKey_ACU).mockReturnValue(null);
+    vi.mocked(getEffectiveSeedRowsForSheet_ACU).mockReturnValue([] as any);
     mockSettings = {
       ...mockSettings,
       summaryVectorIndexModeEnabled: true,

@@ -920,6 +920,53 @@ describe('SqlTableService', () => {
       expect(() => service.executeQuery('SELECT * FROM global_table')).toThrow();
     });
 
+    it('chat_override 建表时不能被旧 currentJsonTableData 的 CHECK 覆盖', async () => {
+      mockMergeAll.mockResolvedValue(null);
+      await service.loadFromChat();
+
+      const oldDDL = `CREATE TABLE chat_table (
+        row_id INTEGER PRIMARY KEY,
+        status TEXT CHECK(status IN ('old')) -- 状态
+      );`;
+      const newDDL = `CREATE TABLE chat_table (
+        row_id INTEGER PRIMARY KEY,
+        status TEXT CHECK(status IN ('new')) -- 状态
+      );`;
+      mockCurrentJsonTableData = {
+        mate: { type: 'acu', version: 1 },
+        sheet_0: {
+          uid: 'chat_table',
+          name: '旧运行时表',
+          sourceData: { ddl: oldDDL },
+          content: [['row_id', '状态']],
+          updateConfig: {},
+          exportConfig: {},
+          orderNo: 0,
+        },
+      };
+      mockGetCurrentChatTemplateScopeState.mockReturnValue({
+        mode: 'chat_override',
+        templateStr: JSON.stringify({
+          mate: { type: 'acu', version: 1 },
+          sheet_0: {
+            uid: 'chat_table',
+            name: '聊天专属表',
+            sourceData: { ddl: newDDL },
+            content: [['row_id', '状态']],
+            updateConfig: {},
+            exportConfig: {},
+            orderNo: 0,
+          },
+        }),
+        presetName: '聊天预设',
+      });
+
+      const result = service.executeMutation("INSERT INTO chat_table VALUES (1, 'new');");
+
+      expect(result.errors).toEqual([]);
+      expect(service.executeQuery('SELECT status FROM chat_table').values[0][0]).toBe('new');
+    });
+
     it('inherit_global 模式下 fallback 到全局模板', async () => {
       mockMergeAll.mockResolvedValue(null);
       await service.loadFromChat();
