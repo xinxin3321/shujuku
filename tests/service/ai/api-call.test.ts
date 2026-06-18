@@ -292,6 +292,24 @@ describe('buildCustomApiRequestBody_ACU', () => {
     expect(body.max_tokens).toBe(100);
   });
 
+  it('bodyParams 每行 key: value 支持 JSON 对象值', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4', bodyParams: 'response_format: {"type":"json_object"}\nmetadata: {"source":"acu"}' },
+    );
+    expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(body.metadata).toEqual({ source: 'acu' });
+  });
+
+  it('bodyParams 每行 key: value 支持 JSON 数组和布尔值', () => {
+    const body = buildCustomApiRequestBody_ACU(
+      [{ role: 'user', content: 'test' }],
+      { url: 'https://api.example.com', model: 'gpt-4', bodyParams: 'stop: ["</json>"]\nparallel_tool_calls: false' },
+    );
+    expect(body.stop).toEqual(['</json>']);
+    expect(body.parallel_tool_calls).toBe(false);
+  });
+
   it('excludeBodyParams 删除指定字段', () => {
     const body = buildCustomApiRequestBody_ACU(
       [{ role: 'user', content: 'test' }],
