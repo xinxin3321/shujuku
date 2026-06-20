@@ -174,6 +174,47 @@ describe('formatTableForSqliteMode', () => {
     expect(result).toContain('该表格为空，请进行初始化');
   });
 
+  it('空表时输出 INIT 规则', () => {
+    const table = {
+      name: '全局状态表',
+      sourceData: {
+        ddl: 'CREATE TABLE global_state (row_id INTEGER PRIMARY KEY, current_location TEXT);',
+        initNode: '故事初始化时插入唯一条目。',
+        insertNode: '禁止新增。',
+        updateNode: '每轮更新地点。',
+        deleteNode: '禁止删除。',
+      },
+      content: [['row_id', 'current_location']],
+      updateConfig: {},
+    };
+
+    const result = formatTableForSqliteMode(table, 0, 'sheet_0', null);
+
+    expect(result).toContain('-- INIT: 故事初始化时插入唯一条目。');
+    expect(result).toContain('-- (该表格为空，请进行初始化。)');
+  });
+
+  it('非空表时不输出 INIT 规则，避免后续更新误用初始化语义', () => {
+    const table = {
+      name: '全局状态表',
+      sourceData: {
+        ddl: 'CREATE TABLE global_state (row_id INTEGER PRIMARY KEY, current_location TEXT);',
+        initNode: '故事初始化时插入唯一条目。',
+        insertNode: '禁止新增。',
+        updateNode: '每轮更新地点。',
+        deleteNode: '禁止删除。',
+      },
+      content: [['row_id', 'current_location'], ['1', '王城']],
+      updateConfig: {},
+    };
+
+    const result = formatTableForSqliteMode(table, 0, 'sheet_0', null);
+
+    expect(result).not.toContain('-- INIT:');
+    expect(result).not.toContain('该表格为空，请进行初始化');
+    expect(result).toContain('-- 当前数据 (1 rows)');
+  });
+
   // ═══════════════════════════════════════════════════════════════
   // seedRows
   // ═══════════════════════════════════════════════════════════════

@@ -752,7 +752,9 @@ describe('FormFillPage · 手动填表面板', () => {
     expect(dialogText).toContain('当前 full checkpoint：AI 第 1 层、AI 第 3 层');
     expect(dialogText).toContain('本次重填范围：AI 第 1~3 层');
     expect(dialogText).toContain('系统会在内存中按当前上下文和批处理设置重填当前选中的表');
-    expect(dialogText).toContain('失败或终止时不会清空聊天记录中的旧表格数据');
+    expect(dialogText).toContain('失败、终止或从中断处继续时，都不会清空聊天记录中的旧表格数据');
+    expect(dialogText).toContain('表头空基底');
+    expect(dialogText).not.toContain('空白结构');
     expect(dialogText).toContain('确认并继续');
     expect(dialogText).not.toContain('直接填表');
     expect(document.querySelector('.acu-toast-viewport')?.textContent || '')
@@ -797,6 +799,8 @@ describe('FormFillPage · 手动填表面板', () => {
     expect(danger).not.toBeNull();
     expect(danger!.textContent || '').toContain('所有 full checkpoint 都在即将执行的重填范围内');
     expect(danger!.textContent || '').toContain('确认执行后，重填起点前将没有可回放 checkpoint');
+    expect(danger!.textContent || '').toContain('这不会删除聊天记录中的旧表格数据');
+    expect(danger!.textContent || '').not.toContain('空白结构');
     const confirmButton = Array.from(document.querySelectorAll<HTMLButtonElement>('.acu-dialog-layer button'))
       .find(btn => btn.textContent?.includes('确认并继续'))!;
     expect(confirmButton.className).toContain('danger');

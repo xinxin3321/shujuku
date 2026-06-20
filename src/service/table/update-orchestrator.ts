@@ -1458,12 +1458,25 @@ export async function processGroupedRuntimeChunk_ACU(
                     const checkpointTargetIndex = Number.isInteger(options.checkpointTargetIndex) ? options.checkpointTargetIndex as number : bucket.saveTargetIndex;
                     const revisionWriteSet = checkpointSheetKeys.map(sheetKey => ({ kind: 'sheet' as const, sheetKey }));
                     const maxPlannedMessageIndex = Math.max(...jobs.map(job => job.saveTargetIndex));
-                    const progressStatus: ManualRefillProgressV2_ACU['status'] = maxPlannedMessageIndex >= checkpointTargetIndex ? 'complete' : 'in_progress';
+                    const completedSheetMessageIndexByKey = {
+                        ...(options.manualRefillProgress?.completedSheetMessageIndexByKey || {}),
+                    };
+                    for (const sheetKey of checkpointSheetKeys) {
+                        completedSheetMessageIndexByKey[sheetKey] = Math.max(
+                            Number(completedSheetMessageIndexByKey[sheetKey]) || -1,
+                            maxPlannedMessageIndex,
+                        );
+                    }
+                    const selectedSheetKeys = options.manualRefillProgress?.selectedSheetKeys || [];
+                    const allSelectedSheetsComplete = selectedSheetKeys.length > 0
+                        && selectedSheetKeys.every(sheetKey => (Number(completedSheetMessageIndexByKey[sheetKey]) || -1) >= checkpointTargetIndex);
+                    const progressStatus: ManualRefillProgressV2_ACU['status'] = allSelectedSheetsComplete ? 'complete' : 'in_progress';
                     const progress: ManualRefillProgressV2_ACU | undefined = options.manualRefillProgress
                         ? {
                             ...options.manualRefillProgress,
                             status: progressStatus,
                             completedUntilMessageIndex: Math.max(options.manualRefillProgress.completedUntilMessageIndex, maxPlannedMessageIndex),
+                            completedSheetMessageIndexByKey,
                             updatedAt: Date.now(),
                         }
                         : undefined;
@@ -2178,12 +2191,7 @@ export async function orchestrateManualUpdate_ACU(
                 );
                 manualRefillCheckpointData = JSON.parse(JSON.stringify(manualRefillInitialData));
             }
-            const pendingStartIndex = matchedProgress ? matchedProgress.completedUntilMessageIndex + 1 : contextScopeIndices[0];
-            const pendingContextScopeIndices = contextScopeIndices.filter(index => index >= pendingStartIndex);
-            if (matchedProgress && pendingContextScopeIndices.length === 0) {
-                logDebug_ACU('[Manual Refill] 已存在完整的重填进度，无需继续处理。');
-                return { success: true };
-            }
+            let pendingContextScopeIndices = contextScopeIndices.slice();
             manualRefillProgress = matchedProgress
                 ? { ...matchedProgress, batchSize: uiBatchSize, contextMessageIndices: contextScopeIndices.slice(), updatedAt: Date.now() }
                 : {
@@ -2198,8 +2206,35 @@ export async function orchestrateManualUpdate_ACU(
                     updatedAt: Date.now(),
                 };
             if (matchedProgress) {
+                let hasPendingGroup = false;
+                const completedBySheet = matchedProgress.completedSheetMessageIndexByKey || {};
+                const hasPerSheetProgress = Object.keys(completedBySheet).length > 0;
+                let earliestPendingIndex = Number.POSITIVE_INFINITY;
                 for (const gKey of Object.keys(updateGroups)) {
-                    updateGroups[gKey].indices = pendingContextScopeIndices;
+                    const group = updateGroups[gKey];
+                    const completedUntilForGroup = (group.sheetKeys || []).reduce((minCompleted, sheetKey) => {
+                        const rawCompleted = completedBySheet[sheetKey];
+                        const sheetCompleted = Number.isFinite(Number(rawCompleted))
+                            ? Number(rawCompleted)
+                            : (hasPerSheetProgress ? matchedProgress.originalStartMessageIndex - 1 : matchedProgress.completedUntilMessageIndex);
+                        return Math.min(minCompleted, sheetCompleted);
+                    }, Number.POSITIVE_INFINITY);
+                    const effectiveCompletedUntil = Number.isFinite(completedUntilForGroup)
+                        ? completedUntilForGroup
+                        : matchedProgress.completedUntilMessageIndex;
+                    const pendingIndicesForGroup = contextScopeIndices.filter(index => index > effectiveCompletedUntil);
+                    group.indices = pendingIndicesForGroup;
+                    if (pendingIndicesForGroup.length > 0) {
+                        hasPendingGroup = true;
+                        earliestPendingIndex = Math.min(earliestPendingIndex, pendingIndicesForGroup[0]);
+                    }
+                }
+                pendingContextScopeIndices = Number.isFinite(earliestPendingIndex)
+                    ? contextScopeIndices.filter(index => index >= earliestPendingIndex)
+                    : [];
+                if (!hasPendingGroup) {
+                    logDebug_ACU('[Manual Refill] 已存在完整的重填进度，无需继续处理。');
+                    return { success: true };
                 }
             }
             _set_currentJsonTableData_ACU(JSON.parse(JSON.stringify(manualRefillInitialData)));

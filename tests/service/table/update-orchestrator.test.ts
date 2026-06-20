@@ -1128,6 +1128,46 @@ describe('orchestrateManualUpdate_ACU', () => {
     expect(finalCheckpointData.sheet_1.content).toEqual([['row_id', '值B'], ['2', '来自B']]);
   });
 
+  it('手动重填多分组仅完成部分表时 checkpoint 进度保持 in_progress', async () => {
+    const { getChatArray_ACU } = await import('../../../src/service/chat/chat-service');
+    const { parseTableTemplateJson_ACU } = await import('../../../src/shared/utils');
+    vi.mocked(parseTableTemplateJson_ACU).mockReturnValue({
+      mate: { type: 'acu' },
+      sheet_0: { name: '测试表A', updateConfig: { groupId: 0 }, content: [['row_id', '值A']] },
+      sheet_1: { name: '测试表B', updateConfig: { groupId: 1 }, content: [['row_id', '值B']] },
+    });
+    vi.mocked(getChatArray_ACU).mockReturnValue([
+      { is_user: false, mes: 'AI回复1' },
+      { is_user: true },
+      { is_user: false, mes: 'AI回复2' },
+      { is_user: true },
+      { is_user: false, mes: 'AI回复3' },
+    ]);
+    mockSettings.maxConcurrentGroups = 1;
+    mockSettings.autoUpdateThreshold = 0;
+    mockCurrentJsonTableData = {
+      sheet_0: { name: '测试表A', updateConfig: {}, content: [['row_id', '值A'], ['1', '旧A']] },
+      sheet_1: { name: '测试表B', updateConfig: {}, content: [['row_id', '值B'], ['1', '旧B']] },
+    };
+    mockCallCustomOpenAI.mockResolvedValue('<tableEdit>sheet_0</tableEdit>');
+    let persistCallCount = 0;
+    mockPersistTablesToChatMessage.mockImplementation(async (_options: any) => {
+      persistCallCount += 1;
+      if (persistCallCount >= 2) {
+        return { saved: false, error: '模拟刷新中断' };
+      }
+      return { saved: true, messageIndex: 4 };
+    });
+
+    const result = await orchestrateManualUpdate_ACU(['sheet_0', 'sheet_1'], vi.fn().mockResolvedValue({ success: true }), mockRefreshData, { clearBeforeUpdate: true });
+
+    expect(result.success).toBe(false);
+    const firstProgress = mockPersistTablesToChatMessage.mock.calls[0][0].manualRefillProgress;
+    expect(firstProgress.status).toBe('in_progress');
+    expect(firstProgress.completedUntilMessageIndex).toBe(4);
+    expect(firstProgress.completedSheetMessageIndexByKey).toEqual({ sheet_0: 4 });
+  });
+
   it('processBatch 失败时返回错误', async () => {
     const { getChatArray_ACU } = await import('../../../src/service/chat/chat-service');
     vi.mocked(getChatArray_ACU).mockReturnValue([
