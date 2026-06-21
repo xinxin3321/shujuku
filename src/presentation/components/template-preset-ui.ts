@@ -8,7 +8,7 @@ import { DEFAULT_TEMPLATE_PRESET_OPTION_VALUE_ACU, getCurrentTemplatePresetName_
 import { jQuery_API_ACU } from '../dom-utils';
 import { getCurrentIsolationKey_ACU, settings_ACU } from '../../service/runtime/state-manager';
 import { $popupInstance_ACU } from '../state/ui-refs';
-import { getCurrentChatTemplateScopeState_ACU, listChatTemplatePresetEntries_ACU, migrateLegacyTemplateScopeForCurrentChat_ACU, normalizeTemplateScopeMode_ACU } from '../../service/template/chat-scope';
+import { getCurrentChatTemplateScopeState_ACU, migrateLegacyTemplateScopeForCurrentChat_ACU, normalizeTemplateScopeMode_ACU } from '../../service/template/chat-scope';
 import { SCRIPT_ID_PREFIX_ACU } from '../../shared/constants';
 import { formatPlotScopeUpdatedAt_ACU } from '../pages/popup-helpers';
 import { getTemplatePresetDisplayName_ACU, getTemplatePreset_ACU, listTemplatePresetNames_ACU, resolveActiveTemplatePresetName_ACU } from '../../service/template/template-preset-service';
@@ -75,31 +75,18 @@ import { getTemplatePresetDisplayName_ACU, getTemplatePreset_ACU, listTemplatePr
       const normalizedChatMode = normalizeTemplateScopeMode_ACU(chatScopeState?.mode);
       const effectiveChatPresetName = resolveActiveTemplatePresetName_ACU({ fallbackToGlobal: true });
       const chatSelectedPresetName = normalizeTemplatePresetSelectionValue_ACU(chatScopeState?.presetName || effectiveChatPresetName || '');
-      const chatPresetEntries = listChatTemplatePresetEntries_ACU();
-      const localOnlyOptions = chatPresetEntries
-          .filter(entry => {
-              const entryName = normalizeTemplatePresetSelectionValue_ACU(entry?.presetName || '');
-              return !!entryName && !presetNames.includes(entryName);
-          })
-          .map(entry => {
-              const entryName = normalizeTemplatePresetSelectionValue_ACU(entry?.presetName || '');
-              const updatedAtText = (typeof formatPlotScopeUpdatedAt_ACU === 'function')
-                  ? formatPlotScopeUpdatedAt_ACU(entry?.updatedAt || entry?.archivedAt)
-                  : '';
-              return {
-                  value: entryName,
-                  label: updatedAtText
-                      ? `${getTemplatePresetDisplayName_ACU(entryName)}（当前聊天快照，${updatedAtText}）`
-                      : `${getTemplatePresetDisplayName_ACU(entryName)}（当前聊天快照）`,
-              };
-          });
-      const chatPresetEntryCount = chatPresetEntries.length;
+       const currentChatSnapshotName = normalizedChatMode === 'chat_override'
+           ? normalizeTemplatePresetSelectionValue_ACU(chatScopeState?.presetName || effectiveChatPresetName || '')
+           : '';
+       const currentChatSnapshotOption = currentChatSnapshotName
+           ? [{ value: currentChatSnapshotName, label: `${getTemplatePresetDisplayName_ACU(currentChatSnapshotName)}（当前聊天快照）` }]
+           : [];
       const chatExtraPresetName = (() => {
           if (!chatSelectedPresetName) return '';
           if (presetNames.includes(chatSelectedPresetName)) return '';
-          if (localOnlyOptions.some(option => option.value === chatSelectedPresetName)) return '';
-          return chatSelectedPresetName;
-      })();
+           if (currentChatSnapshotOption.some(option => option.value === chatSelectedPresetName)) return '';
+           return chatSelectedPresetName;
+       })();
 
       const $globalSelect = getTemplatePresetSelectJQ_ACU();
       const $chatSelect = getTemplateChatPresetSelectJQ_ACU();
@@ -114,11 +101,11 @@ import { getTemplatePresetDisplayName_ACU, getTemplatePreset_ACU, listTemplatePr
           extraPresetName: hasGlobalPreset ? '' : globalPresetName,
           extraLabelSuffix: '（仅当前全局模板快照）',
       });
-      populateTemplatePresetSelectOptions_ACU($chatSelect, {
-          extraPresetName: chatExtraPresetName,
-          extraLabelSuffix: normalizedChatMode === 'preset_link' ? '（当前聊天引用）' : '（当前聊天专属预设）',
-          extraOptions: localOnlyOptions,
-      });
+       populateTemplatePresetSelectOptions_ACU($chatSelect, {
+           extraPresetName: chatExtraPresetName,
+           extraLabelSuffix: '（当前聊天快照）',
+           extraOptions: currentChatSnapshotOption,
+       });
 
       if ($globalSelect && $globalSelect.length) {
           let resolvedGlobalValue = globalPresetName;
@@ -166,7 +153,7 @@ import { getTemplatePresetDisplayName_ACU, getTemplatePreset_ACU, listTemplatePr
               }
               $chatStatus.text(`当前聊天：${scopeLabel}；当前实际模板预设为 ${getTemplatePresetDisplayName_ACU(chatSelectedPresetName)}。`);
           } else if (normalizedChatMode === 'preset_link') {
-              $chatStatus.text(`当前聊天：引用全局预设 ${getTemplatePresetDisplayName_ACU(chatSelectedPresetName)}；打开聊天时会继续沿用这个预设。`);
+              $chatStatus.text(`当前聊天：旧版预设引用待迁移；当前实际模板预设为 ${getTemplatePresetDisplayName_ACU(chatSelectedPresetName)}。`);
           } else {
               $chatStatus.text(`当前聊天：跟随当前全局；当前实际模板预设为 ${getTemplatePresetDisplayName_ACU(effectiveChatPresetName)}。`);
           }
@@ -197,14 +184,11 @@ import { getTemplatePresetDisplayName_ACU, getTemplatePreset_ACU, listTemplatePr
               if (chatScopeState.source) {
                   detailParts.push(`写入来源：${chatScopeState.source}`);
               }
-              if (chatPresetEntryCount > 0) {
-                  detailParts.push(`当前聊天已登记 ${chatPresetEntryCount} 个本地模板预设`);
-              }
-              $chatOriginStatus.text(detailParts.join('；') || '当前聊天正在使用聊天级模板预设快照。');
+               $chatOriginStatus.text(detailParts.join('；') || '当前聊天正在使用聊天级模板预设快照。');
           } else if (normalizedChatMode === 'preset_link') {
               const detailParts = [
-                  '来源语义：当前聊天仅记录预设引用，未保存本地模板快照',
-                  `引用预设：${getTemplatePresetDisplayName_ACU(chatSelectedPresetName)}`,
+                  '来源语义：旧版预设引用兼容状态，打开/切换后会物化为当前聊天模板快照',
+                  `来源预设：${getTemplatePresetDisplayName_ACU(chatSelectedPresetName)}`,
               ];
               const updatedAtText = (typeof formatPlotScopeUpdatedAt_ACU === 'function') ? formatPlotScopeUpdatedAt_ACU(chatScopeState?.updatedAt) : '';
               if (updatedAtText) {
@@ -213,14 +197,9 @@ import { getTemplatePresetDisplayName_ACU, getTemplatePreset_ACU, listTemplatePr
               if (chatScopeState?.source) {
                   detailParts.push(`写入来源：${chatScopeState.source}`);
               }
-              if (chatPresetEntryCount > 0) {
-                  detailParts.push(`当前聊天可切换/覆盖 ${chatPresetEntryCount} 个本地模板预设`);
-              }
-              $chatOriginStatus.text(detailParts.join('；'));
-          } else if (chatPresetEntryCount > 0) {
-              $chatOriginStatus.text(`当前聊天尚未保存本地模板快照，实际会跟随当前全局模板；但当前聊天已经拥有 ${chatPresetEntryCount} 个可直接切换的本地模板预设。`);
-          } else {
-              $chatOriginStatus.text('当前聊天尚未保存本地模板快照，实际会直接跟随当前全局表格模板。');
+               $chatOriginStatus.text(detailParts.join('；'));
+           } else {
+               $chatOriginStatus.text('当前聊天尚未保存本地模板快照，实际会直接跟随当前全局表格模板。');
           }
       }
   }

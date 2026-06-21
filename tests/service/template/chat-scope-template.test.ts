@@ -112,7 +112,7 @@ vi.mock('../../../src/data/storage/chat-history', () => ({
 }));
 
 vi.mock('../../../src/service/template/template-preset-service', () => ({
-  getDefaultTemplateSnapshot_ACU: vi.fn(() => null),
+  getDefaultTemplateSnapshot_ACU: vi.fn(() => ({ templateStr: JSON.stringify({ mate: { type: 'chatSheets', version: 1 }, sheet_default: { name: '默认表', content: [['row_id']] } }), templateObj: { mate: { type: 'chatSheets', version: 1 }, sheet_default: { name: '默认表', content: [['row_id']] } } })),
   getTemplatePreset_ACU: vi.fn(() => null),
   getTemplatePresetDisplayName_ACU: vi.fn((name: string) => name || ''),
   persistTemplateScopeSelectionState_ACU: vi.fn(),
@@ -324,7 +324,10 @@ describe('getCurrentChatTemplateScopeState_ACU', () => {
     expect(getCurrentChatTemplateScopeState_ACU()).toBeNull();
   });
 
-  it('preset_link 模式返回状态', () => {
+  it('preset_link 旧状态读取时物化为 chat_override 快照', () => {
+    const firstMsg: any = {};
+    mockGetChatFirstLayerMessage.mockReturnValue(firstMsg);
+    mockGetChatArray.mockReturnValue([firstMsg]);
     mockGetChatScopedConfigContainer.mockReturnValue({
       version: 1,
       template: {
@@ -335,9 +338,18 @@ describe('getCurrentChatTemplateScopeState_ACU', () => {
         },
       },
     });
+    mockCloneScopedConfigData.mockImplementation((data: any) => data ? JSON.parse(JSON.stringify(data)) : null);
+    mockSanitizeChatSheetsObject.mockImplementation((obj: any, opts: any) => {
+      const out = obj ? JSON.parse(JSON.stringify(obj)) : obj;
+      if (opts?.ensureMate && out && !out.mate) out.mate = { type: 'chatSheets', version: 1 };
+      return out;
+    });
     const result = getCurrentChatTemplateScopeState_ACU({ isolationKey: '' });
     expect(result).not.toBeNull();
-    expect(result!.mode).toBe('preset_link');
+    expect(result!.mode).toBe('chat_override');
+    expect(result!.presetName).toBe('预设A');
+    expect(result!.templateStr).toBeTruthy();
+    expect(mockSetChatScopedConfigContainer).toHaveBeenCalled();
   });
 
   it('chat_override 无 templateStr 返回 null', () => {
@@ -424,12 +436,18 @@ describe('setCurrentChatTemplateScopeState_ACU', () => {
     expect(firstMsg._acu_scoped_config.template).toBeDefined();
   });
 
-  it('preset_link 写入时 templateStr 清空', () => {
+  it('preset_link 写入时物化为 chat_override 快照', () => {
     const firstMsg: any = {};
     mockGetChatFirstLayerMessage.mockReturnValue(firstMsg);
     mockGetChatArray.mockReturnValue([firstMsg]);
     mockGetChatScopedConfigContainer.mockReturnValue(null);
     mockNormalizeChatScopedConfigContainer.mockReturnValue({ version: 1 });
+    mockCloneScopedConfigData.mockImplementation((data: any) => data ? JSON.parse(JSON.stringify(data)) : null);
+    mockSanitizeChatSheetsObject.mockImplementation((obj: any, opts: any) => {
+      const out = obj ? JSON.parse(JSON.stringify(obj)) : obj;
+      if (opts?.ensureMate && out && !out.mate) out.mate = { type: 'chatSheets', version: 1 };
+      return out;
+    });
 
     setCurrentChatTemplateScopeState_ACU(
       { mode: 'preset_link', presetName: '预设A' },
@@ -439,8 +457,10 @@ describe('setCurrentChatTemplateScopeState_ACU', () => {
     expect(firstMsg._acu_scoped_config).toBeDefined();
     const slot = firstMsg._acu_scoped_config.template?.[''];
     expect(slot).toBeDefined();
-    expect(slot.templateStr).toBe('');
-    expect(slot.guideData).toBeNull();
+    expect(slot.mode).toBe('chat_override');
+    expect(slot.presetName).toBe('预设A');
+    expect(slot.templateStr).toBeTruthy();
+    expect(slot.guideData).toBeTruthy();
   });
 
   it('inherit_global 删除 template slot', () => {
@@ -459,6 +479,85 @@ describe('setCurrentChatTemplateScopeState_ACU', () => {
     // 如果 template 为空则删除 template 键
     // 如果 container 无 payload 则删除 _acu_scoped_config
     expect(mockGetChatFirstLayerMessage).toHaveBeenCalled();
+  });
+
+  it('覆盖当前聊天快照时将旧快照写入归档，新快照只写入当前 slot', () => {
+    const firstMsg: any = {};
+    const oldTemplateStr = JSON.stringify({ sheet_old: { name: '旧表' } });
+    const newTemplateStr = JSON.stringify({ sheet_new: { name: '新表' } });
+    const existingContainer = {
+      version: 1,
+      template: {
+        '': {
+          mode: 'chat_override',
+          isolationKey: '',
+          presetName: '旧预设',
+          templateStr: oldTemplateStr,
+          guideData: null,
+          updatedAt: 1000,
+          source: 'old_source',
+        },
+      },
+    };
+    mockGetChatFirstLayerMessage.mockReturnValue(firstMsg);
+    mockGetChatArray.mockReturnValue([firstMsg]);
+    mockGetChatScopedConfigContainer.mockReturnValue(existingContainer);
+    mockNormalizeChatScopedConfigContainer.mockImplementation((c: any) => c || { version: 1 });
+    mockCloneScopedConfigData.mockImplementation((data: any) => data ? JSON.parse(JSON.stringify(data)) : null);
+    mockSanitizeChatSheetsObject.mockImplementation((obj: any, opts: any) => {
+      const out = obj ? JSON.parse(JSON.stringify(obj)) : obj;
+      if (opts?.ensureMate && out && !out.mate) out.mate = { type: 'chatSheets', version: 1 };
+      return out;
+    });
+
+    setCurrentChatTemplateScopeState_ACU(
+      { mode: 'chat_override', templateStr: newTemplateStr, presetName: '新预设', updatedAt: 2000, source: 'new_source' },
+      { reason: 'replace_template' },
+    );
+
+    const saved = firstMsg._acu_scoped_config;
+    expect(saved.template[''].presetName).toBe('新预设');
+    expect(saved.template[''].templateStr).toContain('sheet_new');
+    expect(saved.templateArchives['']).toHaveLength(1);
+    expect(saved.templateArchives[''][0].presetName).toBe('旧预设');
+    expect(saved.templateArchives[''][0].templateStr).toContain('sheet_old');
+    expect(saved.templateArchives[''][0].templateStr).not.toContain('sheet_new');
+  });
+
+  it('写入相同聊天快照时不重复归档', () => {
+    const firstMsg: any = {};
+    const templateStr = JSON.stringify({ sheet_same: { name: '同表' } });
+    const existingContainer = {
+      version: 1,
+      template: {
+        '': {
+          mode: 'chat_override',
+          isolationKey: '',
+          presetName: '同预设',
+          templateStr,
+          guideData: null,
+          updatedAt: 1000,
+          source: 'old_source',
+        },
+      },
+    };
+    mockGetChatFirstLayerMessage.mockReturnValue(firstMsg);
+    mockGetChatArray.mockReturnValue([firstMsg]);
+    mockGetChatScopedConfigContainer.mockReturnValue(existingContainer);
+    mockNormalizeChatScopedConfigContainer.mockImplementation((c: any) => c || { version: 1 });
+    mockCloneScopedConfigData.mockImplementation((data: any) => data ? JSON.parse(JSON.stringify(data)) : null);
+    mockSanitizeChatSheetsObject.mockImplementation((obj: any, opts: any) => {
+      const out = obj ? JSON.parse(JSON.stringify(obj)) : obj;
+      if (opts?.ensureMate && out && !out.mate) out.mate = { type: 'chatSheets', version: 1 };
+      return out;
+    });
+
+    setCurrentChatTemplateScopeState_ACU(
+      { mode: 'chat_override', templateStr, presetName: '同预设', updatedAt: 2000, source: 'new_source' },
+      { reason: 'same_template' },
+    );
+
+    expect(firstMsg._acu_scoped_config.templateArchives).toBeUndefined();
   });
 });
 
@@ -530,8 +629,7 @@ describe('upsertChatTemplatePresetEntry_ACU', () => {
       templateStr,
       presetName: '预设A',
     });
-    // 验证不抛错
-    expect(mockGetChatFirstLayerMessage).toHaveBeenCalled();
+    expect(mockSetChatScopedConfigContainer).toHaveBeenCalled();
   });
 });
 

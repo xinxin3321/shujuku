@@ -15,7 +15,9 @@ import {
 } from '../../service/template/template-preset-service';
 import {
   buildChatSheetGuideDataFromTemplateObj_ACU,
-  listChatTemplatePresetEntries_ACU,
+  getCurrentChatTemplateScopeState_ACU,
+  listChatTemplateArchiveEntries_ACU,
+  restoreChatTemplateArchiveEntry_ACU,
   sanitizeChatSheetsObject_ACU,
 } from '../../service/template/chat-scope';
 import { deleteLocalDataInChatCore_ACU } from '../../service/chat/chat-service';
@@ -34,6 +36,8 @@ export type TemplateScope = 'global' | 'chat';
 
 type MessageKind = 'success' | 'error' | 'info' | 'warning';
 type ChatPresetSelectionKind = 'global' | 'snapshot';
+type TemplateArchiveEntry = Record<string, any>;
+type PresetItem = { value: string; label: string; meta?: string };
 
 const CHAT_GLOBAL_PRESET_VALUE_PREFIX = 'global:';
 const CHAT_SNAPSHOT_PRESET_VALUE_PREFIX = 'snapshot:';
@@ -42,7 +46,7 @@ function encodeChatPresetValue(kind: ChatPresetSelectionKind, name: string): str
   return `${kind === 'snapshot' ? CHAT_SNAPSHOT_PRESET_VALUE_PREFIX : CHAT_GLOBAL_PRESET_VALUE_PREFIX}${encodeURIComponent(name || '')}`;
 }
 
-function decodeChatPresetValue(value: string, chatEntries: any[] = []): { kind: ChatPresetSelectionKind; name: string } {
+function decodeChatPresetValue(value: string): { kind: ChatPresetSelectionKind; name: string } {
   const raw = String(value || '');
   if (raw.startsWith(CHAT_SNAPSHOT_PRESET_VALUE_PREFIX)) {
     return { kind: 'snapshot', name: normalizeTemplatePresetSelectionValue_ACU(decodeURIComponent(raw.slice(CHAT_SNAPSHOT_PRESET_VALUE_PREFIX.length))) };
@@ -51,8 +55,7 @@ function decodeChatPresetValue(value: string, chatEntries: any[] = []): { kind: 
     return { kind: 'global', name: normalizeTemplatePresetSelectionValue_ACU(decodeURIComponent(raw.slice(CHAT_GLOBAL_PRESET_VALUE_PREFIX.length))) };
   }
   const normalized = normalizeTemplatePresetSelectionValue_ACU(raw);
-  const hasLocalSnapshot = chatEntries.some(entry => normalizeTemplatePresetSelectionValue_ACU(entry?.presetName || '') === normalized);
-  return { kind: hasLocalSnapshot ? 'snapshot' : 'global', name: normalized };
+  return { kind: 'global', name: normalized };
 }
 
 function defaultPresetItem(label: string, meta?: string, value = '') {
@@ -71,6 +74,13 @@ function countTemplateSheets(templateSource: unknown): number | null {
 function formatSheetCountMeta(templateSource: unknown): string | undefined {
   const count = countTemplateSheets(templateSource);
   return count ? `${count} 张表` : undefined;
+}
+
+function formatArchiveMeta(entry: TemplateArchiveEntry): string | undefined {
+  const parts = [formatSheetCountMeta(entry?.templateStr)].filter(Boolean) as string[];
+  const source = String(entry?.presetName || '').trim();
+  if (source) parts.push(`来源: ${source}`);
+  return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
 function readFileText(file: File): Promise<string> {
@@ -96,12 +106,10 @@ function downloadJson(jsonData: Record<string, any>, filename: string): void {
 
 function resolveGuideDataForPresetSelection(selection: { kind: ChatPresetSelectionKind; name: string }): Record<string, any> | null {
   const normalized = normalizeTemplatePresetSelectionValue_ACU(selection.name);
-  const localEntry = selection.kind === 'snapshot'
-    ? listChatTemplatePresetEntries_ACU().find(entry => normalizeTemplatePresetSelectionValue_ACU(entry?.presetName || '') === normalized)
-    : null;
-  if (localEntry?.guideData && typeof localEntry.guideData === 'object') return localEntry.guideData;
-  const snapshot = selection.kind === 'snapshot' && localEntry?.templateStr
-    ? localEntry.templateStr
+  const chatScopeState = selection.kind === 'snapshot' ? getCurrentChatTemplateScopeState_ACU() : null;
+  if (chatScopeState?.guideData && typeof chatScopeState.guideData === 'object') return chatScopeState.guideData;
+  const snapshot = selection.kind === 'snapshot' && chatScopeState?.templateStr
+    ? chatScopeState.templateStr
     : (normalized ? getTemplatePreset_ACU(normalized)?.templateStr : getDefaultTemplateSnapshot_ACU()?.templateObj);
   const templateObj = typeof snapshot === 'string'
     ? safeJsonParse_ACU(snapshot, null)
@@ -115,21 +123,22 @@ export function useTableTemplatePresets() {
   const busy = ref(false);
   const message = ref<{ kind: MessageKind; text: string } | null>(null);
   const globalPresetNames = ref<string[]>([]);
-  const chatPresetEntries = ref<any[]>([]);
+  const chatArchiveEntries = ref<TemplateArchiveEntry[]>([]);
   const selectedGlobalPreset = ref('');
   const selectedGlobalPresetValue = ref(encodeChatPresetValue('global', ''));
   const selectedChatPreset = ref(encodeChatPresetValue('global', ''));
   const selectedChatPresetLabel = ref('默认预设（全局）');
-  const chatPresetItems = ref<Array<{ value: string; label: string; meta?: string }>>([]);
+  const chatPresetItems = ref<PresetItem[]>([]);
+  const chatArchiveItems = ref<PresetItem[]>([]);
   const activeTemplateScope = ref<'global' | 'chat'>('global');
 
   const isChatOverridden = computed(() => activeTemplateScope.value === 'chat');
 
   function buildChatPresetItems(
     globalNames: string[],
-    chatEntries: any[],
     _currentGlobalPreset: string,
-  ): Array<{ value: string; label: string; meta?: string }> {
+    activeMeta: ReturnType<typeof getActiveTemplatePresetMeta_ACU>,
+  ): PresetItem[] {
     const seen = new Set<string>();
     const defaultSnapshot = getDefaultTemplateSnapshot_ACU();
     const items = [defaultPresetItem('默认预设（全局）', formatSheetCountMeta(defaultSnapshot?.templateObj || defaultSnapshot?.templateStr), encodeChatPresetValue('global', ''))];
@@ -142,12 +151,20 @@ export function useTableTemplatePresets() {
       seen.add(value);
       items.push({ value, label: `${normalized}（全局预设）`, meta: formatSheetCountMeta(getTemplatePreset_ACU(normalized)?.templateStr) });
     }
-    for (const entry of chatEntries) {
-      const normalized = normalizeTemplatePresetSelectionValue_ACU(entry?.presetName || '');
+    if (activeMeta.mode === 'chat_override') {
+      const currentScope = getCurrentChatTemplateScopeState_ACU();
+      const normalized = normalizeTemplatePresetSelectionValue_ACU(
+        currentScope?.presetName || activeMeta.presetName || resolveActiveTemplatePresetName_ACU({ fallbackToGlobal: true }),
+      );
       const value = encodeChatPresetValue('snapshot', normalized);
-      if (seen.has(value)) continue;
-      seen.add(value);
-      items.push({ value, label: `${normalized || '默认预设'}（当前聊天快照）`, meta: formatSheetCountMeta(entry?.templateStr) });
+      if (!seen.has(value)) {
+        seen.add(value);
+        items.push({
+          value,
+          label: `${normalized || '默认预设'}（当前聊天快照）`,
+          meta: formatSheetCountMeta(currentScope?.templateStr),
+        });
+      }
     }
     return items;
   }
@@ -166,26 +183,31 @@ export function useTableTemplatePresets() {
 
   function refresh(): void {
     const nextGlobalNames = listTemplatePresetNames_ACU();
-    const nextChatEntries = listChatTemplatePresetEntries_ACU();
+    const nextChatArchives = listChatTemplateArchiveEntries_ACU();
     const nextSelectedGlobal = normalizeTemplatePresetSelectionValue_ACU(
       getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
     );
     const activeMeta = getActiveTemplatePresetMeta_ACU();
     const nextItems = buildChatPresetItems(
       nextGlobalNames,
-      nextChatEntries,
       nextSelectedGlobal,
+      activeMeta,
     );
     const nextSelectedChat = resolveSelectedChatPresetValue(activeMeta, nextSelectedGlobal);
 
     globalPresetNames.value = nextGlobalNames;
-    chatPresetEntries.value = nextChatEntries;
+    chatArchiveEntries.value = nextChatArchives;
     selectedGlobalPreset.value = nextSelectedGlobal;
     selectedGlobalPresetValue.value = encodeChatPresetValue('global', nextSelectedGlobal || '');
     selectedChatPreset.value = nextSelectedChat;
     selectedChatPresetLabel.value = nextItems.find(item => item.value === nextSelectedChat)?.label || '默认预设（全局）';
     activeTemplateScope.value = activeMeta.scope === 'chat' ? 'chat' : 'global';
     chatPresetItems.value = nextItems;
+    chatArchiveItems.value = nextChatArchives.map((entry: TemplateArchiveEntry) => ({
+      value: String(entry?.archiveKey || '').trim(),
+      label: String(entry?.label || entry?.presetName || '聊天历史模板快照'),
+      meta: formatArchiveMeta(entry),
+    })).filter((item: PresetItem) => !!item.value);
   }
 
   async function run<T>(action: () => Promise<T> | T): Promise<T | null> {
@@ -205,7 +227,7 @@ export function useTableTemplatePresets() {
   }
 
   async function selectGlobalPreset(name: string): Promise<void> {
-    const decoded = decodeChatPresetValue(name, chatPresetEntries.value);
+    const decoded = decodeChatPresetValue(name);
     const normalized = normalizeTemplatePresetSelectionValue_ACU(decoded.name);
     await run(async () => {
       const result = await applyTemplatePresetToCurrent_ACU(normalized, {
@@ -225,7 +247,7 @@ export function useTableTemplatePresets() {
   }
 
   async function selectChatPreset(name: string): Promise<void> {
-    const selection = decodeChatPresetValue(name, chatPresetEntries.value);
+    const selection = decodeChatPresetValue(name);
     const normalized = normalizeTemplatePresetSelectionValue_ACU(selection.name);
     await run(async () => {
       const guideData = resolveGuideDataForPresetSelection(selection);
@@ -241,6 +263,42 @@ export function useTableTemplatePresets() {
       if (!result) throw new Error('当前聊天模板预设切换失败。');
       if (isSqliteMode()) await reloadStorageProvider();
       message.value = null;
+    });
+  }
+
+  async function restoreArchivedChatTemplate(): Promise<void> {
+    await run(async () => {
+      const archives = listChatTemplateArchiveEntries_ACU();
+      if (archives.length === 0) {
+        message.value = { kind: 'info', text: '当前聊天没有可恢复的历史模板归档。' };
+        toast.info('当前聊天没有可恢复的历史模板归档。');
+        return;
+      }
+      const selectedArchiveKey = await dialogStore.choose({
+        title: '恢复历史模板归档',
+        message: '请选择要恢复为当前聊天表格模板的历史归档。恢复前会按当前数据恢复规则进行检查。',
+        actions: archives.map((entry: TemplateArchiveEntry) => ({
+          value: String(entry.archiveKey || '').trim(),
+          label: `${entry.label || entry.presetName || '聊天历史模板快照'}${formatArchiveMeta(entry) ? ` · ${formatArchiveMeta(entry)}` : ''}`,
+        })).filter((action: { value: string; label: string }) => !!action.value),
+        cancelLabel: '取消',
+      });
+      if (!selectedArchiveKey) return;
+      const archive = archives.find((entry: TemplateArchiveEntry) => String(entry.archiveKey || '').trim() === selectedArchiveKey);
+      if (!archive) throw new Error('找不到选择的历史模板归档。');
+      const guideData = archive.guideData && typeof archive.guideData === 'object'
+        ? archive.guideData
+        : buildChatSheetGuideDataFromTemplateObj_ACU(
+          typeof archive.templateStr === 'string' ? safeJsonParse_ACU(archive.templateStr, null) : archive.templateStr,
+          { stripSeedRows: false },
+        );
+      const canProceed = await ensureTemplateSwitchCanProceed(guideData);
+      if (!canProceed) return;
+      const result = await restoreChatTemplateArchiveEntry_ACU(selectedArchiveKey, { save: true });
+      if (!result) throw new Error('历史模板归档恢复失败。');
+      if (isSqliteMode()) await reloadStorageProvider();
+      message.value = null;
+      toast.success('已恢复历史模板归档。', { muteable: false });
     });
   }
 
@@ -368,7 +426,7 @@ export function useTableTemplatePresets() {
   function exportTemplate(scope: TemplateScope): void {
     const selectedPresetName = scope === 'global'
       ? selectedGlobalPreset.value
-      : decodeChatPresetValue(selectedChatPreset.value, chatPresetEntries.value).name;
+      : decodeChatPresetValue(selectedChatPreset.value).name;
     const resolved = resolveTemplateForExport_ACU(scope, selectedPresetName);
     if (!resolved) {
       const text = '无法解析当前模板。';
@@ -397,9 +455,11 @@ export function useTableTemplatePresets() {
     selectedChatPresetLabel,
     isChatOverridden,
     chatPresetItems,
+    chatArchiveItems,
     refresh,
     selectGlobalPreset,
     selectChatPreset,
+    restoreArchivedChatTemplate,
     saveGlobalAs,
     renameGlobalPreset,
     deleteGlobalPreset,

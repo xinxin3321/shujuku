@@ -39,6 +39,12 @@
         <i class="fa-solid fa-download"></i>
       </AcuFileButton>
       <AcuIconButton
+        icon="fa-solid fa-clock-rotate-left"
+        title="恢复历史模板归档"
+        :disabled="templates.busy.value || management.busy.value || templates.chatArchiveItems.value.length === 0"
+        @click="templates.restoreArchivedChatTemplate"
+      />
+      <AcuIconButton
         icon="fa-solid fa-gear"
         title="管理表格模板预设"
         :disabled="management.busy.value"
@@ -114,7 +120,7 @@ watch(useChatChangedTick(), refreshAll);
 
 .acu-table-template-panel__preset-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(2, max-content);
+  grid-template-columns: minmax(0, 1fr) repeat(3, max-content);
   gap: 6px;
   align-items: stretch;
   min-width: 0;

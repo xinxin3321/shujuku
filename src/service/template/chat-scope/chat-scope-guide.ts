@@ -19,7 +19,7 @@ import { ensureExportConfigDefaults_ACU, ensureGlobalInjectionConfigDefaults_ACU
 import { readIsolatedTagData_ACU, readLegacyIndependentData_ACU, readLegacyStandardData_ACU, readLegacySummaryData_ACU, isLegacyMatchForIsolation_ACU } from '../../../data/repositories/chat-message-data-repo';
 import { normalizeChatScopedConfigSource_ACU, normalizeGuideData_ACU } from './chat-scope-base';
 // 循环 import — 运行时安全
-import { normalizeTemplateScopeMode_ACU, normalizeTemplateScopeIsolationKey_ACU, sanitizeTemplateSnapshotForChat_ACU, getCurrentChatTemplateScopeState_ACU, setCurrentChatTemplateScopeState_ACU, buildChatTemplateScopeStateFromCurrent_ACU, getGlobalTemplateSnapshotForCurrentProfile_ACU, upsertChatTemplatePresetEntry_ACU, normalizeChatTemplateScopeState_ACU } from './chat-scope-template';
+import { normalizeTemplateScopeMode_ACU, normalizeTemplateScopeIsolationKey_ACU, sanitizeTemplateSnapshotForChat_ACU, getCurrentChatTemplateScopeState_ACU, setCurrentChatTemplateScopeState_ACU, buildChatTemplateScopeStateFromCurrent_ACU, getGlobalTemplateSnapshotForCurrentProfile_ACU, normalizeChatTemplateScopeState_ACU } from './chat-scope-template';
 import { getSortedSheetKeys_ACU } from './chat-scope-sheet';
 
 function cloneTableRows_ACU(rows: any[] | null | undefined) {
@@ -425,9 +425,6 @@ export function shouldUseOpeningSeedRows_ACU(): boolean {
                   isolationKey: normalizedKey,
                   reason: String(reason || `template_scope_${resolvedSource}`),
               });
-              try {
-                  upsertChatTemplatePresetEntry_ACU(templateState, { isolationKey: normalizedKey });
-              } catch (e) { logWarn_ACU('[Guide] upsertChatPresetEntry 失败:', e); }
           }
       }
       return true;

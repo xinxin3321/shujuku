@@ -105,23 +105,60 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       return listChatTemplatePresetEntries_ACU({ chat, isolationKey }).find(entry => buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '') === slotKey) || null;
   }
 
+  function archiveTemplateStateIntoContainer_ACU(
+      container: Record<string, any>,
+      templateState: Record<string, any> | null | undefined,
+      { isolationKey = getCurrentIsolationKey_ACU(), nextTemplateState = null as Record<string, any> | null, reason = '' } = {},
+  ) {
+      const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+      const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
+      if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr) return false;
+
+      const archiveKey = buildChatTemplateArchiveFingerprint_ACU(normalizedState, { isolationKey: normalizedKey });
+      if (!archiveKey) return false;
+
+      const normalizedNextState = nextTemplateState
+          ? normalizeChatTemplateScopeState_ACU(nextTemplateState, { isolationKey: normalizedKey })
+          : null;
+      const nextArchiveKey = normalizedNextState?.mode === 'chat_override' && normalizedNextState.templateStr
+          ? buildChatTemplateArchiveFingerprint_ACU(normalizedNextState, { isolationKey: normalizedKey })
+          : '';
+      if (nextArchiveKey && archiveKey === nextArchiveKey) return false;
+
+      const archivedAt = Date.now();
+      const rawEntries = container.templateArchives && typeof container.templateArchives === 'object' && !Array.isArray(container.templateArchives)
+          ? (container.templateArchives as Record<string, any>)[normalizedKey]
+          : [];
+      const previousEntries = Array.isArray(rawEntries) ? rawEntries : [];
+      const nextEntries = [
+          {
+              ...normalizedState,
+              archiveKey,
+              archivedAt,
+              updatedAt: normalizedState.updatedAt || archivedAt,
+              source: normalizedState.source || normalizeChatScopedConfigSource_ACU(reason, 'inherit'),
+          },
+          ...previousEntries
+              .map((entry: any) => normalizeChatTemplateArchiveEntry_ACU(entry, { isolationKey: normalizedKey }))
+              .filter(Boolean)
+              .filter((entry: any) => entry.archiveKey !== archiveKey),
+      ].slice(0, MAX_CHAT_TEMPLATE_ARCHIVES_PER_TAG_ACU);
+
+      if (!container.templateArchives || typeof container.templateArchives !== 'object' || Array.isArray(container.templateArchives)) {
+          container.templateArchives = {} as Record<string, any>;
+      }
+      (container.templateArchives as Record<string, any>)[normalizedKey] = nextEntries;
+      return true;
+  }
+
   export function upsertChatTemplatePresetEntry_ACU(templateState: Record<string, any>, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
       if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr) return null;
 
-      const slotKey = buildChatTemplatePresetSlotKey_ACU(normalizedState.presetName || '');
-      const archivedAt = Date.now();
-      const nextEntries = [
-          {
-              ...normalizedState,
-              archiveKey: slotKey,
-              archivedAt,
-              updatedAt: normalizedState.updatedAt || archivedAt,
-          },
-          ...getChatTemplateArchiveEntries_ACU({ chat, isolationKey: normalizedKey }).filter((entry: any) => buildChatTemplatePresetSlotKey_ACU(entry?.presetName || '') !== slotKey),
-      ];
-      setChatTemplateArchiveEntries_ACU(nextEntries, { chat, isolationKey: normalizedKey });
+      const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
+      archiveTemplateStateIntoContainer_ACU(container, normalizedState, { isolationKey: normalizedKey });
+      setChatScopedConfigContainer_ACU(chat, container);
       return findChatTemplatePresetEntry_ACU(normalizedState.presetName || '', { chat, isolationKey: normalizedKey });
   }
 
@@ -158,10 +195,6 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
       const localEntry = findChatTemplatePresetEntry_ACU(normalizedPresetName, { isolationKey: normalizedKey });
       const hasGlobalPreset = !normalizedPresetName || !!getTemplatePreset_ACU(normalizedPresetName)?.templateStr;
-
-      try {
-          ensureCurrentChatTemplatePresetEntry_ACU({ isolationKey: normalizedKey });
-      } catch (e) { logWarn_ACU('[模板作用域] ensureCurrentChatPresetEntry 失败:', e); }
 
       let appliedFromLocalSnapshot = false;
       if (localEntry?.templateStr) {
@@ -233,7 +266,6 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr) return '';
       const raw = safeJsonStringify_ACU({
           presetName: normalizedState.presetName || '',
-          source: normalizedState.source || '',
           templateStr: normalizedState.templateStr || '',
           guideData: normalizeGuideData_ACU(normalizedState.guideData),
       }, '');
@@ -355,7 +387,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
           : '';
   }
 
-  function getChatTemplateArchiveOptionLabel_ACU(entry: Record<string, any>) {
+  export function getChatTemplateArchiveOptionLabel_ACU(entry: Record<string, any>) {
       const normalizedEntry = normalizeChatTemplateArchiveEntry_ACU(entry);
       if (!normalizedEntry) return '聊天历史模板快照';
       const baseLabel = getChatTemplateArchiveBaseLabel_ACU(normalizedEntry);
@@ -365,7 +397,15 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
           : `${baseLabel}（聊天历史快照）`;
   }
 
-  async function restoreChatTemplateArchiveEntry_ACU(archiveKey: string, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU(), save = true } = {}) {
+  export function listChatTemplateArchiveEntries_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+      return getChatTemplateArchiveEntries_ACU({ chat, isolationKey }).map((entry: any) => ({
+          ...entry,
+          optionValue: buildChatTemplateArchiveOptionValue_ACU(entry.archiveKey),
+          label: getChatTemplateArchiveOptionLabel_ACU(entry),
+      }));
+  }
+
+  export async function restoreChatTemplateArchiveEntry_ACU(archiveKey: string, { chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU(), save = true } = {}) {
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       const normalizedArchiveKey = String(archiveKey || '').trim();
       if (!normalizedArchiveKey) return false;
@@ -392,7 +432,7 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       };
   }
 
-  export function getCurrentChatTemplateScopeState_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}) {
+  export function getCurrentChatTemplateScopeState_ACU({ chat = getChatArray_ACU(), isolationKey = getCurrentIsolationKey_ACU() } = {}): any | null {
       const container = getChatScopedConfigContainer_ACU(chat);
       const rawSlots = container?.template;
       if (!rawSlots || typeof rawSlots !== 'object' || Array.isArray(rawSlots)) return null;
@@ -403,12 +443,47 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
 
       const normalizedState = normalizeChatTemplateScopeState_ACU(rawState, { isolationKey: normalizedKey });
       if (normalizedState.mode === 'preset_link') {
-          return normalizedState;
+          const migrated: any | null = materializePresetLinkScopeState_ACU(normalizedState, { isolationKey: normalizedKey });
+          return migrated || normalizedState;
       }
       if (normalizedState.mode !== 'chat_override' || !normalizedState.templateStr) {
           return null;
       }
       return normalizedState;
+  }
+
+  function resolveSnapshotForPresetName_ACU(presetName: string) {
+      const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName || '');
+      if (normalizedPresetName) {
+          const presetSnapshot = sanitizeTemplateSnapshotForChat_ACU(getTemplatePreset_ACU(normalizedPresetName)?.templateStr || null);
+          if (presetSnapshot?.templateStr && presetSnapshot?.templateObj) return presetSnapshot;
+      }
+      return getDefaultTemplateSnapshot_ACU();
+  }
+
+  function materializePresetLinkScopeState_ACU(scopeState: Record<string, any>, { isolationKey = getCurrentIsolationKey_ACU() } = {}): any | null {
+      const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
+      const normalizedState = normalizeChatTemplateScopeState_ACU(scopeState, { isolationKey: normalizedKey });
+      if (normalizedState.mode !== 'preset_link') return null;
+      const linkedPresetName = normalizeTemplatePresetSelectionValue_ACU(normalizedState.presetName || '');
+      const snapshot = resolveSnapshotForPresetName_ACU(linkedPresetName);
+      if (!snapshot?.templateStr || !snapshot?.templateObj) return null;
+      const guideData = buildChatSheetGuideDataFromTemplateObj_ACU(snapshot.templateObj, { stripSeedRows: false });
+      const templateState = buildChatTemplateScopeStateFromCurrent_ACU({
+          isolationKey: normalizedKey,
+          presetName: linkedPresetName,
+          source: normalizeChatScopedConfigSource_ACU(normalizedState.source, 'preset_link_migration'),
+          originGlobalName: normalizeTemplatePresetSelectionValue_ACU(normalizedState.originGlobalName || linkedPresetName),
+          originGlobalRevision: Number.isFinite(normalizedState.originGlobalRevision) ? normalizedState.originGlobalRevision : 0,
+          updatedAt: Date.now(),
+          templateSource: snapshot.templateStr,
+          guideData,
+      });
+      if (!templateState) return null;
+      return setCurrentChatTemplateScopeState_ACU(templateState, {
+          isolationKey: normalizedKey,
+          reason: 'materialize_preset_link',
+      });
   }
 
   export function buildChatTemplateScopeStateFromCurrent_ACU(options: any = {}) {
@@ -444,14 +519,45 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       }, { isolationKey: normalizedKey });
   }
 
-  export function setCurrentChatTemplateScopeState_ACU(templateState: Record<string, any>, { isolationKey = getCurrentIsolationKey_ACU(), reason = '' } = {}) {
+  export function setCurrentChatTemplateScopeState_ACU(templateState: Record<string, any>, { isolationKey = getCurrentIsolationKey_ACU(), reason = '' } = {}): any | null {
       const chat = getChatArray_ACU();
       const first = getChatFirstLayerMessage_ACU(chat);
       if (!first) return null;
 
       const normalizedKey = normalizeTemplateScopeIsolationKey_ACU(isolationKey);
       const container = normalizeChatScopedConfigContainer_ACU(getChatScopedConfigContainer_ACU(chat));
-      const normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
+      let normalizedState = normalizeChatTemplateScopeState_ACU(templateState, { isolationKey: normalizedKey });
+      if (normalizedState.mode === 'preset_link') {
+          const linkedPresetName = normalizeTemplatePresetSelectionValue_ACU(normalizedState.presetName || '');
+          const snapshot = resolveSnapshotForPresetName_ACU(linkedPresetName);
+          const guideData = snapshot?.templateObj
+              ? buildChatSheetGuideDataFromTemplateObj_ACU(snapshot.templateObj, { stripSeedRows: false })
+              : null;
+          const materializedState = snapshot?.templateStr
+              ? buildChatTemplateScopeStateFromCurrent_ACU({
+                  isolationKey: normalizedKey,
+                  presetName: linkedPresetName,
+                  source: normalizeChatScopedConfigSource_ACU(normalizedState.source, 'preset_link_materialized'),
+                  originGlobalName: normalizeTemplatePresetSelectionValue_ACU(normalizedState.originGlobalName || linkedPresetName),
+                  originGlobalRevision: Number.isFinite(normalizedState.originGlobalRevision) ? normalizedState.originGlobalRevision : 0,
+                  updatedAt: normalizedState.updatedAt || Date.now(),
+                  templateSource: snapshot.templateStr,
+                  guideData,
+              })
+              : null;
+          normalizedState = materializedState
+              ? normalizeChatTemplateScopeState_ACU(materializedState, { isolationKey: normalizedKey })
+              : normalizeChatTemplateScopeState_ACU({ mode: 'inherit_global' }, { isolationKey: normalizedKey });
+      }
+      const currentRawState = container.template && typeof container.template === 'object' && !Array.isArray(container.template)
+          ? (container.template as Record<string, any>)[normalizedKey]
+          : null;
+
+      archiveTemplateStateIntoContainer_ACU(container, currentRawState, {
+          isolationKey: normalizedKey,
+          nextTemplateState: normalizedState,
+          reason,
+      });
 
       if (!container.template || typeof container.template !== 'object' || Array.isArray(container.template)) {
           container.template = {} as Record<string, any>;
@@ -460,13 +566,6 @@ import { normalizeIsolationCode_ACU } from '../../../shared/data-constants';
       if (normalizedState.mode === 'chat_override' && normalizedState.templateStr) {
           (container.template as Record<string, any>)[normalizedKey] = {
               ...normalizedState,
-              reason: String(reason || ''),
-          };
-      } else if (normalizedState.mode === 'preset_link') {
-          (container.template as Record<string, any>)[normalizedKey] = {
-              ...normalizedState,
-              templateStr: '',
-              guideData: null,
               reason: String(reason || ''),
           };
       } else {

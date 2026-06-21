@@ -11,8 +11,9 @@ async function importComposable() {
   let selectedChat = 'global-A';
   let activeScope: 'global' | 'chat' = 'global';
   let activeMode = 'inherit_global';
-  let chatEntries: any[] = [];
+  let archiveEntries: any[] = [];
   const applyTemplatePresetToCurrent_ACU = vi.fn(async () => ({ presetName: selectedChat }));
+  const restoreChatTemplateArchiveEntry_ACU = vi.fn(async (archiveKey: string) => ({ archiveKey, presetName: selectedChat }));
   const resolveTemplateForExport_ACU = vi.fn(() => ({ jsonData: { sheet_1: {} }, fromPresetName: selectedChat || '默认预设' }));
   const ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU = vi.fn(async () => ({ success: true, dataWasReset: false }));
   const validateCurrentChatTableRecoveryWithGuide_ACU = vi.fn(async () => ({ success: true }));
@@ -38,7 +39,11 @@ async function importComposable() {
   }));
   vi.doMock('../../../src/service/template/chat-scope', () => ({
     buildChatSheetGuideDataFromTemplateObj_ACU: (value: any) => value ? { sheet_1: value.sheet_1 || {} } : null,
-    listChatTemplatePresetEntries_ACU: () => chatEntries,
+    getCurrentChatTemplateScopeState_ACU: () => activeMode === 'chat_override'
+      ? { mode: 'chat_override', presetName: selectedChat, templateStr: '{"sheet_1":{"name":"当前快照"}}', guideData: { sheet_1: {} } }
+      : null,
+    listChatTemplateArchiveEntries_ACU: () => archiveEntries,
+    restoreChatTemplateArchiveEntry_ACU,
     sanitizeChatSheetsObject_ACU: (value: any) => value,
   }));
   vi.doMock('../../../src/shared/template-preset-utils', () => ({
@@ -64,14 +69,17 @@ async function importComposable() {
 
   const { createPinia, setActivePinia } = await import('pinia');
   setActivePinia(createPinia());
-  const [{ useTableTemplatePresets }, { useToastStore }] = await Promise.all([
+  const [{ useTableTemplatePresets }, { useToastStore }, { useDialogStore }] = await Promise.all([
     import('../../../src/presentation-v2/composables/useTableTemplatePresets'),
     import('../../../src/presentation-v2/stores/toast-store'),
+    import('../../../src/presentation-v2/stores/dialog-store'),
   ]);
   return {
     useTableTemplatePresets,
     toast: useToastStore(),
+    dialog: useDialogStore(),
     applyTemplatePresetToCurrent_ACU,
+    restoreChatTemplateArchiveEntry_ACU,
     resolveTemplateForExport_ACU,
     ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU,
     validateCurrentChatTableRecoveryWithGuide_ACU,
@@ -80,7 +88,7 @@ async function importComposable() {
     setSelectedChat: (value: string) => { selectedChat = value; },
     setActiveScope: (value: 'global' | 'chat') => { activeScope = value; activeMode = value === 'chat' ? 'chat_override' : 'inherit_global'; },
     setActiveMode: (value: string) => { activeMode = value; activeScope = value === 'inherit_global' ? 'global' : 'chat'; },
-    setChatEntries: (value: any[]) => { chatEntries = value; },
+    setChatEntries: (value: any[]) => { archiveEntries = value; },
   };
 }
 
@@ -112,18 +120,19 @@ describe('useTableTemplatePresets', () => {
     expect(presets.isChatOverridden.value).toBe(false);
   });
 
-  it('同名全局预设和聊天快照在当前聊天下拉中可区分', async () => {
+  it('主下拉只显示全局预设和当前聊天快照，不显示历史归档', async () => {
     const { useTableTemplatePresets, setChatEntries, setSelectedChat, setActiveMode } = await importComposable();
-    setChatEntries([{ presetName: 'global-A', templateStr: '{"sheet_1":{"name":"本地"}}' }]);
+    setChatEntries([{ archiveKey: 'archive-B', presetName: 'chat-B', templateStr: '{"sheet_1":{"name":"历史归档"}}', label: 'chat-B（聊天历史快照）' }]);
     setSelectedChat('global-A');
     setActiveMode('chat_override');
 
     const presets = useTableTemplatePresets();
+    const labels = presets.chatPresetItems.value.map(item => item.label);
 
-    expect(presets.chatPresetItems.value.map(item => item.label)).toEqual(expect.arrayContaining([
-      'global-A（全局预设）',
-      'global-A（当前聊天快照）',
-    ]));
+    expect(labels).toContain('global-A（全局预设）');
+    expect(labels).toContain('global-A（当前聊天快照）');
+    expect(labels).not.toContain('chat-B（当前聊天快照）');
+    expect(presets.chatArchiveItems.value.map(item => item.label)).toContain('chat-B（聊天历史快照）');
     expect(presets.selectedChatPresetLabel.value).toBe('global-A（当前聊天快照）');
   });
 
@@ -150,6 +159,20 @@ describe('useTableTemplatePresets', () => {
 
     expect(ensureTemplateRecoveryOrDeleteCurrentIsolationData_ACU).toHaveBeenCalledWith(expect.any(Object), 'switch-template');
     expect(applyTemplatePresetToCurrent_ACU).not.toHaveBeenCalled();
+  });
+
+  it('恢复历史归档通过单独对话框选择，并恢复选中的归档', async () => {
+    const { useTableTemplatePresets, dialog, restoreChatTemplateArchiveEntry_ACU, setChatEntries } = await importComposable();
+    setChatEntries([{ archiveKey: 'archive-B', presetName: 'chat-B', templateStr: '{"sheet_1":{"name":"历史归档"}}', label: 'chat-B（聊天历史快照）' }]);
+    const presets = useTableTemplatePresets();
+
+    const pending = presets.restoreArchivedChatTemplate();
+    await Promise.resolve();
+    expect(dialog.active?.kind).toBe('choice');
+    dialog.submitActive('archive-B');
+    await pending;
+
+    expect(restoreChatTemplateArchiveEntry_ACU).toHaveBeenCalledWith('archive-B', { save: true });
   });
 
   it('操作失败时保留局部错误并显示短 toast', async () => {

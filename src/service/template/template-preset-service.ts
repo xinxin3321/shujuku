@@ -14,7 +14,7 @@ import { persistCurrentTemplatePresetName_ACU, saveSettings_ACU } from '../setti
 import { applyTemplateScopeForCurrentChat_ACU } from '../settings/settings-service';
 import { getCurrentIsolationKey_ACU, settings_ACU } from '../runtime/state-manager';
 import { saveChatToHost_ACU } from '../../data/gateways/chat-gateway';
-import { activateChatTemplatePresetSelection_ACU, buildChatSheetGuideDataFromTemplateObj_ACU, buildChatTemplatePresetLinkState_ACU, buildChatTemplateScopeStateFromCurrent_ACU, clearChatSheetGuideDataForIsolationKey_ACU, getCurrentChatTemplateScopeState_ACU, getGlobalTemplateSnapshotForCurrentProfile_ACU, listChatTemplatePresetEntries_ACU, migrateLegacyTemplateScopeForCurrentChat_ACU, normalizeTemplateScopeIsolationKey_ACU, normalizeTemplateScopeMode_ACU, sanitizeChatSheetsObject_ACU, sanitizeTemplateSnapshotForChat_ACU, setCurrentChatTemplateScopeState_ACU, upsertChatTemplatePresetEntry_ACU } from '../template/chat-scope';
+import { activateChatTemplatePresetSelection_ACU, buildChatSheetGuideDataFromTemplateObj_ACU, buildChatTemplateScopeStateFromCurrent_ACU, clearChatSheetGuideDataForIsolationKey_ACU, getCurrentChatTemplateScopeState_ACU, getGlobalTemplateSnapshotForCurrentProfile_ACU, listChatTemplatePresetEntries_ACU, migrateLegacyTemplateScopeForCurrentChat_ACU, normalizeTemplateScopeIsolationKey_ACU, normalizeTemplateScopeMode_ACU, sanitizeChatSheetsObject_ACU, sanitizeTemplateSnapshotForChat_ACU, setCurrentChatTemplateScopeState_ACU } from '../template/chat-scope';
 import { refreshMergedDataAndNotify_ACU } from '../worldbook/pipeline';
 import { safeJsonParse_ACU, safeJsonStringify_ACU } from '../../shared/json-helpers';
 import { ensureSheetOrderNumbers_ACU, logWarn_ACU, parseTableTemplateJson_ACU } from '../../shared/utils';
@@ -229,8 +229,8 @@ export function parseImportedTemplateData_ACU(templateData: any) {
 export function persistTemplateScopeSelectionState_ACU(presetName: string, { source = 'ui', updateGlobal = false, save = true, persistChatScope = undefined as boolean | undefined, templateSource = null as any, guideData = null as any, archivePreviousChatScope = false, scopeMode = undefined as string | undefined, registerChatPresetEntry = undefined as boolean | undefined } = {}) {
     const _persistChatScope = persistChatScope ?? !updateGlobal;
     const _scopeMode = scopeMode ?? (_persistChatScope ? 'chat_override' : 'inherit_global');
-    const _registerChatPresetEntry = registerChatPresetEntry ?? (!updateGlobal && !!_persistChatScope && normalizeTemplateScopeMode_ACU(_scopeMode) === 'chat_override');
     void archivePreviousChatScope;
+    void registerChatPresetEntry;
     const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
     let shouldSaveSettings = false;
     let shouldSaveChat = false;
@@ -243,8 +243,11 @@ export function persistTemplateScopeSelectionState_ACU(presetName: string, { sou
         const normalizedScopeMode = normalizeTemplateScopeMode_ACU(_scopeMode);
         let templateState = null;
 
-        if (normalizedScopeMode === 'chat_override') {
-            const resolvedTemplateSource = templateSource || getGlobalTemplateSnapshotForCurrentProfile_ACU()?.templateStr || DEFAULT_TABLE_TEMPLATE_ACU;
+        if (normalizedScopeMode === 'chat_override' || normalizedScopeMode === 'preset_link') {
+            const presetSnapshot = normalizedPresetName
+                ? sanitizeTemplateSnapshotForChat_ACU(getTemplatePreset_ACU(normalizedPresetName)?.templateStr || null)
+                : getDefaultTemplateSnapshot_ACU();
+            const resolvedTemplateSource = templateSource || presetSnapshot?.templateStr || getGlobalTemplateSnapshotForCurrentProfile_ACU()?.templateStr || DEFAULT_TABLE_TEMPLATE_ACU;
             templateState = buildChatTemplateScopeStateFromCurrent_ACU({
                 isolationKey: normalizedKey,
                 presetName: normalizedPresetName,
@@ -255,15 +258,6 @@ export function persistTemplateScopeSelectionState_ACU(presetName: string, { sou
                 templateSource: resolvedTemplateSource,
                 guideData,
             });
-        } else if (normalizedScopeMode === 'preset_link') {
-            templateState = buildChatTemplatePresetLinkState_ACU({
-                isolationKey: normalizedKey,
-                presetName: normalizedPresetName,
-                source,
-                originGlobalName: getCurrentTemplatePresetName_ACU(settings_ACU, { requireExisting: false }),
-                originGlobalRevision: 0,
-                updatedAt: Date.now(),
-            });
         } else {
             templateState = { mode: 'inherit_global' };
         }
@@ -273,11 +267,6 @@ export function persistTemplateScopeSelectionState_ACU(presetName: string, { sou
                 isolationKey: normalizedKey,
                 reason: `template_scope_${source}`,
             });
-            if (normalizedScopeMode === 'chat_override' && _registerChatPresetEntry) {
-                try {
-                    upsertChatTemplatePresetEntry_ACU(templateState, { isolationKey: normalizedKey });
-                } catch (e) {}
-            }
             try {
                 clearChatSheetGuideDataForIsolationKey_ACU({ isolationKey: normalizedKey });
             } catch (e) {}
@@ -309,9 +298,7 @@ export async function applyTemplateSnapshotToScope_ACU(templateSource: any, { sc
     const normalizedPresetName = normalizeTemplatePresetSelectionValue_ACU(presetName);
     const updateGlobal = normalizedScope === 'global';
     const effectivePersistChatScope = persistChatScope === null ? !updateGlobal : !!persistChatScope;
-    const effectiveRegisterChatPresetEntry = registerChatPresetEntry === null
-        ? (!updateGlobal && !!effectivePersistChatScope)
-        : !!registerChatPresetEntry;
+    void registerChatPresetEntry;
     _set_TABLE_TEMPLATE_ACU(snapshot.templateStr);
     if (updateGlobal) {
         saveCurrentProfileTemplate_ACU(TABLE_TEMPLATE_ACU, settings_ACU);
@@ -326,7 +313,7 @@ export async function applyTemplateSnapshotToScope_ACU(templateSource: any, { sc
         templateSource: snapshot.templateStr,
         guideData,
         scopeMode: effectivePersistChatScope ? 'chat_override' : 'inherit_global',
-        registerChatPresetEntry: effectiveRegisterChatPresetEntry,
+        registerChatPresetEntry: false,
     });
     applyTemplateScopeForCurrentChat_ACU();
 
@@ -347,17 +334,22 @@ export async function applyTemplatePresetToCurrent_ACU(presetName: string, { sou
     if (!updateGlobal) {
         if (chatSelectionSource === 'global') {
             if (!isDefaultPreset && !getTemplatePreset_ACU(name)?.templateStr) return false;
-            const linkedPresetName = persistTemplateScopeSelectionState_ACU(name, {
+            const snapshot = isDefaultPreset
+                ? getDefaultTemplateSnapshot_ACU()
+                : sanitizeTemplateSnapshotForChat_ACU(getTemplatePreset_ACU(name)?.templateStr || null);
+            if (!snapshot?.templateStr) return false;
+            const applied = await applyTemplateSnapshotToScope_ACU(snapshot.templateStr, {
+                scope: 'chat',
                 source,
-                updateGlobal: false,
                 save,
                 persistChatScope: true,
-                scopeMode: 'preset_link',
+                presetName: name,
                 registerChatPresetEntry: false,
             });
+            if (!applied) return false;
             applyTemplateScopeForCurrentChat_ACU();
             try { await refreshMergedDataAndNotify_ACU(); } catch (e) {}
-            return { presetName: linkedPresetName, mode: 'preset_link', fromGlobalPreset: true, isDefault: isDefaultPreset };
+            return { presetName: name, mode: 'chat_override', fromGlobalPreset: true, isDefault: isDefaultPreset };
         }
 
         const activated = await activateChatTemplatePresetSelection_ACU(name, {

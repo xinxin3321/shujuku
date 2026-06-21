@@ -445,7 +445,7 @@ describe('applyTemplateScopeForCurrentChat_ACU', () => {
     expect(mockSetTableTemplate).toHaveBeenCalled();
   });
 
-  it('preset_link 模式：使用链接的全局预设', () => {
+  it('preset_link 兼容模式：应用后对外按聊天快照处理', () => {
     mockGetCurrentChatTemplateScopeState.mockReturnValue({
       mode: 'preset_link',
       presetName: '预设A',
@@ -456,7 +456,7 @@ describe('applyTemplateScopeForCurrentChat_ACU', () => {
 
     const result = applyTemplateScopeForCurrentChat_ACU();
     expect(result).not.toBeNull();
-    expect(result!.mode).toBe('preset_link');
+    expect(result!.mode).toBe('chat_override');
     expect(result!.presetName).toBe('预设A');
   });
 

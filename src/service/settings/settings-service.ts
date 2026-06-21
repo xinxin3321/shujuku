@@ -757,9 +757,9 @@ export   function applyTemplateScopeForCurrentChat_ACU({ isolationKey = getCurre
           };
       }
       if (scopeState?.mode === 'preset_link') {
-          logDebug_ACU(`[TemplateScope] Applied linked global preset for key [${normalizedKey || '默认'}]: ${selectedPresetName || '默认预设'}.`);
+          logDebug_ACU(`[TemplateScope] Applied legacy preset_link fallback for key [${normalizedKey || '默认'}]: ${selectedPresetName || '默认预设'}.`);
           return {
-              mode: 'preset_link',
+              mode: 'chat_override',
               isolationKey: normalizedKey,
               presetName: selectedPresetName,
           };

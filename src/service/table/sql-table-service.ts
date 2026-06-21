@@ -558,10 +558,11 @@ export class SqlTableService implements ITableStorageProvider {
    * 2. 老卡正常运行：所有表都已存在 → 直接返回（幂等）
    * 3. 中途加表：模板中新增了一张表，但 SQLite 中没有 → 只建缺失的表
    *
-   * 模板来源优先级（只使用当前聊天模板预设）：
-   * 1. 当前聊天的 chat_override 模板快照
-   * 2. 当前聊天的 preset_link 链接的全局预设
-   * 3. 全局模板（inherit_global 或无聊天级模板时的 fallback）
+    * 模板来源优先级：
+    * 1. 当前聊天的 chat_override 模板快照
+    * 2. 全局模板（inherit_global 或无聊天级模板时的 fallback）
+    *
+    * 旧版 preset_link 会在 getCurrentChatTemplateScopeState_ACU() 读取时物化为 chat_override。
    *
    * DDL 来源优先级：
    * 1. currentJsonTableData_ACU 中的 sourceData.ddl（可能来自指导表，包含用户在可视化编辑器中的修改）
@@ -639,8 +640,10 @@ export class SqlTableService implements ITableStorageProvider {
    *
    * 优先级：
    * 1. chat_override —— 当前聊天的专属模板快照
-   * 2. preset_link  —— 当前聊天链接的全局预设
-   * 3. inherit_global / 无聊天级模板 —— fallback 到 parseTableTemplateJson_ACU（全局模板）
+   * 2. inherit_global / 无聊天级模板 —— fallback 到 parseTableTemplateJson_ACU（全局模板）
+   *
+   * 旧版 preset_link 会在 getCurrentChatTemplateScopeState_ACU() 读取时物化为 chat_override；
+   * 这里保留 preset_link 分支只是兼容异常情况下未能写回迁移的旧存档。
    */
   private _resolveCurrentChatTemplate(stripSeedRows = true): TableDataObject_ACU | null {
     try {
@@ -653,7 +656,7 @@ export class SqlTableService implements ITableStorageProvider {
           // 场景 1：当前聊天有专属模板快照
           templateStr = scopeState.templateStr;
         } else if (scopeState.mode === 'preset_link' && scopeState.presetName) {
-          // 场景 2：当前聊天链接了全局预设
+          // 旧版兼容兜底：正常读取时已物化为 chat_override。
           const preset = getTemplatePreset_ACU(scopeState.presetName);
           if (preset?.templateStr) {
             templateStr = preset.templateStr;

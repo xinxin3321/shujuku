@@ -374,6 +374,24 @@ describe('applyTemplatePresetToCurrent_ACU', () => {
     expect(result).toBeTruthy();
     expect(activateChatTemplatePresetSelection_ACU).toHaveBeenCalled();
   });
+
+  it('聊天选择全局预设时物化为 chat_override 快照而不是 preset_link', async () => {
+    vi.mocked(activateChatTemplatePresetSelection_ACU).mockClear();
+    upsertTemplatePreset_ACU('预设A', '{"sheet_0":{"name":"全局表"}}');
+    vi.mocked(sanitizeTemplateSnapshotForChat_ACU).mockReturnValue({
+      templateStr: '{"sheet_0":{"name":"全局表"}}',
+      templateObj: { sheet_0: { name: '全局表' } },
+    } as any);
+
+    const result = await applyTemplatePresetToCurrent_ACU('预设A', {
+      updateGlobal: false,
+      chatSelectionSource: 'global',
+    });
+
+    expect(result).toMatchObject({ mode: 'chat_override', fromGlobalPreset: true });
+    expect(activateChatTemplatePresetSelection_ACU).not.toHaveBeenCalled();
+    vi.mocked(sanitizeTemplateSnapshotForChat_ACU).mockRestore();
+  });
 });
 
 // ═══ resolveTemplateForExport_ACU ═══
