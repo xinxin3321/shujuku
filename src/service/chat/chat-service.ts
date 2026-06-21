@@ -123,12 +123,6 @@ function hasV2FullCheckpointInRange_ACU(chat: any[], isolationKey: string, start
     return false;
 }
 
-function selectRetainedCheckpointAnchorIndex_ACU(chat: any[], retainedDataIndices: number[]): number | undefined {
-    const retainedAiIndices = retainedDataIndices.filter((idx: number) => idx >= 0 && chat[idx] && !chat[idx].is_user);
-    if (retainedAiIndices.length === 0) return undefined;
-    return retainedAiIndices[Math.floor(retainedAiIndices.length / 2)];
-}
-
 function selectLastAiIndex_ACU(chat: any[], indices: number[]): number | undefined {
     for (let i = indices.length - 1; i >= 0; i--) {
         const idx = indices[i];
@@ -403,8 +397,7 @@ async function purgeOldLayerDataCore_ACU() {
     const retainedEndIndex = retainedDataIndices[retainedDataIndices.length - 1];
     const checkpointBufferStartIndex = checkpointBufferIndices[0];
     const checkpointBufferEndIndex = checkpointBufferIndices[checkpointBufferIndices.length - 1];
-    const anchorIndex = selectLastAiIndex_ACU(chat, checkpointBufferIndices)
-        ?? selectRetainedCheckpointAnchorIndex_ACU(chat, retainedDataIndices);
+    const anchorIndex = selectLastAiIndex_ACU(chat, checkpointBufferIndices);
     if (anchorIndex !== undefined && anchorIndex >= 0 && chat[anchorIndex]) {
         try {
             if (await writeV2BoundaryCheckpointBeforePurge_ACU(chat, anchorIndex, {
@@ -418,7 +411,7 @@ async function purgeOldLayerDataCore_ACU() {
             return;
         }
     } else if (collectIsolationKeysWithV2Frames_ACU(chat, { maxMessageIndex: indicesToPurge[indicesToPurge.length - 1] }).length > 0) {
-        logError_ACU('[V2 Compaction] 找不到可写入边界 checkpoint 的保留 AI 楼层，已中止本次清理以避免恢复链断裂。');
+        logError_ACU(`[V2 Compaction] checkpoint 缓冲区（额外 ${RETAIN_RECENT_CHECKPOINT_BUFFER_LAYERS_ACU} 层）内找不到可写入 checkpoint 的 AI 楼层，已中止本次清理以避免恢复链断裂。`);
         return;
     }
 

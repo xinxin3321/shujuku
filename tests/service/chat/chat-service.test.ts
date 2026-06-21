@@ -249,6 +249,40 @@ describe('purgeOldLayerData_ACU', () => {
     expect(chat[22].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint.data.sheet_0.content[1][1]).toBe('剑');
   });
 
+  it('checkpoint 缓冲区没有可写 AI 楼层时不退回有效保留区补写，并中止清理', async () => {
+    mockSettings.retainRecentLayers = 2;
+    const chat = Array.from({ length: 25 }, (_, index) => ({
+      is_user: index >= 3 && index <= 22,
+      TavernDB_ACU_IsolatedData: {
+        '': {
+          storageFrame: {
+            version: 2,
+            ...(index === 0
+              ? {
+                  checkpoint: {
+                    kind: 'full',
+                    createdAt: 1,
+                    reason: 'init',
+                    data: { sheet_0: { name: '物品表', content: [['row_id', '物品名'], ['1', '剑']] } },
+                  },
+                }
+              : {}),
+            logEntries: [],
+          },
+          _acu_storage_version: 2,
+        },
+      },
+    }));
+    mockGetChatArray.mockReturnValue(chat);
+
+    await purgeOldLayerData_ACU();
+
+    expect(chat[0].TavernDB_ACU_IsolatedData).toBeDefined();
+    expect(chat[23].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint).toBeUndefined();
+    expect(chat[24].TavernDB_ACU_IsolatedData[''].storageFrame.checkpoint).toBeUndefined();
+    expect(mockSaveChatToHost).not.toHaveBeenCalled();
+  });
+
   it('retainRecentLayers=0 时跳过', async () => {
     mockSettings.retainRecentLayers = 0;
     mockGetChatArray.mockReturnValue([]);

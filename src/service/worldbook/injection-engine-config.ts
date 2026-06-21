@@ -95,6 +95,7 @@ export function buildDefaultExportConfig_ACU(tableName = '') {
         extraIndexColumns: [] as string[],
         extraIndexColumnModes: {},
         extraIndexInjectionTemplate: '',
+        sqlInjectionTemplate: '',
         entryPlacement: { ...DEFAULT_ENTRY_PLACEMENT_ACU },
         extraIndexPlacement: { ...DEFAULT_EXTRA_INDEX_PLACEMENT_ACU },
         fixedEntryPlacement: { ...fixedDefaults.entry },

@@ -5,6 +5,7 @@
 import { deriveTemplatePresetNameForImport_ACU } from '../../shared/template-preset-utils';
 import { TABLE_ORDER_FIELD_ACU } from '../../shared/constants';
 import { currentJsonTableData_ACU, getCurrentIsolationKey_ACU, independentTableStates_ACU, settings_ACU, suppressWorldbookInjectionInGreeting_ACU, _set_suppressWorldbookInjectionInGreeting_ACU, _set_currentJsonTableData_ACU } from './state-manager';
+import { isSqliteMode } from '../table/storage-mode';
 import { getChatArray_ACU, saveChatToHost_ACU } from '../../data/gateways/chat-gateway';
 import { applyTemplateScopeForCurrentChat_ACU, saveSettings_ACU } from '../settings/settings-service';
 import { buildChatSheetGuideDataFromTemplateObj_ACU, getChatSheetGuideDataForIsolationKey_ACU, getSortedSheetKeys_ACU, materializeDataFromSheetGuide_ACU, reorderDataBySheetKeys_ACU, sanitizeTemplateSnapshotForChat_ACU, setChatSheetGuideDataForIsolationKey_ACU } from '../template/chat-scope';
@@ -449,6 +450,14 @@ import { runTableWriteTransaction_ACU } from '../table/table-write-transaction';
             if (table.exportConfig.injectIntoWorldbook === false) return; // Skip if injection is disabled
         }
         
+        const sqlInjectionTemplate = isSqliteMode() && typeof table.exportConfig?.sqlInjectionTemplate === 'string'
+            ? table.exportConfig.sqlInjectionTemplate.trim()
+            : '';
+        if (sqlInjectionTemplate) {
+            readableText += `${sqlInjectionTemplate}\n\n`;
+            return;
+        }
+
         // All other tables, including '全局数据表', are added to the readable text
         readableText += `# ${table.name}\n\n`;
         const headers = table.content[0] ? table.content[0].slice(1) : [];

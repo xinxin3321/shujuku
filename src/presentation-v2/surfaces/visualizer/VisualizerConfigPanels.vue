@@ -203,6 +203,16 @@
         />
       </div>
 
+      <AcuFormRow v-if="config.isSQLite.value" label="SQL 注入模板">
+        <AcuTextarea
+          :model-value="exportConfig.sqlInjectionTemplate || ''"
+          :rows="5"
+          auto-resize
+          :placeholder="sqlInjectionTemplatePlaceholder"
+          @update:model-value="value => config.updateExportConfig('sqlInjectionTemplate', value)"
+        />
+      </AcuFormRow>
+
       <template v-if="exportConfig.enabled === true">
         <div class="acu-viz-config__toggles">
           <AcuCheckbox
@@ -367,6 +377,7 @@ defineEmits<{
 
 const config = useVisualizerConfigEditing();
 const ddlValidation = ref<{ valid: boolean; message: string } | null>(null);
+const sqlInjectionTemplatePlaceholder = '留空则使用默认表格内容。支持 {[sql "SELECT ..."]} / {[db.表名.where(...).get(...)]}，会原样写入世界书并在发送前展开。';
 
 const updateConfig = computed(() => {
   const raw = config.currentSheet.value?.updateConfig || {};

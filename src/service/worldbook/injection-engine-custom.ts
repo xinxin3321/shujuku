@@ -15,6 +15,7 @@ import { getInjectionTargetLorebook_ACU, getIsolationPrefix_ACU } from './inject
 import { splitKeywordsByComma_ACU } from './injection-engine-entries';
 import { getLatestSummaryVectorIndexSnapshotState_ACU } from '../vector/summary-vector-index-state-service';
 import { getEffectiveSummaryVectorIndexConfig_ACU } from '../vector/vector-memory-config';
+import { isSqliteMode } from '../table/storage-mode';
 
   // [新增] 处理自定义表格导出逻辑
   // [修复] 当 mergedData 为空/null 时，仍需执行"清理旧自定义导出条目"逻辑，
@@ -302,6 +303,9 @@ import { getEffectiveSummaryVectorIndexConfig_ACU } from '../vector/vector-memor
 
               const config = ensureExportConfigDefaults_ACU(table.exportConfig, table.name || sheetKey);
               const tableName = table.name;
+              const sqlInjectionTemplate = isSqliteMode() && typeof config.sqlInjectionTemplate === 'string'
+                  ? config.sqlInjectionTemplate.trim()
+                  : '';
               const entryPlacement = normalizePlacementConfig_ACU(config.entryPlacement, DEFAULT_ENTRY_PLACEMENT_ACU);
               const extraIndexPlacement = normalizePlacementConfig_ACU(config.extraIndexPlacement, DEFAULT_EXTRA_INDEX_PLACEMENT_ACU);
               const headers: string[] = table.content[0] ? table.content[0].slice(1) : [];
@@ -326,7 +330,7 @@ import { getEffectiveSummaryVectorIndexConfig_ACU } from '../vector/vector-memor
               const wrapperParts = parseWrapperTemplate(config.injectionTemplate);
               const useWrapperEntries = !!wrapperParts;
 
-              if (effectiveRows.length === 0 && !hasExtraIndex) return; // 仅存在空白行时不注入任何表格相关条目
+              if (effectiveRows.length === 0 && !hasExtraIndex && !sqlInjectionTemplate) return; // 仅存在空白行且无模板时不注入任何表格相关条目
 
               // [新增] 如果主条目禁用但索引条目启用，只处理索引条目
               if (mainEntryDisabled && hasExtraIndex) {
@@ -345,6 +349,45 @@ import { getEffectiveSummaryVectorIndexConfig_ACU } from '../vector/vector-memor
                   entriesToCreate.push(...extraBlock.entries);
                   nextCustomExportOrder = extraBlock.nextOrder + CUSTOM_EXPORT_ORDER_GAP;
                   return; // 跳过主条目处理
+              }
+
+              if (sqlInjectionTemplate) {
+                  const entryName = config.entryName || tableName;
+                  let keys = config.keywords ? splitKeywordsByComma_ACU(config.keywords) : [];
+                  if (config.entryType === 'keyword' && keys.length === 0) return;
+
+                  const mainOrder = allocOrder_ACU(usedOrders, toIntOrFallback_ACU(entryPlacement.order, nextCustomExportOrder), 1, 99999);
+                  const fullComment = getImportEntryName(entryName);
+                  newGeneratedNames.push(fullComment);
+                  postCreateOrderFixPlan.push({ comment: fullComment, order: mainOrder, placement: entryPlacement });
+                  entriesToCreate.push(applyPlacementToEntry_ACU({
+                      comment: fullComment,
+                      content: sqlInjectionTemplate,
+                      keys,
+                      enabled: true,
+                      type: config.entryType || 'constant',
+                      prevent_recursion: config.preventRecursion !== false,
+                      order: mainOrder,
+                  }, entryPlacement));
+
+                  let nextOrder = mainOrder + CUSTOM_EXPORT_ORDER_GAP;
+                  if (hasExtraIndex) {
+                      const extraBlock = buildExtraIndexEntryBlock_ACU({
+                          exportPrefix,
+                          extraIndexSpec,
+                          templateStr: config.extraIndexInjectionTemplate,
+                          startOrder: toIntOrFallback_ACU(extraIndexPlacement.order, nextOrder),
+                          placement: extraIndexPlacement,
+                          usedOrderSet: usedOrders,
+                          enabled: extraIndexEntryEnabled,
+                      });
+                      newGeneratedNames.push(...extraBlock.names);
+                      postCreateOrderFixPlan.push(...extraBlock.plans);
+                      entriesToCreate.push(...extraBlock.entries);
+                      nextOrder = extraBlock.nextOrder;
+                  }
+                  nextCustomExportOrder = nextOrder + CUSTOM_EXPORT_ORDER_GAP;
+                  return;
               }
 
               // 准备表格数据内容 (Common logic)

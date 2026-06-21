@@ -36,6 +36,7 @@ export interface SheetExportConfig_ACU {
   extraIndexColumns: string[];
   extraIndexColumnModes: Record<string, string>;
   extraIndexInjectionTemplate: string;
+  sqlInjectionTemplate?: string;
   entryPlacement: PlacementConfig_ACU;
   extraIndexPlacement: PlacementConfig_ACU;
   fixedEntryPlacement: PlacementConfig_ACU;
