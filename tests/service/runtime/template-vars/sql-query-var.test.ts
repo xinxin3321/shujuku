@@ -596,11 +596,18 @@ describe('sql-query-var', () => {
       expect(result).toBe('3');
     });
 
-    it('多行结果用逗号分隔', () => {
+    it('多行单列结果用换行分隔', () => {
       const result = evaluateRawSqlExpression('sql "SELECT item_name FROM inventory"');
       expect(result).toContain('铁剑');
       expect(result).toContain('治疗药水');
       expect(result).toContain('魔法书');
+      expect(result).toContain('\n');
+      expect(result).not.toContain('铁剑, 治疗药水');
+    });
+
+    it('多行单列内容里的逗号保留为内容，不作为记录分隔符', () => {
+      const result = evaluateRawSqlExpression('sql "SELECT item_name || \',含逗号\' FROM inventory LIMIT 2"');
+      expect(result).toBe('铁剑,含逗号\n治疗药水,含逗号');
     });
 
     it('空 SQL 返回空字符串', () => {
