@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { JSDOM } from 'jsdom';
 
 const STORAGE_KEY = 'acu_v2_ui_state';
 
@@ -22,8 +23,17 @@ async function resetMountedApp(): Promise<void> {
   mount.__resetAcuV2MountForTests();
 }
 
+function setParent(parent: any): void {
+  Object.defineProperty(window, 'parent', {
+    value: parent,
+    writable: true,
+    configurable: true,
+  });
+}
+
 beforeEach(() => {
   vi.resetModules();
+  setParent(window);
   document.body.innerHTML = '';
   document.head.innerHTML = '';
   localStorage.clear();
@@ -76,6 +86,7 @@ describe('openVisualizerSurface_ACU', () => {
     const bridge = await import('../../../src/presentation-v2/surfaces/visualizer/open-visualizer-surface');
     const mount = await import('../../../src/presentation-v2/bootstrap/mount');
     const { useVisualizerStore } = await import('../../../src/presentation-v2/stores/visualizer-store');
+    expect(typeof (window as any).AutoCardUpdaterV2API?.open).toBe('function');
     expect(typeof (window as any).AutoCardUpdaterV2API?.openVisualizer).toBe('function');
     expect(typeof (window as any).AutoCardUpdaterV2API?.refreshVisualizer).toBe('function');
 
@@ -88,6 +99,42 @@ describe('openVisualizerSurface_ACU', () => {
     expect(pinia).not.toBeNull();
     expect(useVisualizerStore(pinia!).externalRefreshTick).toBe(1);
     mount.__resetAcuV2MountForTests();
+  });
+
+  it('全局 v2 open 接口只打开新 UI shell，不进入数据库编辑器', async () => {
+    persistAdvancedMode('api');
+    await import('../../../src/presentation-v2/surfaces/visualizer/open-visualizer-surface');
+
+    const result = await (window as any).AutoCardUpdaterV2API.open();
+    await Promise.resolve();
+
+    expect(result).toBe(true);
+    expect(document.getElementById('acu-app-v2')?.style.display).toBe('');
+    expect(document.querySelector('.acu-v2-app__page-title')?.textContent).toBe('API');
+    expect(document.querySelector('[data-acu-visualizer-surface]')).toBeNull();
+    await resetMountedApp();
+  });
+
+  it('全局 v2 接口会同步挂到宿主 window', async () => {
+    const parentDom = new JSDOM('<!doctype html><html><head></head><body></body></html>');
+    setParent(parentDom.window);
+    try {
+      await import('../../../src/presentation-v2/surfaces/visualizer/open-visualizer-surface');
+
+      expect(typeof (window as any).AutoCardUpdaterV2API?.open).toBe('function');
+      expect(typeof (parentDom.window as any).AutoCardUpdaterV2API?.open).toBe('function');
+
+      const result = await (parentDom.window as any).AutoCardUpdaterV2API.open();
+      await Promise.resolve();
+
+      expect(result).toBe(true);
+      expect(parentDom.window.document.getElementById('acu-app-v2')?.style.display).toBe('');
+      expect(document.getElementById('acu-app-v2')).toBeNull();
+      await resetMountedApp();
+    } finally {
+      parentDom.window.close();
+      setParent(window);
+    }
   });
 
   it('载入当前数据后可编辑卡片并拦截 dirty 关闭', async () => {

@@ -451,6 +451,36 @@ window.AutoCardUpdaterAPI.openVisualizer();
 
 ---
 
+## 新 UI v2 API
+
+所有新 UI v2 方法通过全局对象 `window.AutoCardUpdaterV2API` 访问。
+
+### `open()`
+
+打开 SP·数据库 V 新 UI 主界面。
+
+**返回值**: `Promise<boolean>`
+
+**示例**:
+```javascript
+await window.AutoCardUpdaterV2API.open();
+```
+
+---
+
+### `openVisualizer()`
+
+打开新 UI v2 内的数据库可视化表格编辑器。
+
+**返回值**: `Promise<boolean>`
+
+**示例**:
+```javascript
+await window.AutoCardUpdaterV2API.openVisualizer();
+```
+
+---
+
 ### `manualUpdate()`
 
 立即执行手动更新（等价于点击"立即手动更新"按钮）。

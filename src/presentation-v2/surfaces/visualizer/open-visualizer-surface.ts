@@ -3,6 +3,7 @@ import {
   getAcuV2PiniaForBridge,
   openAcuV2App,
 } from '../../bootstrap/mount';
+import { getAcuHostWindow } from '../../bootstrap/host-document';
 import { useRootShellStore } from '../../stores/root-shell-store';
 import { useRouterStore } from '../../stores/router-store';
 import {
@@ -15,8 +16,19 @@ interface OpenVisualizerSurfaceOptions {
 }
 
 interface AutoCardUpdaterV2Api {
+  open: () => Promise<boolean>;
   openVisualizer: () => Promise<boolean>;
   refreshVisualizer: () => Promise<void>;
+}
+
+export async function openAcuV2Shell_ACU(): Promise<boolean> {
+  try {
+    await openAcuV2App();
+    return true;
+  } catch (error) {
+    logError_ACU('openAcuV2Shell failed:', error);
+    return false;
+  }
 }
 
 export async function openVisualizerSurface_ACU(
@@ -56,15 +68,24 @@ export async function requestVisualizerExternalRefresh_ACU(): Promise<void> {
   useVisualizerStore(pinia).requestExternalRefresh();
 }
 
-export function installAutoCardUpdaterV2Api_ACU(): void {
-  if (typeof window === 'undefined') return;
-  const target = window as any;
+function installAutoCardUpdaterV2ApiOnTarget_ACU(target: any): void {
+  if (!target) return;
   const previous = target.AutoCardUpdaterV2API || {};
   target.AutoCardUpdaterV2API = {
     ...previous,
+    open: openAcuV2Shell_ACU,
     openVisualizer: () => openVisualizerSurface_ACU({ source: 'external-api' }),
     refreshVisualizer: requestVisualizerExternalRefresh_ACU,
   } satisfies AutoCardUpdaterV2Api;
+}
+
+export function installAutoCardUpdaterV2Api_ACU(): void {
+  if (typeof window === 'undefined') return;
+  installAutoCardUpdaterV2ApiOnTarget_ACU(window as any);
+  const hostWindow = getAcuHostWindow();
+  if (hostWindow !== window) {
+    installAutoCardUpdaterV2ApiOnTarget_ACU(hostWindow as any);
+  }
 }
 
 installAutoCardUpdaterV2Api_ACU();
