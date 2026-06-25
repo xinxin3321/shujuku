@@ -1303,18 +1303,19 @@
     #acu-visualizer-content .acu-card-body { color: var(--vis-text-dim); }
     #acu-visualizer-content .acu-field-label { color: var(--vis-text-mute); }
 
+    /* 加 !important 防御宿主主题对 input/textarea 的全局 !important 覆盖 */
     #acu-visualizer-content .acu-field-value {
-        background: var(--vis-bg-color);
-        border: 1px solid var(--vis-border-color);
-        color: var(--vis-text-main);
+        background: var(--vis-bg-color) !important;
+        border: 1px solid var(--vis-border-color) !important;
+        color: var(--vis-text-main) !important;
     }
     #acu-visualizer-content .acu-field-value:hover {
-        background: var(--vis-bg-hover);
-        border-color: var(--vis-accent);
+        background: var(--vis-bg-hover) !important;
+        border-color: var(--vis-accent) !important;
     }
     #acu-visualizer-content .acu-field-value:focus {
-        background: var(--vis-bg-color);
-        border-color: var(--vis-accent);
+        background: var(--vis-bg-color) !important;
+        border-color: var(--vis-accent) !important;
         box-shadow: 0 0 0 2px var(--vis-accent-glow);
     }
 
@@ -1323,15 +1324,27 @@
 
     #acu-visualizer-content .acu-form-input,
     #acu-visualizer-content .acu-form-textarea,
-    #acu-visualizer-content .acu-col-input {
-        background: var(--vis-bg-color);
-        border: 1px solid var(--vis-border-color);
-        color: var(--vis-text-main);
+    #acu-visualizer-content .acu-col-input,
+    #acu-visualizer-content input[type="text"],
+    #acu-visualizer-content input[type="number"],
+    #acu-visualizer-content input[type="search"],
+    #acu-visualizer-content input[type="password"],
+    #acu-visualizer-content input:not([type]),
+    #acu-visualizer-content textarea {
+        background: var(--vis-bg-color) !important;
+        border: 1px solid var(--vis-border-color) !important;
+        color: var(--vis-text-main) !important;
     }
     #acu-visualizer-content .acu-form-input:focus,
     #acu-visualizer-content .acu-form-textarea:focus,
-    #acu-visualizer-content .acu-col-input:focus {
-        border-color: var(--vis-accent);
+    #acu-visualizer-content .acu-col-input:focus,
+    #acu-visualizer-content input[type="text"]:focus,
+    #acu-visualizer-content input[type="number"]:focus,
+    #acu-visualizer-content input[type="search"]:focus,
+    #acu-visualizer-content input[type="password"]:focus,
+    #acu-visualizer-content input:not([type]):focus,
+    #acu-visualizer-content textarea:focus {
+        border-color: var(--vis-accent) !important;
         box-shadow: 0 0 0 2px var(--vis-accent-glow);
     }
 
