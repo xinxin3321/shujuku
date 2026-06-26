@@ -5,6 +5,7 @@ import { settings_ACU } from '../../service/runtime/state-manager';
 import { saveSettings_ACU } from '../../service/settings/settings-service';
 import {
   getPlotAgentWorldbookSnapshot_ACU,
+  refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU,
   restoreWorldbookGreenlights_ACU,
   takeoverWorldbookGreenlights_ACU,
 } from '../../service/agent/agent-worldbook-takeover';
@@ -71,7 +72,7 @@ export function usePlotWorldbookAgentControl() {
   const snapshotEntryCount = computed(() => countSnapshotEntries(snapshot.value));
   const apiPresetOptions = computed<AgentApiPresetOption[]>(getAgentApiPresetOptions_ACU);
 
-  function refresh(): void {
+  async function refresh(): Promise<void> {
     const control = ensureAgentControl_ACU();
     const nextAgentApiPreset = normalizeAgentApiPreset_ACU(control.agentApiPreset);
     const nextAgentSkillApiPreset = normalizeAgentApiPreset_ACU(control.agentSkillApiPreset);
@@ -82,34 +83,34 @@ export function usePlotWorldbookAgentControl() {
     mode.value = control.mode as AgentWorldbookControlMode_ACU;
     agentApiPreset.value = nextAgentApiPreset;
     agentSkillApiPreset.value = nextAgentSkillApiPreset;
-    snapshot.value = getPlotAgentWorldbookSnapshot_ACU();
+    snapshot.value = await refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU();
   }
 
-  function setMode(next: AgentWorldbookControlMode_ACU): void {
+  async function setMode(next: AgentWorldbookControlMode_ACU): Promise<void> {
     const control = ensureAgentControl_ACU();
     control.mode = next;
     control.enabled = next !== 'disabled';
     saveSettings_ACU();
-    refresh();
+    await refresh();
     toast.info(plotCopy.agentControl.modeChanged[next], { muteable: false });
   }
 
-  function setAgentApiPreset(next: string): void {
+  async function setAgentApiPreset(next: string): Promise<void> {
     const control = ensureAgentControl_ACU();
     control.agentApiPreset = normalizeAgentApiPreset_ACU(next);
     saveSettings_ACU();
-    refresh();
+    await refresh();
   }
 
-  function setAgentSkillApiPreset(next: string): void {
+  async function setAgentSkillApiPreset(next: string): Promise<void> {
     const control = ensureAgentControl_ACU();
     control.agentSkillApiPreset = normalizeAgentApiPreset_ACU(next);
     saveSettings_ACU();
-    refresh();
+    await refresh();
   }
 
   async function takeover(): Promise<boolean> {
-    refresh();
+    await refresh();
     if (!isAgentMode.value) {
       toast.warning(plotCopy.agentControl.takeover.modeRequired, { muteable: false });
       return false;
@@ -119,7 +120,7 @@ export function usePlotWorldbookAgentControl() {
     busy.value = 'takeover';
     try {
       const result = await takeoverWorldbookGreenlights_ACU();
-      refresh();
+      await refresh();
       if (result.updated) {
         const text = result.failed > 0
           ? plotCopy.agentControl.takeover.partial(result.disabled, result.failed)
@@ -145,7 +146,7 @@ export function usePlotWorldbookAgentControl() {
     busy.value = 'restore';
     try {
       const result = await restoreWorldbookGreenlights_ACU();
-      refresh();
+      await refresh();
       if (result.updated) {
         toast.success(plotCopy.agentControl.restore.success(result.restored, result.skipped), { muteable: false });
         return true;
@@ -162,7 +163,7 @@ export function usePlotWorldbookAgentControl() {
   }
 
   async function skillifyAll(): Promise<boolean> {
-    refresh();
+    await refresh();
     const confirmed = await dialog.confirm(plotCopy.agentControl.skillify.confirm);
     if (!confirmed) return false;
     busy.value = 'skillify';
@@ -190,7 +191,7 @@ export function usePlotWorldbookAgentControl() {
     }
   }
 
-  refresh();
+  void refresh();
 
   return {
     mode,

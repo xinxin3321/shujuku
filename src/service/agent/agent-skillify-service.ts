@@ -58,6 +58,7 @@ const DATABASE_GENERATED_WORLDBOOK_COMMENT_PREFIXES_ACU = [
   '重要人物条目',
   '总结条目',
   '小总结条目',
+  'TavernDB-ACU-AgentWorldbookSnapshot',
 ];
 
 const AGENT_MANAGED_WORLDBOOK_COMMENT_PREFIXES_ACU = [

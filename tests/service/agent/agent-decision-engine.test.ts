@@ -3,11 +3,11 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 const {
   mockCallAIWithPreset,
   mockGetLorebookEntries,
-  mockGetPlotAgentWorldbookSnapshot,
+  mockRefreshPlotAgentWorldbookSnapshot,
 } = vi.hoisted(() => ({
   mockCallAIWithPreset: vi.fn(),
   mockGetLorebookEntries: vi.fn(),
-  mockGetPlotAgentWorldbookSnapshot: vi.fn(),
+  mockRefreshPlotAgentWorldbookSnapshot: vi.fn(),
 }));
 
 vi.mock('../../../src/service/ai/api-call', () => ({
@@ -19,7 +19,7 @@ vi.mock('../../../src/data/gateways/worldbook-gateway', () => ({
 }));
 
 vi.mock('../../../src/service/agent/agent-worldbook-takeover', () => ({
-  getPlotAgentWorldbookSnapshot_ACU: mockGetPlotAgentWorldbookSnapshot,
+  refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU: mockRefreshPlotAgentWorldbookSnapshot,
 }));
 
 vi.mock('../../../src/service/agent/agent-skillify-service', () => ({
@@ -33,7 +33,7 @@ import { runAgentDecisionForPlot_ACU } from '../../../src/service/agent/agent-de
 describe('runAgentDecisionForPlot_ACU', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetPlotAgentWorldbookSnapshot.mockReturnValue({
+    mockRefreshPlotAgentWorldbookSnapshot.mockResolvedValue({
       active: true,
       selectionSignature: 'scope',
       createdAt: 1,
@@ -64,6 +64,7 @@ describe('runAgentDecisionForPlot_ACU', () => {
     });
 
     expect(result.active).toBe(true);
+    expect(mockRefreshPlotAgentWorldbookSnapshot).toHaveBeenCalledTimes(1);
     expect(result.taskPlan).toHaveLength(1);
     expect(result.effectiveTasks[0].id).toBe('task_id');
     expect(result.plotGreenlights.task_id).toEqual([

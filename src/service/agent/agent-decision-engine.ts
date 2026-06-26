@@ -2,7 +2,7 @@ import { getLorebookEntries_ACU } from '../../data/gateways/worldbook-gateway';
 import { normalizeNonNegativeInteger_ACU, normalizePositiveInteger_ACU, logWarn_ACU } from '../../shared/utils';
 import { callAIWithPreset_ACU } from '../ai/api-call';
 import { normalizePlotTask_ACU } from '../plot/plot-logic';
-import { getPlotAgentWorldbookSnapshot_ACU } from './agent-worldbook-takeover';
+import { refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU } from './agent-worldbook-takeover';
 import { parseWorldbookSkillMetaFromComment_ACU } from './agent-worldbook-skill-meta';
 import {
   collectWorldbookSkillifyCandidates_ACU,
@@ -94,7 +94,7 @@ function parseAgentDecisionResponse_ACU(responseText: string): any | null {
 }
 
 async function collectWorldbookSummariesFromSnapshot_ACU(): Promise<{ summaries: AgentWorldbookSummary_ACU[]; allowedKeys: Set<string> }> {
-  const snapshot = getPlotAgentWorldbookSnapshot_ACU();
+  const snapshot = await refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU();
   const summaries: AgentWorldbookSummary_ACU[] = [];
   const allowedKeys = new Set<string>();
 
