@@ -30,6 +30,21 @@ export interface PlotTaskDraft {
   mergeStrategy: string;
   stage: number;
   order: number;
+  description: string;
+  triggerWhen: string;
+  agentControl: PlotTaskAgentControlDraft;
+}
+
+export interface PlotTaskAgentControlDraft {
+  enabled: boolean;
+  selectable: boolean;
+  defaultSelected: boolean;
+  allowSequential: boolean;
+  allowParallel: boolean;
+  preferredStage?: number;
+  preferredOrder?: number;
+  dependsOnTaskIds: string[];
+  blocksTaskIds: string[];
 }
 
 function normalizeRoleString(role: any): string {
@@ -73,6 +88,29 @@ function cloneSegments(group: any): PlotPromptSegment[] {
   );
 }
 
+function cloneStringArray(value: any): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(item => String(item ?? '').trim())
+    .filter((item, index, array) => item && array.indexOf(item) === index);
+}
+
+function cloneAgentControl(value: any): PlotTaskAgentControlDraft {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const control: PlotTaskAgentControlDraft = {
+    enabled: source.enabled === true,
+    selectable: source.selectable !== false,
+    defaultSelected: source.defaultSelected === true,
+    allowSequential: source.allowSequential !== false,
+    allowParallel: source.allowParallel !== false,
+    dependsOnTaskIds: cloneStringArray(source.dependsOnTaskIds),
+    blocksTaskIds: cloneStringArray(source.blocksTaskIds),
+  };
+  if (Number.isFinite(source.preferredStage) && Number(source.preferredStage) > 0) control.preferredStage = Math.trunc(Number(source.preferredStage));
+  if (Number.isFinite(source.preferredOrder) && Number(source.preferredOrder) >= 0) control.preferredOrder = Math.trunc(Number(source.preferredOrder));
+  return control;
+}
+
 function taskFromRaw(raw: any, index = 0): PlotTaskDraft {
   const normalized = normalizePlotTask_ACU(raw, { index });
   return {
@@ -90,6 +128,9 @@ function taskFromRaw(raw: any, index = 0): PlotTaskDraft {
     mergeStrategy: String(normalized.mergeStrategy || 'append'),
     stage: Number.isFinite(normalized.stage) ? Number(normalized.stage) : 1,
     order: Number.isFinite(normalized.order) ? Number(normalized.order) : index,
+    description: typeof normalized.description === 'string' ? normalized.description : '',
+    triggerWhen: typeof normalized.triggerWhen === 'string' ? normalized.triggerWhen : '',
+    agentControl: cloneAgentControl(normalized.agentControl),
   };
 }
 
@@ -112,6 +153,17 @@ function makeDefaultTask(index: number): PlotTaskDraft {
     mergeStrategy: 'append',
     stage: 1,
     order: index,
+    description: '',
+    triggerWhen: '',
+    agentControl: {
+      enabled: false,
+      selectable: true,
+      defaultSelected: false,
+      allowSequential: true,
+      allowParallel: true,
+      dependsOnTaskIds: [],
+      blocksTaskIds: [],
+    },
   };
 }
 
@@ -242,6 +294,15 @@ export function usePlotTaskEditing() {
       mergeStrategy: t.mergeStrategy,
       stage: t.stage,
       order: i,
+      description: t.description,
+      triggerWhen: t.triggerWhen,
+      agentControl: {
+        ...t.agentControl,
+        dependsOnTaskIds: cloneStringArray(t.agentControl?.dependsOnTaskIds),
+        blocksTaskIds: cloneStringArray(t.agentControl?.blocksTaskIds),
+        ...(Number.isFinite(t.agentControl?.preferredStage) ? { preferredStage: Math.trunc(Number(t.agentControl.preferredStage)) } : {}),
+        ...(Number.isFinite(t.agentControl?.preferredOrder) ? { preferredOrder: Math.trunc(Number(t.agentControl.preferredOrder)) } : {}),
+      },
     }));
     out.finalSystemDirective = finalDirective.value;
     return out;

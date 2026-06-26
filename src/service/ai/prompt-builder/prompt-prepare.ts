@@ -209,6 +209,7 @@ import { replaceDbSqlVariables } from '../../runtime/template-vars/sql-query-var
     const excludeImportTaggedWorldbookEntries = options?.excludeImportTaggedWorldbookEntries === true;
     const worldbookContent = await getCombinedWorldbookContent_ACU(worldbookScanText, {
         excludeImportTaggedEntries: excludeImportTaggedWorldbookEntries,
+        agentGreenlights: options?.agentGreenlights,
     });
     const manualExtraHintText = manualExtraHint_ACU || '';
 

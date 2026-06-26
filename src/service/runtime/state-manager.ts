@@ -49,6 +49,7 @@ export const planningGuard_ACU = {
 export let abortController_ACU: any = null;
 export let isProcessing_Plot_ACU = false;
 export let tempPlotToSave_ACU: any = null;
+export let pendingFinalGenerationGreenlights_ACU: any[] = [];
 
 export const USER_SEND_TRIGGER_TTL_MS_ACU = 12000;
 export const generationGate_ACU = {
@@ -243,6 +244,7 @@ export function _set_lastTotalAiMessages_ACU(v: any) { lastTotalAiMessages_ACU =
 export function _set_isProcessing_Plot_ACU(v: any) { isProcessing_Plot_ACU = v; }
 export function _set_abortController_ACU(v: any) { abortController_ACU = v; }
 export function _set_tempPlotToSave_ACU(v: any) { tempPlotToSave_ACU = v; }
+export function _set_pendingFinalGenerationGreenlights_ACU(v: any) { pendingFinalGenerationGreenlights_ACU = Array.isArray(v) ? v : []; }
 export function _set_pendingBaseStatePlacement_ACU(v: any) { pendingBaseStatePlacement_ACU = v; }
 export function _set_suppressWorldbookInjectionInGreeting_ACU(v: any) { suppressWorldbookInjectionInGreeting_ACU = v; }
 export function _set_independentTableStates_ACU(v: any) { independentTableStates_ACU = v; }

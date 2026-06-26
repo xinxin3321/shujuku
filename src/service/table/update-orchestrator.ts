@@ -7,6 +7,7 @@
 import { isAutoUpdatingCard_ACU, wasStoppedByUser_ACU, _set_isAutoUpdatingCard_ACU, _set_manualExtraHint_ACU, _set_wasStoppedByUser_ACU } from '../runtime/state-manager';
 import { callCustomOpenAI_ACU } from '../ai/prompt-builder';
 import { getChatArray_ACU } from '../chat/chat-service';
+import { DEFAULT_PLOT_SETTINGS_ACU } from '../../shared/defaults-json.js';
 import { coreApisAreReady_ACU, currentJsonTableData_ACU, getCurrentIsolationKey_ACU, settings_ACU, _set_currentJsonTableData_ACU } from '../runtime/state-manager';
 import { checkAutoMergeTrigger_ACU, prepareAutoMergeBatches_ACU, executeAutoMergeBatch_ACU, finalizeAutoMerge_ACU } from '../summary/merge-logic';
 import { ensureStableRowIdsForSheetContent_ACU, getChatSheetGuideDataForIsolationKey_ACU, getEffectiveSeedRowsForSheet_ACU, shouldUseInitialSeedRows_ACU } from '../template/chat-scope';
@@ -48,6 +49,7 @@ import { applySqlEditsToTableDataSnapshot_ACU, extractTableNamesFromStatements, 
 import { loadTableStateFromFramesV2_ACU } from './storage-frame-v2-replay';
 import { ensureStorageProviderReady_ACU, getStorageProvider, reloadStorageProvider } from './table-storage-strategy';
 import { applySpecialIndexSequenceToSummaryTables_ACU } from '../runtime/helpers-remaining';
+import { runAgentDecisionForPlot_ACU } from '../agent/agent-decision-engine';
 import { captureTableRuntimeRevisionForWriteSet_ACU } from './table-write-transaction';
 import { runTableUpdateCommit_ACU } from './table-update-commit';
 import { readIsolatedTagData_ACU } from '../../data/repositories/chat-message-data-repo';
@@ -636,9 +638,38 @@ export async function collectGroupFillResponse_ACU(
 ): Promise<GroupFillResponse_ACU> {
     options.onProgress?.({ phase: 'preparing' });
 
+    let tableFillGreenlights: any[] = [];
+    try {
+        const plotSettings = {
+            ...DEFAULT_PLOT_SETTINGS_ACU,
+            ...(settings_ACU.plotSettings || {}),
+        };
+        const messagesForAgent = (Array.isArray(job.messagesForContext) ? job.messagesForContext : [])
+            .map((message: any) => `${message?.is_user ? '用户' : (message?.name || '角色')}: ${message?.mes || message?.message || ''}`)
+            .join('\n');
+        const agentDecision = await runAgentDecisionForPlot_ACU({
+            plotSettings,
+            userMessage: messagesForAgent,
+            sharedContext: {
+                plotSettings,
+                userMessage: messagesForAgent,
+                lastPlotContent: '',
+                seedContentForConditional: messagesForAgent,
+            },
+            enabledTasks: Array.isArray(plotSettings.plotTasks) ? plotSettings.plotTasks : [],
+            requireTaskPlan: false,
+        });
+        if (agentDecision.active === true && Array.isArray(agentDecision.tableFillGreenlights)) {
+            tableFillGreenlights = agentDecision.tableFillGreenlights;
+        }
+    } catch (agentError) {
+        logWarn_ACU('[Agent决策] 填表绿灯决策失败，回退原世界书逻辑:', agentError);
+    }
+
     const dynamicContent = await prepareAIInput_ACU(job.messagesForContext, job.updateMode, job.targetSheetKeys, {
         tableData: job.baseSnapshot,
         excludeImportTaggedWorldbookEntries: job.isImportMode === true && settings_ACU.importPromptExcludeImportedWorldbookEntries !== false,
+        agentGreenlights: tableFillGreenlights,
     });
     if (!dynamicContent) {
         return {

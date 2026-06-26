@@ -9,12 +9,24 @@ import { ref, shallowRef } from 'vue';
 import { getLorebookEntriesByNames_ACU } from '../../service/worldbook/pipeline';
 import { settings_ACU } from '../../service/runtime/state-manager';
 import { saveSettings_ACU } from '../../service/settings/settings-service';
+import type {
+  WorldbookSkillMeta_ACU,
+  WorldbookSkillMetaUpdatedBy_ACU,
+} from '../../service/agent/agent-worldbook-skill-meta';
+import {
+  deleteWorldbookEntrySkillMeta_ACU,
+  parseWorldbookSkillMetaFromComment_ACU,
+  saveWorldbookEntrySkillMeta_ACU,
+  stripWorldbookSkillMetaBlock_ACU,
+} from '../../service/agent/agent-worldbook-skill-meta';
 import { logError_ACU } from '../../shared/utils';
 
 export interface WorldbookEntryItem {
   uid: number;
   bookName: string;
   label: string;
+  comment: string;
+  skillMeta: WorldbookSkillMeta_ACU | null;
   checked: boolean;
   disabled: boolean;
 }
@@ -54,6 +66,12 @@ function isEntryVisibleForUI(entry: any): boolean {
   if (isDbGenerated(comment)) return false;
   if (isBlocked(comment)) return false;
   return true;
+}
+
+function buildWorldbookEntryLabel_ACU(entry: any): string {
+  const rawComment = String(entry?.comment || entry?.name || '');
+  const label = stripWorldbookSkillMetaBlock_ACU(rawComment).trim();
+  return label || `条目 ${entry?.uid}`;
 }
 
 function ensurePlotWorldbookConfig(): Record<string, any> {
@@ -110,10 +128,13 @@ export function usePlotWorldbookEntries() {
         const visible: WorldbookEntryItem[] = [];
         for (const entry of bookEntries) {
           if (!isEntryVisibleForUI(entry)) continue;
+          const comment = String(entry?.comment || entry?.name || '');
           visible.push({
             uid: entry.uid,
             bookName,
-            label: entry.comment || `条目 ${entry.uid}`,
+            label: buildWorldbookEntryLabel_ACU(entry),
+            comment,
+            skillMeta: parseWorldbookSkillMetaFromComment_ACU(comment),
             checked: enabledList.includes(entry.uid),
             disabled: entry.enabled === false,
           });
@@ -184,6 +205,40 @@ export function usePlotWorldbookEntries() {
     }));
   }
 
+  function updateEntrySkillMetaLocal(bookName: string, uid: number, comment: string): void {
+    const skillMeta = parseWorldbookSkillMetaFromComment_ACU(comment);
+    groups.value = groups.value.map(g => {
+      if (g.bookName !== bookName) return g;
+      return {
+        ...g,
+        entries: g.entries.map(e => {
+          if (e.uid !== uid) return e;
+          const label = stripWorldbookSkillMetaBlock_ACU(comment).trim() || `条目 ${uid}`;
+          return { ...e, comment, label, skillMeta };
+        }),
+      };
+    });
+  }
+
+  async function saveEntrySkillMeta(
+    bookName: string,
+    uid: number,
+    draft: Partial<WorldbookSkillMeta_ACU>,
+    updatedBy: WorldbookSkillMetaUpdatedBy_ACU = 'manual',
+  ): Promise<void> {
+    const result = await saveWorldbookEntrySkillMeta_ACU(bookName, uid, draft, updatedBy);
+    if (result.entry && typeof result.entry.comment === 'string') {
+      updateEntrySkillMetaLocal(bookName, uid, result.entry.comment);
+    }
+  }
+
+  async function deleteEntrySkillMeta(bookName: string, uid: number): Promise<void> {
+    const result = await deleteWorldbookEntrySkillMeta_ACU(bookName, uid);
+    if (result.entry && typeof result.entry.comment === 'string') {
+      updateEntrySkillMetaLocal(bookName, uid, result.entry.comment);
+    }
+  }
+
   function toggleGroupExpanded(bookName: string): void {
     groups.value = groups.value.map(g => {
       if (g.bookName !== bookName) return g;
@@ -199,6 +254,8 @@ export function usePlotWorldbookEntries() {
     toggleEntry,
     selectAll,
     deselectAll,
+    saveEntrySkillMeta,
+    deleteEntrySkillMeta,
     toggleGroupExpanded,
   };
 }

@@ -138,6 +138,66 @@ export function getPlotFinalDirectiveFromSource_ACU(source: Record<string, any> 
 
 // ═══ 任务规范化 ═══
 
+function hasOwnField_ACU(source: Record<string, any>, key: string) {
+    return !!source && Object.prototype.hasOwnProperty.call(source, key);
+}
+
+function normalizeOptionalString_ACU(value: any, fallbackValue: any = '') {
+    if (typeof value === 'string') return value;
+    if (typeof fallbackValue === 'string') return fallbackValue;
+    return '';
+}
+
+function normalizeStringArrayField_ACU(value: any, fallbackValue: any = []) {
+    const raw = Array.isArray(value) ? value : (Array.isArray(fallbackValue) ? fallbackValue : []);
+    return raw
+      .map((item: any) => String(item ?? '').trim())
+      .filter((item: string, index: number, array: string[]) => item && array.indexOf(item) === index);
+}
+
+function normalizeOptionalPositiveIntegerField_ACU(value: any, fallbackValue: any = undefined) {
+    const raw = value ?? fallbackValue;
+    if (raw === undefined || raw === null || raw === '') return undefined;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return undefined;
+    const normalized = Math.trunc(n);
+    return normalized > 0 ? normalized : undefined;
+}
+
+function normalizeOptionalNonNegativeIntegerField_ACU(value: any, fallbackValue: any = undefined) {
+    const raw = value ?? fallbackValue;
+    if (raw === undefined || raw === null || raw === '') return undefined;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return undefined;
+    const normalized = Math.trunc(n);
+    return normalized >= 0 ? normalized : undefined;
+}
+
+function normalizeBooleanField_ACU(source: Record<string, any>, fallback: Record<string, any>, key: string, defaultValue: boolean) {
+    if (hasOwnField_ACU(source, key)) return source[key] === true;
+    if (hasOwnField_ACU(fallback, key)) return fallback[key] === true;
+    return defaultValue;
+}
+
+function normalizePlotTaskAgentControl_ACU(value: any, fallbackValue: any = null) {
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const fallback = fallbackValue && typeof fallbackValue === 'object' && !Array.isArray(fallbackValue) ? fallbackValue : {};
+    const preferredStage = normalizeOptionalPositiveIntegerField_ACU(source.preferredStage, fallback.preferredStage);
+    const preferredOrder = normalizeOptionalNonNegativeIntegerField_ACU(source.preferredOrder, fallback.preferredOrder);
+    const normalized: Record<string, any> = {
+      enabled: normalizeBooleanField_ACU(source, fallback, 'enabled', false),
+      selectable: normalizeBooleanField_ACU(source, fallback, 'selectable', true),
+      defaultSelected: normalizeBooleanField_ACU(source, fallback, 'defaultSelected', false),
+      allowSequential: normalizeBooleanField_ACU(source, fallback, 'allowSequential', true),
+      allowParallel: normalizeBooleanField_ACU(source, fallback, 'allowParallel', true),
+      dependsOnTaskIds: normalizeStringArrayField_ACU(source.dependsOnTaskIds, fallback.dependsOnTaskIds),
+      blocksTaskIds: normalizeStringArrayField_ACU(source.blocksTaskIds, fallback.blocksTaskIds),
+    };
+    if (preferredStage !== undefined) normalized.preferredStage = preferredStage;
+    if (preferredOrder !== undefined) normalized.preferredOrder = preferredOrder;
+    return normalized;
+}
+
 export function normalizePlotTask_ACU(task: Record<string, any> | null, { index = 0, fallbackTask = null }: { index?: number; fallbackTask?: Record<string, any> | null } = {}) {
     const cloned = task && typeof task === 'object' ? JSON.parse(JSON.stringify(task)) : {};
     const fallback = fallbackTask && typeof fallbackTask === 'object' ? fallbackTask : null;
@@ -165,6 +225,9 @@ export function normalizePlotTask_ACU(task: Record<string, any> | null, { index 
         : (fallback?.mergeStrategy || 'append'),
       stage: normalizePositiveInteger_ACU(cloned.stage, fallback?.stage ?? 1),
       order: normalizeNonNegativeInteger_ACU(cloned.order, fallback?.order ?? index),
+      description: normalizeOptionalString_ACU(cloned.description, fallback?.description),
+      triggerWhen: normalizeOptionalString_ACU(cloned.triggerWhen, fallback?.triggerWhen),
+      agentControl: normalizePlotTaskAgentControl_ACU(cloned.agentControl, fallback?.agentControl),
     };
 }
 

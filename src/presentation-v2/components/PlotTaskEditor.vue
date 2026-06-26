@@ -72,6 +72,115 @@
     </fieldset>
 
     <fieldset class="acu-v2-plot-task-editor__section">
+      <legend>Agent 任务控制</legend>
+      <p class="acu-v2-plot-task-editor__hint">
+        描述和触发条件会作为 agent模式判断任务是否执行、是否串联以及先后顺序的依据。全部留空且未启用 Agent 控制时，仍按原启用状态、阶段号和顺序执行。
+      </p>
+      <div class="acu-v2-plot-task-editor__grid acu-v2-plot-task-editor__grid--wide">
+        <AcuFormRow
+          label="任务描述"
+          hint="说明这个推进任务负责什么。留空时不参与 Agent Skill 判断。"
+        >
+          <AcuTextarea
+            :model-value="task.description"
+            :rows="2"
+            :max-rows="6"
+            auto-resize
+            placeholder="例如：从长期记忆中选择与当前剧情最相关的事件。"
+            @update:model-value="patch({ description: $event })"
+          />
+        </AcuFormRow>
+        <AcuFormRow
+          label="触发条件"
+          hint="说明什么情况下应执行该任务。留空时保持原逻辑。"
+        >
+          <AcuTextarea
+            :model-value="task.triggerWhen"
+            :rows="2"
+            :max-rows="6"
+            auto-resize
+            placeholder="例如：用户输入涉及旧事件、承诺、人物关系变化或未解决伏笔时触发。"
+            @update:model-value="patch({ triggerWhen: $event })"
+          />
+        </AcuFormRow>
+      </div>
+
+      <div class="acu-v2-plot-task-editor__toggles">
+        <AcuToggle
+          :model-value="task.agentControl.enabled"
+          :label="task.agentControl.enabled ? 'Agent 可控制此任务' : 'Agent 不控制此任务'"
+          @update:model-value="patchAgentControl({ enabled: $event })"
+        />
+        <AcuToggle
+          :model-value="task.agentControl.selectable"
+          label="允许 Agent 选择/跳过"
+          @update:model-value="patchAgentControl({ selectable: $event })"
+        />
+        <AcuToggle
+          :model-value="task.agentControl.defaultSelected"
+          label="Agent 无决策时默认选中"
+          @update:model-value="patchAgentControl({ defaultSelected: $event })"
+        />
+        <AcuToggle
+          :model-value="task.agentControl.allowSequential"
+          label="允许串联"
+          @update:model-value="patchAgentControl({ allowSequential: $event })"
+        />
+        <AcuToggle
+          :model-value="task.agentControl.allowParallel"
+          label="允许并行"
+          @update:model-value="patchAgentControl({ allowParallel: $event })"
+        />
+      </div>
+
+      <div class="acu-v2-plot-task-editor__grid">
+        <AcuFormRow label="偏好阶段" hint="Agent 排序参考；留空则不指定。">
+          <AcuInput
+            type="number"
+            :min="1"
+            :step="1"
+            :model-value="task.agentControl.preferredStage ?? ''"
+            @change="patchAgentControl({ preferredStage: parseOptionalPositiveInteger($event) })"
+          />
+        </AcuFormRow>
+        <AcuFormRow label="偏好顺序" hint="阶段内排序参考；留空则不指定。">
+          <AcuInput
+            type="number"
+            :min="0"
+            :step="1"
+            :model-value="task.agentControl.preferredOrder ?? ''"
+            @change="patchAgentControl({ preferredOrder: parseOptionalNonNegativeInteger($event) })"
+          />
+        </AcuFormRow>
+      </div>
+
+      <div class="acu-v2-plot-task-editor__grid acu-v2-plot-task-editor__grid--wide">
+        <AcuFormRow
+          label="依赖任务 ID"
+          hint="逗号分隔。Agent 排序时应先执行这些任务；非法或循环依赖会在运行时校验。"
+        >
+          <AcuInput
+            type="text"
+            :model-value="formatTaskIdList(task.agentControl.dependsOnTaskIds)"
+            placeholder="例如：recallTask, summaryTask"
+            @change="patchAgentControl({ dependsOnTaskIds: parseTaskIdList($event) })"
+          />
+        </AcuFormRow>
+        <AcuFormRow
+          label="阻塞任务 ID"
+          hint="逗号分隔。用于提示 Agent 此任务与哪些任务不应同时执行。"
+        >
+          <AcuInput
+            type="text"
+            :model-value="formatTaskIdList(task.agentControl.blocksTaskIds)"
+            placeholder="例如：legacyRecallTask"
+            @change="patchAgentControl({ blocksTaskIds: parseTaskIdList($event) })"
+          />
+        </AcuFormRow>
+      </div>
+    </fieldset>
+
+    <fieldset class="acu-v2-plot-task-editor__section">
       <legend>当前任务使用的 API</legend>
       <AcuFormRow
         label="API 预设"
@@ -105,6 +214,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type {
+  PlotTaskAgentControlDraft,
   PlotPromptSegment,
   PlotTaskDraft,
 } from "../composables/usePlotTaskEditing";
@@ -112,6 +222,7 @@ import AcuFormRow from "./_lib/AcuFormRow.vue";
 import AcuInput from "./_lib/AcuInput.vue";
 import type { AcuSelectOption } from "./_lib/AcuSelect.vue";
 import AcuSelect from "./_lib/AcuSelect.vue";
+import AcuTextarea from "./_lib/AcuTextarea.vue";
 import AcuToggle from "./_lib/AcuToggle.vue";
 import PlotPromptSegments from "./PlotPromptSegments.vue";
 
@@ -137,6 +248,43 @@ const taskApiSelectOptions = computed<AcuSelectOption[]>(() => [
 
 function patch(value: Partial<PlotTaskDraft>): void {
   emit("patch", value);
+}
+
+function patchAgentControl(patchValue: Partial<PlotTaskAgentControlDraft>): void {
+  if (!props.task) return;
+  patch({
+    agentControl: {
+      ...props.task.agentControl,
+      ...patchValue,
+    },
+  });
+}
+
+function parseTaskIdList(value: unknown): string[] {
+  return String(value ?? "")
+    .split(/[，,\n]/g)
+    .map(item => item.trim())
+    .filter((item, index, array) => item && array.indexOf(item) === index);
+}
+
+function formatTaskIdList(value: string[] | undefined): string {
+  return Array.isArray(value) ? value.join(", ") : "";
+}
+
+function parseOptionalPositiveInteger(value: unknown): number | undefined {
+  if (value === "" || value === null || value === undefined) return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return undefined;
+  const normalized = Math.trunc(n);
+  return normalized > 0 ? normalized : undefined;
+}
+
+function parseOptionalNonNegativeInteger(value: unknown): number | undefined {
+  if (value === "" || value === null || value === undefined) return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return undefined;
+  const normalized = Math.trunc(n);
+  return normalized >= 0 ? normalized : undefined;
 }
 </script>
 
@@ -176,6 +324,22 @@ function patch(value: Partial<PlotTaskDraft>): void {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
+}
+
+.acu-v2-plot-task-editor__grid--wide {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.acu-v2-plot-task-editor__toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.acu-v2-plot-task-editor__toggles :deep(.acu-toggle) {
+  min-height: var(--acu-control-height-sm, 26px);
 }
 
 .acu-v2-plot-task-editor__hint {

@@ -5,7 +5,7 @@
  */
 import { DEFAULT_PLOT_SETTINGS_ACU } from '../../../shared/defaults-json.js';
 import { callApi_ACU, callApiWithPlotPreset_ACU, getApiConfigByPreset_ACU } from '../../ai/api-call';
-import { abortController_ACU, currentJsonTableData_ACU, planningGuard_ACU, settings_ACU, _set_tempPlotToSave_ACU, _set_currentJsonTableData_ACU } from '../state-manager';
+import { abortController_ACU, currentJsonTableData_ACU, planningGuard_ACU, settings_ACU, _set_tempPlotToSave_ACU, _set_currentJsonTableData_ACU, _set_pendingFinalGenerationGreenlights_ACU } from '../state-manager';
 import { getCharLorebooks_ACU } from '../../../data/gateways/character-gateway';
 import { getChatArray_ACU } from '../../../data/gateways/chat-gateway';
 import { getPersonaDescription_ACU, getCharDescription_ACU } from '../../../data/gateways/host-state-gateway';
@@ -19,6 +19,7 @@ import { formatTableDataForLLM_ACU, formatOutlineTableForPlot_ACU, formatSummary
 import { getNormalizedPlotMessageRole_ACU, tryRenderPlotTemplateWithEjs_ACU, renderPlotTaskContentWithIsolatedVariables_ACU, extractPlotTagsFromResponse_ACU, getPlotPlaceholderTagNames_ACU, buildPlotTagMapFromText_ACU, replacePlotTagPlaceholders_ACU, buildTaskWorldbookTriggerText_ACU, sortPlotTaskResults_ACU, aggregatePlotTaskTags_ACU, buildPlotSaveContentFromTaskResults_ACU, buildFinalPlotInjectionMessage_ACU } from './plot-tag-utils';
 import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-history-preset';
 import { abortableDelay } from '../../../shared/abortable-delay';
+import { runAgentDecisionForPlot_ACU, type AgentDecisionResult_ACU, type AgentWorldbookRef_ACU } from '../../agent/agent-decision-engine';
 
   function checkPlotAbortRequested_ACU() {
     if (abortController_ACU && abortController_ACU.signal.aborted) {
@@ -346,7 +347,8 @@ import { abortableDelay } from '../../../shared/abortable-delay';
       } else {
         logDebug_ACU(`[剧情推进] [任务:${taskLabel}] 无 {{tag}} 注入内容，世界书仅基于本轮上下文触发`);
       }
-      taskWorldbookContent = await getWorldbookContentForPlot_ACU(sharedContext.plotSettings, sharedContext.userMessage, worldbookTriggerText);
+      const agentGreenlights = sharedContext.agentDecision?.plotGreenlights?.[String(normalizedTask.id || '').trim()] || [];
+      taskWorldbookContent = await getWorldbookContentForPlot_ACU(sharedContext.plotSettings, sharedContext.userMessage, worldbookTriggerText, agentGreenlights);
       if (taskWorldbookContent) {
         // 对任务级世界书内容执行与共享管线相同的后处理
         taskWorldbookContent = await tryRenderPlotTemplateWithEjs_ACU(taskWorldbookContent);
@@ -485,7 +487,7 @@ import { abortableDelay } from '../../../shared/abortable-delay';
 
     ensurePlotTasksCompat_ACU(plotSettings, { syncLegacy: true });
 
-    const enabledTasks = getEnabledPlotTasks_ACU(plotSettings);
+    let enabledTasks = getEnabledPlotTasks_ACU(plotSettings);
     if (!enabledTasks.length) {
       logWarn_ACU('[剧情推进] 当前没有可执行的启用任务。');
       return {
@@ -497,12 +499,36 @@ import { abortableDelay } from '../../../shared/abortable-delay';
       };
     }
 
-    const stageGroups = groupPlotTasksByStage_ACU(enabledTasks);
-    const sharedContext = await buildPlotSharedContext_ACU(plotSettings, userMessage, {
+    const sharedContext: Record<string, any> = await buildPlotSharedContext_ACU(plotSettings, userMessage, {
       inputForHash,
       hasExistingUserMessage,
     });
     checkPlotAbortRequested_ACU();
+
+    const agentDecision: AgentDecisionResult_ACU = await runAgentDecisionForPlot_ACU({
+      plotSettings,
+      userMessage,
+      sharedContext,
+      enabledTasks,
+    });
+    sharedContext.agentDecision = agentDecision;
+    _set_pendingFinalGenerationGreenlights_ACU(agentDecision.active === true ? (agentDecision.finalGenerationGreenlights || []) : []);
+    if (agentDecision.active === true) {
+      enabledTasks = Array.isArray(agentDecision.effectiveTasks) ? agentDecision.effectiveTasks : [];
+    }
+
+    if (!enabledTasks.length) {
+      logDebug_ACU('[剧情推进] Agent 决策本轮不执行任何推进任务。');
+      return {
+        finalMessage: null,
+        successfulResults: [],
+        failedResults: [],
+        aggregatedTags: new Map(),
+        enabledTaskCount: 0,
+      };
+    }
+
+    const stageGroups = groupPlotTasksByStage_ACU(enabledTasks);
     const historyTagMap = buildPlotTagMapFromText_ACU(sharedContext.lastPlotContent || '', null);
 
     // 构建历史检索选项，供任务级历史回溯使用
@@ -622,7 +648,7 @@ import { abortableDelay } from '../../../shared/abortable-delay';
   // ═══ 世界书内容获取 ═══
 
   /** 获取剧情推进功能的世界书内容（默认开启，无需检查 worldbookEnabled） */
-  export async function getWorldbookContentForPlot_ACU(apiSettings: Record<string, any>, userMessage: string, extraBaseText: string = '') {
+  export async function getWorldbookContentForPlot_ACU(apiSettings: Record<string, any>, userMessage: string, extraBaseText: string = '', agentGreenlights: AgentWorldbookRef_ACU[] = []) {
     if (!apiSettings) {
       logWarn_ACU('[剧情推进] apiSettings 为空，无法获取世界书');
       return '';
@@ -668,6 +694,10 @@ import { abortableDelay } from '../../../shared/abortable-delay';
       const historyAndUserText = `${recentMessages.map((message: any) => message.mes || '').join('\n')}\n${userMessage || ''}`;
       const enabledMap = plotCfg?.enabledEntries;
       const hasAnySelection = enabledMap && typeof enabledMap === 'object' && Object.keys(enabledMap).length > 0;
+      const agentGreenlightKeySet = new Set((Array.isArray(agentGreenlights) ? agentGreenlights : [])
+        .map(ref => `${String(ref?.bookName || '').trim()}\u0000${String(ref?.uid || '').trim()}`)
+        .filter(key => !key.startsWith('\u0000') && !key.endsWith('\u0000')));
+      const hasAgentGreenlights = agentGreenlightKeySet.size > 0;
 
       return await buildCombinedWorldbookContentByStrategy_ACU({
         logPrefix: '[剧情推进]',
@@ -700,12 +730,19 @@ import { abortableDelay } from '../../../shared/abortable-delay';
             normalizedComment.startsWith('总结条目') ||
             normalizedComment.startsWith('小总结条目') ||
             normalizedComment.startsWith('重要人物条目');
+          const isAgentGreenlight = agentGreenlightKeySet.has(`${String(entry.bookName || '').trim()}\u0000${String(entry.uid || '').trim()}`);
+          if (hasAgentGreenlights) {
+            return isAgentGreenlight || (isDbGenerated && entry.enabled !== false);
+          }
           if (!hasAnySelection) return true;
           if (isDbGenerated) return true;
           const list = enabledMap?.[entry.bookName];
           if (typeof list === 'undefined') return true;
           if (!Array.isArray(list)) return true;
           return list.includes(entry.uid);
+        },
+        forceIncludeEntry: (entry: any) => {
+          return agentGreenlightKeySet.has(`${String(entry.bookName || '').trim()}\u0000${String(entry.uid || '').trim()}`);
         },
         onEntriesFiltered: (entries: any[]) => {
           logDebug_ACU('[剧情推进] 过滤后的条目总数:', entries.length);

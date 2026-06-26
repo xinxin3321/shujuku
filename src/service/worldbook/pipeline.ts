@@ -776,6 +776,7 @@ export   async function buildCombinedWorldbookContentByStrategy_ACU(options: any
       const bookNames: string[] = [...new Set<string>((Array.isArray(options?.bookNames) ? options.bookNames : []).map((name: any) => String(name || '').trim()).filter(Boolean))];
       const includeEntry = typeof options?.includeEntry === 'function' ? options.includeEntry : () => true;
       const isSelected = typeof options?.isSelected === 'function' ? options.isSelected : () => true;
+      const forceIncludeEntry = typeof options?.forceIncludeEntry === 'function' ? options.forceIncludeEntry : () => false;
       const excludeDisabledEntries = options?.excludeDisabledEntries !== false;
       const includeConstantEntriesInBaseScan = options?.includeConstantEntriesInBaseScan === true;
       const formatEntry = typeof options?.formatEntry === 'function'
@@ -816,7 +817,11 @@ export   async function buildCombinedWorldbookContentByStrategy_ACU(options: any
           return '';
       }
 
-      let userEnabledEntries = allEntries.filter(entry => (excludeDisabledEntries ? !!entry.enabled : true));
+      const forcedEntries = allEntries.filter(entry => forceIncludeEntry(entry) === true);
+      const forcedEntrySet = new Set(forcedEntries);
+      let userEnabledEntries = allEntries.filter(entry => (
+          (excludeDisabledEntries ? !!entry.enabled : true) || forcedEntrySet.has(entry)
+      ));
       userEnabledEntries = userEnabledEntries.filter(entry => isSelected(entry) !== false);
       if (typeof options?.onSelectedEntries === 'function') {
           try { options.onSelectedEntries(userEnabledEntries); } catch (e) {}
@@ -835,7 +840,7 @@ export   async function buildCombinedWorldbookContentByStrategy_ACU(options: any
       baseScanText = baseScanText.toLowerCase();
 
       const constantEntries = userEnabledEntries.filter(entry => entry.type === 'constant');
-      let keywordEntries = userEnabledEntries.filter(entry => entry.type !== 'constant');
+      let keywordEntries = userEnabledEntries.filter(entry => entry.type !== 'constant' && !forcedEntrySet.has(entry));
 
       if (includeConstantEntriesInBaseScan) {
           const constantBaseText = constantEntries
@@ -848,7 +853,7 @@ export   async function buildCombinedWorldbookContentByStrategy_ACU(options: any
           }
       }
 
-      const triggeredEntries = new Set([...constantEntries]);
+      const triggeredEntries = new Set([...constantEntries, ...userEnabledEntries.filter(entry => forcedEntrySet.has(entry))]);
       let recursionDepth = 0;
       const MAX_RECURSION_DEPTH = 10;
 
@@ -914,6 +919,10 @@ export   async function getCombinedWorldbookContent_ACU(initialScanTextOverride 
     logDebug_ACU('Starting to get combined worldbook content with advanced logic...');
     const worldbookConfig = getCurrentWorldbookConfig_ACU();
     const excludeImportTaggedEntries = options?.excludeImportTaggedEntries === true;
+    const agentGreenlightKeySet = new Set((Array.isArray(options?.agentGreenlights) ? options.agentGreenlights : [])
+        .map((ref: any) => `${String(ref?.bookName || '').trim()}\u0000${String(ref?.uid || '').trim()}`)
+        .filter((key: string) => !key.startsWith('\u0000') && !key.endsWith('\u0000')));
+    const hasAgentGreenlights = agentGreenlightKeySet.size > 0;
 
     if (!isWorldbookApiAvailable_ACU()) {
         logWarn_ACU('[ACU] Worldbook API not available, cannot get worldbook content.');
@@ -945,6 +954,8 @@ export   async function getCombinedWorldbookContent_ACU(initialScanTextOverride 
             fallbackScanText: allChatMessages_ACU.map(message => message.message).join('\n'),
             includeEntry: (entry: any) => {
                 const comment = entry.comment || '';
+                const isAgentGreenlight = agentGreenlightKeySet.has(`${String(entry.bookName || '').trim()}\u0000${String(entry.uid || '').trim()}`);
+                if (isAgentGreenlight) return true;
                 if (comment.startsWith('TavernDB-ACU-')) return false;
                 if (comment.startsWith('重要人物条目')) return false;
                 if (comment.startsWith('总结条目')) return false;
@@ -953,11 +964,16 @@ export   async function getCombinedWorldbookContent_ACU(initialScanTextOverride 
                 return true;
             },
             isSelected: (entry: any) => {
+                const isAgentGreenlight = agentGreenlightKeySet.has(`${String(entry.bookName || '').trim()}\u0000${String(entry.uid || '').trim()}`);
+                if (hasAgentGreenlights) return isAgentGreenlight;
                 if (!hasAnySelection) return true;
                 const list = enabledEntriesMap?.[entry.bookName];
                 if (typeof list === 'undefined') return true;
                 if (!Array.isArray(list)) return true;
                 return list.includes(entry.uid);
+            },
+            forceIncludeEntry: (entry: any) => {
+                return agentGreenlightKeySet.has(`${String(entry.bookName || '').trim()}\u0000${String(entry.uid || '').trim()}`);
             },
             onEntriesFiltered: (entries: any[]) => {
                 if (excludeImportTaggedEntries) {

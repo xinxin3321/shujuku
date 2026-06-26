@@ -13,6 +13,54 @@ export interface WorldbookConfig_ACU {
   entryBlockList: string[];
 }
 
+export type AgentWorldbookControlMode_ACU = 'disabled' | 'passive' | 'agent';
+export type AgentSkillMetadataPolicy_ACU = 'comment_block' | 'content_block' | 'settings_map';
+export type WorldbookSkillMetaUpdatedBy_ACU = 'manual' | 'agent-skillify';
+
+/** 世界书条目 Skill 元数据 */
+export interface WorldbookSkillMeta_ACU {
+  version: 1;
+  description: string;
+  triggerWhen: string;
+  updatedAt: number;
+  updatedBy: WorldbookSkillMetaUpdatedBy_ACU;
+}
+
+/** Agent 模式世界书接管配置 */
+export interface AgentWorldbookControl_ACU {
+  enabled: boolean;
+  mode: AgentWorldbookControlMode_ACU;
+  scopeMode: 'follow_worldbook_page_selection';
+  agentApiPreset: string;
+  agentSkillApiPreset: string;
+  skillMetadataPolicy: AgentSkillMetadataPolicy_ACU;
+  managedEntryPrefix: string;
+  finalInjectionMode: 'prompt_template';
+  restoreOnDisable: boolean;
+  maxSkillifyConcurrency: number;
+  maxEntriesPerChannel: {
+    plot: number;
+    tableFill: number;
+    finalGeneration: number;
+  };
+}
+
+export interface AgentWorldbookControlSnapshotEntry_ACU {
+  uid: string | number;
+  previousEnabled: boolean;
+  previousKeys?: string[];
+  previousType?: string;
+  commentHash?: string;
+}
+
+/** Agent 模式接管快照，恢复世界书绿灯状态时使用 */
+export interface AgentWorldbookControlSnapshot_ACU {
+  active: boolean;
+  selectionSignature: string;
+  createdAt: number;
+  books: Record<string, AgentWorldbookControlSnapshotEntry_ACU[]>;
+}
+
 /** 设置对象的核心接口 */
 export interface Settings_ACU {
   charCardPrompt: Array<{
@@ -57,5 +105,7 @@ export interface PlotSettings_ACU {
   contextExtractTags: string;
   contextExtractRules: unknown[];
   plotWorldbookConfig?: WorldbookConfig_ACU;
+  agentWorldbookControl?: AgentWorldbookControl_ACU;
+  agentWorldbookControlSnapshot?: AgentWorldbookControlSnapshot_ACU;
   [key: string]: unknown;
 }

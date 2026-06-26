@@ -8,6 +8,8 @@
         :title="plotCopy.panels.worldbook.title"
         :description="plotCopy.panels.worldbook.description"
       >
+        <WorldbookAgentControlBar @changed="refreshWorldbookEntries" />
+
         <WorldbookEntryPickerBody
           :source="plotWorldbook.source.value"
           :selected-names="plotWorldbook.manualSelection.value"
@@ -25,6 +27,8 @@
           @deselect-all="wbEntries.deselectAll()"
           @toggle="(bookName: string, uid: number, checked: boolean) => wbEntries.toggleEntry(bookName, uid, checked)"
           @toggle-group="wbEntries.toggleGroupExpanded($event)"
+          @save-skill="onSaveWorldbookSkill"
+          @delete-skill="onDeleteWorldbookSkill"
         />
       </AcuPanel>
     </AcuPanelGrid>
@@ -37,6 +41,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import AcuPanel from '../components/_lib/AcuPanel.vue';
 import AcuPanelGrid from '../components/_lib/AcuPanelGrid.vue';
 import PlotPresetPanel from '../components/PlotPresetPanel.vue';
+import WorldbookAgentControlBar from '../components/WorldbookAgentControlBar.vue';
 import WorldbookEntryPickerBody from '../components/WorldbookEntryPickerBody.vue';
 import { useWorldbookSelector } from '../composables/useWorldbookSelector';
 import { usePlotWorldbookConfig } from '../composables/usePlotWorldbookConfig';
@@ -45,6 +50,10 @@ import { useChatChangedTick } from '../composables/useChatChangedListener';
 import { plotCopy } from '../copy/plot-copy';
 
 type WorldbookSource = 'character' | 'manual';
+type WorldbookSkillDraft = {
+  description: string;
+  triggerWhen: string;
+};
 
 const worldbook = useWorldbookSelector();
 const plotWorldbook = usePlotWorldbookConfig();
@@ -76,6 +85,14 @@ function onWorldbookSourceChange(value: WorldbookSource): void {
 function onManualWorldbookToggle(name: string, checked: boolean): void {
   plotWorldbook.toggleManualBook(name, checked);
   void refreshWorldbookEntries();
+}
+
+async function onSaveWorldbookSkill(bookName: string, uid: number, draft: WorldbookSkillDraft): Promise<void> {
+  await wbEntries.saveEntrySkillMeta(bookName, uid, draft, 'manual');
+}
+
+async function onDeleteWorldbookSkill(bookName: string, uid: number): Promise<void> {
+  await wbEntries.deleteEntrySkillMeta(bookName, uid);
 }
 
 const currentWorldbookLabel = computed<string>(() => {

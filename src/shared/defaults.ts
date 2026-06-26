@@ -10,6 +10,41 @@
 // [剧情推进] 默认世界书选择
 
 
+export function buildDefaultAgentWorldbookControl_ACU() {
+  return {
+    enabled: false,
+    mode: 'disabled' as const,
+    scopeMode: 'follow_worldbook_page_selection' as const,
+    agentApiPreset: '',
+    agentSkillApiPreset: '',
+    skillMetadataPolicy: 'comment_block' as const,
+    managedEntryPrefix: 'TavernDB-ACU-AgentGreenlight',
+    finalInjectionMode: 'prompt_template' as const,
+    restoreOnDisable: true,
+    maxSkillifyConcurrency: 2,
+    maxEntriesPerChannel: {
+      plot: 20,
+      tableFill: 20,
+      finalGeneration: 20,
+    },
+  };
+}
+
+export function buildDefaultAgentWorldbookControlSnapshot_ACU() {
+  return {
+    active: false,
+    selectionSignature: '',
+    createdAt: 0,
+    books: {} as Record<string, Array<{
+      uid: string | number;
+      previousEnabled: boolean;
+      previousKeys?: string[];
+      previousType?: string;
+      commentHash?: string;
+    }>>,
+  };
+}
+
 export function buildDefaultPlotWorldbookConfig_ACU() {
   return {
     source: 'character' as const,

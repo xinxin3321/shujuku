@@ -27,6 +27,8 @@
       :empty-text="emptyText"
       @toggle="(bookName: string, uid: number, checked: boolean) => $emit('toggle', bookName, uid, checked)"
       @toggle-group="$emit('toggle-group', $event)"
+      @save-skill="(bookName: string, uid: number, draft: WorldbookSkillDraft) => $emit('save-skill', bookName, uid, draft)"
+      @delete-skill="(bookName: string, uid: number) => $emit('delete-skill', bookName, uid)"
     />
   </div>
 </template>
@@ -39,10 +41,22 @@ import type { WorldbookLoadStatus } from '../composables/useWorldbookSelector';
 
 type WorldbookSource = 'character' | 'manual';
 
+interface WorldbookSkillMetaView {
+  description: string;
+  triggerWhen: string;
+}
+
+interface WorldbookSkillDraft {
+  description: string;
+  triggerWhen: string;
+}
+
 interface WorldbookEntryItem {
   uid: number;
   bookName: string;
   label: string;
+  comment?: string;
+  skillMeta?: WorldbookSkillMetaView | null;
   checked: boolean;
   disabled: boolean;
 }
@@ -78,6 +92,8 @@ defineEmits<{
   (e: 'deselect-all'): void;
   (e: 'toggle', bookName: string, uid: number, checked: boolean): void;
   (e: 'toggle-group', bookName: string): void;
+  (e: 'save-skill', bookName: string, uid: number, draft: WorldbookSkillDraft): void;
+  (e: 'delete-skill', bookName: string, uid: number): void;
 }>();
 </script>
 
