@@ -130,10 +130,12 @@ async function mountFormFillPage(
         { value: 'global:', label: '默认预设（全局）', meta: '2 张表' },
         { value: 'global:global-A', label: 'global-A（全局预设）', meta: '2 张表' },
       ]),
+      chatArchiveItems: ref([]),
       refresh: vi.fn(),
       selectGlobalPreset: vi.fn(async () => {}),
       selectChatPreset: vi.fn(async () => {}),
       importPresetForCurrentChat: vi.fn(async () => {}),
+      restoreArchivedChatTemplate: vi.fn(async () => {}),
     }),
   }));
   vi.doMock('../../../src/presentation-v2/composables/useTablePresetManagement', () => ({

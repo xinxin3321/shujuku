@@ -183,7 +183,8 @@ function hasDependencyCycle_ACU(taskIds: Set<string>, tasksById: Map<string, any
 
 function normalizeTaskPlan_ACU(rawPlan: unknown, enabledTasks: any[]): { plan: AgentTaskPlanItem_ACU[]; effectiveTasks: any[]; reason?: string } {
   if (!Array.isArray(rawPlan)) return { plan: [], effectiveTasks: enabledTasks, reason: 'missing_task_plan' };
-  const tasksById = new Map(enabledTasks.map(task => [String(task.id), task]));
+  const normalizedTasks = enabledTasks.map((task, index) => normalizePlotTask_ACU(task, { index, fallbackTask: task }));
+  const tasksById = new Map(normalizedTasks.map(task => [String(task.id), task]));
   const plan: AgentTaskPlanItem_ACU[] = [];
   const effectiveTasks: any[] = [];
   const selectedIds = new Set<string>();
@@ -301,7 +302,7 @@ export async function runAgentDecisionForPlot_ACU(params: {
       ? { plan: [] as AgentTaskPlanItem_ACU[], effectiveTasks: originalTasks }
       : normalizedPlan;
 
-    const enabledTaskIds = new Set(originalTasks.map(task => String(task.id || '').trim()).filter(Boolean));
+    const enabledTaskIds = new Set(originalTasks.map((task, index) => normalizePlotTask_ACU(task, { index, fallbackTask: task }).id).filter(Boolean));
     const plotGreenlights = normalizePlotGreenlights_ACU(parsed.plotGreenlights, allowedKeys, enabledTaskIds);
     const tableFillGreenlights = normalizeWorldbookRefs_ACU(parsed.tableFillGreenlights, allowedKeys);
     const finalGenerationGreenlights = normalizeWorldbookRefs_ACU(parsed.finalGenerationGreenlights, allowedKeys);

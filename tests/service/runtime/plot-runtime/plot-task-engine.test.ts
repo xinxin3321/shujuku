@@ -7,6 +7,7 @@ const {
   mockPlanningGuard,
   mockSetTempPlotToSave,
   mockSetCurrentJsonTableData,
+  mockSetPendingFinalGenerationGreenlights,
   mockGetApiConfigByPreset,
   mockCallApi,
   mockCallApiWithPlotPreset,
@@ -73,6 +74,7 @@ const {
     mockSetCurrentJsonTableData: vi.fn((value: any) => {
       mockCurrentJsonTableDataRef.value = value;
     }),
+    mockSetPendingFinalGenerationGreenlights: vi.fn(),
     mockGetApiConfigByPreset: vi.fn(),
     mockCallApi: vi.fn(),
     mockCallApiWithPlotPreset: vi.fn(),
@@ -127,6 +129,7 @@ vi.mock('../../../../src/service/runtime/state-manager', () => ({
   planningGuard_ACU: mockPlanningGuard,
   _set_tempPlotToSave_ACU: mockSetTempPlotToSave,
   _set_currentJsonTableData_ACU: mockSetCurrentJsonTableData,
+  _set_pendingFinalGenerationGreenlights_ACU: mockSetPendingFinalGenerationGreenlights,
   get currentJsonTableData_ACU() {
     return mockCurrentJsonTableDataRef.value;
   },

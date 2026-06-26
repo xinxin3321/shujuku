@@ -10,6 +10,8 @@ const {
   mockLogDebug,
   mockParseRandomTags,
   mockReplaceRandomVariables,
+  mockPendingFinalGenerationGreenlightsRef,
+  mockSetPendingFinalGenerationGreenlights,
   mockParseCalcTags,
   mockParseMaxTags,
   mockParseMinTags,
@@ -19,26 +21,35 @@ const {
   mockParseIfBlockRecursive,
   mockGetLatestAIMessageContent,
   mockGetPlotFromHistory,
-} = vi.hoisted(() => ({
-  mockSettings: { promptTemplateSettings: { enabled: true, maxNestingDepth: 10, debugMode: false } } as any,
-  mockCurrentJsonTableData: { sheet_0: { name: '表', content: [['row_id']] } } as any,
-  mockLogDebug: vi.fn(),
-  mockParseRandomTags: vi.fn((s: string) => s),
-  mockReplaceRandomVariables: vi.fn((s: string) => s),
-  mockParseCalcTags: vi.fn((s: string) => s),
-  mockParseMaxTags: vi.fn((s: string) => s),
-  mockParseMinTags: vi.fn((s: string) => s),
-  mockReplaceCalcVariables: vi.fn((s: string) => s),
-  mockReplaceMaxVariables: vi.fn((s: string) => s),
-  mockReplaceMinVariables: vi.fn((s: string) => s),
-  mockParseIfBlockRecursive: vi.fn((s: string) => s),
-  mockGetLatestAIMessageContent: vi.fn(() => ''),
-  mockGetPlotFromHistory: vi.fn(() => null),
-}));
+} = vi.hoisted(() => {
+  const mockPendingFinalGenerationGreenlightsRef = { value: [] as any[] };
+  return {
+    mockSettings: { promptTemplateSettings: { enabled: true, maxNestingDepth: 10, debugMode: false } } as any,
+    mockCurrentJsonTableData: { sheet_0: { name: '表', content: [['row_id']] } } as any,
+    mockLogDebug: vi.fn(),
+    mockParseRandomTags: vi.fn((s: string) => s),
+    mockReplaceRandomVariables: vi.fn((s: string) => s),
+    mockPendingFinalGenerationGreenlightsRef,
+    mockSetPendingFinalGenerationGreenlights: vi.fn((value: any) => {
+      mockPendingFinalGenerationGreenlightsRef.value = Array.isArray(value) ? value : [];
+    }),
+    mockParseCalcTags: vi.fn((s: string) => s),
+    mockParseMaxTags: vi.fn((s: string) => s),
+    mockParseMinTags: vi.fn((s: string) => s),
+    mockReplaceCalcVariables: vi.fn((s: string) => s),
+    mockReplaceMaxVariables: vi.fn((s: string) => s),
+    mockReplaceMinVariables: vi.fn((s: string) => s),
+    mockParseIfBlockRecursive: vi.fn((s: string) => s),
+    mockGetLatestAIMessageContent: vi.fn(() => ''),
+    mockGetPlotFromHistory: vi.fn(() => null),
+  };
+});
 
 vi.mock('../../../src/service/runtime/state-manager', () => ({
   get settings_ACU() { return mockSettings; },
   get currentJsonTableData_ACU() { return mockCurrentJsonTableData; },
+  get pendingFinalGenerationGreenlights_ACU() { return mockPendingFinalGenerationGreenlightsRef.value; },
+  _set_pendingFinalGenerationGreenlights_ACU: mockSetPendingFinalGenerationGreenlights,
 }));
 
 vi.mock('../../../src/shared/utils', () => ({
@@ -110,6 +121,7 @@ import { handleChatCompletionReady_ACU } from '../../../src/service/runtime/help
 beforeEach(() => {
   vi.clearAllMocks();
   mockSettings.promptTemplateSettings = { enabled: true, maxNestingDepth: 10, debugMode: false };
+  mockPendingFinalGenerationGreenlightsRef.value = [];
 });
 
 describe('handleChatCompletionReady_ACU', () => {

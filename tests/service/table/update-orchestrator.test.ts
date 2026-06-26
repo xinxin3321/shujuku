@@ -181,6 +181,7 @@ const mockRunTableWriteTransaction = vi.fn(async (options: any, task: any) => ta
 }, options.initialData ? JSON.parse(JSON.stringify(options.initialData)) : mockCurrentJsonTableData));
 vi.mock('../../../src/service/table/table-write-transaction', () => ({
   captureTableRuntimeRevisionForWriteSet_ACU: vi.fn(() => 'runtime-test-revision'),
+  invalidateTableRuntimeRevision_ACU: vi.fn(() => 'runtime-test-invalidated'),
   runTableWriteTransaction_ACU: (...args: any[]) => mockRunTableWriteTransaction(...args),
 }));
 

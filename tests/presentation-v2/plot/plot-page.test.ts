@@ -387,9 +387,8 @@ describe('PlotPage', () => {
     defaultItem!.click();
     await Promise.resolve();
 
-    expect(trigger!.textContent).toContain('默认预设');
-    expect(settings.plotPresetBindings?.['chat-plot']?.presetName).toBe('');
-    expect(settings.plotPresetBindings?.['chat-plot']?.isExplicit).toBe(true);
+    expect(trigger!.textContent).toContain('记忆召回');
+    expect(settings.plotPresetBindings?.['chat-plot']).toBeUndefined();
 
     trigger!.click();
     await Promise.resolve();

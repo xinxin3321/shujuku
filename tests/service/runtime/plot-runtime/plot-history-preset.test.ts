@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockSettings, mockGetChatArray, mockSaveChatToHost, mockSaveSettings, mockGetCurrentChatPlotScopeState, mockSetCurrentChatPlotScopeState, mockBuildChatPlotScopeState, mockGetCurrentRuntimePresetName, mockFindPresetByName, mockNormalizePresetSelection, mockIsDefaultPresetSelection, mockGetPresetBinding, mockClearPresetBinding, mockEnsurePresetBindingsStore, mockEnsurePlotTasksCompat, mockApplyPresetToSettings, mockResetPlotSettingsToDefault, mockSyncEditableState, mockReplaceWithSnapshot, mockGetGlobalRevision, mockTempPlotToSave, mockSetTempPlotToSave, mockPlanningGuard, mockCurrentChatFileIdentifier } = vi.hoisted(() => ({
+const { mockSettings, mockGetChatArray, mockSaveChatToHost, mockSaveSettings, mockGetCurrentChatPlotScopeState, mockSetCurrentChatPlotScopeState, mockBuildChatPlotScopeState, mockGetCurrentRuntimePresetName, mockFindPresetByName, mockNormalizePresetSelection, mockIsDefaultPresetSelection, mockGetPresetBinding, mockSetPresetBinding, mockClearPresetBinding, mockEnsurePresetBindingsStore, mockEnsurePlotTasksCompat, mockApplyPresetToSettings, mockResetPlotSettingsToDefault, mockSyncEditableState, mockReplaceWithSnapshot, mockGetGlobalRevision, mockTempPlotToSave, mockSetTempPlotToSave, mockPlanningGuard, mockCurrentChatFileIdentifier } = vi.hoisted(() => ({
   mockSettings: { plotSettings: { enabled: true, lastUsedPresetName: '', promptPresets: [] } } as any,
   mockGetChatArray: vi.fn(() => []),
   mockSaveChatToHost: vi.fn(),
@@ -17,6 +17,7 @@ const { mockSettings, mockGetChatArray, mockSaveChatToHost, mockSaveSettings, mo
   mockNormalizePresetSelection: vi.fn((v: string) => v || ''),
   mockIsDefaultPresetSelection: vi.fn((v: string) => !v),
   mockGetPresetBinding: vi.fn(() => null),
+  mockSetPresetBinding: vi.fn(),
   mockClearPresetBinding: vi.fn(() => false),
   mockEnsurePresetBindingsStore: vi.fn(),
   mockEnsurePlotTasksCompat: vi.fn(),
@@ -75,6 +76,7 @@ vi.mock('../../../../src/service/plot/plot-logic', () => ({
   getPlotGlobalRevision_ACU: mockGetGlobalRevision,
   getPlotPresetBindingForChat_ACU: mockGetPresetBinding,
   isDefaultPlotPresetSelection_ACU: mockIsDefaultPresetSelection,
+  setPlotPresetBindingForChat_ACU: mockSetPresetBinding,
   normalizePlotPresetSelectionValue_ACU: mockNormalizePresetSelection,
   replaceCurrentPlotSettingsWithSnapshot_ACU: mockReplaceWithSnapshot,
   resetPlotSettingsToDefault_ACU: mockResetPlotSettingsToDefault,
@@ -129,7 +131,7 @@ describe('loadPresetAndCleanCharacterData_ACU', () => {
     expect(mockResetPlotSettingsToDefault).toHaveBeenCalled();
   });
 
-  it('有旧绑定且可迁移时迁移到聊天快照', async () => {
+  it('有旧绑定且可迁移时写回聊天预设绑定', async () => {
     mockSettings.plotSettings.lastUsedPresetName = '预设A';
     // normalizePresetSelection 第一次调用返回全局预设名，第二次返回绑定预设名
     mockNormalizePresetSelection.mockImplementation((v: string) => v || '');
@@ -142,8 +144,11 @@ describe('loadPresetAndCleanCharacterData_ACU', () => {
     mockBuildChatPlotScopeState.mockReturnValue({ snapshot: {} });
     await loadPresetAndCleanCharacterData_ACU();
     expect(mockApplyPresetToSettings).toHaveBeenCalled();
-    expect(mockSetCurrentChatPlotScopeState).toHaveBeenCalled();
-    expect(mockClearPresetBinding).toHaveBeenCalled();
+    expect(mockSetPresetBinding).toHaveBeenCalledWith('test-chat', '预设B', {
+      source: 'user',
+      isExplicit: true,
+    });
+    expect(mockClearPresetBinding).not.toHaveBeenCalled();
   });
 });
 
