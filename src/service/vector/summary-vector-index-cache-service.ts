@@ -70,7 +70,12 @@ export function isInvalidExternalVectorFileError_ACU(message: string): boolean {
     return text.includes('交火向量索引分片身份不匹配')
         || text.includes('交火向量索引分片校验失败')
         || text.includes('交火向量索引内容块身份不匹配')
-        || text.includes('交火向量索引内容块校验失败');
+        || text.includes('交火向量索引内容块校验失败')
+        || text.includes('交火向量索引内容包身份不匹配')
+        || text.includes('交火向量索引内容包校验失败')
+        || text.includes('交火向量单文件快照协议不匹配')
+        || text.includes('交火向量单文件快照身份不匹配')
+        || text.includes('交火向量单文件快照表标识不匹配');
 }
 
 export async function preloadSummaryVectorIndexCacheForCurrentChat_ACU(): Promise<SummaryVectorIndexCachePreloadResult_ACU> {

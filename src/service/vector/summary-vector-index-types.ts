@@ -151,6 +151,8 @@ export interface SummaryVectorIndexExternalFileRef_ACU {
 export interface SummaryVectorIndexBatchRef_ACU {
     batchId: string;
     indexId: string;
+    role?: 'base' | 'delta';
+    baseChunkIds?: string[];
     createdAt: string;
     updatedAt: string;
     rowKeys: string[];
@@ -165,7 +167,7 @@ export interface SummaryVectorIndexBatchRef_ACU {
 
 export interface SummaryVectorIndexSnapshotInfo_ACU {
     revision: number;
-    mode: 'snapshot' | 'single_file_snapshot';
+    mode: 'snapshot' | 'single_file_snapshot' | 'base_rolling_delta';
     parentIndexIds: string[];
     activeRowKeys: string[];
     activeChunkIds?: string[];

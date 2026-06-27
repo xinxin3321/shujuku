@@ -486,6 +486,11 @@ export   function loadSettings_ACU() {
               fillMissingOrLegacyDefault_ACU('summaryIndexKeywordMinRows', (defaultVectorMemoryConfig_ACU as any).summaryIndexKeywordMinRows, [100]);
               forceOverride_ACU('summaryIndexKeywordMinRows', (defaultVectorMemoryConfig_ACU as any).summaryIndexKeywordMinRows, [100]);
               fillMissing_ACU('recentFixedInjectCount', (defaultVectorMemoryConfig_ACU as any).recentFixedInjectCount || 50);
+              fillMissing_ACU('summaryIndexRollingDeltaEnabled', (defaultVectorMemoryConfig_ACU as any).summaryIndexRollingDeltaEnabled === true);
+              fillMissing_ACU('summaryIndexRollingDeltaFoldThreshold', (defaultVectorMemoryConfig_ACU as any).summaryIndexRollingDeltaFoldThreshold || 15);
+              fillMissing_ACU('hybridRetrievalEnabled', (defaultVectorMemoryConfig_ACU as any).hybridRetrievalEnabled !== false);
+              fillMissing_ACU('bm25CandidateLimit', (defaultVectorMemoryConfig_ACU as any).bm25CandidateLimit || defaultVectorMemoryConfig_ACU.recallCandidateLimit || 1000);
+              fillMissing_ACU('rrfK', (defaultVectorMemoryConfig_ACU as any).rrfK || 60);
               fillMissingPromptGroup_ACU('summaryPromptGroup', defaultVectorMemoryConfig_ACU.summaryPromptGroup || []);
               // [spv3.6.3] 关键词提示词：版本变更时无条件覆盖为最新默认值
               // 不做签名匹配——签名匹配在用户微调过提示词后必然失效，导致覆盖永远不触发

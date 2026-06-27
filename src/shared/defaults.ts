@@ -157,11 +157,18 @@ export const defaultVectorMemoryConfig_ACU = {
   vectorNamespace: 'chat',
   entryComment: 'TavernDB-ACU-VectorMemory',
   entryKey: 'TavernDB-ACU-VectorMemory-Key',
+  hybridRetrievalEnabled: true,
+  bm25CandidateLimit: 1000,
+  rrfK: 60,
   summaryIndexKeywordMinRows: 200,
   summaryChunkSentenceCount: 2,
   summaryPromptGroupId: 'remote-memory-archive-default',
   archiveWithoutSummary: false,
   recentFixedInjectCount: 50,
+  // [交火向量索引·实验] 基线+滚动增量写入（默认关闭，省远程上传带宽；读取侧自动识别两种格式）。
+  summaryIndexRollingDeltaEnabled: false,
+  // 折叠阈值 K：滚动增量累计达到 K 个不同纪要行时，把增量折叠进基线。
+  summaryIndexRollingDeltaFoldThreshold: 15,
   summaryPromptGroup: [
     {
       role: 'system',

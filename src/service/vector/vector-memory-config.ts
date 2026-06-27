@@ -28,6 +28,9 @@ export interface VectorMemoryConfig_ACU {
     vectorNamespace: string;
     entryComment: string;
     entryKey: string;
+    hybridRetrievalEnabled: boolean;
+    bm25CandidateLimit: number;
+    rrfK: number;
     summaryIndexKeywordMinRows: number;
     summaryChunkSentenceCount: number;
     summaryPromptGroupId: string;
@@ -39,6 +42,8 @@ export interface VectorMemoryConfig_ACU {
     keywordPromptGroup: VectorMemoryKeywordPromptSegment_ACU[];
     recallCandidateLimit: number;
     recentFixedInjectCount: number;
+    summaryIndexRollingDeltaEnabled: boolean;
+    summaryIndexRollingDeltaFoldThreshold: number;
 }
 
 function normalizeArchiveTriggerCount_ACU(value: any, fallbackValue: number): number {
@@ -136,6 +141,12 @@ export function normalizeVectorMemoryConfig_ACU(rawConfig: any): VectorMemoryCon
         vectorNamespace: normalizeTextField_ACU(source.vectorNamespace, defaults.vectorNamespace) || defaults.vectorNamespace,
         entryComment: normalizeTextField_ACU(source.entryComment, defaults.entryComment) || defaults.entryComment,
         entryKey: normalizeTextField_ACU(source.entryKey, defaults.entryKey) || defaults.entryKey,
+        hybridRetrievalEnabled: (source as any).hybridRetrievalEnabled !== false,
+        bm25CandidateLimit: normalizePositiveInteger_ACU(
+            (source as any).bm25CandidateLimit,
+            Number((defaults as any).bm25CandidateLimit) || Number((source as any).recallCandidateLimit) || defaults.recallCandidateLimit,
+        ),
+        rrfK: normalizePositiveInteger_ACU((source as any).rrfK, Number((defaults as any).rrfK) || 60),
         summaryIndexKeywordMinRows: normalizePositiveInteger_ACU(
             (source as any).summaryIndexKeywordMinRows,
             (defaults as any).summaryIndexKeywordMinRows || 100,
@@ -152,6 +163,11 @@ export function normalizeVectorMemoryConfig_ACU(rawConfig: any): VectorMemoryCon
         recentFixedInjectCount: normalizePositiveInteger_ACU(
             (source as any).recentFixedInjectCount,
             (defaults as any).recentFixedInjectCount || 50,
+        ),
+        summaryIndexRollingDeltaEnabled: (source as any).summaryIndexRollingDeltaEnabled === true,
+        summaryIndexRollingDeltaFoldThreshold: normalizePositiveInteger_ACU(
+            (source as any).summaryIndexRollingDeltaFoldThreshold,
+            (defaults as any).summaryIndexRollingDeltaFoldThreshold || 15,
         ),
     };
 }
@@ -263,6 +279,12 @@ function collectVectorMemoryCommonErrors_ACU(config: VectorMemoryConfig_ACU): st
     if (config.recallCandidateLimit < config.topK) {
         errors.push('recallCandidateLimit 不能小于 topK');
     }
+    if (config.bm25CandidateLimit < 1) {
+        errors.push('bm25CandidateLimit 必须大于 0');
+    }
+    if (config.rrfK < 1) {
+        errors.push('rrfK 必须大于 0');
+    }
 
     return errors;
 }
@@ -301,6 +323,11 @@ export interface SummaryVectorIndexEffectiveConfig_ACU extends VectorMemoryConfi
     summaryIndexArchiveMaxConcurrency: number;
     summaryIndexKeywordMinRows: number;
     summaryIndexRecentFixedInjectCount: number;
+    summaryIndexHybridRetrievalEnabled: boolean;
+    summaryIndexBm25CandidateLimit: number;
+    summaryIndexRrfK: number;
+    summaryIndexRollingDeltaEnabled: boolean;
+    summaryIndexRollingDeltaFoldThreshold: number;
 }
 
 export function getEffectiveSummaryVectorIndexConfig_ACU(configInput?: any): SummaryVectorIndexEffectiveConfig_ACU {
@@ -328,6 +355,18 @@ export function getEffectiveSummaryVectorIndexConfig_ACU(configInput?: any): Sum
         (config as any).recentFixedInjectCount,
         Number((defaults as any).recentFixedInjectCount) || 50,
     );
+    const bm25CandidateLimit = Math.max(
+        1,
+        normalizePositiveInteger_ACU(
+            (config as any).bm25CandidateLimit,
+            Number((defaults as any).bm25CandidateLimit) || recallCandidateLimit,
+        ),
+    );
+    const rrfK = normalizePositiveInteger_ACU((config as any).rrfK, Number((defaults as any).rrfK) || 60);
+    const summaryIndexRollingDeltaFoldThreshold = normalizePositiveInteger_ACU(
+        (config as any).summaryIndexRollingDeltaFoldThreshold,
+        Number((defaults as any).summaryIndexRollingDeltaFoldThreshold) || 15,
+    );
     return {
         ...config,
         enabled: true,
@@ -341,6 +380,11 @@ export function getEffectiveSummaryVectorIndexConfig_ACU(configInput?: any): Sum
         summaryIndexArchiveMaxConcurrency,
         summaryIndexKeywordMinRows,
         summaryIndexRecentFixedInjectCount: recentFixedInjectCount,
+        summaryIndexHybridRetrievalEnabled: config.hybridRetrievalEnabled !== false,
+        summaryIndexBm25CandidateLimit: bm25CandidateLimit,
+        summaryIndexRrfK: rrfK,
+        summaryIndexRollingDeltaEnabled: (config as any).summaryIndexRollingDeltaEnabled === true,
+        summaryIndexRollingDeltaFoldThreshold,
     };
 }
 
@@ -356,6 +400,15 @@ export function validateSummaryVectorIndexConfig_ACU(configInput?: any): VectorM
     if (config.summaryIndexKeywordMinRows < 1) {
         errors.push('summaryIndexKeywordMinRows 必须大于 0');
     }
+    if (config.summaryIndexBm25CandidateLimit < 1) {
+        errors.push('bm25CandidateLimit 必须大于 0');
+    }
+    if (config.summaryIndexRollingDeltaFoldThreshold < 1) {
+        errors.push('summaryIndexRollingDeltaFoldThreshold 必须大于 0');
+    }
+    if (config.summaryIndexRrfK < 1) {
+        errors.push('rrfK 必须大于 0');
+    }
     const rerankValidation = validateVectorMemoryRerankConfig_ACU(config);
     errors.push(...rerankValidation.errors);
     return {
@@ -369,3 +422,33 @@ export function isVectorMemoryEnabled_ACU(configInput?: any): boolean {
     if (!config.enabled) return false;
     return validateVectorMemoryConfig_ACU(config).valid;
 }
+
+export function setSummaryVectorIndexRollingDeltaEnabled_ACU(
+    enabled: boolean,
+    foldThreshold?: number,
+): { enabled: boolean; foldThreshold: number } {
+    const config = getCurrentVectorMemoryConfig_ACU();
+    config.summaryIndexRollingDeltaEnabled = enabled === true;
+    if (foldThreshold != null && Number.isFinite(Number(foldThreshold)) && Number(foldThreshold) >= 1) {
+        config.summaryIndexRollingDeltaFoldThreshold = Math.floor(Number(foldThreshold));
+    }
+    saveGlobalMeta_ACU();
+    const status = {
+        enabled: config.summaryIndexRollingDeltaEnabled === true,
+        foldThreshold: Math.max(1, Math.floor(Number(config.summaryIndexRollingDeltaFoldThreshold) || 15)),
+    };
+    return status;
+}
+
+try {
+    if (typeof window !== 'undefined') {
+        (window as any).ACU_setCrossfireRollingDelta = setSummaryVectorIndexRollingDeltaEnabled_ACU;
+        (window as any).ACU_getCrossfireRollingDelta = () => {
+            const config = getCurrentVectorMemoryConfig_ACU();
+            return {
+                enabled: config.summaryIndexRollingDeltaEnabled === true,
+                foldThreshold: Math.max(1, Math.floor(Number(config.summaryIndexRollingDeltaFoldThreshold) || 15)),
+            };
+        };
+    }
+} catch (_) {}

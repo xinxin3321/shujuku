@@ -177,6 +177,18 @@ export function generateTableTabHTML(): string {
                                             <small class="notes">最近 X 条纪要固定注入，不参与排序；X 计入触发阈值但不计入 TopK。例如阈值200、X=50，则最近50条固定注入，较早的行参与向量召回。</small>
                                         </div>
                                         <div class="acu-col-sm">
+                                            <label for="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-rolling-delta-enabled" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                                <input type="checkbox" id="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-rolling-delta-enabled" style="width: 14px; height: 14px; cursor: pointer;">
+                                                <span>启用滚动增量写入</span>
+                                            </label>
+                                            <small class="notes">默认关闭。开启后外置索引按 base + delta 写入，降低连续归档的远程上传体积；读取侧仍兼容旧格式。</small>
+                                        </div>
+                                        <div class="acu-col-sm">
+                                            <label for="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-rolling-delta-fold-threshold">滚动增量折叠阈值 K</label>
+                                            <input type="number" id="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-rolling-delta-fold-threshold" min="1" step="1" placeholder="15">
+                                            <small class="notes">累计变更达到 K 个不同纪要行时，将 delta 折叠进新的 base，避免增量长期膨胀。</small>
+                                        </div>
+                                        <div class="acu-col-sm">
                                             <label for="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-namespace">索引命名空间前缀</label>
                                             <input type="text" id="${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-namespace" placeholder="chat">
                                             <small class="notes">用于区分不同聊天的外置索引缓存；会与当前聊天标识拼接。</small>

@@ -35,6 +35,7 @@ import type {
     ChatSummaryVectorIndexRow_ACU,
     ChatSummaryVectorIndexState_ACU,
     SummaryVectorIndexBatchRef_ACU,
+    SummaryVectorIndexChunkRef_ACU,
     SummaryVectorIndexExternalFileRef_ACU,
     SummaryVectorIndexHealthReport_ACU,
     SummaryVectorIndexPackRef_ACU,
@@ -50,6 +51,7 @@ import type {
 } from './summary-vector-index-types';
 import { SUMMARY_VECTOR_INDEX_MANIFEST_VERSION_ACU } from './summary-vector-index-types';
 import { getAggregatedSummaryVectorIndexSnapshot_ACU } from './summary-vector-index-state-service';
+import { getEffectiveSummaryVectorIndexConfig_ACU } from './vector-memory-config';
 
 const DEFAULT_SHARD_CHUNK_LIMIT_ACU = 128;
 const SUMMARY_VECTOR_INDEX_PACK_CHUNK_LIMIT_ACU = 64;
@@ -89,6 +91,7 @@ export interface PersistSummaryVectorIndexExternalResult_ACU {
 
 export interface LoadSummaryVectorIndexChunksOptions_ACU {
     preferExternalFiles?: boolean;
+    shardReadConcurrency?: number;
 }
 
 function normalizeChatKey_ACU(chatKey?: string): string {
@@ -180,6 +183,73 @@ function normalizeChunks_ACU(chunks: ChatSummaryVectorIndexChunk_ACU[]): ChatSum
         .map((chunk, index) => ({ ...chunk, sequence: index }));
 }
 
+const VECTOR_ENCODING_F32B64_ACU = 'f32b64' as const;
+
+type StoredVectorIndexChunk_ACU = Omit<ChatSummaryVectorIndexChunk_ACU, 'vector'> & {
+    vector: number[] | string;
+    vectorEncoding?: typeof VECTOR_ENCODING_F32B64_ACU;
+};
+
+type StoredVectorIndexChunkBlob_ACU = Omit<VectorIndexChunkBlob_ACU, 'vector'> & {
+    vector: number[] | string;
+    vectorEncoding?: typeof VECTOR_ENCODING_F32B64_ACU;
+};
+
+function encodeVectorToF32B64_ACU(vector: number[]): string {
+    if (!Array.isArray(vector)) return '';
+    const bytes = new Uint8Array(vector.length * 4);
+    const view = new DataView(bytes.buffer);
+    vector.forEach((value, index) => {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+            throw new Error(`交火向量包含非有限数值，拒绝编码: index=${index}`);
+        }
+        view.setFloat32(index * 4, numeric, true);
+    });
+    let binary = '';
+    const blockSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += blockSize) {
+        const block = bytes.subarray(offset, offset + blockSize);
+        for (let i = 0; i < block.length; i += 1) binary += String.fromCharCode(block[i]);
+    }
+    const encoder = globalThis.btoa;
+    if (typeof encoder !== 'function') throw new Error('当前环境缺少 btoa，无法编码交火向量。');
+    return encoder(binary);
+}
+
+function decodeF32B64ToVector_ACU(encoded: string): number[] {
+    const decoder = globalThis.atob;
+    if (typeof decoder !== 'function') throw new Error('当前环境缺少 atob，无法解码交火向量。');
+    const binary = decoder(String(encoded || ''));
+    if (binary.length % 4 !== 0) {
+        throw new Error(`交火向量 f32b64 字节长度非法: bytes=${binary.length}`);
+    }
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i) & 0xff;
+    const view = new DataView(bytes.buffer);
+    const vector: number[] = [];
+    for (let offset = 0; offset < bytes.length; offset += 4) vector.push(view.getFloat32(offset, true));
+    return vector;
+}
+
+function encodeChunkVectorForStorage_ACU<T extends ChatSummaryVectorIndexChunk_ACU>(chunk: T): Omit<T, 'vector'> & { vector: string; vectorEncoding: typeof VECTOR_ENCODING_F32B64_ACU } {
+    return { ...chunk, vector: encodeVectorToF32B64_ACU(chunk.vector), vectorEncoding: VECTOR_ENCODING_F32B64_ACU };
+}
+
+function decodeChunkVectorInPlace_ACU(chunk: StoredVectorIndexChunk_ACU): ChatSummaryVectorIndexChunk_ACU {
+    if (chunk.vectorEncoding === VECTOR_ENCODING_F32B64_ACU || typeof chunk.vector === 'string') {
+        chunk.vector = decodeF32B64ToVector_ACU(String(chunk.vector || ''));
+        delete chunk.vectorEncoding;
+    } else if (Array.isArray(chunk.vector)) {
+        chunk.vector = chunk.vector.map((value) => Number(value)).filter((value) => Number.isFinite(value));
+    }
+    return chunk as ChatSummaryVectorIndexChunk_ACU;
+}
+
+function decodeChunkVectorsInPlace_ACU(chunks: StoredVectorIndexChunk_ACU[]): ChatSummaryVectorIndexChunk_ACU[] {
+    return (Array.isArray(chunks) ? chunks : []).map((chunk) => decodeChunkVectorInPlace_ACU(chunk));
+}
+
 interface VectorIndexChunkBlob_ACU {
     version: number;
     chunkKey: string;
@@ -188,6 +258,7 @@ interface VectorIndexChunkBlob_ACU {
     rowOrder: number;
     text: string;
     vector: number[];
+    vectorEncoding?: typeof VECTOR_ENCODING_F32B64_ACU;
     sequence: number;
     embeddingModel: string;
     dimension: number;
@@ -224,7 +295,7 @@ interface VectorIndexSingleSnapshotBlob_ACU {
     updatedAt: string;
     manifest: ChatSummaryVectorIndexManifest_ACU;
     rows: ChatSummaryVectorIndexRow_ACU[];
-    chunks: ChatSummaryVectorIndexChunk_ACU[];
+    chunks: StoredVectorIndexChunk_ACU[];
     tombstone: SummaryVectorIndexTombstone_ACU;
 }
 
@@ -527,7 +598,11 @@ export function normalizeSummaryVectorIndexManifestForRead_ACU(
         externalTotalBytes: Math.max(0, Math.floor(Number(manifest.externalTotalBytes) || sumUniqueVectorIndexFileBytes_ACU(files))),
         snapshot: manifest.snapshot ? {
             revision: Math.max(1, Math.floor(Number(manifest.snapshot.revision) || 1)),
-            mode: manifest.snapshot.mode === 'single_file_snapshot' ? 'single_file_snapshot' : 'snapshot',
+            mode: manifest.snapshot.mode === 'single_file_snapshot'
+                ? 'single_file_snapshot'
+                : manifest.snapshot.mode === 'base_rolling_delta'
+                    ? 'base_rolling_delta'
+                    : 'snapshot',
             parentIndexIds: Array.isArray(manifest.snapshot.parentIndexIds) ? manifest.snapshot.parentIndexIds.map((item) => String(item || '')).filter(Boolean) : [],
             activeRowKeys,
             activeChunkIds,
@@ -824,6 +899,277 @@ async function rollbackUploadedFiles_ACU(files: SummaryVectorIndexExternalFileRe
     await unregisterVectorIndexFiles_ACU(paths);
 }
 
+function getReusableRollingBaseBatch_ACU(manifest: ChatSummaryVectorIndexManifest_ACU | null | undefined): SummaryVectorIndexBatchRef_ACU | null {
+    if (manifest?.snapshot?.mode !== 'base_rolling_delta' || !Array.isArray(manifest.batchRefs)) return null;
+    return manifest.batchRefs.find((batch) => (
+        batch?.role === 'base'
+        && (batch.files || []).some((file) => file.role === 'base_shard')
+        && Array.isArray(batch.chunkIds) && batch.chunkIds.length > 0
+    )) || null;
+}
+
+function collectRollingDeltaChangedRowKeys_ACU(params: {
+    rows: ChatSummaryVectorIndexRow_ACU[];
+    activeRowKeys: string[];
+    removedRowKeys: string[];
+    replacedRowKeys: string[];
+    previousManifest?: ChatSummaryVectorIndexManifest_ACU | null;
+}): Set<string> {
+    const changedRowKeys = new Set<string>([...params.removedRowKeys, ...params.replacedRowKeys].filter(Boolean));
+    const previousActiveRowKeys = new Set(params.previousManifest?.snapshot?.activeRowKeys || []);
+    const previousActiveChunkIds = new Set(params.previousManifest?.snapshot?.activeChunkIds || []);
+    const activeRowKeySet = new Set(params.activeRowKeys);
+    params.rows.forEach((row) => {
+        if (!activeRowKeySet.has(row.rowKey)) return;
+        if (!previousActiveRowKeys.has(row.rowKey)) {
+            changedRowKeys.add(row.rowKey);
+            return;
+        }
+        const rowChunkIds = (row.chunkIds || []).filter(Boolean);
+        if (rowChunkIds.some((chunkId) => !previousActiveChunkIds.has(chunkId))) {
+            changedRowKeys.add(row.rowKey);
+        }
+    });
+    return changedRowKeys;
+}
+
+async function persistSummaryVectorIndexSnapshotAsRollingDelta_ACU(params: {
+    options: PersistSummaryVectorIndexSnapshotOptions_ACU;
+    chatKey: string;
+    isolationKey: string;
+    indexedAt: string;
+    snapshotRevision: number;
+    indexId: string;
+    rows: ChatSummaryVectorIndexRow_ACU[];
+    chunks: ChatSummaryVectorIndexChunk_ACU[];
+    activeRowKeys: string[];
+    activeChunkIds: string[];
+    dimension: number;
+    foldThreshold: number;
+}): Promise<PersistSummaryVectorIndexExternalResult_ACU> {
+    const { options, chatKey, isolationKey, indexedAt, snapshotRevision, indexId, rows, chunks, activeRowKeys, activeChunkIds, dimension } = params;
+    const uploadedFiles: SummaryVectorIndexExternalFileRef_ACU[] = [];
+    try {
+        const rowsByKey = new Map(rows.map((row) => [row.rowKey, row]));
+        const chunkKeysByChunkId = new Map<string, string>();
+        for (const chunk of chunks) {
+            const row = rowsByKey.get(chunk.rowKey);
+            const prepared = await prepareVectorChunkBlob_ACU(chunk, {
+                embeddingModel: options.embeddingModel,
+                dimension,
+                sourceFingerprint: row?.sourceFingerprint,
+            });
+            chunkKeysByChunkId.set(chunk.chunkId, prepared.chunkKey);
+        }
+
+        const removedRowKeys = Array.from(new Set(options.removedRowKeys || []));
+        const replacedRowKeys = Array.from(new Set(options.replacedRowKeys || []));
+        const reusableBaseBatch = getReusableRollingBaseBatch_ACU(options.previousManifest);
+        const changedRowKeys = collectRollingDeltaChangedRowKeys_ACU({
+            rows,
+            activeRowKeys,
+            removedRowKeys,
+            replacedRowKeys,
+            previousManifest: options.previousManifest,
+        });
+        const reusableBaseChunkIds = new Set(reusableBaseBatch?.chunkIds || []);
+        const foldThreshold = Math.max(1, Math.floor(Number(params.foldThreshold) || 1));
+        const shouldFold = !reusableBaseBatch || reusableBaseChunkIds.size === 0 || changedRowKeys.size >= foldThreshold;
+        const activeRowKeySet = new Set(activeRowKeys);
+        const changedActiveRowKeys = new Set(Array.from(changedRowKeys).filter((rowKey) => activeRowKeySet.has(rowKey)));
+        const baseChunks = shouldFold ? chunks : [];
+        const deltaChunks = shouldFold ? [] : chunks.filter((chunk) => !reusableBaseChunkIds.has(chunk.chunkId) || changedActiveRowKeys.has(chunk.rowKey));
+        const baseRows = shouldFold ? rows.filter((row) => activeRowKeySet.has(row.rowKey)) : [];
+        const deltaRowKeys = new Set(deltaChunks.map((chunk) => chunk.rowKey).filter(Boolean));
+        changedActiveRowKeys.forEach((rowKey) => deltaRowKeys.add(rowKey));
+        const deltaRows = shouldFold ? [] : rows.filter((row) => activeRowKeySet.has(row.rowKey) && deltaRowKeys.has(row.rowKey));
+        const shardIdsByChunkId = new Map<string, string>();
+
+        const writeShard = async (role: 'base' | 'delta', shardId: string, shardChunks: ChatSummaryVectorIndexChunk_ACU[]): Promise<SummaryVectorIndexExternalFileRef_ACU | null> => {
+            if (shardChunks.length === 0) return null;
+            const chunksWithShard = shardChunks.map((chunk) => ({
+                ...chunk,
+                shardId,
+                shardRole: role,
+                chunkKeys: chunkKeysByChunkId.get(chunk.chunkId) ? [chunkKeysByChunkId.get(chunk.chunkId)!] : chunk.chunkKeys,
+            }));
+            chunksWithShard.forEach((chunk) => shardIdsByChunkId.set(chunk.chunkId, shardId));
+            const cacheShard: SummaryVectorIndexShard_ACU = {
+                version: SUMMARY_VECTOR_INDEX_MANIFEST_VERSION_ACU,
+                indexId,
+                shardId,
+                role,
+                createdAt: indexedAt,
+                updatedAt: indexedAt,
+                chunks: chunksWithShard,
+            };
+            const storedShard = {
+                ...cacheShard,
+                chunks: chunksWithShard.map((chunk) => encodeChunkVectorForStorage_ACU({ ...chunk })),
+            };
+            const path = buildVectorIndexFileName_ACU({ chatKey, isolationKey, indexId, role: role === 'base' ? 'base_shard' : 'delta_shard', shardId });
+            const written = await uploadVectorIndexJsonFile_ACU({
+                path,
+                role: role === 'base' ? 'base_shard' : 'delta_shard',
+                shardId,
+                data: storedShard,
+                chunkCount: chunksWithShard.length,
+                status: 'ready',
+            });
+            if (!written.ok || !written.ref) throw new Error(written.error || `${role === 'base' ? 'base' : 'delta'} 分片 ${shardId} 上传失败`);
+            uploadedFiles.push(written.ref);
+            await putVectorIndexCachedShard_ACU(indexId, shardId, cacheShard, written.ref.checksum);
+            return written.ref;
+        };
+
+        const baseShardRef = shouldFold ? await writeShard('base', 'base_0001', baseChunks) : null;
+        const deltaShardRef = await writeShard('delta', 'delta_0001', deltaChunks);
+        const baseBatch: SummaryVectorIndexBatchRef_ACU = shouldFold
+            ? {
+                ...buildBatchRef_ACU({
+                    batchId: `base_${snapshotRevision}`,
+                    indexId,
+                    createdAt: indexedAt,
+                    updatedAt: indexedAt,
+                    rows: baseRows,
+                    chunks: baseChunks,
+                    files: baseShardRef ? [baseShardRef] : [],
+                    sourceMessageIndex: options.sourceMessageIndex,
+                    sourceSnapshotMessageId: options.snapshotMessageId,
+                }),
+                role: 'base',
+            }
+            : { ...reusableBaseBatch!, role: 'base' };
+        const deltaBatch: SummaryVectorIndexBatchRef_ACU = {
+            ...buildBatchRef_ACU({
+                batchId: `delta_${snapshotRevision}`,
+                indexId,
+                createdAt: indexedAt,
+                updatedAt: indexedAt,
+                rows: deltaRows,
+                chunks: deltaChunks,
+                files: deltaShardRef ? [deltaShardRef] : [],
+                sourceMessageIndex: options.sourceMessageIndex,
+                sourceSnapshotMessageId: options.snapshotMessageId,
+            }),
+            role: 'delta',
+            baseChunkIds: [...baseBatch.chunkIds],
+        };
+        const batchRefs = deltaBatch.files.length > 0 || removedRowKeys.length > 0 || replacedRowKeys.length > 0
+            ? [baseBatch, deltaBatch]
+            : [baseBatch];
+        const parentIndexIds = Array.from(new Set([...(options.parentIndexIds || []), ...(options.previousManifest?.indexId ? [options.previousManifest.indexId] : [])].filter(Boolean)));
+        const tombstone = buildTombstone_ACU(indexId, options.previousManifest, indexedAt);
+        removedRowKeys.forEach((rowKey) => {
+            tombstone.removedRows[rowKey] = { rowKey, chunkIds: [], reason: 'row_deleted', removedAt: indexedAt };
+        });
+        const manifestPath = buildVectorIndexFileName_ACU({ chatKey, isolationKey, indexId, role: 'manifest' });
+        const baseShardIdsByChunkId = new Map<string, string[]>();
+        if (!shouldFold && reusableBaseBatch) {
+            const baseShardIds = Array.from(new Set((reusableBaseBatch.files || []).map((file) => file.shardId).filter((value): value is string => !!value)));
+            reusableBaseChunkIds.forEach((chunkId) => baseShardIdsByChunkId.set(chunkId, baseShardIds));
+        }
+        const rowsWithShardIds = rows.map((row) => ({
+            ...row,
+            shardIds: Array.from(new Set(row.chunkIds.flatMap((chunkId) => [
+                ...(baseShardIdsByChunkId.get(chunkId) || []),
+                ...(shardIdsByChunkId.get(chunkId) ? [shardIdsByChunkId.get(chunkId)!] : []),
+            ]))),
+            chunkKeys: Array.from(new Set(row.chunkIds.map((chunkId) => chunkKeysByChunkId.get(chunkId)).filter((value): value is string => !!value))),
+        }));
+        const checkpoint = {
+            version: SUMMARY_VECTOR_INDEX_MANIFEST_VERSION_ACU,
+            checkpointId: `checkpoint_${hashUserInput_ACU(`${indexId}\n${options.snapshotMessageId}\n${indexedAt}`)}`,
+            manifestKey: indexId,
+            sourceTableKey: options.sourceTableKey,
+            snapshotMessageId: options.snapshotMessageId,
+            rowCount: rowsWithShardIds.length,
+            chunkCount: chunks.length,
+            activeRowKeys,
+            createdAt: indexedAt,
+        };
+        const manifestDraft: ChatSummaryVectorIndexManifest_ACU = {
+            version: SUMMARY_VECTOR_INDEX_MANIFEST_VERSION_ACU,
+            backend: 'st-files',
+            status: 'ready',
+            indexId,
+            chatKey,
+            isolationKey,
+            snapshotMessageId: options.snapshotMessageId,
+            sourceTableKey: options.sourceTableKey,
+            sourceTableName: options.sourceTableName,
+            indexedAt,
+            updatedAt: indexedAt,
+            rowCount: rowsWithShardIds.length,
+            chunkCount: chunks.length,
+            skippedRowCount: Math.max(0, Math.floor(Number(options.skippedRowCount) || 0)),
+            embeddingModel: options.embeddingModel,
+            dimension,
+            rowsFile: manifestPath,
+            tombstoneFile: manifestPath,
+            manifestFile: manifestPath,
+            files: [],
+            baseShardCount: baseBatch.files.filter((file) => file.role === 'base_shard').length,
+            deltaShardCount: deltaBatch.files.filter((file) => file.role === 'delta_shard').length,
+            tombstoneRowCount: removedRowKeys.length,
+            tombstoneChunkCount: 0,
+            externalTotalBytes: uploadedFiles.reduce((sum, file) => sum + Math.max(0, Number(file.byteSize) || 0), 0),
+            snapshot: {
+                revision: snapshotRevision,
+                mode: 'base_rolling_delta',
+                parentIndexIds,
+                activeRowKeys,
+                activeChunkIds: chunks.map((chunk) => chunk.chunkId),
+                removedRowKeys,
+                replacedRowKeys,
+                batchIds: batchRefs.map((batch) => batch.batchId),
+            },
+            batchRefs,
+            checkpoint,
+        };
+        const manifestWritten = await uploadVectorIndexJsonFile_ACU({ path: manifestPath, role: 'manifest', data: manifestDraft, rowCount: rowsWithShardIds.length, chunkCount: chunks.length, status: 'ready' });
+        if (!manifestWritten.ok || !manifestWritten.ref) throw new Error(manifestWritten.error || 'rolling delta manifest 上传失败');
+        uploadedFiles.push(manifestWritten.ref);
+        const finalManifest: ChatSummaryVectorIndexManifest_ACU = {
+            ...manifestDraft,
+            files: [manifestWritten.ref, ...uploadedFiles.filter((file) => file.path !== manifestWritten.ref!.path)],
+            externalTotalBytes: sumUniqueVectorIndexFileBytes_ACU([
+                manifestWritten.ref,
+                ...batchRefs.flatMap((batch) => batch.files || []),
+            ]),
+        };
+        const state: ChatSummaryVectorIndexState_ACU = {
+            version: SUMMARY_VECTOR_INDEX_MANIFEST_VERSION_ACU,
+            backend: 'st-files',
+            status: 'ready',
+            indexId,
+            snapshotMessageId: options.snapshotMessageId,
+            sourceTableKey: options.sourceTableKey,
+            sourceTableName: options.sourceTableName,
+            indexedAt,
+            rowCount: rowsWithShardIds.length,
+            chunkCount: chunks.length,
+            skippedRowCount: Math.max(0, Math.floor(Number(options.skippedRowCount) || 0)),
+            rows: rowsWithShardIds,
+            manifest: finalManifest,
+        };
+        await putSummaryVectorHotCacheChunks_ACU({ manifest: finalManifest, chunks });
+        await registerVectorIndexFiles_ACU(uploadedFiles);
+        const retainedPaths = collectManifestFilePaths_ACU(finalManifest);
+        try {
+            await cleanupManifestFilesExcept_ACU(options.previousManifest, retainedPaths);
+            await cleanupSnapshotScopeFilesExcept_ACU(finalManifest, retainedPaths, { includeSameSourceTableFallback: true });
+        } catch (error) {
+            logWarn_ACU('[纪要向量索引] rolling delta 旧分片清理失败，保留当前快照继续运行:', error);
+        }
+        logDebug_ACU(`[交火向量索引] 已写入 rolling delta 快照：fold=${shouldFold ? 'yes' : 'no'} changedRows=${changedRowKeys.size}`);
+        return { state, manifest: finalManifest, uploadedFiles };
+    } catch (error) {
+        await rollbackUploadedFiles_ACU(uploadedFiles);
+        throw error;
+    }
+}
+
 export async function persistSummaryVectorIndexExternal_ACU(
     options: PersistSummaryVectorIndexExternalOptions_ACU,
 ): Promise<PersistSummaryVectorIndexExternalResult_ACU> {
@@ -968,6 +1314,23 @@ export async function persistSummaryVectorIndexSnapshot_ACU(
     if (dimension <= 0) {
         throw new Error('交火向量快照索引缺少有效向量维度。');
     }
+    const summaryVectorIndexConfig = getEffectiveSummaryVectorIndexConfig_ACU();
+    if (summaryVectorIndexConfig.summaryIndexRollingDeltaEnabled) {
+        return persistSummaryVectorIndexSnapshotAsRollingDelta_ACU({
+            options,
+            chatKey,
+            isolationKey,
+            indexedAt,
+            snapshotRevision,
+            indexId,
+            rows,
+            chunks,
+            activeRowKeys,
+            activeChunkIds,
+            dimension,
+            foldThreshold: summaryVectorIndexConfig.summaryIndexRollingDeltaFoldThreshold,
+        });
+    }
 
     const rowsByKey = new Map(rows.map((row) => [row.rowKey, row]));
     const chunkKeysByChunkId = new Map<string, string>();
@@ -1066,7 +1429,7 @@ export async function persistSummaryVectorIndexSnapshot_ACU(
         updatedAt: indexedAt,
         manifest: manifestDraft,
         rows: rowsWithShardIds,
-        chunks: chunks.map((chunk) => ({ ...chunk, chunkKeys: chunkKeysByChunkId.get(chunk.chunkId) ? [chunkKeysByChunkId.get(chunk.chunkId)!] : chunk.chunkKeys })),
+        chunks: chunks.map((chunk) => encodeChunkVectorForStorage_ACU({ ...chunk, chunkKeys: chunkKeysByChunkId.get(chunk.chunkId) ? [chunkKeysByChunkId.get(chunk.chunkId)!] : chunk.chunkKeys })),
         tombstone,
     };
     const written = await uploadVectorIndexJsonFile_ACU({
@@ -1111,41 +1474,61 @@ export async function persistSummaryVectorIndexSnapshot_ACU(
     return { state, manifest: finalManifest, uploadedFiles: [written.ref] };
 }
 
+async function loadOneShardChunks_ACU(
+    indexId: string,
+    ref: SummaryVectorIndexExternalFileRef_ACU,
+    options: LoadSummaryVectorIndexChunksOptions_ACU = {},
+): Promise<ChatSummaryVectorIndexChunk_ACU[]> {
+    if (!ref.shardId) return [];
+    let shard: SummaryVectorIndexShard_ACU | null = null;
+    if (options.preferExternalFiles !== true) {
+        shard = await getVectorIndexCachedShard_ACU(indexId, ref.shardId, ref.checksum || '');
+    }
+    if (!shard) {
+        const loaded = await readVectorIndexJsonFile_ACU<SummaryVectorIndexShard_ACU>(ref.path);
+        if (!loaded.ok || !loaded.data) {
+            throw new Error(`交火向量索引分片读取失败: ${ref.path} ${loaded.error || ''}`.trim());
+        }
+        const loadedShard = loaded.data;
+        const loadedShardId = String(loadedShard?.shardId || '');
+        const loadedIndexId = String(loadedShard?.indexId || '');
+        const shardMatchesManifest = loadedIndexId === indexId && loadedShardId === ref.shardId;
+        if (!shardMatchesManifest) {
+            throw new Error(`交火向量索引分片身份不匹配: ${ref.path} expectedIndex=${indexId} actualIndex=${loadedIndexId || 'empty'} expectedShard=${ref.shardId} actualShard=${loadedShardId || 'empty'}`);
+        }
+        const json = JSON.stringify(loadedShard);
+        const checksum = await sha256Text_ACU(json);
+        if (ref.checksum && checksum !== ref.checksum) {
+            throw new Error(`交火向量索引分片校验失败: ${ref.path} expected=${ref.checksum} actual=${checksum}`);
+        }
+        shard = {
+            ...loadedShard,
+            chunks: decodeChunkVectorsInPlace_ACU((loadedShard.chunks || []).map((chunk) => ({ ...chunk }) as StoredVectorIndexChunk_ACU)),
+        };
+        await putVectorIndexCachedShard_ACU(indexId, ref.shardId, shard, checksum || ref.checksum);
+    }
+    return (shard.chunks || [])
+        .map((chunk) => ({ ...chunk, vector: Array.isArray(chunk.vector) ? [...chunk.vector] : chunk.vector } as StoredVectorIndexChunk_ACU))
+        .map((chunk) => decodeChunkVectorInPlace_ACU(chunk))
+        .filter((chunk) => Array.isArray(chunk.vector) && chunk.vector.length > 0);
+}
+
 async function loadChunksFromShardRefs_ACU(
     indexId: string,
     shardRefs: SummaryVectorIndexExternalFileRef_ACU[],
     options: LoadSummaryVectorIndexChunksOptions_ACU = {},
 ): Promise<ChatSummaryVectorIndexChunk_ACU[]> {
-    const chunks: ChatSummaryVectorIndexChunk_ACU[] = [];
-    for (const ref of shardRefs) {
-        if (!ref.shardId) continue;
-        let shard: SummaryVectorIndexShard_ACU | null = null;
-        if (options.preferExternalFiles !== true) {
-            shard = await getVectorIndexCachedShard_ACU(indexId, ref.shardId);
-        }
-        if (!shard) {
-            const loaded = await readVectorIndexJsonFile_ACU<SummaryVectorIndexShard_ACU>(ref.path);
-            if (!loaded.ok || !loaded.data) {
-                throw new Error(`交火向量索引分片读取失败: ${ref.path} ${loaded.error || ''}`.trim());
-            }
-            const loadedShard = loaded.data;
-            const loadedShardId = String(loadedShard?.shardId || '');
-            const loadedIndexId = String(loadedShard?.indexId || '');
-            const shardMatchesManifest = loadedIndexId === indexId && loadedShardId === ref.shardId;
-            if (!shardMatchesManifest) {
-                throw new Error(`交火向量索引分片身份不匹配: ${ref.path} expectedIndex=${indexId} actualIndex=${loadedIndexId || 'empty'} expectedShard=${ref.shardId} actualShard=${loadedShardId || 'empty'}`);
-            }
-            const json = JSON.stringify(loadedShard);
-            const checksum = await sha256Text_ACU(json);
-            if (ref.checksum && checksum !== ref.checksum) {
-                throw new Error(`交火向量索引分片校验失败: ${ref.path} expected=${ref.checksum} actual=${checksum}`);
-            }
-            shard = loadedShard;
-            await putVectorIndexCachedShard_ACU(indexId, ref.shardId, shard, checksum || ref.checksum);
-        }
-        (shard.chunks || []).forEach((chunk) => chunks.push({ ...chunk }));
+    const refs = (Array.isArray(shardRefs) ? shardRefs : []).filter((ref) => !!ref?.shardId);
+    if (refs.length === 0) return [];
+    const concurrency = Math.max(1, Math.min(24, Math.floor(Number(options.shardReadConcurrency) || 6)));
+    const orderedResults: ChatSummaryVectorIndexChunk_ACU[][] = Array.from({ length: refs.length }, (): ChatSummaryVectorIndexChunk_ACU[] => []);
+    for (let offset = 0; offset < refs.length; offset += concurrency) {
+        const batch = refs.slice(offset, offset + concurrency);
+        await Promise.all(batch.map(async (ref, batchIndex) => {
+            orderedResults[offset + batchIndex] = await loadOneShardChunks_ACU(indexId, ref, options);
+        }));
     }
-    return chunks.filter((chunk) => Array.isArray(chunk.vector) && chunk.vector.length > 0);
+    return orderedResults.flat();
 }
 
 async function loadChunksFromContentAddressedRefs_ACU(
@@ -1156,6 +1539,36 @@ async function loadChunksFromContentAddressedRefs_ACU(
     if (!info?.chunkRefs?.length) return [];
     const activeChunkKeys = new Set((info.activeChunkKeys || []).map((item) => String(item)));
     const chunks: ChatSummaryVectorIndexChunk_ACU[] = [];
+
+    const decodeContentAddressedChunkBlob_ACU = (
+        blob: VectorIndexChunkBlob_ACU,
+        ref: SummaryVectorIndexChunkRef_ACU,
+        sourcePath: string,
+    ): ChatSummaryVectorIndexChunk_ACU => {
+        let decoded: ChatSummaryVectorIndexChunk_ACU;
+        try {
+            decoded = decodeChunkVectorInPlace_ACU({
+                ...blob,
+                chunkId: String(blob.chunkId || ref.chunkId),
+                rowKey: String(blob.rowKey || ref.rowKey),
+                rowOrder: Number(blob.rowOrder || 0),
+                text: String(blob.text || ''),
+                sequence: Number(blob.sequence || 0),
+                sourceFingerprint: blob.sourceFingerprint || ref.sourceFingerprint,
+                textHash: blob.textHash || ref.textHash,
+                shardId: undefined,
+                shardRole: undefined,
+                chunkKeys: [ref.chunkKey],
+            } as StoredVectorIndexChunk_ACU);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error || '未知错误');
+            throw new Error(`交火向量索引内容块校验失败: ${sourcePath} chunk=${ref.chunkKey} ${message}`.trim());
+        }
+        if (!Array.isArray(decoded.vector) || decoded.vector.length === 0) {
+            throw new Error(`交火向量索引内容块校验失败: ${sourcePath} chunk=${ref.chunkKey} vector_empty`);
+        }
+        return decoded;
+    };
 
     if (info.mode === 'content_addressed_packs' && Array.isArray(info.packRefs) && info.packRefs.length > 0) {
         const packRefsByKey = new Map<string, SummaryVectorIndexPackRef_ACU>();
@@ -1202,21 +1615,7 @@ async function loadChunksFromContentAddressedRefs_ACU(
                 if (ref.checksum && chunkChecksum !== ref.checksum) {
                     throw new Error(`交火向量索引内容块校验失败: ${packRef.path} expected=${ref.checksum} actual=${chunkChecksum}`);
                 }
-                const vector = Array.isArray(blob.vector) ? blob.vector.map((value) => Number(value)) : [];
-                if (vector.length === 0) continue;
-                chunks.push({
-                    chunkId: String(blob.chunkId || ref.chunkId),
-                    rowKey: String(blob.rowKey || ref.rowKey),
-                    rowOrder: Number(blob.rowOrder || 0),
-                    text: String(blob.text || ''),
-                    vector,
-                    sequence: Number(blob.sequence || 0),
-                    sourceFingerprint: blob.sourceFingerprint || ref.sourceFingerprint,
-                    textHash: blob.textHash || ref.textHash,
-                    shardId: undefined,
-                    shardRole: undefined,
-                    chunkKeys: [ref.chunkKey],
-                });
+                chunks.push(decodeContentAddressedChunkBlob_ACU(blob, ref, packRef.path));
             }
         }
         return chunks.sort((left, right) => left.sequence - right.sequence || left.chunkId.localeCompare(right.chunkId));
@@ -1236,21 +1635,7 @@ async function loadChunksFromContentAddressedRefs_ACU(
         if (ref.checksum && checksum !== ref.checksum) {
             throw new Error(`交火向量索引内容块校验失败: ${ref.path} expected=${ref.checksum} actual=${checksum}`);
         }
-        const vector = Array.isArray(blob.vector) ? blob.vector.map((value) => Number(value)) : [];
-        if (vector.length === 0) continue;
-        chunks.push({
-            chunkId: String(blob.chunkId || ref.chunkId),
-            rowKey: String(blob.rowKey || ref.rowKey),
-            rowOrder: Number(blob.rowOrder || 0),
-            text: String(blob.text || ''),
-            vector,
-            sequence: Number(blob.sequence || 0),
-            sourceFingerprint: blob.sourceFingerprint || ref.sourceFingerprint,
-            textHash: blob.textHash || ref.textHash,
-            shardId: undefined,
-            shardRole: undefined,
-            chunkKeys: [ref.chunkKey],
-        });
+        chunks.push(decodeContentAddressedChunkBlob_ACU(blob, ref, ref.path));
     }
     return chunks.sort((left, right) => left.sequence - right.sequence || left.chunkId.localeCompare(right.chunkId));
 }
@@ -1261,11 +1646,13 @@ function sortAndDedupeVectorChunks_ACU(chunks: ChatSummaryVectorIndexChunk_ACU[]
         if (!chunk?.chunkId || !chunk.rowKey || !Array.isArray(chunk.vector) || chunk.vector.length === 0) return;
         byChunkId.set(chunk.chunkId, { ...chunk });
     });
+    // batchRefs 按 base -> delta 读取；相同 chunkId 必须让后出现的 delta 覆盖 base。
     return Array.from(byChunkId.values()).sort((left, right) => left.sequence - right.sequence || left.chunkId.localeCompare(right.chunkId));
 }
 
 function isSingleFileSnapshotManifest_ACU(manifest: ChatSummaryVectorIndexManifest_ACU): boolean {
-    if (manifest.snapshot?.mode === 'single_file_snapshot') return true;
+    const explicitMode = manifest.snapshot?.mode;
+    if (explicitMode) return explicitMode === 'single_file_snapshot';
     const manifestPath = String(manifest.manifestFile || '').trim();
     return !!manifestPath && manifest.rowsFile === manifestPath && manifest.tombstoneFile === manifestPath;
 }
@@ -1289,7 +1676,8 @@ async function loadChunksFromSingleFileSnapshot_ACU(
     if (String(blob.sourceTableKey || '') !== String(manifest.sourceTableKey || '')) {
         throw new Error(`交火向量单文件快照表标识不匹配: ${snapshotPath} expectedTable=${manifest.sourceTableKey} actualTable=${String(blob.sourceTableKey || 'empty')}`);
     }
-    const chunks = sortAndDedupeVectorChunks_ACU(Array.isArray(blob.chunks) ? blob.chunks : []);
+    const decodedChunks = decodeChunkVectorsInPlace_ACU(Array.isArray(blob.chunks) ? blob.chunks : []);
+    const chunks = sortAndDedupeVectorChunks_ACU(decodedChunks);
     if (manifest.chunkCount > 0 && chunks.length === 0) {
         throw new Error(`交火向量单文件快照缺少有效 chunks: ${snapshotPath}`);
     }
@@ -1519,11 +1907,23 @@ export async function inspectSummaryVectorIndexHealth_ACU(): Promise<SummaryVect
             }
         } else if (file.role === 'vector_chunk') {
             const blob = loaded.data as VectorIndexChunkBlob_ACU;
-            const vector = Array.isArray(blob.vector) ? blob.vector : [];
+            let decodedChunk: ChatSummaryVectorIndexChunk_ACU | null = null;
+            try {
+                decodedChunk = decodeChunkVectorInPlace_ACU({
+                    ...blob,
+                    chunkId: String(blob.chunkId || ''),
+                    rowKey: String(blob.rowKey || ''),
+                    rowOrder: Number(blob.rowOrder || 0),
+                    text: String(blob.text || ''),
+                    sequence: Number(blob.sequence || 0),
+                } as StoredVectorIndexChunk_ACU);
+            } catch {
+                decodedChunk = null;
+            }
             const identityMismatch = !blob.chunkKey
                 || !blob.chunkId
                 || !blob.rowKey
-                || vector.length === 0
+                || !decodedChunk?.vector?.length
                 || String(blob.chunkKey || '') !== String(file.chunkKey || '')
                 || String(blob.chunkId || '') !== String(file.chunkId || '')
                 || String(blob.rowKey || '') !== String(file.rowKey || '');

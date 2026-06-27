@@ -52,6 +52,11 @@ function getDefaultRecentFixedInjectCount(): number {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 50;
 }
 
+function getDefaultRollingDeltaFoldThreshold(): number {
+  const value = Number((getDefaultVectorMemoryConfigForV2() as any).summaryIndexRollingDeltaFoldThreshold);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 15;
+}
+
 function updateGlobalVectorMemoryConfigFields_ACU(patch: Partial<VectorMemoryConfig_ACU>): VectorMemoryConfig_ACU {
   const config = getCurrentVectorMemoryConfig_ACU();
   Object.assign(config as unknown as Record<string, unknown>, patch);
@@ -82,6 +87,8 @@ export interface VectorIndexForm {
   // 归档分块
   summaryChunkSentenceCount: number;
   summaryIndexArchiveMaxConcurrency: number;
+  summaryIndexRollingDeltaEnabled: boolean;
+  summaryIndexRollingDeltaFoldThreshold: number;
   // 关键词生成
   keywordApiPreset: string;
   keywordContextPairCount: number;
@@ -141,6 +148,8 @@ function createEmptyForm(): VectorIndexForm {
     vectorNamespace: defaults.vectorNamespace || 'chat',
     summaryChunkSentenceCount: defaults.summaryChunkSentenceCount,
     summaryIndexArchiveMaxConcurrency: defaults.summaryIndexArchiveMaxConcurrency ?? 30,
+    summaryIndexRollingDeltaEnabled: defaults.summaryIndexRollingDeltaEnabled === true,
+    summaryIndexRollingDeltaFoldThreshold: defaults.summaryIndexRollingDeltaFoldThreshold,
     keywordApiPreset: defaults.keywordApiPreset || '',
     keywordContextPairCount: defaults.keywordContextPairCount,
     keywordGenerationMaxAttempts: defaults.keywordGenerationMaxAttempts,
@@ -232,6 +241,8 @@ export function useVectorIndexConfig() {
     form.vectorNamespace = config.vectorNamespace || 'chat';
     form.summaryChunkSentenceCount = config.summaryChunkSentenceCount;
     form.summaryIndexArchiveMaxConcurrency = config.summaryIndexArchiveMaxConcurrency;
+    form.summaryIndexRollingDeltaEnabled = config.summaryIndexRollingDeltaEnabled === true;
+    form.summaryIndexRollingDeltaFoldThreshold = config.summaryIndexRollingDeltaFoldThreshold;
     form.keywordApiPreset = config.keywordApiPreset || '';
     form.keywordContextPairCount = config.keywordContextPairCount;
     form.keywordGenerationMaxAttempts = config.keywordGenerationMaxAttempts;
@@ -270,7 +281,8 @@ export function useVectorIndexConfig() {
     K extends 'summaryIndexKeywordMinRows' | 'topK' | 'recallCandidateLimit'
       | 'recentFixedInjectCount' | 'summaryChunkSentenceCount'
       | 'summaryIndexArchiveMaxConcurrency' | 'keywordContextPairCount'
-      | 'keywordGenerationMaxAttempts',
+      | 'keywordGenerationMaxAttempts'
+      | 'summaryIndexRollingDeltaFoldThreshold',
   >(key: K, raw: number | string): void {
     if (key === 'recentFixedInjectCount') {
       const value = Number(raw);
@@ -288,11 +300,37 @@ export function useVectorIndexConfig() {
         return;
       }
     }
+    if (key === 'summaryIndexRollingDeltaFoldThreshold') {
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value <= 0) {
+        const fallback = getDefaultRollingDeltaFoldThreshold();
+        form.summaryIndexRollingDeltaFoldThreshold = fallback;
+        toast.warning(`滚动增量折叠阈值必须是正整数，已重置为默认值 ${fallback}。`);
+        updateGlobalVectorMemoryConfigFields_ACU({
+          summaryIndexRollingDeltaFoldThreshold: fallback,
+        });
+        saveSettings_ACU();
+        runValidation();
+        pushSavedMessage();
+        return;
+      }
+    }
     const min = 1;
     const fallback = 1;
     const num = Math.max(min, Math.floor(Number(raw)) || fallback);
     (form as any)[key] = num;
     updateGlobalVectorMemoryConfigFields_ACU({ [key]: num });
+    saveSettings_ACU();
+    runValidation();
+    pushSavedMessage();
+  }
+
+  function setBooleanField<
+    K extends 'summaryIndexRollingDeltaEnabled',
+  >(key: K, value: boolean): void {
+    const next = value === true;
+    (form as any)[key] = next;
+    updateGlobalVectorMemoryConfigFields_ACU({ [key]: next });
     saveSettings_ACU();
     runValidation();
     pushSavedMessage();
@@ -583,6 +621,7 @@ export function useVectorIndexConfig() {
     previewRecentFixedInjectCount,
     setApiField,
     setNumberField,
+    setBooleanField,
     setMinScore,
     addPromptSegment,
     deletePromptSegment,

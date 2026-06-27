@@ -26,6 +26,7 @@ import { runOptimizationLogicWithUI_ACU } from '../components/plot-planning-ui';
 import { processSummaryVectorIndexBeforeGenerationWithUI_ACU } from '../components/summary-vector-index-ui';
 import { preloadSummaryVectorIndexCacheForCurrentChat_ACU } from '../../service/vector/summary-vector-index-cache-service';
 import { restoreSummaryVectorIndexFlushQueueForCurrentChat_ACU } from '../../service/vector/summary-vector-index-flush-queue';
+import { markSummaryVectorIndexDirtyForRealign_ACU } from '../../service/vector/summary-vector-index-realign-state';
 import { topLevelWindow_ACU } from '../../shared/env';
 
 // [从 state-manager.ts 搬入 presentation 层] 安装发送意图捕捉钩子（DOM 事件绑定）
@@ -459,7 +460,8 @@ export   function mainInitialize_ACU() {
             // 消费掉本次发送意图
             generationGate_ACU.lastUserSendIntentAt = 0;
           });
-        }        const chatModificationEvents = ['MESSAGE_DELETED', 'MESSAGE_SWIPED'] as const;
+        }
+        const chatModificationEvents = ['MESSAGE_DELETED', 'MESSAGE_SWIPED'] as const;
         chatModificationEvents.forEach(evName => {
             if (SillyTavern_API_ACU.eventTypes[evName as keyof typeof SillyTavern_API_ACU.eventTypes]) {
                 SillyTavern_API_ACU.eventSource.on(SillyTavern_API_ACU.eventTypes[evName as keyof typeof SillyTavern_API_ACU.eventTypes], async (data: any) => {
@@ -478,6 +480,11 @@ export   function mainInitialize_ACU() {
                         }
                         // [修复] 重新合并数据并更新UI和世界书
                         await refreshMergedDataAndNotifyWithUI_ACU();
+                        const realignDirtyReason = evName === 'MESSAGE_DELETED'
+                            ? 'chat_modified_deleted'
+                            : 'chat_modified_swiped';
+                        markSummaryVectorIndexDirtyForRealign_ACU(realignDirtyReason);
+                        logDebug_ACU(`[交火向量索引] ${evName}: 已标记下一次归档后执行懒对齐。`);
                     }, 500)); // 使用防抖处理快速滑动
                 });
             }

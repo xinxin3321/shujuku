@@ -66,12 +66,12 @@ export interface SummaryVectorIndexArchiveResult_ACU {
     errors: string[];
 }
 
-interface SummaryTableSelection_ACU {
+export interface SummaryTableSelection_ACU {
     summaryKey: string;
     table: any;
 }
 
-interface SummaryVectorArchivePreparedRow_ACU {
+export interface SummaryVectorArchivePreparedRow_ACU {
     rowKey: string;
     rowId: string;
     rowOrder: number;
@@ -306,7 +306,7 @@ function chunkTextBySentenceCount_ACU(text: string, sentenceCount: number): stri
     return chunks;
 }
 
-function buildPreparedRows_ACU(table: any, summaryKey: string): {
+export function buildPreparedRows_ACU(table: any, summaryKey: string): {
     rows: SummaryVectorArchivePreparedRow_ACU[];
     skippedRowCount: number;
     error: string;

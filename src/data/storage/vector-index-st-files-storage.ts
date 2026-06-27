@@ -254,6 +254,8 @@ interface VectorIndexFileDeleteRequestCandidate_ACU {
     body: Record<string, string>;
 }
 
+let preferredDeletePrefixLabel_ACU: string | null = null;
+
 function normalizeDeletePathInput_ACU(path: string): string {
     return String(path || '')
         .trim()
@@ -277,11 +279,15 @@ function buildDeleteRequestCandidates_ACU(path: string): VectorIndexFileDeleteRe
     // SillyTavern exposes uploaded files as /user/files/<name>. Different builds have accepted
     // different relative roots for /api/files/delete, so keep candidates explicit and verify after
     // a 404 instead of pretending the delete succeeded. 能跑不等于能删干净。
-    addCandidate('path:files-prefix', { path: `files/${fileName}` });
-    addCandidate('path:filename', { path: fileName });
     addCandidate('path:user-files-prefix', { path: `user/files/${fileName}` });
     addCandidate('path:absolute-user-files-prefix', { path: `/user/files/${fileName}` });
-    return candidates;
+    addCandidate('path:files-prefix', { path: `files/${fileName}` });
+    addCandidate('path:filename', { path: fileName });
+
+    if (!preferredDeletePrefixLabel_ACU) return candidates;
+    const preferred = candidates.find((candidate) => candidate.label === preferredDeletePrefixLabel_ACU);
+    if (!preferred) return candidates;
+    return [preferred, ...candidates.filter((candidate) => candidate.label !== preferredDeletePrefixLabel_ACU)];
 }
 
 async function vectorIndexFileExists_ACU(path: string): Promise<boolean> {
@@ -310,6 +316,7 @@ export async function deleteVectorIndexFile_ACU(path: string): Promise<VectorInd
                 body: JSON.stringify(candidate.body),
             });
             if (response.ok) {
+                preferredDeletePrefixLabel_ACU = candidate.label;
                 return { ok: true, path: normalizedPath };
             }
             const detail = await response.text().catch(() => response.statusText);

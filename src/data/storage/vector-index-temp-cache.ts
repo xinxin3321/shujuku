@@ -58,11 +58,15 @@ function runStore_ACU<T>(mode: IDBTransactionMode, runner: (store: IDBObjectStor
     }));
 }
 
-export async function getVectorIndexCachedShard_ACU(indexId: string, shardId: string): Promise<SummaryVectorIndexShard_ACU | null> {
+export async function getVectorIndexCachedShard_ACU(indexId: string, shardId: string, expectedChecksum = ''): Promise<SummaryVectorIndexShard_ACU | null> {
     try {
         const key = makeKey_ACU(indexId, shardId);
         const record = await runStore_ACU<CachedShardRecord_ACU | undefined>('readonly', (store): IDBRequest<CachedShardRecord_ACU | undefined> => store.get(key));
         if (!record?.shard) return null;
+        const normalizedExpectedChecksum = String(expectedChecksum || '').trim();
+        if (normalizedExpectedChecksum && String(record.checksum || '') !== normalizedExpectedChecksum) {
+            return null;
+        }
         void putVectorIndexCachedShard_ACU(indexId, shardId, record.shard, record.checksum).catch((): undefined => undefined);
         return record.shard;
     } catch {

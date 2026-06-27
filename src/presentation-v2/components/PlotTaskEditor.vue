@@ -331,15 +331,25 @@ function parseOptionalNonNegativeInteger(value: unknown): number | undefined {
 }
 
 .acu-v2-plot-task-editor__toggles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: 8px 12px;
   padding: 8px 0;
+  min-width: 0;
 }
 
 .acu-v2-plot-task-editor__toggles :deep(.acu-toggle) {
+  align-items: flex-start;
+  width: 100%;
+  min-width: 0;
   min-height: var(--acu-control-height-sm, 26px);
+}
+
+.acu-v2-plot-task-editor__toggles :deep(.acu-toggle__label) {
+  min-width: 0;
+  white-space: normal;
+  line-height: var(--acu-line-height-body, 1.45);
+  overflow-wrap: anywhere;
 }
 
 .acu-v2-plot-task-editor__hint {

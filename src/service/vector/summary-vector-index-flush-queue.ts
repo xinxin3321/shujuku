@@ -9,6 +9,7 @@ import {
     type SummaryVectorIndexFlushTaskRecord_ACU,
 } from '../../data/storage/vector-index-hot-cache';
 import { archiveSummaryVectorIndexNow_ACU, findSummaryTable_ACU, type SummaryVectorIndexArchiveResult_ACU } from './summary-vector-index-archive-service';
+import { clearSummaryVectorIndexDirtyForRealign_ACU } from './summary-vector-index-realign-state';
 
 const SUMMARY_VECTOR_INDEX_FLUSH_DEBOUNCE_MS_ACU = 2500;
 const SUMMARY_VECTOR_INDEX_FLUSHING_STALE_MS_ACU = 60_000;
@@ -58,6 +59,14 @@ function normalizeErrorMessage_ACU(error: unknown): string {
     }
 }
 
+function shouldClearSummaryVectorIndexDirtyAfterFlush_ACU(result: SummaryVectorIndexArchiveResult_ACU): boolean {
+    if (!result.success) return false;
+    if (result.skipped && result.reason === 'summary_table_not_found') {
+        return false;
+    }
+    return true;
+}
+
 function clearFlushTimer_ACU(scopeKey: string): void {
     const timer = summaryVectorFlushTimers_ACU.get(scopeKey);
     if (timer) clearTimeout(timer);
@@ -102,7 +111,12 @@ export async function enqueueSummaryVectorIndexFlush_ACU(options: SummaryVectorI
     }
 
     const now = Date.now();
-    const debounceMs = Math.max(0, Number(options.debounceMs ?? SUMMARY_VECTOR_INDEX_FLUSH_DEBOUNCE_MS_ACU) || SUMMARY_VECTOR_INDEX_FLUSH_DEBOUNCE_MS_ACU);
+    const rawDebounceMs = options.debounceMs == null
+        ? SUMMARY_VECTOR_INDEX_FLUSH_DEBOUNCE_MS_ACU
+        : Number(options.debounceMs);
+    const debounceMs = Number.isFinite(rawDebounceMs)
+        ? Math.max(0, rawDebounceMs)
+        : SUMMARY_VECTOR_INDEX_FLUSH_DEBOUNCE_MS_ACU;
     const scopeKey = buildSummaryVectorIndexFlushScopeKey_ACU(chatKey);
     const task = await upsertSummaryVectorFlushTask_ACU({
         scopeKey,
@@ -170,6 +184,9 @@ export async function flushSummaryVectorIndexTaskNow_ACU(scopeKey: string): Prom
         });
         if (result.success) {
             await deleteSummaryVectorFlushTask_ACU(task.scopeKey);
+            if (shouldClearSummaryVectorIndexDirtyAfterFlush_ACU(result)) {
+                clearSummaryVectorIndexDirtyForRealign_ACU();
+            }
             logDebug_ACU(`[交火向量索引] 防抖 flush 完成：scope=${task.scopeKey}, skipped=${result.skipped}, reason=${result.reason || ''}`);
             return { success: true, skipped: result.skipped, reason: result.reason, result };
         }

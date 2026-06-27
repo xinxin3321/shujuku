@@ -339,6 +339,35 @@
               "
             />
           </AcuFormRow>
+          <AcuFormRow
+            label="滚动增量"
+            hint="默认关闭。开启后按 base + delta 写入外置索引，降低连续归档上传体积；读取侧仍兼容旧格式。"
+          >
+            <AcuToggle
+              :model-value="vector.form.summaryIndexRollingDeltaEnabled"
+              label="启用滚动增量写入"
+              @update:model-value="
+                vector.setBooleanField('summaryIndexRollingDeltaEnabled', $event)
+              "
+            />
+          </AcuFormRow>
+          <AcuFormRow
+            label="折叠阈值 K"
+            hint="累计变更达到 K 个不同纪要行时，将 delta 折叠进新的 base，避免增量长期膨胀。"
+          >
+            <AcuInput
+              :model-value="vector.form.summaryIndexRollingDeltaFoldThreshold"
+              type="number"
+              :min="1"
+              :step="1"
+              @change="
+                vector.setNumberField(
+                  'summaryIndexRollingDeltaFoldThreshold',
+                  $event,
+                )
+              "
+            />
+          </AcuFormRow>
         </div>
       </AcuPanel>
     </AcuPanelGrid>
@@ -376,6 +405,7 @@ import AcuSelect, {
   type AcuSelectOption,
 } from "../components/_lib/AcuSelect.vue";
 import AcuStatsList from "../components/_lib/AcuStatsList.vue";
+import AcuToggle from "../components/_lib/AcuToggle.vue";
 import VectorIndexPromptDrawer from "../components/VectorIndexPromptDrawer.vue";
 import { useApiPresetSelectOptions } from "../composables/useApiPresetSelectOptions";
 import { useChatChangedTick } from "../composables/useChatChangedListener";

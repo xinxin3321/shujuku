@@ -274,6 +274,13 @@ export async function bindWorldbookEvents_ACU(): Promise<void> {
           const defaults = getDefaultVectorMemoryConfig_ACU();
           updateVectorMemoryField_ACU('recentFixedInjectCount', parseIntegerField_ACU($input.val(), (defaults as any).recentFixedInjectCount || 50));
       });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-rolling-delta-enabled`, 'change', ($input) => {
+          updateVectorMemoryField_ACU('summaryIndexRollingDeltaEnabled', $input.is(':checked'));
+      });
+      bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-rolling-delta-fold-threshold`, 'input change', ($input) => {
+          const defaults = getDefaultVectorMemoryConfig_ACU();
+          updateVectorMemoryField_ACU('summaryIndexRollingDeltaFoldThreshold', parseIntegerField_ACU($input.val(), (defaults as any).summaryIndexRollingDeltaFoldThreshold || 15));
+      });
       bindVectorMemoryInput_ACU(`#${SCRIPT_ID_PREFIX_ACU}-worldbook-vector-memory-entry-comment`, 'input change', ($input) => {
           updateVectorMemoryField_ACU('entryComment', String($input.val() ?? '').trim());
       });

@@ -56,6 +56,7 @@
         </div>
         <AcuPromptSegments
           :segments="agentControl.agentDecisionPromptSegments.value"
+          :role-options="AGENT_ROLE_OPTIONS"
           :show-slot="false"
           :allow-move="true"
           :rows="7"
@@ -74,6 +75,7 @@
         </div>
         <AcuPromptSegments
           :segments="agentControl.agentSkillifyPromptSegments.value"
+          :role-options="AGENT_ROLE_OPTIONS"
           :show-slot="false"
           :allow-move="true"
           :rows="7"
@@ -101,6 +103,7 @@ import AcuInput from './_lib/AcuInput.vue';
 import AcuMessage from './_lib/AcuMessage.vue';
 import AcuPromptSegments from './_lib/AcuPromptSegments.vue';
 import type { PromptSegment } from './_lib/AcuPromptSegments.vue';
+import type { AcuSelectOption } from './_lib/AcuSelect.vue';
 
 defineProps<{
   open: boolean;
@@ -112,6 +115,12 @@ const emit = defineEmits<{
 }>();
 
 const agentControl = usePlotWorldbookAgentControl();
+
+const AGENT_ROLE_OPTIONS: AcuSelectOption[] = [
+  { value: 'system', label: 'SYSTEM' },
+  { value: 'user', label: 'USER' },
+  { value: 'assistant', label: 'ASSISTANT' },
+];
 
 type ContextFieldMeta = {
   key: AgentContextSettingKey_ACU;
