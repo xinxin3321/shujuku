@@ -18,7 +18,6 @@ export interface AgentSkillifyWorldbookEntrySummary_ACU {
   uid: string | number;
   comment: string;
   keys: string[];
-  contentPreview: string;
   existingSkillMeta: WorldbookSkillMeta_ACU | null;
 }
 
@@ -45,7 +44,6 @@ export interface AgentSkillifyOptions_ACU {
   overwriteManual?: boolean;
   maxEntries?: number;
   maxConcurrency?: number;
-  contentPreviewLimit?: number;
 }
 
 function normalizeStringArray_ACU(value: unknown): string[] {
@@ -91,12 +89,6 @@ export function isWorldbookEntrySkillifyCandidate_ACU(entry: Record<string, any>
   return getWorldbookEntryKeywordsForSkillify_ACU(entry).length > 0;
 }
 
-function clipText_ACU(value: unknown, limit: number): string {
-  const text = String(value || '').trim();
-  if (text.length <= limit) return text;
-  return `${text.slice(0, limit)}\n...[已截断 ${text.length - limit} 字]`;
-}
-
 export async function resolvePlotWorldbookSkillifyBookNames_ACU(): Promise<string[]> {
   const cfg = (settings_ACU.plotSettings as any)?.plotWorldbookConfig || {};
   if (cfg.source === 'manual') return normalizeStringArray_ACU(cfg.manualSelection);
@@ -112,7 +104,6 @@ export async function resolvePlotWorldbookSkillifyBookNames_ACU(): Promise<strin
 function buildEntrySummary_ACU(
   bookName: string,
   entry: Record<string, any>,
-  contentPreviewLimit: number,
 ): AgentSkillifyWorldbookEntrySummary_ACU {
   const comment = String(entry?.comment || entry?.name || '').trim();
   return {
@@ -120,7 +111,6 @@ function buildEntrySummary_ACU(
     uid: entry.uid,
     comment,
     keys: getWorldbookEntryKeywordsForSkillify_ACU(entry),
-    contentPreview: clipText_ACU(entry?.content, contentPreviewLimit),
     existingSkillMeta: parseWorldbookSkillMetaFromComment_ACU(comment),
   };
 }
@@ -145,7 +135,7 @@ export function buildWorldbookSkillifyPrompt_ACU(summary: AgentSkillifyWorldbook
     'agent.skillify.uid': summary.uid,
     'agent.skillify.comment': summary.comment || '（空）',
     'agent.skillify.keysText': summary.keys.join('、') || '（空）',
-    'agent.skillify.contentPreview': summary.contentPreview || '（空）',
+    'agent.skillify.contentPreview': '（已关闭）',
     'agent.skillify.existingSkillMetaJson': summary.existingSkillMeta || {},
     'agent.skillify.outputSchemaJson': { description: '...', triggerWhen: '...' },
   };
@@ -242,7 +232,6 @@ export async function collectWorldbookSkillifyCandidates_ACU(
   options: AgentSkillifyOptions_ACU = {},
 ): Promise<AgentSkillifyWorldbookEntrySummary_ACU[]> {
   const contextSettings = normalizeAgentContextSettings_ACU((settings_ACU.plotSettings as any)?.agentWorldbookControl?.contextSettings);
-  const contentPreviewLimit = Math.max(200, options.contentPreviewLimit ?? contextSettings.skillifyContentPreviewLimit);
   const entriesMap = await getLorebookEntriesByNames_ACU(bookNames);
   const summaries: AgentSkillifyWorldbookEntrySummary_ACU[] = [];
 
@@ -250,7 +239,7 @@ export async function collectWorldbookSkillifyCandidates_ACU(
     const entries = Array.isArray(entriesMap[bookName]) ? entriesMap[bookName] : [];
     for (const entry of entries) {
       if (!isWorldbookEntrySkillifyCandidate_ACU(entry)) continue;
-      summaries.push(buildEntrySummary_ACU(bookName, entry, contentPreviewLimit));
+      summaries.push(buildEntrySummary_ACU(bookName, entry));
     }
   }
 

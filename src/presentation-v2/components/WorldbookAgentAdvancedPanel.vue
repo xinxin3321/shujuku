@@ -129,17 +129,25 @@ type ContextFieldMeta = {
   limits: { min: number; max: number };
 };
 
-const contextFieldSteps: Record<AgentContextSettingKey_ACU, number> = {
+type VisibleContextSettingKey_ACU = Exclude<AgentContextSettingKey_ACU, 'decisionWorldbookContentPreviewLimit' | 'skillifyContentPreviewLimit'>;
+
+const visibleContextFieldKeys: VisibleContextSettingKey_ACU[] = [
+  'decisionRecentContextCharLimit',
+  'decisionPreviousPlotCharLimit',
+  'decisionWorldbookCandidateLimit',
+  'skillifyMaxEntries',
+  'plotWorldbookScanMessageLimit',
+];
+
+const contextFieldSteps: Record<VisibleContextSettingKey_ACU, number> = {
   decisionRecentContextCharLimit: 100,
   decisionPreviousPlotCharLimit: 100,
-  decisionWorldbookContentPreviewLimit: 50,
   decisionWorldbookCandidateLimit: 1,
-  skillifyContentPreviewLimit: 50,
   skillifyMaxEntries: 1,
   plotWorldbookScanMessageLimit: 1,
 };
 
-const contextFields: ContextFieldMeta[] = (Object.keys(agentControl.contextSettingsLimits) as AgentContextSettingKey_ACU[]).map((key) => ({
+const contextFields: ContextFieldMeta[] = visibleContextFieldKeys.map((key) => ({
   key,
   step: contextFieldSteps[key],
   copy: plotCopy.agentControl.contextSettings.fields[key],

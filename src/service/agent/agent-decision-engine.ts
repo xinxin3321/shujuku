@@ -46,7 +46,6 @@ interface AgentWorldbookSummary_ACU extends AgentWorldbookRef_ACU {
   keys: string[];
   description: string;
   triggerWhen: string;
-  contentPreview: string;
 }
 
 
@@ -123,7 +122,6 @@ async function collectWorldbookSummariesFromSnapshot_ACU(
         keys: getWorldbookEntryKeywordsForSkillify_ACU(entry),
         description: meta?.description || '',
         triggerWhen: meta?.triggerWhen || '',
-        contentPreview: clipText_ACU(entry.content, contextSettings.decisionWorldbookContentPreviewLimit),
       });
     }
   }
@@ -133,10 +131,7 @@ async function collectWorldbookSummariesFromSnapshot_ACU(
   }
 
   const bookNames = await resolvePlotWorldbookSkillifyBookNames_ACU();
-  const candidates = await collectWorldbookSkillifyCandidates_ACU(bookNames, {
-    contentPreviewLimit: contextSettings.decisionWorldbookContentPreviewLimit,
-    maxEntries: contextSettings.decisionWorldbookCandidateLimit,
-  });
+  const candidates = await collectWorldbookSkillifyCandidates_ACU(bookNames, { maxEntries: contextSettings.decisionWorldbookCandidateLimit });
   for (const candidate of candidates) {
     allowedKeys.add(refKey_ACU(candidate.bookName, candidate.uid));
     summaries.push({
@@ -146,7 +141,6 @@ async function collectWorldbookSummariesFromSnapshot_ACU(
       keys: candidate.keys,
       description: candidate.existingSkillMeta?.description || '',
       triggerWhen: candidate.existingSkillMeta?.triggerWhen || '',
-      contentPreview: candidate.contentPreview,
     });
   }
 

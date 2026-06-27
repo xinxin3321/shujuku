@@ -110,17 +110,9 @@ export const plotCopy = {
           label: "上轮剧情截断",
           hint: "进入 Agent 决策提示词的上轮剧情文本最大字符数。",
         },
-        decisionWorldbookContentPreviewLimit: {
-          label: "决策世界书预览截断",
-          hint: "每条候选世界书条目进入决策提示词的内容预览字符数。",
-        },
         decisionWorldbookCandidateLimit: {
           label: "决策世界书候选数",
-          hint: "进入 Agent 决策提示词的世界书候选条目最大数量。",
-        },
-        skillifyContentPreviewLimit: {
-          label: "Skill 化内容预览截断",
-          hint: "生成 Skill 元数据时，每条世界书内容预览的最大字符数。",
+          hint: "进入 Agent 决策提示词的世界书候选条目最大数量。候选只包含条目名称、关键词、描述和触发时机，不再携带正文预览。",
         },
         skillifyMaxEntries: {
           label: "Skill 化最大条目数",

@@ -99,7 +99,6 @@ describe('runAgentDecisionForPlot_ACU', () => {
           contextSettings: {
             decisionPreviousPlotCharLimit: 1,
             decisionRecentContextCharLimit: 1,
-            decisionWorldbookContentPreviewLimit: 1,
           },
           agentDecisionPromptSegments: [
             { role: 'user', deletable: true, content: 'P={{agent.previousPlot}}\nR={{agent.recentContext}}\nT={{agent.tasksJson}}\nW={{agent.worldbookEntriesJson}}' },
@@ -120,8 +119,9 @@ describe('runAgentDecisionForPlot_ACU', () => {
     const messages = mockCallAIWithPreset.mock.calls[0][0];
     expect(messages[0].content).toContain(`${'上'.repeat(200)}\n...[已截断 50 字]`);
     expect(messages[0].content).toContain(`${'近'.repeat(200)}\n...[已截断 50 字]`);
-    expect(messages[0].content).toContain('"contentPreview"');
-    expect(messages[0].content).toContain('...[已截断 50 字]');
+    expect(messages[0].content).not.toContain('"contentPreview"');
+    expect(messages[0].content).not.toContain(longWorldbookContent);
+    expect(messages[0].content).not.toContain('书'.repeat(20));
     expect(messages[0].content).toContain('selectable_task');
     expect(messages[0].content).not.toContain('blocked_task');
   });

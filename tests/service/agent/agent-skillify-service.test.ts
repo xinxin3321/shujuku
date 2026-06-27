@@ -116,7 +116,6 @@ describe('agent worldbook skillify candidate filtering', () => {
       uid: 7,
       comment: '酒馆地点',
       keys: ['酒馆', '夜晚'],
-      contentPreview: '灯火昏暗',
       existingSkillMeta: { version: 1, description: '旧描述', triggerWhen: '旧触发', updatedAt: 1, updatedBy: 'manual' },
     });
 
@@ -124,11 +123,32 @@ describe('agent worldbook skillify candidate filtering', () => {
     expect(messages[0].content).toContain('B=剧情书');
     expect(messages[0].content).toContain('U=7');
     expect(messages[0].content).toContain('K=酒馆、夜晚');
-    expect(messages[0].content).toContain('C=灯火昏暗');
+    expect(messages[0].content).toContain('C=（已关闭）');
+    expect(messages[0].content).not.toContain('灯火昏暗');
     expect(messages[0].content).toContain('旧描述');
   });
 
-  it('uses context settings for default skillify preview limit and max entries', async () => {
+  it('keeps default skillify prompt free of worldbook content preview', () => {
+    mockSettings.plotSettings.agentWorldbookControl.agentSkillifyPromptSegments = undefined;
+
+    const messages = buildWorldbookSkillifyPrompt_ACU({
+      bookName: '剧情书',
+      uid: 8,
+      comment: '酒馆地点',
+      keys: ['酒馆'],
+      existingSkillMeta: null,
+    });
+
+    const rendered = messages.map(message => message.content).join('\n');
+    expect(rendered).not.toContain('contentPreview');
+    expect(rendered).not.toContain('内容预览');
+    expect(rendered).not.toContain('灯火昏暗');
+    expect(rendered).toContain('描述和触发时机');
+    expect(rendered).toContain('酒馆地点');
+  });
+
+
+  it('uses context settings for default skillify max entries without content preview', async () => {
     mockSettings.plotSettings.agentWorldbookControl.contextSettings = {
       skillifyContentPreviewLimit: 1,
       skillifyMaxEntries: 1,
@@ -144,6 +164,7 @@ describe('agent worldbook skillify candidate filtering', () => {
 
     expect(candidates).toHaveLength(1);
     expect(candidates[0].uid).toBe('a');
-    expect(candidates[0].contentPreview).toBe(`${'A'.repeat(200)}\n...[已截断 50 字]`);
+    expect(candidates[0]).not.toHaveProperty('contentPreview');
+    expect(JSON.stringify(candidates[0])).not.toContain('A'.repeat(20));
   });
 });

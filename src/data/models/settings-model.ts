@@ -29,8 +29,10 @@ export interface PromptSegment_ACU {
 export interface AgentContextSettings_ACU {
   decisionRecentContextCharLimit: number;
   decisionPreviousPlotCharLimit: number;
+  /** @deprecated Compatibility-only. Agent decisions no longer inject worldbook entry content previews. */
   decisionWorldbookContentPreviewLimit: number;
   decisionWorldbookCandidateLimit: number;
+  /** @deprecated Compatibility-only. Skillify prompts no longer inject worldbook entry content previews. */
   skillifyContentPreviewLimit: number;
   skillifyMaxEntries: number;
   plotWorldbookScanMessageLimit: number;
