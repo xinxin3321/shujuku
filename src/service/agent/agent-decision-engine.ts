@@ -123,6 +123,8 @@ function formatRecentContextByAiLayers_ACU(messages: AgentContextMessage_ACU[], 
       const lines = [`【最近上下文 AI层 ${index + 1}】`];
       const userText = getMessageText_ACU(pair.user);
       if (userText) lines.push(`${getMessageSpeaker_ACU(pair.user, '用户')}: ${userText}`);
+      const userPlot = getPlotTextFromMessage_ACU(pair.user);
+      if (userPlot) lines.push(`剧情推进记录: ${userPlot}`);
       const aiText = getMessageText_ACU(pair.ai);
       if (aiText) lines.push(`${getMessageSpeaker_ACU(pair.ai, 'AI')}: ${aiText}`);
       return lines.join('\n');
@@ -131,24 +133,8 @@ function formatRecentContextByAiLayers_ACU(messages: AgentContextMessage_ACU[], 
     .join('\n\n');
 }
 
-function formatPreviousPlotByAiLayers_ACU(
-  messages: AgentContextMessage_ACU[],
-  layerLimit: number,
-  legacyPlotContent: unknown,
-): string {
-  const pairs = collectRecentAiLayerPairs_ACU(messages, layerLimit);
-  const formatted = pairs
-    .map((pair, index) => {
-      const lines = [`【上轮剧情 AI层 ${index + 1}】`];
-      const userText = getMessageText_ACU(pair.user);
-      if (userText) lines.push(`${getMessageSpeaker_ACU(pair.user, '用户')}: ${userText}`);
-      const plot = getPlotTextFromMessage_ACU(pair.ai);
-      lines.push(`剧情: ${plot || '（该 AI 层无剧情规划数据）'}`);
-      return lines.join('\n');
-    })
-    .filter(Boolean)
-    .join('\n\n');
-  if (formatted) return formatted;
+function resolveLegacyPreviousPlotPlaceholder_ACU(recentContext: string, legacyPlotContent: unknown): string {
+  if (recentContext) return recentContext;
   return String(legacyPlotContent || '').trim();
 }
 
@@ -332,10 +318,9 @@ function buildAgentDecisionPrompt_ACU(params: {
 
   const control = params.plotSettings?.agentWorldbookControl || {};
   const recentContextMessages = resolveAgentContextMessages_ACU(params.sharedContext, 'recentContextMessages');
-  const plotContextMessages = resolveAgentContextMessages_ACU(params.sharedContext, 'plotContextMessages');
   const recentContext = formatRecentContextByAiLayers_ACU(recentContextMessages, params.contextSettings.decisionRecentContextCharLimit)
     || String(params.sharedContext?.seedContentForConditional || '').trim();
-  const previousPlot = formatPreviousPlotByAiLayers_ACU(plotContextMessages, params.contextSettings.decisionPreviousPlotCharLimit, params.sharedContext?.lastPlotContent);
+  const previousPlot = resolveLegacyPreviousPlotPlaceholder_ACU(recentContext, params.sharedContext?.lastPlotContent);
 
   const placeholders = {
     'agent.userMessage': params.userMessage || '',

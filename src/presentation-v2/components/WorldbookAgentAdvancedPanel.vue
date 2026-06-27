@@ -129,11 +129,10 @@ type ContextFieldMeta = {
   limits: { min: number; max: number };
 };
 
-type VisibleContextSettingKey_ACU = Exclude<AgentContextSettingKey_ACU, 'decisionWorldbookContentPreviewLimit' | 'skillifyContentPreviewLimit'>;
+type VisibleContextSettingKey_ACU = Exclude<AgentContextSettingKey_ACU, 'decisionWorldbookContentPreviewLimit' | 'decisionPreviousPlotCharLimit' | 'skillifyContentPreviewLimit'>;
 
 const visibleContextFieldKeys: VisibleContextSettingKey_ACU[] = [
   'decisionRecentContextCharLimit',
-  'decisionPreviousPlotCharLimit',
   'decisionWorldbookCandidateLimit',
   'skillifyMaxEntries',
   'plotWorldbookScanMessageLimit',
@@ -141,7 +140,6 @@ const visibleContextFieldKeys: VisibleContextSettingKey_ACU[] = [
 
 const contextFieldSteps: Record<VisibleContextSettingKey_ACU, number> = {
   decisionRecentContextCharLimit: 1,
-  decisionPreviousPlotCharLimit: 1,
   decisionWorldbookCandidateLimit: 1,
   skillifyMaxEntries: 1,
   plotWorldbookScanMessageLimit: 1,

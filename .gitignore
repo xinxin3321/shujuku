@@ -8,5 +8,11 @@ node_modules/
 # 构建产物
 dist/
 
+
+# 本地分析缓存/归档
+.analysis-cache.md
+.analysis-archive/
+.analysis-*.md
+
 # macOS
 .DS_Store

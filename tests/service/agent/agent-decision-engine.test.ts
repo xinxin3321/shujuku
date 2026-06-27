@@ -95,7 +95,6 @@ describe('runAgentDecisionForPlot_ACU', () => {
           enabled: true,
           mode: 'agent',
           contextSettings: {
-            decisionPreviousPlotCharLimit: 1,
             decisionRecentContextCharLimit: 1,
           },
           agentDecisionPromptSegments: [
@@ -108,16 +107,10 @@ describe('runAgentDecisionForPlot_ACU', () => {
         lastPlotContent: '旧剧情兜底不应使用',
         seedContentForConditional: '旧最近上下文兜底不应使用',
         recentContextMessages: [
-          { is_user: true, name: '用户', mes: '第一层用户输入' },
-          { is_user: false, name: '角色', mes: '第一层AI回复', qrf_plot: '第一层剧情规划' },
-          { is_user: true, name: '用户', mes: '第二层用户输入' },
-          { is_user: false, name: '角色', mes: '第二层AI回复', qrf_plot: '第二层剧情规划' },
-        ],
-        plotContextMessages: [
-          { is_user: true, name: '用户', mes: '第一层用户输入' },
-          { is_user: false, name: '角色', mes: '第一层AI回复', qrf_plot: '第一层剧情规划' },
-          { is_user: true, name: '用户', mes: '第二层用户输入' },
-          { is_user: false, name: '角色', mes: '第二层AI回复', qrf_plot: '第二层剧情规划' },
+          { is_user: true, name: '用户', mes: '第一层用户输入', qrf_plot: '第一层剧情规划' },
+          { is_user: false, name: '角色', mes: '第一层AI回复' },
+          { is_user: true, name: '用户', mes: '第二层用户输入', qrf_plot: '第二层剧情规划' },
+          { is_user: false, name: '角色', mes: '第二层AI回复' },
         ],
       },
       enabledTasks: [
@@ -130,9 +123,9 @@ describe('runAgentDecisionForPlot_ACU', () => {
     expect(result.effectiveTasks).toHaveLength(1);
     expect(result.effectiveTasks[0].id).toBe('selectable_task');
     const messages = mockCallAIWithPreset.mock.calls[0][0];
-    expect(messages[0].content).toContain('P=【上轮剧情 AI层 1】');
+    expect(messages[0].content).toContain('P=【最近上下文 AI层 1】');
     expect(messages[0].content).toContain('用户: 第二层用户输入');
-    expect(messages[0].content).toContain('剧情: 第二层剧情规划');
+    expect(messages[0].content).toContain('剧情推进记录: 第二层剧情规划');
     expect(messages[0].content).toContain('R=【最近上下文 AI层 1】');
     expect(messages[0].content).toContain('角色: 第二层AI回复');
     expect(messages[0].content).not.toContain('第一层用户输入');
@@ -146,7 +139,7 @@ describe('runAgentDecisionForPlot_ACU', () => {
     expect(messages[0].content).not.toContain('blocked_task');
   });
 
-  it('keeps previous plot scoped to the latest AI layer even when that layer has no plot data', async () => {
+  it('uses user-layer plot records from recent context instead of independent plot context messages', async () => {
     mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
       taskPlan: [{ taskId: 'selectable_task', run: true, effectiveStage: 1, effectiveOrder: 0 }],
       plotGreenlights: {},
@@ -162,7 +155,6 @@ describe('runAgentDecisionForPlot_ACU', () => {
           enabled: true,
           mode: 'agent',
           contextSettings: {
-            decisionPreviousPlotCharLimit: 1,
             decisionRecentContextCharLimit: 1,
           },
           agentDecisionPromptSegments: [
@@ -172,16 +164,10 @@ describe('runAgentDecisionForPlot_ACU', () => {
       },
       userMessage: '继续',
       sharedContext: {
-        plotContextMessages: [
-          { is_user: true, name: '用户', mes: '第一层用户输入' },
-          { is_user: false, name: '角色', mes: '第一层AI回复', qrf_plot: '第一层剧情规划' },
-          { is_user: true, name: '用户', mes: '第二层用户输入' },
-          { is_user: false, name: '角色', mes: '第二层AI回复' },
-        ],
         recentContextMessages: [
-          { is_user: true, name: '用户', mes: '第一层用户输入' },
-          { is_user: false, name: '角色', mes: '第一层AI回复', qrf_plot: '第一层剧情规划' },
-          { is_user: true, name: '用户', mes: '第二层用户输入' },
+          { is_user: true, name: '用户', mes: '第一层用户输入', qrf_plot: '第一层剧情规划' },
+          { is_user: false, name: '角色', mes: '第一层AI回复' },
+          { is_user: true, name: '用户', mes: '第二层用户输入', qrf_plot_tasks: { main: '第二层任务剧情规划' } },
           { is_user: false, name: '角色', mes: '第二层AI回复' },
         ],
       },
@@ -190,9 +176,10 @@ describe('runAgentDecisionForPlot_ACU', () => {
 
     expect(result.active).toBe(true);
     const messages = mockCallAIWithPreset.mock.calls[0][0];
-    expect(messages[0].content).toContain('P=【上轮剧情 AI层 1】');
+    expect(messages[0].content).toContain('P=【最近上下文 AI层 1】');
     expect(messages[0].content).toContain('用户: 第二层用户输入');
-    expect(messages[0].content).toContain('剧情: （该 AI 层无剧情规划数据）');
+    expect(messages[0].content).toContain('剧情推进记录: 【main】\n第二层任务剧情规划');
+    expect(messages[0].content).toContain('R=【最近上下文 AI层 1】');
     expect(messages[0].content).not.toContain('第一层剧情规划');
     expect(messages[0].content).not.toContain('第一层用户输入');
   });

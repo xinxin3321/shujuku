@@ -13,7 +13,7 @@
 export const DEFAULT_AGENT_CONTEXT_SETTINGS_ACU = {
   // Compatibility field name: now interpreted as recent AI layer count, not character count.
   decisionRecentContextCharLimit: 3,
-  // Compatibility field name: now interpreted as previous plot AI layer count, not character count.
+  // Deprecated compatibility field: kept so old settings normalize safely; Agent decisions use recent context layers for plot history.
   decisionPreviousPlotCharLimit: 1,
   // Deprecated compatibility field: kept so old settings normalize safely.
   // Runtime Agent decisions no longer inject worldbook entry content previews.
@@ -29,7 +29,7 @@ export const DEFAULT_AGENT_CONTEXT_SETTINGS_ACU = {
 export const AGENT_CONTEXT_SETTINGS_LIMITS_ACU = {
   // Compatibility field name: layer count, 1 layer = 1 AI reply plus its preceding user input.
   decisionRecentContextCharLimit: { min: 1, max: 20 },
-  // Compatibility field name: layer count, 1 layer = 1 AI reply plus its preceding user input.
+  // Deprecated compatibility field; no separate UI control or Agent decision layer source.
   decisionPreviousPlotCharLimit: { min: 1, max: 20 },
   // Deprecated compatibility field; do not use it to reintroduce content previews.
   decisionWorldbookContentPreviewLimit: { min: 200, max: 5000 },
@@ -46,7 +46,7 @@ export function buildDefaultAgentDecisionPromptSegments_ACU() {
       role: 'system',
       content: [
         '你是 SillyTavern 插件 SP·数据库的前置控制 Agent。',
-        '你必须基于用户输入、前文剧情、推进任务 Skill、世界书 Skill 元数据，决定本轮剧情推进任务和世界书绿灯条目。',
+        '你必须基于用户输入、最近上下文、推进任务 Skill、世界书 Skill 元数据，决定本轮剧情推进任务和世界书绿灯条目。',
         '只返回严格 JSON 对象，不要 Markdown，不要解释。',
         'JSON 结构：{{agent.outputSchemaJson}}',
         'taskId 必须来自候选任务。世界书 bookName/uid 必须来自候选世界书。effectiveStage 必须为正整数，effectiveOrder 必须为非负整数。',
@@ -57,8 +57,7 @@ export function buildDefaultAgentDecisionPromptSegments_ACU() {
       role: 'user',
       content: [
         '用户输入：\n{{agent.userMessage}}',
-        '上轮剧情：\n{{agent.previousPlot}}',
-        '最近上下文：\n{{agent.recentContext}}',
+        '最近上下文（含用户楼层中的剧情推进记录）：\n{{agent.recentContext}}',
         '候选推进任务 JSON：\n{{agent.tasksJson}}',
         '候选世界书条目 JSON：\n{{agent.worldbookEntriesJson}}',
         '通道条目上限 JSON：\n{{agent.maxEntriesPerChannelJson}}',

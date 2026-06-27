@@ -656,7 +656,6 @@ export async function collectGroupFillResponse_ACU(
                 lastPlotContent: '',
                 seedContentForConditional: messagesForAgent,
                 recentContextMessages: Array.isArray(job.messagesForContext) ? job.messagesForContext : [],
-                plotContextMessages: Array.isArray(job.messagesForContext) ? job.messagesForContext : [],
             },
             enabledTasks: Array.isArray(plotSettings.plotTasks) ? plotSettings.plotTasks : [],
             requireTaskPlan: false,

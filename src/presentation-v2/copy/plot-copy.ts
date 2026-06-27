@@ -94,7 +94,7 @@ export const plotCopy = {
     advanced: {
       button: "Agent 高级设置",
       title: "Agent 世界书高级设置",
-      description: "编辑 Agent 决策、Skill 化提示词模板，并控制上下文截断与候选数量上限。",
+      description: "编辑 Agent 决策、Skill 化提示词模板，并控制上下文层数与候选数量上限。",
     },
     contextSettings: {
       title: "上下文参数",
@@ -104,11 +104,7 @@ export const plotCopy = {
       fields: {
         decisionRecentContextCharLimit: {
           label: "最近上下文层数",
-          hint: "进入 Agent 决策提示词的最近对话层数；1 层 = 1 条 AI 回复 + 其上方 1 条用户输入，不再按字符截断。",
-        },
-        decisionPreviousPlotCharLimit: {
-          label: "上轮剧情层数",
-          hint: "进入 Agent 决策提示词的历史剧情层数；按 AI 楼层计数，并绑定对应的上方用户输入，不再按字符截断。",
+          hint: "进入 Agent 决策提示词的最近对话层数；1 层 = 1 条 AI 回复 + 其上方 1 条用户输入。剧情推进记录保存在用户楼层，会随对应上下文一起传入。",
         },
         decisionWorldbookCandidateLimit: {
           label: "决策世界书候选数",

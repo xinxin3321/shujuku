@@ -288,7 +288,6 @@ import { normalizeAgentContextSettings_ACU } from '../../agent/agent-prompt-temp
       finalSystemDirectiveContent,
       seedContentForConditional,
       recentContextMessages: Array.isArray(agentContextMessages) ? agentContextMessages : [],
-      plotContextMessages: Array.isArray(agentContextMessages) ? agentContextMessages : [],
       allTablesJson: currentJsonTableData_ACU,
     };
   }
