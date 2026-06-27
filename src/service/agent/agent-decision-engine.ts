@@ -118,13 +118,17 @@ function collectRecentAiLayerPairs_ACU(
 }
 
 function formatRecentContextByAiLayers_ACU(messages: AgentContextMessage_ACU[], layerLimit: number): string {
-  return collectRecentAiLayerPairs_ACU(messages, layerLimit)
+  const pairs = collectRecentAiLayerPairs_ACU(messages, layerLimit);
+  return pairs
     .map((pair, index) => {
+      const isLatestLayer = index === pairs.length - 1;
       const lines = [`【最近上下文 AI层 ${index + 1}】`];
-      const userText = getMessageText_ACU(pair.user);
-      if (userText) lines.push(`${getMessageSpeaker_ACU(pair.user, '用户')}: ${userText}`);
-      const userPlot = getPlotTextFromMessage_ACU(pair.user);
-      if (userPlot) lines.push(`剧情推进记录: ${userPlot}`);
+      if (isLatestLayer) {
+        const userText = getMessageText_ACU(pair.user);
+        if (userText) lines.push(`${getMessageSpeaker_ACU(pair.user, '用户')}: ${userText}`);
+        const userPlot = getPlotTextFromMessage_ACU(pair.user);
+        if (userPlot) lines.push(`剧情推进记录: ${userPlot}`);
+      }
       const aiText = getMessageText_ACU(pair.ai);
       if (aiText) lines.push(`${getMessageSpeaker_ACU(pair.ai, 'AI')}: ${aiText}`);
       return lines.join('\n');

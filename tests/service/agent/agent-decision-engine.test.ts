@@ -228,7 +228,7 @@ describe('runAgentDecisionForPlot_ACU', () => {
     expect(result.active).toBe(true);
     const messages = mockCallAIWithPreset.mock.calls[0][0];
     expect(messages[0].content).toContain('【最近上下文 AI层 1】');
-    expect(messages[0].content).toContain('第二层用户输入');
+    expect(messages[0].content).not.toContain('第二层用户输入');
     expect(messages[0].content).toContain('第二层AI回复');
     expect(messages[0].content).toContain('【最近上下文 AI层 2】');
     expect(messages[0].content).toContain('第三层用户输入');
