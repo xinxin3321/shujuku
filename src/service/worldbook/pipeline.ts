@@ -771,7 +771,7 @@ export   function compareWorldbookEntriesForPlaceholder_ACU(a: Record<string, an
   }
 
 
-export   async function buildCombinedWorldbookContentByStrategy_ACU(options: any = {}) {
+export   async function collectCombinedWorldbookEntriesByStrategy_ACU(options: any = {}) {
       const logPrefix = String(options?.logPrefix || '[Worldbook]');
       const bookNames: string[] = [...new Set<string>((Array.isArray(options?.bookNames) ? options.bookNames : []).map((name: any) => String(name || '').trim()).filter(Boolean))];
       const includeEntry = typeof options?.includeEntry === 'function' ? options.includeEntry : () => true;
@@ -779,14 +779,11 @@ export   async function buildCombinedWorldbookContentByStrategy_ACU(options: any
       const forceIncludeEntry = typeof options?.forceIncludeEntry === 'function' ? options.forceIncludeEntry : () => false;
       const excludeDisabledEntries = options?.excludeDisabledEntries !== false;
       const includeConstantEntriesInBaseScan = options?.includeConstantEntriesInBaseScan === true;
-      const formatEntry = typeof options?.formatEntry === 'function'
-          ? options.formatEntry
-          : ((entry: any) => `# ${entry.comment || `Entry from ${entry.bookName}`}\n${entry.content}`);
       const sortEntries = typeof options?.sortEntries === 'function' ? options.sortEntries : compareWorldbookEntriesForPlaceholder_ACU;
 
       if (bookNames.length === 0) {
           logWarn_ACU(`${logPrefix} 没有找到任何世界书，内容将为空`);
-          return '';
+          return [];
       }
 
       const entriesMap: any = await getLorebookEntriesByNames_ACU(bookNames);
@@ -814,7 +811,7 @@ export   async function buildCombinedWorldbookContentByStrategy_ACU(options: any
       }
       if (allEntries.length === 0) {
           logDebug_ACU(`${logPrefix} 所选世界书在过滤后无可用条目。`);
-          return '';
+          return [];
       }
 
       const forcedEntries = allEntries.filter(entry => forceIncludeEntry(entry) === true);
@@ -828,7 +825,7 @@ export   async function buildCombinedWorldbookContentByStrategy_ACU(options: any
       }
       if (userEnabledEntries.length === 0) {
           logDebug_ACU(`${logPrefix} 当前配置下没有启用的世界书条目。`);
-          return '';
+          return [];
       }
 
       let baseScanText = '';
@@ -900,16 +897,32 @@ export   async function buildCombinedWorldbookContentByStrategy_ACU(options: any
           finalEntries = finalEntries.sort(sortEntries);
       }
 
-      const finalContent = finalEntries
-          .map(entry => formatEntry(entry))
-          .filter(chunk => typeof chunk === 'string' && chunk.trim());
+      return finalEntries;
+  }
 
-      if (finalContent.length === 0) {
+
+export   function formatCombinedWorldbookEntries_ACU(entries: any[], formatEntry?: (entry: any) => string) {
+      const effectiveFormatEntry = typeof formatEntry === 'function'
+          ? formatEntry
+          : ((entry: any) => `# ${entry.comment || `Entry from ${entry.bookName}`}\n${entry.content}`);
+      return (Array.isArray(entries) ? entries : [])
+          .map(entry => effectiveFormatEntry(entry))
+          .filter(chunk => typeof chunk === 'string' && chunk.trim())
+          .join('\n\n')
+          .trim();
+  }
+
+
+export   async function buildCombinedWorldbookContentByStrategy_ACU(options: any = {}) {
+      const logPrefix = String(options?.logPrefix || '[Worldbook]');
+      const finalEntries = await collectCombinedWorldbookEntriesByStrategy_ACU(options);
+      const combinedContent = formatCombinedWorldbookEntries_ACU(finalEntries, options?.formatEntry);
+
+      if (!combinedContent) {
           logDebug_ACU(`${logPrefix} No worldbook entries were ultimately triggered.`);
           return '';
       }
 
-      const combinedContent = finalContent.join('\n\n').trim();
       logDebug_ACU(`${logPrefix} Combined worldbook content generated, length: ${combinedContent.length}. ${finalEntries.length} entries triggered.`);
       return combinedContent;
   }

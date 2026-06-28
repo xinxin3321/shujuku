@@ -9,7 +9,7 @@ import { abortController_ACU, currentJsonTableData_ACU, planningGuard_ACU, setti
 import { getCharLorebooks_ACU } from '../../../data/gateways/character-gateway';
 import { getChatArray_ACU } from '../../../data/gateways/chat-gateway';
 import { getPersonaDescription_ACU, getCharDescription_ACU } from '../../../data/gateways/host-state-gateway';
-import { buildCombinedWorldbookContentByStrategy_ACU } from '../../worldbook/pipeline';
+import { buildCombinedWorldbookContentByStrategy_ACU, collectCombinedWorldbookEntriesByStrategy_ACU, formatCombinedWorldbookEntries_ACU } from '../../worldbook/pipeline';
 import { escapeRegExp_ACU, hashUserInput_ACU, isEntryBlocked_ACU, logDebug_ACU, logError_ACU, logWarn_ACU, normalizeNonNegativeInteger_ACU, normalizePositiveInteger_ACU, normalizeExcludeRules_ACU, normalizeExtractRules_ACU } from '../../../shared/utils';
 import { ensurePlotTasksCompat_ACU, getPlotPromptContentByIdFromSettings_ACU, normalizePlotTask_ACU, normalizePlotTasks_ACU } from '../../plot/plot-logic';
 import { parseRandomTags_ACU, replaceRandomVariables_ACU, getLatestAIMessageContent_ACU, replaceDbSqlVariables } from '../template-vars';
@@ -21,7 +21,6 @@ import { getPlotFromHistory_ACU, savePlotToLatestMessage_ACU } from './plot-hist
 import { abortableDelay } from '../../../shared/abortable-delay';
 import { runAgentDecisionForPlot_ACU, type AgentDecisionResult_ACU, type AgentWorldbookRef_ACU } from '../../agent/agent-decision-engine';
 import { normalizeAgentContextSettings_ACU } from '../../agent/agent-prompt-template';
-import { clearFinalGenerationGreenlights_ACU, writeFinalGenerationGreenlights_ACU } from '../../agent/agent-worldbook-takeover';
 
   function checkPlotAbortRequested_ACU() {
     if (abortController_ACU && abortController_ACU.signal.aborted) {
@@ -350,8 +349,8 @@ import { clearFinalGenerationGreenlights_ACU, writeFinalGenerationGreenlights_AC
       } else {
         logDebug_ACU(`[剧情推进] [任务:${taskLabel}] 无 {{tag}} 注入内容，世界书仅基于本轮上下文触发`);
       }
-      const agentGreenlights = sharedContext.agentDecision?.plotGreenlights?.[String(normalizedTask.id || '').trim()] || [];
-      taskWorldbookContent = await getWorldbookContentForPlot_ACU(sharedContext.plotSettings, sharedContext.userMessage, worldbookTriggerText, agentGreenlights);
+      const taskAgentGreenlights = sharedContext.agentDecision?.plotGreenlights?.[String(normalizedTask.id || '').trim()] || [];
+      taskWorldbookContent = await getWorldbookContentForPlot_ACU(sharedContext.plotSettings, sharedContext.userMessage, worldbookTriggerText, taskAgentGreenlights);
       if (taskWorldbookContent) {
         // 对任务级世界书内容执行与共享管线相同的后处理
         taskWorldbookContent = await tryRenderPlotTemplateWithEjs_ACU(taskWorldbookContent);
@@ -519,15 +518,6 @@ import { clearFinalGenerationGreenlights_ACU, writeFinalGenerationGreenlights_AC
       ? agentDecision.finalGenerationGreenlights
       : [];
     _set_pendingFinalGenerationGreenlights_ACU(finalGenerationGreenlights);
-    try {
-      if (agentDecision.active === true && finalGenerationGreenlights.length > 0) {
-        await writeFinalGenerationGreenlights_ACU(finalGenerationGreenlights);
-      } else {
-        await clearFinalGenerationGreenlights_ACU();
-      }
-    } catch (error) {
-      logWarn_ACU('[剧情推进] Agent 正文世界书绿灯托管状态写入失败，本轮保留内存绿灯继续执行:', error);
-    }
     if (agentDecision.active === true) {
       enabledTasks = Array.isArray(agentDecision.effectiveTasks) ? agentDecision.effectiveTasks : [];
     }
@@ -726,6 +716,8 @@ import { clearFinalGenerationGreenlights_ACU, writeFinalGenerationGreenlights_AC
         includeConstantEntriesInBaseScan: true,
         includeEntry: (entry: any) => {
           const normalizedComment = entry.normalizedComment || '';
+          const isAgentGreenlight = agentGreenlightKeySet.has(`${String(entry.bookName || '').trim()}\u0000${String(entry.uid || '').trim()}`);
+          if (isAgentGreenlight) return true;
           const isOutlineEntry = normalizedComment.startsWith('TavernDB-ACU-OutlineTable');
           const isSummaryIndexEntry = normalizedComment.startsWith('TavernDB-ACU-CustomExport-纪要索引');
           if (isOutlineEntry || isSummaryIndexEntry) {
@@ -773,6 +765,80 @@ import { clearFinalGenerationGreenlights_ACU, writeFinalGenerationGreenlights_AC
       });
     } catch (error) {
       logError_ACU('[剧情推进] 处理世界书内容时发生错误:', error);
+      return '';
+    }
+  }
+
+  /**
+   * 获取 Agent 正文生成放行的世界书内容。
+   *
+   * 这个入口只服务 finalGenerationGreenlights：
+   * - 不修改酒馆世界书条目状态；
+   * - 不依赖关键词触发；
+   * - 不混入未被 Agent 放行的普通世界书条目；
+   * - 内容顺序沿用剧情世界书 placeholder 排序规则（position/depth/order/originalIndex）。
+   */
+  export async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings: Record<string, any>, agentGreenlights: AgentWorldbookRef_ACU[] = []) {
+    if (!apiSettings) {
+      logWarn_ACU('[剧情推进] apiSettings 为空，无法获取 Agent 正文世界书绿灯');
+      return '';
+    }
+
+    const agentGreenlightKeySet = new Set((Array.isArray(agentGreenlights) ? agentGreenlights : [])
+      .map(ref => `${String(ref?.bookName || '').trim()}\u0000${String(ref?.uid || '').trim()}`)
+      .filter(key => !key.startsWith('\u0000') && !key.endsWith('\u0000')));
+    if (agentGreenlightKeySet.size === 0) return '';
+
+    try {
+      let bookNames: string[] = [];
+      const plotCfg = (apiSettings && apiSettings.plotWorldbookConfig) ? apiSettings.plotWorldbookConfig : null;
+      const worldbookSource = plotCfg?.source || apiSettings.worldbookSource || 'character';
+
+      if (worldbookSource === 'manual') {
+        bookNames = plotCfg?.manualSelection || apiSettings.selectedWorldbooks || [];
+      } else {
+        try {
+          const charLorebooks = await getCharLorebooks_ACU({ type: 'all' });
+          if (charLorebooks.primary) bookNames.push(charLorebooks.primary);
+          if (charLorebooks.additional?.length) bookNames.push(...charLorebooks.additional);
+        } catch (error) {
+          logError_ACU('[剧情推进] 获取角色世界书失败，无法注入 Agent 正文世界书绿灯:', error);
+          return '';
+        }
+      }
+
+      bookNames = [...new Set((Array.isArray(bookNames) ? bookNames : []).filter(Boolean))];
+      if (bookNames.length === 0) return '';
+
+      const finalEntries = await collectCombinedWorldbookEntriesByStrategy_ACU({
+        logPrefix: '[剧情推进][Agent正文绿灯]',
+        bookNames,
+        baseScanText: '',
+        includeConstantEntriesInBaseScan: false,
+        includeEntry: (entry: any) => {
+          return agentGreenlightKeySet.has(`${String(entry.bookName || '').trim()}\u0000${String(entry.uid || '').trim()}`);
+        },
+        isSelected: (entry: any) => {
+          return agentGreenlightKeySet.has(`${String(entry.bookName || '').trim()}\u0000${String(entry.uid || '').trim()}`);
+        },
+        forceIncludeEntry: (entry: any) => {
+          return agentGreenlightKeySet.has(`${String(entry.bookName || '').trim()}\u0000${String(entry.uid || '').trim()}`);
+        },
+        onEntriesFiltered: (entries: any[]) => {
+          logDebug_ACU('[剧情推进][Agent正文绿灯] Agent 放行条目候选数量:', entries.length);
+        },
+        onSelectedEntries: (entries: any[]) => {
+          logDebug_ACU('[剧情推进][Agent正文绿灯] Agent 放行条目启用数量:', entries.length);
+        },
+      });
+
+      const combinedContent = formatCombinedWorldbookEntries_ACU(finalEntries);
+      if (combinedContent) {
+        logDebug_ACU('[剧情推进][Agent正文绿灯] Agent 正文世界书绿灯内容已生成，长度:', combinedContent.length);
+      }
+      return combinedContent;
+    } catch (error) {
+      logError_ACU('[剧情推进] 处理 Agent 正文世界书绿灯时发生错误:', error);
       return '';
     }
   }

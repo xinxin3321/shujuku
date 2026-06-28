@@ -75,6 +75,7 @@ export interface AgentWorldbookControl_ACU {
   };
 }
 
+/** Legacy：旧世界书接管快照条目结构；运行时过滤模式不再用于恢复原世界书条目状态。 */
 export interface AgentWorldbookControlSnapshotEntry_ACU {
   uid: string | number;
   previousEnabled: boolean;
@@ -83,7 +84,7 @@ export interface AgentWorldbookControlSnapshotEntry_ACU {
   commentHash?: string;
 }
 
-/** Agent 模式接管快照，恢复世界书绿灯状态时使用 */
+/** Legacy：旧 Agent 接管快照容器；当前运行时过滤模式只保留空快照用于兼容，不再恢复或改写世界书绿灯状态。 */
 export interface AgentWorldbookControlSnapshot_ACU {
   active: boolean;
   selectionSignature: string;

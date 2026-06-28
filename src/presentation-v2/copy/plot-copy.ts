@@ -8,7 +8,7 @@ export const plotCopy = {
     worldbook: {
       title: "剧情推进世界书",
       description:
-        "剧情推进参考的世界书条目。默认跟随角色卡主世界书，也可手动指定。Agent 模式可接管原世界书绿灯，由 Agent 决策剧情、填表与正文通道的触发条目。",
+        "剧情推进参考的世界书条目。默认跟随角色卡主世界书，也可手动指定。Agent 模式会在运行时过滤提示词模板中的世界书条目，由 Agent 决策剧情、填表与正文通道的放行条目。",
     },
   },
   worldbook: {
@@ -19,7 +19,7 @@ export const plotCopy = {
   },
   agentControl: {
     title: "Agent 世界书总控",
-    description: "切换 Agent 世界书模式；接管会禁用当前范围内原关键词绿灯条目，并保留快照用于恢复。",
+    description: "切换 Agent 世界书模式；接管只在运行时提示词模板阶段过滤未放行条目，不改写酒馆世界书条目状态。",
     modes: { disabled: "关闭", passive: "仅观察", agent: "Agent 接管" },
     modeChanged: {
       disabled: "Agent 世界书模式已关闭。",
@@ -27,8 +27,8 @@ export const plotCopy = {
       agent: "Agent 世界书已切换为接管模式。",
     },
     status: {
-      inactive: "未接管",
-      active: (count: number) => `接管中 · 已屏蔽 ${count} 条`,
+      inactive: "运行时过滤未启用",
+      active: () => "运行时过滤已启用",
     },
     apiPresets: {
       decisionLabel: "Agent 决策 API",
@@ -38,44 +38,38 @@ export const plotCopy = {
       followCurrentLabel: "使用当前 API 配置",
     },
     takeover: {
-      button: "接管原绿灯",
+      button: "启用运行时过滤",
       confirm: {
-        title: "接管原世界书绿灯",
-        message: "将禁用当前剧情推进世界书范围内可由 Agent 管理的原关键词触发条目，并保存恢复快照。",
-        dangerMessage: "这是写回酒馆世界书的操作。确认前请确保当前世界书范围正确。",
-        confirmLabel: "确认接管",
+        title: "启用 Agent 运行时过滤",
+        message: "将由 Agent 在提示词模板阶段过滤当前剧情推进世界书范围内未放行的条目。原世界书条目状态、深度和顺序不会被改写。",
+        dangerMessage: "此操作不会写回酒馆世界书，但会影响后续剧情推进生成时进入提示词的条目。确认前请确保当前世界书范围正确。",
+        confirmLabel: "确认启用",
         cancelLabel: "取消",
       },
       modeRequired: "请先切换到「Agent 接管」模式，再执行接管。",
-      success: (disabled: number) => `已接管原绿灯，禁用 ${disabled} 条条目。`,
-      partial: (disabled: number, failed: number) => `已接管部分原绿灯：禁用 ${disabled} 条，${failed} 条禁用失败。`,
-      noop: "未执行接管。",
-      error: "接管原绿灯失败",
+      success: () => "Agent 运行时过滤已启用；原世界书条目状态保持不变。",
+      noop: "未启用运行时过滤。",
+      error: "启用 Agent 运行时过滤失败",
       reasons: {
-        empty_scope: "当前世界书范围为空，无法接管。",
-        worldbook_api_unavailable: "酒馆世界书写回 API 不可用，无法接管。",
-        existing_active_snapshot: "当前范围已经处于接管状态，无需重复接管。",
-        snapshot_scope_mismatch: "已有其他范围的接管快照。请先切回原范围并恢复，再接管新范围。",
-        no_candidates: "当前范围没有可接管的原关键词绿灯条目。",
-        snapshot_saved_with_disable_failures: "已保存快照，但部分条目禁用失败。请检查世界书权限。",
+        empty_scope: "当前世界书范围为空，无法启用运行时过滤。",
+        runtime_filter_only: "Agent 运行时过滤已由提示词模板阶段处理。",
+        no_candidates: "当前范围没有可由 Agent 管理的世界书条目。",
       } as Record<string, string>,
     },
     restore: {
-      button: "恢复原绿灯",
+      button: "清理遗留状态",
       confirm: {
-        title: "恢复原世界书绿灯",
-        message: "将按接管快照恢复原世界书条目的启用状态。",
-        confirmLabel: "确认恢复",
+        title: "清理 Agent 世界书遗留状态",
+        message: "将清理旧版本写入的 Agent 内部隐藏条目，并关闭运行时过滤；不会恢复或改写任何原世界书条目的启用状态。",
+        confirmLabel: "确认清理",
         cancelLabel: "取消",
       },
-      success: (restored: number, skipped: number) => `已恢复 ${restored} 条原绿灯${skipped ? `，跳过 ${skipped} 条已不存在条目` : ""}。`,
-      noop: "未执行恢复。",
-      error: "恢复原绿灯失败",
+      success: () => "已清理 Agent 世界书遗留状态；原世界书条目状态保持不变。",
+      noop: "没有需要清理的 Agent 世界书遗留状态。",
+      error: "清理 Agent 世界书遗留状态失败",
       reasons: {
-        no_active_snapshot: "当前没有可恢复的接管快照。",
-        selection_signature_mismatch: "当前世界书范围与快照范围不一致，请切回接管时的范围后再恢复。",
-        worldbook_api_unavailable: "酒馆世界书写回 API 不可用，无法恢复。",
-        restore_failures_snapshot_kept: "部分条目恢复失败，快照已保留，可稍后重试。",
+        runtime_filter_only: "当前使用运行时过滤机制，没有需要恢复的世界书条目状态。",
+        legacy_artifacts_cleaned: "已清理旧版本 Agent 内部隐藏条目。",
       } as Record<string, string>,
     },
     skillify: {

@@ -1548,6 +1548,7 @@ describe('collectGroupFillResponse_ACU', () => {
         excludeImportTaggedWorldbookEntries: false,
       })
     );
+    expect(mockPrepareAIInput.mock.calls[0][3]).not.toHaveProperty('agentGreenlights');
     expect(mockParseAndApplyTableEdits).not.toHaveBeenCalled();
     expect(mockSaveIndependentTable).not.toHaveBeenCalled();
     expect(mockRunTableUpdateApplyWithScopeLock).not.toHaveBeenCalled();

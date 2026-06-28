@@ -22,7 +22,7 @@ const {
   mockGetLatestAIMessageContent,
   mockGetPlotFromHistory,
   mockGetWorldbookContentForPlot,
-  mockReadFinalGenerationGreenlights,
+  mockGetAgentGreenlightWorldbookContentForPlot,
 } = vi.hoisted(() => {
   const mockPendingFinalGenerationGreenlightsRef = { value: [] as any[] };
   return {
@@ -45,7 +45,7 @@ const {
     mockGetLatestAIMessageContent: vi.fn(() => ''),
     mockGetPlotFromHistory: vi.fn(() => null),
     mockGetWorldbookContentForPlot: vi.fn(),
-    mockReadFinalGenerationGreenlights: vi.fn(async () => []),
+    mockGetAgentGreenlightWorldbookContentForPlot: vi.fn(),
   };
 });
 
@@ -82,10 +82,7 @@ vi.mock('../../../src/service/runtime/plot-runtime', () => ({
   getPlotFromHistory_ACU: mockGetPlotFromHistory,
   runOptimizationLogic_ACU: vi.fn(),
   getWorldbookContentForPlot_ACU: mockGetWorldbookContentForPlot,
-}));
-
-vi.mock('../../../src/service/agent/agent-worldbook-takeover', () => ({
-  readFinalGenerationGreenlights_ACU: mockReadFinalGenerationGreenlights,
+  getAgentGreenlightWorldbookContentForPlot_ACU: mockGetAgentGreenlightWorldbookContentForPlot,
 }));
 
 vi.mock('../../../src/service/runtime/helpers-context-tags', () => ({
@@ -141,7 +138,7 @@ beforeEach(() => {
   mockSettings.promptTemplateSettings = { enabled: true, maxNestingDepth: 10, debugMode: false };
   mockPendingFinalGenerationGreenlightsRef.value = [];
   mockGetWorldbookContentForPlot.mockResolvedValue('');
-  mockReadFinalGenerationGreenlights.mockResolvedValue([]);
+  mockGetAgentGreenlightWorldbookContentForPlot.mockResolvedValue('');
 });
 
 describe('handleChatCompletionReady_ACU', () => {
@@ -270,20 +267,17 @@ describe('handleChatCompletionReady_ACU', () => {
     expect(mockGetPlotFromHistory).toHaveBeenCalled();
   });
 
-  it('内存正文绿灯为空时从托管状态读取并注入正文世界书内容', async () => {
-    const managedGreenlights = [{ bookName: '角色A世界书', uid: 1, reason: '正文需要' }];
-    mockReadFinalGenerationGreenlights.mockResolvedValue(managedGreenlights);
-    mockGetWorldbookContentForPlot.mockResolvedValue('正文世界书内容');
+  it('内存正文绿灯存在时按运行时过滤注入正文世界书内容', async () => {
+    const pendingGreenlights = [{ bookName: '角色A世界书', uid: 1, reason: '正文需要' }];
+    mockPendingFinalGenerationGreenlightsRef.value = pendingGreenlights;
+    mockGetAgentGreenlightWorldbookContentForPlot.mockResolvedValue('正文世界书内容');
 
     const data = { messages: [{ role: 'user', content: '测试' }] };
     await handleChatCompletionReady_ACU(data);
 
-    expect(mockReadFinalGenerationGreenlights).toHaveBeenCalledTimes(1);
-    expect(mockGetWorldbookContentForPlot).toHaveBeenCalledWith(
+    expect(mockGetAgentGreenlightWorldbookContentForPlot).toHaveBeenCalledWith(
       {},
-      '',
-      '',
-      managedGreenlights,
+      pendingGreenlights,
     );
     expect(mockSetPendingFinalGenerationGreenlights).not.toHaveBeenCalled();
     expect(data.messages).toContainEqual({ role: 'system', content: '正文世界书内容' });

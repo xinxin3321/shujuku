@@ -43,7 +43,6 @@ const {
   mockHashUserInput,
   mockIsEntryBlocked,
   mockRunAgentDecisionForPlot,
-  mockWriteFinalGenerationGreenlights,
   mockClearFinalGenerationGreenlights,
 } = vi.hoisted(() => {
   const mockAbortControllerRef = { value: null as any };
@@ -113,7 +112,6 @@ const {
     mockHashUserInput: vi.fn((text: string) => `hash_${text}`),
     mockIsEntryBlocked: vi.fn((entry: any) => !!entry?.blocked),
     mockRunAgentDecisionForPlot: vi.fn(),
-    mockWriteFinalGenerationGreenlights: vi.fn(),
     mockClearFinalGenerationGreenlights: vi.fn(),
   };
 });
@@ -234,7 +232,6 @@ vi.mock('../../../../src/service/agent/agent-decision-engine', () => ({
 }));
 
 vi.mock('../../../../src/service/agent/agent-worldbook-takeover', () => ({
-  writeFinalGenerationGreenlights_ACU: mockWriteFinalGenerationGreenlights,
   clearFinalGenerationGreenlights_ACU: mockClearFinalGenerationGreenlights,
 }));
 
@@ -320,11 +317,9 @@ beforeEach(() => {
     active: false,
     taskPlan: [],
     plotGreenlights: {},
-    tableFillGreenlights: [],
     finalGenerationGreenlights: [],
     effectiveTasks: enabledTasks,
   }));
-  mockWriteFinalGenerationGreenlights.mockResolvedValue(true);
   mockClearFinalGenerationGreenlights.mockResolvedValue(0);
 });
 
@@ -405,6 +400,23 @@ describe('getWorldbookContentForPlot_ACU', () => {
     expect(options.isSelected({ bookName: '书A', uid: 2, normalizedComment: '普通条目' })).toBe(false);
     expect(options.isSelected({ bookName: '书B', uid: 9, normalizedComment: '普通条目' })).toBe(true);
     expect(options.isSelected({ bookName: '书A', uid: 999, normalizedComment: 'TavernDB-ACU-自动生成条目' })).toBe(true);
+  });
+
+
+  it('Agent 绿灯条目会优先绕过 includeEntry 过滤，确保正文生成能注入 AI 反馈的全部绿灯条目', async () => {
+    await getWorldbookContentForPlot_ACU(
+      { plotWorldbookConfig: { source: 'manual', manualSelection: ['书A'] } },
+      '当前输入',
+      '',
+      [{ bookName: '书A', uid: 7, reason: '正文需要' }],
+    );
+
+    const options = mockBuildCombinedWorldbookContentByStrategy.mock.calls[0][0];
+    const greenlightEntry = { bookName: '书A', uid: 7, normalizedComment: 'TavernDB-ACU-OutlineTable-1', blocked: true, rawComment: '被屏蔽绿灯' };
+    expect(options.includeEntry(greenlightEntry)).toBe(true);
+    expect(options.forceIncludeEntry(greenlightEntry)).toBe(true);
+    expect(options.isSelected(greenlightEntry)).toBe(true);
+    expect(options.includeEntry({ bookName: '书A', uid: 8, normalizedComment: 'TavernDB-ACU-OutlineTable-1', blocked: true })).toBe(false);
   });
 
 
@@ -583,13 +595,12 @@ describe('runPlotTasksRuntime_ACU', () => {
     expect(mockSavePlotToLatestMessage).toHaveBeenCalledWith(true);
   });
 
-  it('Agent 正文绿灯托管写入失败时保留内存 pending 并继续执行剧情任务', async () => {
+  it('Agent 正文绿灯只写入内存 pending 并继续执行剧情任务', async () => {
     const finalGreenlights = [{ bookName: '剧情书', uid: 12, reason: '正文需要' }];
     mockRunAgentDecisionForPlot.mockResolvedValueOnce({
       active: true,
       taskPlan: [],
       plotGreenlights: {},
-      tableFillGreenlights: [],
       finalGenerationGreenlights: finalGreenlights,
       effectiveTasks: [
         {
@@ -602,12 +613,10 @@ describe('runPlotTasksRuntime_ACU', () => {
         },
       ],
     });
-    mockWriteFinalGenerationGreenlights.mockRejectedValueOnce(new Error('托管写入失败'));
 
     const result = await runPlotTasksRuntime_ACU({ tasks: [{ id: 'task-a', name: '任务A', stage: 1, order: 1, maxRetries: 1, promptGroup: [{ role: 'user', content: 'stage-1-task-a' }] }] }, '当前输入');
 
     expect(mockSetPendingFinalGenerationGreenlights).toHaveBeenCalledWith(finalGreenlights);
-    expect(mockWriteFinalGenerationGreenlights).toHaveBeenCalledWith(finalGreenlights);
     expect(result.finalMessage).toBe('最终注入消息');
     expect(result.successfulResults).toHaveLength(1);
   });

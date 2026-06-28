@@ -40,7 +40,6 @@ export interface AgentDecisionResult_ACU {
   rawResponse?: string;
   taskPlan: AgentTaskPlanItem_ACU[];
   plotGreenlights: Record<string, AgentWorldbookRef_ACU[]>;
-  tableFillGreenlights: AgentWorldbookRef_ACU[];
   finalGenerationGreenlights: AgentWorldbookRef_ACU[];
   effectiveTasks: any[];
 }
@@ -160,7 +159,6 @@ function emptyDecision_ACU(effectiveTasks: any[], fallbackReason: string): Agent
     fallbackReason,
     taskPlan: [],
     plotGreenlights: {},
-    tableFillGreenlights: [],
     finalGenerationGreenlights: [],
     effectiveTasks,
   };
@@ -253,7 +251,7 @@ async function collectWorldbookSummariesFromSnapshot_ACU(
 function formatWorldbookPromptEntries_ACU(
   summaries: AgentWorldbookSummary_ACU[],
   limit: number,
-): Array<Pick<AgentWorldbookSummary_ACU, 'index' | 'bookName' | 'uid' | 'description' | 'triggerWhen' | 'tk'>> {
+): Array<Pick<AgentWorldbookSummary_ACU, 'index' | 'bookName' | 'uid' | 'description' | 'triggerWhen' | 'tk'> & { tokenEstimate: number; tokenDescription: string }> {
   return summaries.slice(0, limit).map((summary, index) => ({
     index: summary.index || index + 1,
     bookName: summary.bookName,
@@ -261,6 +259,8 @@ function formatWorldbookPromptEntries_ACU(
     description: summary.description || '',
     triggerWhen: summary.triggerWhen || '',
     tk: summary.tk,
+    tokenEstimate: summary.tk,
+    tokenDescription: `预计消耗 ${summary.tk} Token；tk 是兼容字段，与 tokenEstimate 含义相同`,
   }));
 }
 
@@ -481,13 +481,14 @@ function buildAgentDecisionPrompt_ACU(params: {
     'agent.worldbookEntriesJson': formatWorldbookPromptEntries_ACU(params.worldbookSummaries, params.contextSettings.decisionWorldbookCandidateLimit),
     'agent.maxEntriesPerChannelJson': control.maxEntriesPerChannel || {},
     'agent.greenlightTkBudgetJson': {
+      unit: 'Token',
       min: params.contextSettings.greenlightMinTkBudget,
       max: params.contextSettings.greenlightMaxTkBudget,
+      selectionRule: '每个通道和每个任务必须优先选择相关条目；相关条目足够时尽可能超过 min；相关条目总 Token 不足 min 时全选相关条目；任何情况下不得超过 max；不得为凑 min 选择无关条目。',
     },
     'agent.outputSchemaJson': {
       taskPlan: [{ taskId: '...', run: true, effectiveStage: 1, effectiveOrder: 0, mode: 'sequential', reason: '...' }],
       plotGreenlights: { taskId: [{ entries: [1, 2], reason: '每个编号一句话说明；也兼容旧 bookName/uid 格式' }] },
-      tableFillGreenlights: [{ entries: [1], reason: '一句话说明；也兼容旧 bookName/uid 格式' }],
       finalGenerationGreenlights: [{ entries: [1], reason: '一句话说明；也兼容旧 bookName/uid 格式' }],
       fallbackMode: false,
       reason: '...',
@@ -570,7 +571,6 @@ export async function runAgentDecisionForPlot_ACU(params: {
       .filter(Boolean));
     const maxEntriesPerChannel = control.maxEntriesPerChannel || {};
     const plotGreenlights = normalizePlotGreenlights_ACU(parsed.plotGreenlights, allowedKeys, enabledTaskIds, summaries, contextSettings.greenlightMaxTkBudget, maxEntriesPerChannel);
-    const tableFillGreenlights = applyGreenlightTkBudget_ACU(normalizeWorldbookRefs_ACU(parsed.tableFillGreenlights, allowedKeys, summaries), summaries, contextSettings.greenlightMaxTkBudget, maxEntriesPerChannel.tableFill);
     const finalGenerationGreenlights = applyGreenlightTkBudget_ACU(normalizeWorldbookRefs_ACU(parsed.finalGenerationGreenlights, allowedKeys, summaries), summaries, contextSettings.greenlightMaxTkBudget, maxEntriesPerChannel.finalGeneration);
 
     return {
@@ -578,7 +578,6 @@ export async function runAgentDecisionForPlot_ACU(params: {
       rawResponse,
       taskPlan: effectivePlan.plan,
       plotGreenlights,
-      tableFillGreenlights,
       finalGenerationGreenlights,
       effectiveTasks: effectivePlan.effectiveTasks,
     };

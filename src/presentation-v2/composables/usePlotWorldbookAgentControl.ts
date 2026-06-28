@@ -162,11 +162,7 @@ export function usePlotWorldbookAgentControl() {
         const result = await takeoverWorldbookGreenlights_ACU();
         await refresh();
         if (result.updated) {
-          const text = result.failed > 0
-            ? plotCopy.agentControl.takeover.partial(result.disabled, result.failed)
-            : plotCopy.agentControl.takeover.success(result.disabled);
-          if (result.failed > 0) toast.warning(text, { muteable: false });
-          else toast.success(text, { muteable: false });
+          toast.success(plotCopy.agentControl.takeover.success(), { muteable: false });
         } else {
           const message = plotCopy.agentControl.takeover.reasons[result.reason || ''] || plotCopy.agentControl.takeover.noop;
           toast.warning(message, { muteable: false });
@@ -185,7 +181,7 @@ export function usePlotWorldbookAgentControl() {
         const result = await restoreWorldbookGreenlights_ACU();
         await refresh();
         if (result.updated) {
-          toast.success(plotCopy.agentControl.restore.success(result.restored, result.skipped), { muteable: false });
+          toast.success(plotCopy.agentControl.restore.success(), { muteable: false });
         } else {
           const message = plotCopy.agentControl.restore.reasons[result.reason || ''] || plotCopy.agentControl.restore.noop;
           toast.info(message, { muteable: false });
@@ -291,11 +287,7 @@ export function usePlotWorldbookAgentControl() {
       const result = await takeoverWorldbookGreenlights_ACU();
       await refresh();
       if (result.updated) {
-        const text = result.failed > 0
-          ? plotCopy.agentControl.takeover.partial(result.disabled, result.failed)
-          : plotCopy.agentControl.takeover.success(result.disabled);
-        if (result.failed > 0) toast.warning(text, { muteable: false });
-        else toast.success(text, { muteable: false });
+        toast.success(plotCopy.agentControl.takeover.success(), { muteable: false });
         return true;
       }
       const message = plotCopy.agentControl.takeover.reasons[result.reason || ''] || plotCopy.agentControl.takeover.noop;
@@ -317,7 +309,7 @@ export function usePlotWorldbookAgentControl() {
       const result = await restoreWorldbookGreenlights_ACU();
       await refresh();
       if (result.updated) {
-        toast.success(plotCopy.agentControl.restore.success(result.restored, result.skipped), { muteable: false });
+        toast.success(plotCopy.agentControl.restore.success(), { muteable: false });
         return true;
       }
       const message = plotCopy.agentControl.restore.reasons[result.reason || ''] || plotCopy.agentControl.restore.noop;

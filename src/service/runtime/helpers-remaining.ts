@@ -13,8 +13,7 @@
 import { currentJsonTableData_ACU, pendingFinalGenerationGreenlights_ACU, settings_ACU } from './state-manager';
 import { logDebug_ACU } from '../../shared/utils';
 import { parseRandomTags_ACU, replaceRandomVariables_ACU, parseCalcTags_ACU, parseMaxTags_ACU, parseMinTags_ACU, replaceCalcVariables_ACU, replaceMaxVariables_ACU, replaceMinVariables_ACU, parseIfBlockRecursive_ACU, getLatestAIMessageContent_ACU, replaceDbSqlVariables } from './template-vars';
-import { getPlotFromHistory_ACU, getWorldbookContentForPlot_ACU } from './plot-runtime';
-import { readFinalGenerationGreenlights_ACU } from '../agent/agent-worldbook-takeover';
+import { getPlotFromHistory_ACU, getWorldbookContentForPlot_ACU, getAgentGreenlightWorldbookContentForPlot_ACU } from './plot-runtime';
 
 // ═══ 上下文标签提取/过滤 ═══
 export {
@@ -98,30 +97,21 @@ export {
     if (!data || !data.messages || !Array.isArray(data.messages)) {
       return;
     }
-    let finalGenerationGreenlights = Array.isArray(pendingFinalGenerationGreenlights_ACU) ? [...pendingFinalGenerationGreenlights_ACU] : [];
-    if (finalGenerationGreenlights.length === 0) {
-      try {
-        finalGenerationGreenlights = await readFinalGenerationGreenlights_ACU();
-      } catch (e) {
-        logDebug_ACU('[提示词模板] Agent 正文世界书绿灯托管状态读取失败，已跳过托管绿灯注入:', e);
-      }
-    }
+    const finalGenerationGreenlights = Array.isArray(pendingFinalGenerationGreenlights_ACU) ? [...pendingFinalGenerationGreenlights_ACU] : [];
     const startTime = Date.now();
     logDebug_ACU('[提示词模板] 开始处理酒馆提示词...');
     if (finalGenerationGreenlights.length > 0) {
       try {
-        const finalWorldbookContent = await getWorldbookContentForPlot_ACU(
+        const finalWorldbookContent = await getAgentGreenlightWorldbookContentForPlot_ACU(
           settings_ACU?.plotSettings || {},
-          '',
-          '',
           finalGenerationGreenlights,
         );
         if (typeof finalWorldbookContent === 'string' && finalWorldbookContent.trim()) {
           data.messages.push({ role: 'system', content: finalWorldbookContent });
-          logDebug_ACU('[提示词模板] Agent 正文世界书绿灯已注入，内容长度:', finalWorldbookContent.length);
+          logDebug_ACU('[提示词模板] 运行时 Agent 正文世界书绿灯已注入，内容长度:', finalWorldbookContent.length);
         }
       } catch (e) {
-        logDebug_ACU('[提示词模板] Agent 正文世界书绿灯注入失败，已回退旧逻辑:', e);
+        logDebug_ACU('[提示词模板] 运行时 Agent 正文世界书绿灯注入失败，已跳过本轮绿灯注入:', e);
       }
     }
     const lastPlotContent = getPlotFromHistory_ACU();

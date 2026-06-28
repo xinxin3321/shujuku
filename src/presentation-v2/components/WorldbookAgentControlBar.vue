@@ -49,7 +49,7 @@
         <AcuButton size="sm" variant="danger" :loading="agentControl.busy.value === 'takeover'" :disabled="agentControl.busy.value !== null || !agentControl.isAgentMode.value" @click="runTakeover">
           {{ plotCopy.agentControl.takeover.button }}
         </AcuButton>
-        <AcuButton size="sm" :loading="agentControl.busy.value === 'restore'" :disabled="agentControl.busy.value !== null || !agentControl.snapshot.value.active" @click="runRestore">
+        <AcuButton size="sm" :loading="agentControl.busy.value === 'restore'" :disabled="agentControl.busy.value !== null" @click="runRestore">
           {{ plotCopy.agentControl.restore.button }}
         </AcuButton>
         <AcuButton size="sm" variant="primary" :loading="agentControl.busy.value === 'skillify'" :disabled="agentControl.busy.value !== null" @click="runSkillify">
@@ -90,9 +90,9 @@ const modeOptions: AcuSegmentedOption[] = [
   { value: 'agent', label: plotCopy.agentControl.modes.agent },
 ];
 
-const statusVariant = computed<AcuBadgeVariant>(() => agentControl.snapshot.value.active ? 'warning' : (agentControl.isAgentMode.value ? 'accent' : 'neutral'));
-const statusText = computed(() => agentControl.snapshot.value.active
-  ? plotCopy.agentControl.status.active(agentControl.snapshotEntryCount.value)
+const statusVariant = computed<AcuBadgeVariant>(() => agentControl.isAgentMode.value ? 'accent' : 'neutral');
+const statusText = computed(() => agentControl.isAgentMode.value
+  ? plotCopy.agentControl.status.active()
   : plotCopy.agentControl.status.inactive);
 
 function onModeChange(value: string): void {

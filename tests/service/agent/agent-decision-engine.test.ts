@@ -51,7 +51,6 @@ describe('runAgentDecisionForPlot_ACU', () => {
       plotGreenlights: {
         task_id: [{ entries: [1], reason: '人物模板' }],
       },
-      tableFillGreenlights: [],
       finalGenerationGreenlights: [{ entries: [1], reason: '最终生成' }],
       fallbackMode: false,
       reason: 'ok',
@@ -84,7 +83,6 @@ describe('runAgentDecisionForPlot_ACU', () => {
     mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
       taskPlan: [{ taskId: 'selectable_task', run: true, effectiveStage: 1, effectiveOrder: 0 }],
       plotGreenlights: {},
-      tableFillGreenlights: [],
       finalGenerationGreenlights: [],
       fallbackMode: false,
       reason: 'ok',
@@ -137,9 +135,13 @@ describe('runAgentDecisionForPlot_ACU', () => {
     expect(messages[0].content).toContain('"uid": 12');
     expect(messages[0].content).toContain('"index": 1');
     expect(messages[0].content).toContain('"tk": 157');
+    expect(messages[0].content).toContain('"tokenEstimate": 157');
+    expect(messages[0].content).toContain('预计消耗 157 Token');
     expect(messages[0].content).toContain('"description": "陈默人物 Skill 描述"');
     expect(messages[0].content).toContain('"triggerWhen": "陈默触发条件"');
+    expect(messages[0].content).toContain('"unit": "Token"');
     expect(messages[0].content).toContain('"max": 80000');
+    expect(messages[0].content).toContain('相关条目足够时尽可能超过 min');
     expect(messages[0].content).not.toContain('陈默人物档案');
     expect(messages[0].content).not.toContain('ACU_SKILL_META_START');
     expect(messages[0].content).not.toContain('"keys"');
@@ -188,7 +190,6 @@ describe('runAgentDecisionForPlot_ACU', () => {
     mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
       taskPlan: [{ taskId: 'selectable_task', run: true, effectiveStage: 1, effectiveOrder: 0 }],
       plotGreenlights: {},
-      tableFillGreenlights: [],
       finalGenerationGreenlights: [],
       fallbackMode: false,
       reason: 'ok',
@@ -233,7 +234,6 @@ describe('runAgentDecisionForPlot_ACU', () => {
     mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
       taskPlan: [{ taskId: 'selectable_task', run: true, effectiveStage: 1, effectiveOrder: 0 }],
       plotGreenlights: {},
-      tableFillGreenlights: [],
       finalGenerationGreenlights: [],
       fallbackMode: false,
       reason: 'ok',
@@ -281,7 +281,6 @@ describe('runAgentDecisionForPlot_ACU', () => {
     mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
       taskPlan: [{ taskId: 'blocked_task', run: true, effectiveStage: 1, effectiveOrder: 0 }],
       plotGreenlights: { blocked_task: [{ bookName: '剧情书', uid: 12, reason: '不应生效' }] },
-      tableFillGreenlights: [],
       finalGenerationGreenlights: [],
       fallbackMode: false,
       reason: 'ok',
@@ -304,7 +303,6 @@ describe('runAgentDecisionForPlot_ACU', () => {
     mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
       taskPlan: [{ taskId: 'task_id', run: true, effectiveStage: 1, effectiveOrder: 0 }],
       plotGreenlights: { task_id: [{ bookName: '剧情书', uid: 12, reason: '旧协议' }] },
-      tableFillGreenlights: [{ bookName: '剧情书', uid: 12, reason: '旧填表' }],
       finalGenerationGreenlights: [],
       fallbackMode: false,
       reason: 'ok',
@@ -318,14 +316,12 @@ describe('runAgentDecisionForPlot_ACU', () => {
     });
 
     expect(result.plotGreenlights.task_id).toEqual([{ bookName: '剧情书', uid: 12, reason: '旧协议' }]);
-    expect(result.tableFillGreenlights).toEqual([{ bookName: '剧情书', uid: 12, reason: '旧填表' }]);
   });
 
   it('keeps dual-empty tasks out of tasksJson but merges them into effectiveTasks by stage and order', async () => {
     mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
       taskPlan: [{ taskId: 'agent_task', run: true, effectiveStage: 2, effectiveOrder: 1 }],
       plotGreenlights: {},
-      tableFillGreenlights: [],
       finalGenerationGreenlights: [],
       fallbackMode: false,
       reason: 'ok',
@@ -360,7 +356,6 @@ describe('runAgentDecisionForPlot_ACU', () => {
     mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
       taskPlan: [{ taskId: 'task_id', run: false, effectiveStage: 9, effectiveOrder: 9 }],
       plotGreenlights: {},
-      tableFillGreenlights: [{ entries: [1], reason: '填表' }],
       finalGenerationGreenlights: [],
       fallbackMode: false,
       reason: 'ok',
@@ -377,7 +372,6 @@ describe('runAgentDecisionForPlot_ACU', () => {
 
     expect(result.effectiveTasks).toEqual([originalTask]);
     expect(result.taskPlan).toEqual([]);
-    expect(result.tableFillGreenlights).toEqual([{ bookName: '剧情书', uid: 12, reason: '填表' }]);
   });
 
   it('clips greenlights by max tk budget after resolving entry indexes', async () => {
@@ -391,7 +385,6 @@ describe('runAgentDecisionForPlot_ACU', () => {
     mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
       taskPlan: [{ taskId: 'task_id', run: true, effectiveStage: 1, effectiveOrder: 0 }],
       plotGreenlights: { task_id: [{ entries: [1, 2, 3], reason: '预算裁剪' }] },
-      tableFillGreenlights: [],
       finalGenerationGreenlights: [],
       fallbackMode: false,
       reason: 'ok',
