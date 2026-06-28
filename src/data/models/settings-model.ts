@@ -38,6 +38,8 @@ export interface AgentContextSettings_ACU {
   skillifyContentPreviewLimit: number;
   skillifyMaxEntries: number;
   plotWorldbookScanMessageLimit: number;
+  greenlightMinTkBudget: number;
+  greenlightMaxTkBudget: number;
 }
 
 /** 世界书条目 Skill 元数据 */
@@ -45,6 +47,7 @@ export interface WorldbookSkillMeta_ACU {
   version: 1;
   description: string;
   triggerWhen: string;
+  tk?: number;
   updatedAt: number;
   updatedBy: WorldbookSkillMetaUpdatedBy_ACU;
 }

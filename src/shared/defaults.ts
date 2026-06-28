@@ -24,6 +24,8 @@ export const DEFAULT_AGENT_CONTEXT_SETTINGS_ACU = {
   skillifyContentPreviewLimit: 1200,
   skillifyMaxEntries: 100,
   plotWorldbookScanMessageLimit: 3,
+  greenlightMinTkBudget: 20000,
+  greenlightMaxTkBudget: 80000,
 };
 
 export const AGENT_CONTEXT_SETTINGS_LIMITS_ACU = {
@@ -38,6 +40,8 @@ export const AGENT_CONTEXT_SETTINGS_LIMITS_ACU = {
   skillifyContentPreviewLimit: { min: 200, max: 5000 },
   skillifyMaxEntries: { min: 1, max: 300 },
   plotWorldbookScanMessageLimit: { min: 1, max: 20 },
+  greenlightMinTkBudget: { min: 0, max: 200000 },
+  greenlightMaxTkBudget: { min: 1, max: 200000 },
 };
 
 export function buildDefaultAgentDecisionPromptSegments_ACU() {
@@ -49,7 +53,10 @@ export function buildDefaultAgentDecisionPromptSegments_ACU() {
         '你必须基于用户输入、最近上下文、推进任务 Skill、世界书 Skill 元数据，决定本轮剧情推进任务和世界书绿灯条目。',
         '只返回严格 JSON 对象，不要 Markdown，不要解释。',
         'JSON 结构：{{agent.outputSchemaJson}}',
-        'taskId 必须来自候选任务。世界书 bookName/uid 必须来自候选世界书。effectiveStage 必须为正整数，effectiveOrder 必须为非负整数。',
+        'taskId 必须来自候选任务。候选任务只包含需要 Agent 判断的任务；未出现的任务会按用户设定顺序执行，不要为它们生成 taskPlan。',
+        '世界书绿灯按候选世界书 index 编号输出，禁止输出长篇解释；reason 每个编号只写一句话。',
+        'plotGreenlights 只控制剧情推进任务，且每个 taskId 的条目必须匹配该任务 description/triggerWhen；tableFillGreenlights 只控制填表；finalGenerationGreenlights 只控制正文生成。',
+        '按绿灯 TK 预算控制每个通道和每个任务的触发条目总量，不为凑下限选择无关条目。',
       ].join('\n'),
       deletable: false,
     },
@@ -61,6 +68,7 @@ export function buildDefaultAgentDecisionPromptSegments_ACU() {
         '候选推进任务 JSON：\n{{agent.tasksJson}}',
         '候选世界书条目 JSON：\n{{agent.worldbookEntriesJson}}',
         '通道条目上限 JSON：\n{{agent.maxEntriesPerChannelJson}}',
+        '绿灯 TK 预算 JSON：\n{{agent.greenlightTkBudgetJson}}',
       ].join('\n\n'),
       deletable: true,
     },
@@ -71,12 +79,12 @@ export function buildDefaultAgentSkillifyPromptSegments_ACU() {
   return [
     {
       role: 'system',
-      content: '你是 SillyTavern 世界书条目的 Skill 元数据生成器。根据条目名称和关键词，生成用于 Agent 判断是否触发该条目的描述和触发时机。只返回严格 JSON 对象，不要 Markdown，不要解释。JSON 结构：{{agent.skillify.outputSchemaJson}}',
+      content: '你是 SillyTavern 世界书条目的 Skill 元数据生成器。根据条目名称、关键词和条目 TK，生成用于 Agent 判断是否触发该条目的描述、触发时机与 tk 数值。只返回严格 JSON 对象，不要 Markdown，不要解释。JSON 结构：{{agent.skillify.outputSchemaJson}}',
       deletable: false,
     },
     {
       role: 'user',
-      content: '世界书: {{agent.skillify.bookName}}\n条目 uid: {{agent.skillify.uid}}\n条目名称/备注: {{agent.skillify.comment}}\n关键词: {{agent.skillify.keysText}}\n已有 Skill 元数据 JSON: {{agent.skillify.existingSkillMetaJson}}',
+      content: '世界书: {{agent.skillify.bookName}}\n条目 uid: {{agent.skillify.uid}}\n条目名称/备注: {{agent.skillify.comment}}\n关键词: {{agent.skillify.keysText}}\n条目 TK: {{agent.skillify.tk}}\n已有 Skill 元数据 JSON: {{agent.skillify.existingSkillMetaJson}}',
       deletable: true,
     },
   ];

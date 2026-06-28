@@ -21,6 +21,12 @@ function normalizeSkillMetaText_ACU(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeSkillMetaTk_ACU(value: unknown): number {
+  const raw = Number(value);
+  if (!Number.isFinite(raw)) return 0;
+  return Math.max(0, Math.trunc(raw));
+}
+
 function isValidUpdatedBy_ACU(value: unknown): value is WorldbookSkillMetaUpdatedBy_ACU {
   return value === 'manual' || value === 'agent-skillify';
 }
@@ -46,6 +52,7 @@ export function parseWorldbookSkillMetaFromComment_ACU(comment: unknown): Worldb
       version: 1,
       description: normalizeSkillMetaText_ACU(raw.description),
       triggerWhen: normalizeSkillMetaText_ACU(raw.triggerWhen),
+      tk: normalizeSkillMetaTk_ACU(raw.tk),
       updatedAt: Number.isFinite(Number(raw.updatedAt)) ? Number(raw.updatedAt) : 0,
       updatedBy,
     };
@@ -63,6 +70,7 @@ export function normalizeWorldbookSkillMetaDraft_ACU(
     version: 1,
     description: normalizeSkillMetaText_ACU(draft.description),
     triggerWhen: normalizeSkillMetaText_ACU(draft.triggerWhen),
+    tk: normalizeSkillMetaTk_ACU(draft.tk),
     updatedAt: Number.isFinite(Number(draft.updatedAt)) && Number(draft.updatedAt) > 0 ? Number(draft.updatedAt) : now,
     updatedBy: isValidUpdatedBy_ACU(draft.updatedBy) ? draft.updatedBy : updatedBy,
   };

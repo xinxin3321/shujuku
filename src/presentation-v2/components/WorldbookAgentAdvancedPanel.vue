@@ -136,6 +136,8 @@ const visibleContextFieldKeys: VisibleContextSettingKey_ACU[] = [
   'decisionWorldbookCandidateLimit',
   'skillifyMaxEntries',
   'plotWorldbookScanMessageLimit',
+  'greenlightMinTkBudget',
+  'greenlightMaxTkBudget',
 ];
 
 const contextFieldSteps: Record<VisibleContextSettingKey_ACU, number> = {
@@ -143,6 +145,8 @@ const contextFieldSteps: Record<VisibleContextSettingKey_ACU, number> = {
   decisionWorldbookCandidateLimit: 1,
   skillifyMaxEntries: 1,
   plotWorldbookScanMessageLimit: 1,
+  greenlightMinTkBudget: 100,
+  greenlightMaxTkBudget: 100,
 };
 
 const contextFields: ContextFieldMeta[] = visibleContextFieldKeys.map((key) => ({

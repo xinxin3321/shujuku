@@ -2,9 +2,11 @@ import { callAIWithPreset_ACU } from '../ai/api-call';
 import { settings_ACU } from '../runtime/state-manager';
 import { getCharLorebooks_ACU } from '../worldbook/worldbook-service';
 import { getLorebookEntriesByNames_ACU } from '../worldbook/pipeline';
+import { estimateTextTk_ACU, normalizeTkBudgetNumber_ACU } from '../../shared/token-estimate';
 import {
   parseWorldbookSkillMetaFromComment_ACU,
   saveWorldbookEntrySkillMeta_ACU,
+  stripWorldbookSkillMetaBlock_ACU,
   type WorldbookSkillMeta_ACU,
 } from './agent-worldbook-skill-meta';
 import {
@@ -19,6 +21,7 @@ export interface AgentSkillifyWorldbookEntrySummary_ACU {
   comment: string;
   keys: string[];
   existingSkillMeta: WorldbookSkillMeta_ACU | null;
+  tk: number;
 }
 
 export type AgentSkillifyEntryStatus_ACU = 'updated' | 'skipped' | 'failed';
@@ -28,7 +31,7 @@ export interface AgentSkillifyEntryResult_ACU {
   bookName: string;
   uid: string | number;
   reason?: string;
-  meta?: Pick<WorldbookSkillMeta_ACU, 'description' | 'triggerWhen'>;
+  meta?: Pick<WorldbookSkillMeta_ACU, 'description' | 'triggerWhen' | 'tk'>;
 }
 
 export interface AgentSkillifyRunResult_ACU {
@@ -105,13 +108,19 @@ function buildEntrySummary_ACU(
   bookName: string,
   entry: Record<string, any>,
 ): AgentSkillifyWorldbookEntrySummary_ACU {
-  const comment = String(entry?.comment || entry?.name || '').trim();
+  const rawComment = String(entry?.comment || entry?.name || '').trim();
+  const strippedComment = stripWorldbookSkillMetaBlock_ACU(rawComment);
+  const comment = strippedComment || String(entry?.name || '').trim();
+  const existingSkillMeta = parseWorldbookSkillMetaFromComment_ACU(rawComment);
+  const estimatedTk = estimateTextTk_ACU(entry?.content || comment);
+  const existingTk = Number(existingSkillMeta?.tk);
   return {
     bookName,
     uid: entry.uid,
     comment,
     keys: getWorldbookEntryKeywordsForSkillify_ACU(entry),
-    existingSkillMeta: parseWorldbookSkillMetaFromComment_ACU(comment),
+    existingSkillMeta,
+    tk: Number.isFinite(existingTk) && existingTk > 0 ? Math.trunc(existingTk) : estimatedTk,
   };
 }
 
@@ -135,9 +144,10 @@ export function buildWorldbookSkillifyPrompt_ACU(summary: AgentSkillifyWorldbook
     'agent.skillify.uid': summary.uid,
     'agent.skillify.comment': summary.comment || '（空）',
     'agent.skillify.keysText': summary.keys.join('、') || '（空）',
+    'agent.skillify.tk': summary.tk,
     'agent.skillify.contentPreview': '（已关闭）',
     'agent.skillify.existingSkillMetaJson': summary.existingSkillMeta || {},
-    'agent.skillify.outputSchemaJson': { description: '...', triggerWhen: '...' },
+    'agent.skillify.outputSchemaJson': { description: '...', triggerWhen: '...', tk: 0 },
   };
   const messages = renderAgentPromptSegments_ACU(
     control.agentSkillifyPromptSegments || getDefaultAgentSkillifyPromptSegments_ACU(),
@@ -157,15 +167,16 @@ function extractJsonObjectText_ACU(text: string): string | null {
 }
 
 
-export function parseAgentSkillifyResponse_ACU(responseText: string): Pick<WorldbookSkillMeta_ACU, 'description' | 'triggerWhen'> | null {
+export function parseAgentSkillifyResponse_ACU(responseText: string, fallbackTk = 0): Pick<WorldbookSkillMeta_ACU, 'description' | 'triggerWhen' | 'tk'> | null {
   const jsonText = extractJsonObjectText_ACU(responseText);
   if (!jsonText) return null;
   try {
     const parsed = JSON.parse(jsonText) as Record<string, unknown>;
     const description = typeof parsed.description === 'string' ? parsed.description.trim() : '';
     const triggerWhen = typeof parsed.triggerWhen === 'string' ? parsed.triggerWhen.trim() : '';
+    const tk = normalizeTkBudgetNumber_ACU(parsed.tk, fallbackTk);
     if (!description && !triggerWhen) return null;
-    return { description, triggerWhen };
+    return { description, triggerWhen, tk };
   } catch {
     return null;
   }
@@ -186,7 +197,7 @@ async function skillifySingleEntry_ACU(
     return { status: 'failed', bookName: summary.bookName, uid: summary.uid, reason: 'AI 未返回内容' };
   }
 
-  const meta = parseAgentSkillifyResponse_ACU(response);
+  const meta = parseAgentSkillifyResponse_ACU(response, summary.tk);
   if (!meta) {
     return { status: 'failed', bookName: summary.bookName, uid: summary.uid, reason: 'AI 返回不是有效 Skill JSON' };
   }

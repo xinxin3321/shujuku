@@ -118,6 +118,14 @@ export const plotCopy = {
           label: "剧情世界书扫描消息数",
           hint: "剧情推进读取世界书内容时回看的聊天消息数量；未显式保存旧配置时仍回退原 contextTurnCount。",
         },
+        greenlightMinTkBudget: {
+          label: "绿灯最小 TK 预算",
+          hint: "Agent 选择绿灯条目时的目标下限。它只用于提示模型不要选得过少，不会为了凑下限强塞无关条目。",
+        },
+        greenlightMaxTkBudget: {
+          label: "绿灯最大 TK 预算",
+          hint: "Agent 每个通道、每个剧情任务可选择的绿灯条目 TK 上限；超出时会优先保留模型先返回的高相关条目。",
+        },
       },
     },
     prompts: {

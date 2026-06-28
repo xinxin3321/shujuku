@@ -48,10 +48,10 @@ describe('runAgentDecisionForPlot_ACU', () => {
     mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
       taskPlan: [{ taskId: 'task_id', run: true, effectiveStage: 1, effectiveOrder: 0 }],
       plotGreenlights: {
-        task_id: [{ bookName: '剧情书', uid: 12, reason: '人物模板' }],
+        task_id: [{ entries: [1], reason: '人物模板' }],
       },
       tableFillGreenlights: [],
-      finalGenerationGreenlights: [{ bookName: '剧情书', uid: 12, reason: '最终生成' }],
+      finalGenerationGreenlights: [{ entries: [1], reason: '最终生成' }],
       fallbackMode: false,
       reason: 'ok',
     }));
@@ -60,7 +60,7 @@ describe('runAgentDecisionForPlot_ACU', () => {
       plotSettings: { agentWorldbookControl: { enabled: true, mode: 'agent' } },
       userMessage: '敲门',
       sharedContext: {},
-      enabledTasks: [{ id: 'task id', name: '默认任务', enabled: true, promptGroup: { messages: [] } }],
+      enabledTasks: [{ id: 'task id', name: '默认任务', description: '需要判断的剧情任务', enabled: true, promptGroup: { messages: [] } }],
     });
 
     expect(result.active).toBe(true);
@@ -99,7 +99,7 @@ describe('runAgentDecisionForPlot_ACU', () => {
             decisionRecentContextCharLimit: 1,
           },
           agentDecisionPromptSegments: [
-            { role: 'user', deletable: true, content: 'P={{agent.previousPlot}}\nR={{agent.recentContext}}\nT={{agent.tasksJson}}\nW={{agent.worldbookEntriesJson}}' },
+            { role: 'user', deletable: true, content: 'P={{agent.previousPlot}}\nR={{agent.recentContext}}\nT={{agent.tasksJson}}\nW={{agent.worldbookEntriesJson}}\nB={{agent.greenlightTkBudgetJson}}' },
           ],
         },
       },
@@ -115,7 +115,7 @@ describe('runAgentDecisionForPlot_ACU', () => {
         ],
       },
       enabledTasks: [
-        { id: 'selectable task', name: '可选任务', enabled: true, promptGroup: { messages: [] } },
+        { id: 'selectable task', name: '可选任务', description: '需要 Agent 判断', enabled: true, promptGroup: { messages: [] } },
         { id: 'blocked task', name: '不可选任务', enabled: true, agentControl: { selectable: false }, promptGroup: { messages: [] } },
       ],
     });
@@ -135,8 +135,11 @@ describe('runAgentDecisionForPlot_ACU', () => {
     expect(messages[0].content).not.toContain('旧最近上下文兜底不应使用');
     expect(messages[0].content).toContain('"bookName": "剧情书"');
     expect(messages[0].content).toContain('"uid": 12');
+    expect(messages[0].content).toContain('"index": 1');
+    expect(messages[0].content).toContain('"tk": 157');
     expect(messages[0].content).toContain('"description": "陈默人物 Skill 描述"');
     expect(messages[0].content).toContain('"triggerWhen": "陈默触发条件"');
+    expect(messages[0].content).toContain('"max": 80000');
     expect(messages[0].content).not.toContain('陈默人物档案');
     expect(messages[0].content).not.toContain('ACU_SKILL_META_START');
     expect(messages[0].content).not.toContain('"keys"');
@@ -178,7 +181,7 @@ describe('runAgentDecisionForPlot_ACU', () => {
           { is_user: false, name: '角色', mes: '第二层AI回复' },
         ],
       },
-      enabledTasks: [{ id: 'selectable task', name: '可选任务', enabled: true, promptGroup: { messages: [] } }],
+      enabledTasks: [{ id: 'selectable task', name: '可选任务', description: '需要 Agent 判断', enabled: true, promptGroup: { messages: [] } }],
     });
 
     expect(result.active).toBe(true);
@@ -222,7 +225,7 @@ describe('runAgentDecisionForPlot_ACU', () => {
           { is_user: false, name: '角色', mes: '第三层AI回复' },
         ],
       },
-      enabledTasks: [{ id: 'selectable task', name: '可选任务', enabled: true, promptGroup: { messages: [] } }],
+      enabledTasks: [{ id: 'selectable task', name: '可选任务', description: '需要 Agent 判断', enabled: true, promptGroup: { messages: [] } }],
     });
 
     expect(result.active).toBe(true);
@@ -257,8 +260,114 @@ describe('runAgentDecisionForPlot_ACU', () => {
     });
 
     expect(result.active).toBe(true);
-    expect(result.taskPlan).toEqual([{ taskId: 'blocked_task', run: false, effectiveStage: 1, effectiveOrder: 0, mode: '', reason: 'task_not_selectable' }]);
+    expect(result.taskPlan).toEqual([]);
     expect(result.effectiveTasks).toEqual([]);
     expect(result.plotGreenlights).toEqual({});
+  });
+
+  it('accepts legacy bookName uid greenlight protocol', async () => {
+    mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
+      taskPlan: [{ taskId: 'task_id', run: true, effectiveStage: 1, effectiveOrder: 0 }],
+      plotGreenlights: { task_id: [{ bookName: '剧情书', uid: 12, reason: '旧协议' }] },
+      tableFillGreenlights: [{ bookName: '剧情书', uid: 12, reason: '旧填表' }],
+      finalGenerationGreenlights: [],
+      fallbackMode: false,
+      reason: 'ok',
+    }));
+
+    const result = await runAgentDecisionForPlot_ACU({
+      plotSettings: { agentWorldbookControl: { enabled: true, mode: 'agent' } },
+      userMessage: '敲门',
+      sharedContext: {},
+      enabledTasks: [{ id: 'task id', name: '默认任务', description: '需要判断的剧情任务', enabled: true, promptGroup: { messages: [] } }],
+    });
+
+    expect(result.plotGreenlights.task_id).toEqual([{ bookName: '剧情书', uid: 12, reason: '旧协议' }]);
+    expect(result.tableFillGreenlights).toEqual([{ bookName: '剧情书', uid: 12, reason: '旧填表' }]);
+  });
+
+  it('keeps dual-empty tasks out of tasksJson but merges them into effectiveTasks by stage and order', async () => {
+    mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
+      taskPlan: [{ taskId: 'agent_task', run: true, effectiveStage: 2, effectiveOrder: 1 }],
+      plotGreenlights: {},
+      tableFillGreenlights: [],
+      finalGenerationGreenlights: [],
+      fallbackMode: false,
+      reason: 'ok',
+    }));
+
+    const result = await runAgentDecisionForPlot_ACU({
+      plotSettings: {
+        agentWorldbookControl: {
+          enabled: true,
+          mode: 'agent',
+          agentDecisionPromptSegments: [{ role: 'user', deletable: true, content: 'T={{agent.tasksJson}}' }],
+        },
+      },
+      userMessage: '继续',
+      sharedContext: {},
+      enabledTasks: [
+        { id: 'agent task', name: '需判断', description: '有描述', triggerWhen: '', stage: 1, order: 0, enabled: true, promptGroup: { messages: [] } },
+        { id: 'empty late', name: '空任务后', description: '', triggerWhen: '', stage: 2, order: 0, enabled: true, promptGroup: { messages: [] } },
+        { id: 'empty early', name: '空任务前', description: '', triggerWhen: '', stage: 1, order: 1, enabled: true, promptGroup: { messages: [] } },
+      ],
+    });
+
+    const prompt = mockCallAIWithPreset.mock.calls[0][0][0].content;
+    expect(prompt).toContain('agent_task');
+    expect(prompt).not.toContain('empty_late');
+    expect(prompt).not.toContain('empty_early');
+    expect(result.effectiveTasks.map(task => task.id)).toEqual(['empty_early', 'empty_late', 'agent_task']);
+    expect(result.effectiveTasks[2].__agentEffective).toBe(true);
+  });
+
+  it('does not apply taskPlan to effectiveTasks when requireTaskPlan is false', async () => {
+    mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
+      taskPlan: [{ taskId: 'task_id', run: false, effectiveStage: 9, effectiveOrder: 9 }],
+      plotGreenlights: {},
+      tableFillGreenlights: [{ entries: [1], reason: '填表' }],
+      finalGenerationGreenlights: [],
+      fallbackMode: false,
+      reason: 'ok',
+    }));
+    const originalTask = { id: 'task id', name: '默认任务', description: '需要判断的剧情任务', enabled: true, promptGroup: { messages: [] } };
+
+    const result = await runAgentDecisionForPlot_ACU({
+      plotSettings: { agentWorldbookControl: { enabled: true, mode: 'agent' } },
+      userMessage: '填表',
+      sharedContext: {},
+      enabledTasks: [originalTask],
+      requireTaskPlan: false,
+    });
+
+    expect(result.effectiveTasks).toEqual([originalTask]);
+    expect(result.taskPlan).toEqual([]);
+    expect(result.tableFillGreenlights).toEqual([{ bookName: '剧情书', uid: 12, reason: '填表' }]);
+  });
+
+  it('clips greenlights by max tk budget after resolving entry indexes', async () => {
+    mockRefreshPlotAgentWorldbookSnapshot.mockResolvedValueOnce({ active: true, selectionSignature: 'scope', createdAt: 1, books: { '剧情书': [{ uid: 1 }, { uid: 2 }, { uid: 3 }] } });
+    mockGetLorebookEntries.mockResolvedValueOnce([
+      { uid: 1, comment: '一号', keys: ['一'], content: 'A'.repeat(100), enabled: true },
+      { uid: 2, comment: '二号', keys: ['二'], content: 'B'.repeat(100), enabled: true },
+      { uid: 3, comment: '三号', keys: ['三'], content: 'C'.repeat(10), enabled: true },
+    ]);
+    mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
+      taskPlan: [{ taskId: 'task_id', run: true, effectiveStage: 1, effectiveOrder: 0 }],
+      plotGreenlights: { task_id: [{ entries: [1, 2, 3], reason: '预算裁剪' }] },
+      tableFillGreenlights: [],
+      finalGenerationGreenlights: [],
+      fallbackMode: false,
+      reason: 'ok',
+    }));
+
+    const result = await runAgentDecisionForPlot_ACU({
+      plotSettings: { agentWorldbookControl: { enabled: true, mode: 'agent', contextSettings: { greenlightMaxTkBudget: 80 }, maxEntriesPerChannel: { plot: 3 } } },
+      userMessage: '敲门',
+      sharedContext: {},
+      enabledTasks: [{ id: 'task id', name: '默认任务', description: '需要判断的剧情任务', enabled: true, promptGroup: { messages: [] } }],
+    });
+
+    expect(result.plotGreenlights.task_id).toEqual([{ bookName: '剧情书', uid: 1, reason: '预算裁剪' }, { bookName: '剧情书', uid: 3, reason: '预算裁剪' }]);
   });
 });
