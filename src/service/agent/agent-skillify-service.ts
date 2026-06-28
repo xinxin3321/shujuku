@@ -19,6 +19,7 @@ export interface AgentSkillifyWorldbookEntrySummary_ACU {
   bookName: string;
   uid: string | number;
   comment: string;
+  content: string;
   keys: string[];
   existingSkillMeta: WorldbookSkillMeta_ACU | null;
   tk: number;
@@ -111,13 +112,15 @@ function buildEntrySummary_ACU(
   const rawComment = String(entry?.comment || entry?.name || '').trim();
   const strippedComment = stripWorldbookSkillMetaBlock_ACU(rawComment);
   const comment = strippedComment || String(entry?.name || '').trim();
+  const content = String(entry?.content || '').trim();
   const existingSkillMeta = parseWorldbookSkillMetaFromComment_ACU(rawComment);
-  const estimatedTk = estimateTextTk_ACU(entry?.content || comment);
+  const estimatedTk = estimateTextTk_ACU(content || comment);
   const existingTk = Number(existingSkillMeta?.tk);
   return {
     bookName,
     uid: entry.uid,
     comment,
+    content,
     keys: getWorldbookEntryKeywordsForSkillify_ACU(entry),
     existingSkillMeta,
     tk: Number.isFinite(existingTk) && existingTk > 0 ? Math.trunc(existingTk) : estimatedTk,
@@ -143,9 +146,10 @@ export function buildWorldbookSkillifyPrompt_ACU(summary: AgentSkillifyWorldbook
     'agent.skillify.bookName': summary.bookName,
     'agent.skillify.uid': summary.uid,
     'agent.skillify.comment': summary.comment || '（空）',
+    'agent.skillify.content': summary.content || '（空）',
     'agent.skillify.keysText': summary.keys.join('、') || '（空）',
     'agent.skillify.tk': summary.tk,
-    'agent.skillify.contentPreview': '（已关闭）',
+    'agent.skillify.contentPreview': summary.content || '（空）',
     'agent.skillify.existingSkillMetaJson': summary.existingSkillMeta || {},
     'agent.skillify.outputSchemaJson': { description: '...', triggerWhen: '...', tk: 0 },
   };

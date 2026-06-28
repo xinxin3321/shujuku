@@ -124,6 +124,7 @@ describe('agent worldbook skillify candidate filtering', () => {
       bookName: '剧情书',
       uid: 7,
       comment: '酒馆地点',
+      content: '灯火昏暗，吧台后藏着通往地下室的暗门。',
       keys: ['酒馆', '夜晚'],
       existingSkillMeta: { version: 1, description: '旧描述', triggerWhen: '旧触发', updatedAt: 1, updatedBy: 'manual' },
       tk: 42,
@@ -134,18 +135,18 @@ describe('agent worldbook skillify candidate filtering', () => {
     expect(messages[0].content).toContain('U=7');
     expect(messages[0].content).toContain('K=酒馆、夜晚');
     expect(messages[0].content).toContain('TK=42');
-    expect(messages[0].content).toContain('C=（已关闭）');
-    expect(messages[0].content).not.toContain('灯火昏暗');
+    expect(messages[0].content).toContain('C=灯火昏暗，吧台后藏着通往地下室的暗门。');
     expect(messages[0].content).toContain('旧描述');
   });
 
-  it('keeps default skillify prompt free of worldbook content preview', () => {
+  it('renders original worldbook content in default skillify prompt', () => {
     mockSettings.plotSettings.agentWorldbookControl.agentSkillifyPromptSegments = undefined;
 
     const messages = buildWorldbookSkillifyPrompt_ACU({
       bookName: '剧情书',
       uid: 8,
       comment: '酒馆地点',
+      content: '灯火昏暗，吧台后藏着通往地下室的暗门。',
       keys: ['酒馆'],
       existingSkillMeta: null,
       tk: 7,
@@ -153,15 +154,15 @@ describe('agent worldbook skillify candidate filtering', () => {
 
     const rendered = messages.map(message => message.content).join('\n');
     expect(rendered).not.toContain('contentPreview');
-    expect(rendered).not.toContain('内容预览');
-    expect(rendered).not.toContain('灯火昏暗');
+    expect(rendered).toContain('条目正文');
+    expect(rendered).toContain('灯火昏暗，吧台后藏着通往地下室的暗门。');
     expect(rendered).toContain('描述、触发时机与 tk 数值');
     expect(rendered).toContain('酒馆地点');
     expect(rendered).toContain('条目 TK: 7');
   });
 
 
-  it('uses context settings for default skillify max entries without content preview', async () => {
+  it('uses context settings for default skillify max entries while keeping original content', async () => {
     mockSettings.plotSettings.agentWorldbookControl.contextSettings = {
       skillifyContentPreviewLimit: 1,
       skillifyMaxEntries: 1,
@@ -178,7 +179,7 @@ describe('agent worldbook skillify candidate filtering', () => {
     expect(candidates).toHaveLength(1);
     expect(candidates[0].uid).toBe('a');
     expect(candidates[0]).not.toHaveProperty('contentPreview');
-    expect(JSON.stringify(candidates[0])).not.toContain('A'.repeat(20));
+    expect(candidates[0].content).toBe('A'.repeat(250));
     expect(candidates[0].tk).toBe(157);
   });
 

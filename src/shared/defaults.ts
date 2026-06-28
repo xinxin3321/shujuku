@@ -79,12 +79,12 @@ export function buildDefaultAgentSkillifyPromptSegments_ACU() {
   return [
     {
       role: 'system',
-      content: '你是 SillyTavern 世界书条目的 Skill 元数据生成器。根据条目名称、关键词和条目 TK，生成用于 Agent 判断是否触发该条目的描述、触发时机与 tk 数值。只返回严格 JSON 对象，不要 Markdown，不要解释。JSON 结构：{{agent.skillify.outputSchemaJson}}',
+      content: '你是 SillyTavern 世界书条目的 Skill 元数据生成器。根据条目名称、关键词、条目正文和条目 TK，生成用于 Agent 判断是否触发该条目的描述、触发时机与 tk 数值。只返回严格 JSON 对象，不要 Markdown，不要解释。JSON 结构：{{agent.skillify.outputSchemaJson}}',
       deletable: false,
     },
     {
       role: 'user',
-      content: '世界书: {{agent.skillify.bookName}}\n条目 uid: {{agent.skillify.uid}}\n条目名称/备注: {{agent.skillify.comment}}\n关键词: {{agent.skillify.keysText}}\n条目 TK: {{agent.skillify.tk}}\n已有 Skill 元数据 JSON: {{agent.skillify.existingSkillMetaJson}}',
+      content: '世界书: {{agent.skillify.bookName}}\n条目 uid: {{agent.skillify.uid}}\n条目名称/备注: {{agent.skillify.comment}}\n关键词: {{agent.skillify.keysText}}\n条目 TK: {{agent.skillify.tk}}\n条目正文:\n{{agent.skillify.content}}\n已有 Skill 元数据 JSON: {{agent.skillify.existingSkillMetaJson}}',
       deletable: true,
     },
   ];
