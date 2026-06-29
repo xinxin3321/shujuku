@@ -752,7 +752,7 @@ import { normalizeAgentContextSettings_ACU } from '../../agent/agent-prompt-temp
             normalizedComment.startsWith('重要人物条目');
           const isAgentGreenlight = agentGreenlightKeySet.has(`${String(entry.bookName || '').trim()}\u0000${String(entry.uid || '').trim()}`);
           if (hasAgentGreenlights) {
-            return isAgentGreenlight || (isDbGenerated && entry.enabled !== false);
+            return isAgentGreenlight;
           }
           if (!hasAnySelection) return true;
           if (isDbGenerated) return true;
