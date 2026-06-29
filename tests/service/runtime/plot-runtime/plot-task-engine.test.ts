@@ -412,10 +412,15 @@ describe('getWorldbookContentForPlot_ACU', () => {
     );
 
     const options = mockBuildCombinedWorldbookContentByStrategy.mock.calls[0][0];
-    const greenlightEntry = { bookName: '书A', uid: 7, normalizedComment: 'TavernDB-ACU-OutlineTable-1', blocked: true, rawComment: '被屏蔽绿灯' };
+    const greenlightEntry = { bookName: '书A', uid: 7, comment: 'TavernDB-ACU-AgentGreenlight-元数据', content: '剧情推进绿灯正文', normalizedComment: 'TavernDB-ACU-OutlineTable-1', blocked: true, rawComment: '被屏蔽绿灯' };
+    const normalEntry = { bookName: '书A', uid: 8, comment: '普通条目', content: '普通正文', normalizedComment: '普通条目', blocked: false };
     expect(options.includeEntry(greenlightEntry)).toBe(true);
     expect(options.forceIncludeEntry(greenlightEntry)).toBe(true);
     expect(options.isSelected(greenlightEntry)).toBe(true);
+    expect(options.formatEntry(greenlightEntry)).toBe('剧情推进绿灯正文');
+    expect(options.formatEntry(greenlightEntry)).not.toContain('TavernDB-ACU-AgentGreenlight');
+    expect(options.formatEntry(greenlightEntry)).not.toContain('#');
+    expect(options.formatEntry(normalEntry)).toBe('# 普通条目\n普通正文');
     expect(options.includeEntry({ bookName: '书A', uid: 8, normalizedComment: 'TavernDB-ACU-OutlineTable-1', blocked: true })).toBe(false);
   });
 

@@ -99,8 +99,7 @@ export {
   function formatAgentWorldbookEntryForPrompt_ACU(entry: any) {
     const content = String(entry?.content || '').trim();
     if (!content) return '';
-    const title = String(entry?.comment || entry?.normalizedComment || entry?.name || `Entry from ${entry?.bookName || 'worldbook'}`).trim();
-    return `# ${title || 'Worldbook Entry'}\n${content}`;
+    return content;
   }
 
   type AgentWorldbookInjectionItem_ACU = { order: number; content: string };
@@ -123,10 +122,12 @@ export {
     }
 
     let injectedMessageCount = 0;
+    let totalInsertedMessages = 0;
     const roleOrder: AgentWorldbookPromptRole_ACU[] = ['system', 'user', 'assistant'];
-    // Depth 必须升序处理：浅层注入先占位，后续深层注入再基于增长后的
-    // messages.length 计算位置，才能保证所有注入消息在最终数组中仍保持
-    // SillyTavern 世界书 depth 的“距尾部 N 条消息前”语义。
+    // 对齐 SillyTavern openai.js 的 populationInjectionPrompts：该 hook 阶段的
+    // messages 仍是 reverse 前的顺序，depth=i 的注入点是 i + 已插入消息数，
+    // 之后由 SillyTavern 统一 reverse 成最终请求顺序。不能用 messages.length - depth，
+    // 否则会落到靠近最后 role 的位置，表现为被合并到错误身份附近。
     const sortedDepths = Array.from(groups.keys()).sort((a, b) => a - b);
     for (const depth of sortedDepths) {
       const roleGroups = groups.get(depth)!;
@@ -141,9 +142,10 @@ export {
         })
         .filter(Boolean);
       if (injectionMessages.length === 0) continue;
-      const insertIndex = Math.max(0, messages.length - depth);
+      const insertIndex = Math.min(messages.length, Math.max(0, depth + totalInsertedMessages));
       messages.splice(insertIndex, 0, ...injectionMessages);
       injectedMessageCount += injectionMessages.length;
+      totalInsertedMessages += injectionMessages.length;
     }
     return injectedMessageCount;
   }

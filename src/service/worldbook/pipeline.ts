@@ -963,6 +963,9 @@ export   async function getCombinedWorldbookContent_ACU(initialScanTextOverride 
         return await buildCombinedWorldbookContentByStrategy_ACU({
             logPrefix: '[Worldbook]',
             bookNames,
+            formatEntry: hasAgentGreenlights
+                ? (entry: any) => String(entry?.content || '').trim()
+                : undefined,
             baseScanText: (typeof initialScanTextOverride === 'string' && initialScanTextOverride.trim()) ? initialScanTextOverride : '',
             fallbackScanText: allChatMessages_ACU.map(message => message.message).join('\n'),
             includeEntry: (entry: any) => {

@@ -714,6 +714,12 @@ import { normalizeAgentContextSettings_ACU } from '../../agent/agent-prompt-temp
       return await buildCombinedWorldbookContentByStrategy_ACU({
         logPrefix: '[剧情推进]',
         bookNames,
+        formatEntry: (entry: any) => {
+          const isAgentGreenlight = agentGreenlightKeySet.has(`${String(entry.bookName || '').trim()}\u0000${String(entry.uid || '').trim()}`);
+          if (isAgentGreenlight) return String(entry?.content || '').trim();
+          const comment = entry.comment || `Entry from ${entry.bookName}`;
+          return `# ${comment}\n${entry.content}`;
+        },
         baseScanText: [historyAndUserText, extraBaseText || ''].filter(Boolean).join('\n'),
         includeConstantEntriesInBaseScan: true,
         includeEntry: (entry: any) => {
@@ -847,7 +853,7 @@ import { normalizeAgentContextSettings_ACU } from '../../agent/agent-prompt-temp
    */
   export async function getAgentGreenlightWorldbookContentForPlot_ACU(apiSettings: Record<string, any>, agentGreenlights: AgentWorldbookRef_ACU[] = []) {
     const finalEntries = await getAgentGreenlightWorldbookEntriesForPlot_ACU(apiSettings, agentGreenlights);
-    const combinedContent = formatCombinedWorldbookEntries_ACU(finalEntries);
+    const combinedContent = formatCombinedWorldbookEntries_ACU(finalEntries, (entry: any) => String(entry?.content || '').trim());
     if (combinedContent) {
       logDebug_ACU('[剧情推进][Agent正文绿灯] Agent 正文世界书绿灯内容已生成，长度:', combinedContent.length);
     }

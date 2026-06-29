@@ -5,6 +5,7 @@ import type {
 import {
   deleteLorebookEntries_ACU,
   getLorebookEntries_ACU,
+  setLorebookEntries_ACU,
 } from '../../data/gateways/worldbook-gateway';
 import { persistTavernSettings_ACU } from '../../data/storage/tavern-storage';
 import { hashUserInput_ACU } from '../../shared/utils';
@@ -78,6 +79,10 @@ export function buildWorldbookSelectionSignature_ACU(bookNames: string[]): strin
   return hashUserInput_ACU(JSON.stringify({ scope: 'agent-worldbook-takeover', books: normalized }));
 }
 
+function buildActiveSnapshot_ACU(selectionSignature: string, books: Record<string, AgentWorldbookControlSnapshotEntry_ACU[]>): AgentWorldbookControlSnapshot_ACU {
+  return { active: true, selectionSignature, createdAt: Date.now(), books };
+}
+
 function buildInactiveSnapshot_ACU(selectionSignature = ''): AgentWorldbookControlSnapshot_ACU {
   return { active: false, selectionSignature, createdAt: 0, books: {} };
 }
@@ -109,8 +114,14 @@ export function setPlotAgentWorldbookSnapshot_ACU(snapshot: AgentWorldbookContro
 export async function refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU(): Promise<AgentWorldbookControlSnapshot_ACU> {
   const resolvedBookNames = await resolveTakeoverBookNames_ACU();
   const selectionSignature = buildWorldbookSelectionSignature_ACU(resolvedBookNames);
+  const currentSnapshot = getPlotAgentWorldbookSnapshot_ACU();
+  if (currentSnapshot.active === true && currentSnapshot.selectionSignature === selectionSignature) {
+    return currentSnapshot;
+  }
   const snapshot = buildInactiveSnapshot_ACU(selectionSignature);
-  setPlotAgentWorldbookSnapshot_ACU(snapshot);
+  if (currentSnapshot.active !== false || currentSnapshot.selectionSignature !== selectionSignature) {
+    setPlotAgentWorldbookSnapshot_ACU(snapshot);
+  }
   return snapshot;
 }
 
@@ -158,6 +169,81 @@ async function collectTakeoverCandidates_ACU(bookNames: string[]): Promise<{
   return { snapshotBooks, updates };
 }
 
+async function disableTakeoverCandidates_ACU(updates: AgentWorldbookTakeoverEntryUpdate_ACU[]): Promise<{ disabled: number; failed: number }> {
+  const updatesByBook = new Map<string, Set<string>>();
+  for (const update of updates) {
+    if (!hasValidWorldbookUid_ACU(update.uid)) continue;
+    const bookName = String(update.bookName || '').trim();
+    if (!bookName) continue;
+    if (!updatesByBook.has(bookName)) updatesByBook.set(bookName, new Set());
+    updatesByBook.get(bookName)!.add(String(update.uid));
+  }
+
+  let disabled = 0;
+  let failed = 0;
+  for (const [bookName, uidSet] of updatesByBook.entries()) {
+    try {
+      const entries = await getLorebookEntries_ACU(bookName);
+      const patchEntries = (entries || [])
+        .filter(entry => uidSet.has(String(entry?.uid)) && entry?.enabled !== false)
+        .map(entry => ({ uid: entry.uid, enabled: false }));
+      if (patchEntries.length === 0) continue;
+      await setLorebookEntries_ACU(bookName, patchEntries);
+      disabled += patchEntries.length;
+    } catch (error) {
+      failed += uidSet.size;
+    }
+  }
+  return { disabled, failed };
+}
+
+async function restoreSnapshotEntries_ACU(snapshot: AgentWorldbookControlSnapshot_ACU): Promise<{ restored: number; skipped: number; failed: number }> {
+  let restored = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const [bookName, snapshotEntries] of Object.entries(snapshot.books || {})) {
+    const normalizedBookName = String(bookName || '').trim();
+    const entriesToRestore = Array.isArray(snapshotEntries) ? snapshotEntries : [];
+    if (!normalizedBookName || entriesToRestore.length === 0) continue;
+    try {
+      const currentEntries = await getLorebookEntries_ACU(normalizedBookName);
+      const currentByUid = new Map((currentEntries || []).map(entry => [String(entry?.uid), entry]));
+      const patches: any[] = [];
+      for (const snapshotEntry of entriesToRestore) {
+        if (!hasValidWorldbookUid_ACU(snapshotEntry?.uid)) {
+          skipped += 1;
+          continue;
+        }
+        const currentEntry = currentByUid.get(String(snapshotEntry.uid));
+        if (!currentEntry) {
+          skipped += 1;
+          continue;
+        }
+        const currentComment = typeof currentEntry.comment === 'string' ? currentEntry.comment : '';
+        if (snapshotEntry.commentHash && hashUserInput_ACU(currentComment) !== snapshotEntry.commentHash) {
+          skipped += 1;
+          continue;
+        }
+        patches.push({
+          uid: snapshotEntry.uid,
+          enabled: snapshotEntry.previousEnabled !== false,
+          keys: Array.isArray(snapshotEntry.previousKeys) ? snapshotEntry.previousKeys : [],
+          type: snapshotEntry.previousType,
+        });
+      }
+      if (patches.length > 0) {
+        await setLorebookEntries_ACU(normalizedBookName, patches);
+        restored += patches.length;
+      }
+    } catch (error) {
+      failed += entriesToRestore.length;
+    }
+  }
+
+  return { restored, skipped, failed };
+}
+
 export async function writeFinalGenerationGreenlights_ACU(greenlights: unknown): Promise<boolean> {
   void greenlights;
   await clearFinalGenerationGreenlights_ACU();
@@ -176,10 +262,10 @@ export async function clearFinalGenerationGreenlights_ACU(): Promise<number> {
 export async function takeoverWorldbookGreenlights_ACU(): Promise<AgentWorldbookTakeoverResult_ACU> {
   const resolvedBookNames = await resolveTakeoverBookNames_ACU();
   const selectionSignature = buildWorldbookSelectionSignature_ACU(resolvedBookNames);
-  const snapshot = buildInactiveSnapshot_ACU(selectionSignature);
-  setPlotAgentWorldbookSnapshot_ACU(snapshot);
 
   if (resolvedBookNames.length === 0) {
+    const snapshot = buildInactiveSnapshot_ACU(selectionSignature);
+    setPlotAgentWorldbookSnapshot_ACU(snapshot);
     return {
       updated: false,
       reason: 'empty_scope',
@@ -195,15 +281,24 @@ export async function takeoverWorldbookGreenlights_ACU(): Promise<AgentWorldbook
 
   const { snapshotBooks, updates } = await collectTakeoverCandidates_ACU(resolvedBookNames);
   const totalCandidates = updates.length || Object.values(snapshotBooks || {}).reduce((sum, entries) => sum + (Array.isArray(entries) ? entries.length : 0), 0);
+  const existingSnapshot = getPlotAgentWorldbookSnapshot_ACU();
+  const shouldKeepExistingActiveSnapshot = totalCandidates === 0 && existingSnapshot.active === true && existingSnapshot.selectionSignature === selectionSignature;
+  const snapshot = totalCandidates > 0
+    ? buildActiveSnapshot_ACU(selectionSignature, snapshotBooks)
+    : (shouldKeepExistingActiveSnapshot ? existingSnapshot : buildInactiveSnapshot_ACU(selectionSignature));
+  const { disabled, failed } = await disableTakeoverCandidates_ACU(updates);
+  setPlotAgentWorldbookSnapshot_ACU(snapshot);
 
   return {
-    updated: true,
-    reason: 'runtime_filter_only',
+    updated: disabled > 0 || failed > 0,
+    reason: totalCandidates > 0
+      ? 'native_worldbook_trigger_disabled'
+      : (shouldKeepExistingActiveSnapshot ? 'native_worldbook_trigger_already_disabled' : 'empty_candidates'),
     bookNames: resolvedBookNames,
     selectionSignature,
     totalCandidates,
-    disabled: 0,
-    failed: 0,
+    disabled,
+    failed,
     snapshot,
     updates,
   };
@@ -212,19 +307,29 @@ export async function takeoverWorldbookGreenlights_ACU(): Promise<AgentWorldbook
 export async function restoreWorldbookGreenlights_ACU(): Promise<AgentWorldbookRestoreResult_ACU> {
   const resolvedBookNames = await resolveTakeoverBookNames_ACU();
   const selectionSignature = buildWorldbookSelectionSignature_ACU(resolvedBookNames);
+  const snapshot = getPlotAgentWorldbookSnapshot_ACU();
+  const shouldRestoreSnapshot = snapshot.active === true && snapshot.selectionSignature === selectionSignature;
+  const restoreResult = shouldRestoreSnapshot
+    ? await restoreSnapshotEntries_ACU(snapshot)
+    : { restored: 0, skipped: 0, failed: 0 };
   const deletedFinalGreenlights = await deleteInternalEntriesByComment_ACU(resolvedBookNames, AGENT_FINAL_GENERATION_GREENLIGHT_COMMENT_ACU);
   const deletedSnapshots = await deleteInternalEntriesByComment_ACU(resolvedBookNames, AGENT_WORLDBOOK_SNAPSHOT_COMMENT_ACU);
   const cleaned = deletedFinalGreenlights + deletedSnapshots;
+  const changed = restoreResult.restored + restoreResult.failed + cleaned;
   setPlotAgentWorldbookSnapshot_ACU(buildInactiveSnapshot_ACU(selectionSignature));
 
   return {
-    updated: cleaned > 0,
-    reason: cleaned > 0 ? 'legacy_artifacts_cleaned' : 'runtime_filter_only',
+    updated: changed > 0,
+    reason: restoreResult.restored > 0
+      ? 'native_worldbook_trigger_restored'
+      : (restoreResult.skipped > 0
+        ? 'native_worldbook_trigger_restore_skipped'
+        : (cleaned > 0 ? 'legacy_artifacts_cleaned' : 'no_active_snapshot')),
     bookNames: resolvedBookNames,
     selectionSignature,
-    restored: 0,
-    skipped: 0,
-    failed: 0,
+    restored: restoreResult.restored,
+    skipped: restoreResult.skipped,
+    failed: restoreResult.failed,
     updates: [],
   };
 }

@@ -843,6 +843,27 @@ describe('getCombinedWorldbookContent_ACU', () => {
     expect(result).not.toContain('内部');
   });
 
+  it('Agent 绿灯进入普通合成链路时只输出条目 content，不附加标题或 ACU 标记', async () => {
+    mockGetCurrentWorldbookConfig.mockReturnValue({
+      source: 'manual',
+      manualSelection: ['书A'],
+      enabledEntries: {},
+    });
+    mockGwGetLorebookEntries.mockResolvedValue([
+      { uid: 1, comment: 'TavernDB-ACU-AgentGreenlight-元数据', content: '绿灯正文内容', enabled: false, type: 'keyword', key: ['不会触发'], keys: [] },
+      { uid: 2, comment: '普通条目', content: '普通内容', enabled: true, type: 'constant', key: [], keys: [] },
+    ]);
+
+    const result = await getCombinedWorldbookContent_ACU('扫描文本', {
+      agentGreenlights: [{ bookName: '书A', uid: 1, reason: '正文需要' }],
+    });
+
+    expect(result).toBe('绿灯正文内容');
+    expect(result).not.toContain('TavernDB-ACU-AgentGreenlight');
+    expect(result).not.toContain('#');
+    expect(result).not.toContain('普通内容');
+  });
+
   it('异常时返回空字符串', async () => {
     mockGetCurrentWorldbookConfig.mockReturnValue({ source: 'character', enabledEntries: {} });
     mockGetCharLorebooks.mockRejectedValue(new Error('网络错误'));
