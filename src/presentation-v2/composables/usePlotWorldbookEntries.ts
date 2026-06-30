@@ -61,32 +61,7 @@ function isBlocked(comment: string): boolean {
   return BLOCKED_KEYWORDS.some(kw => comment.includes(kw));
 }
 
-function isEntryInActiveAgentWorldbookSnapshot_ACU(bookName: string, uid: unknown): boolean {
-  const normalizedBookName = String(bookName || '').trim();
-  const normalizedUid = String(uid ?? '').trim();
-  if (!normalizedBookName || !normalizedUid) return false;
-
-  const snapshot = (settings_ACU.plotSettings as any)?.agentWorldbookControlSnapshot;
-  if (!snapshot || snapshot.active !== true || !snapshot.books || typeof snapshot.books !== 'object') return false;
-  const snapshotEntries = snapshot.books[normalizedBookName];
-  if (!Array.isArray(snapshotEntries)) return false;
-  return snapshotEntries.some((item: any) => String(item?.uid ?? '').trim() === normalizedUid);
-}
-
-function hasFinalGenerationBlueLightShape_ACU(entry: any): boolean {
-  return !!entry && entry.enabled !== false
-    && String(entry.type || '').toLowerCase() === 'constant'
-    && Array.isArray(entry.keys)
-    && entry.keys.length === 0;
-}
-
-function isFinalGenerationBlueLightEntryForUI_ACU(bookName: string, entry: any): boolean {
-  return hasFinalGenerationBlueLightShape_ACU(entry)
-    && isEntryInActiveAgentWorldbookSnapshot_ACU(bookName, entry?.uid);
-}
-
-function isEntryVisibleForUI(bookName: string, entry: any): boolean {
-  if (isFinalGenerationBlueLightEntryForUI_ACU(bookName, entry)) return false;
+function isEntryVisibleForUI(_bookName: string, entry: any): boolean {
   const comment = String(entry?.comment || entry?.name || '');
   if (isDbGenerated(comment)) return false;
   if (isBlocked(comment)) return false;

@@ -4,8 +4,9 @@ const { mockGetLorebookEntriesByNames } = vi.hoisted(() => ({
   mockGetLorebookEntriesByNames: vi.fn(async () => ({})),
 }));
 
-const { mockCallAIWithPreset, mockSettings, mockParseWorldbookSkillMeta, mockSaveWorldbookEntrySkillMeta } = vi.hoisted(() => ({
+const { mockCallAIWithPreset, mockSettings, mockParseWorldbookSkillMeta, mockSaveWorldbookEntrySkillMeta, mockReadAgentWorldbookControl } = vi.hoisted(() => ({
   mockCallAIWithPreset: vi.fn(),
+  mockReadAgentWorldbookControl: vi.fn(),
   mockSaveWorldbookEntrySkillMeta: vi.fn(),
   mockParseWorldbookSkillMeta: vi.fn(() => null),
   mockSettings: {
@@ -38,6 +39,10 @@ vi.mock('../../../src/service/agent/agent-worldbook-skill-meta', () => ({
   stripWorldbookSkillMetaBlock_ACU: vi.fn((comment: unknown) => String(comment || '').replace(/\n?<!--\s*ACU_SKILL_META_START\s*\n[\s\S]*?\nACU_SKILL_META_END\s*-->\n?/g, '\n').trim()),
 }));
 
+vi.mock('../../../src/service/agent/agent-worldbook-config-meta', () => ({
+  readAgentWorldbookControlFromWorldbooks_ACU: mockReadAgentWorldbookControl,
+}));
+
 import {
   buildWorldbookSkillifyPrompt_ACU,
   collectWorldbookSkillifyCandidates_ACU,
@@ -50,11 +55,24 @@ import {
 describe('agent worldbook skillify candidate filtering', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSettings.plotSettings.agentWorldbookControl = { maxSkillifyConcurrency: 1 };
+    mockSettings.plotSettings.agentWorldbookControl = {
+      maxSkillifyConcurrency: 1,
+      agentSkillApiPreset: '',
+      contextSettings: {},
+      agentSkillifyPromptSegments: undefined,
+    };
     mockGetLorebookEntriesByNames.mockResolvedValue({});
     mockParseWorldbookSkillMeta.mockReturnValue(null);
     mockCallAIWithPreset.mockResolvedValue('');
     mockSaveWorldbookEntrySkillMeta.mockResolvedValue({ updated: true });
+    mockReadAgentWorldbookControl.mockImplementation(async () => ({
+      control: mockSettings.plotSettings.agentWorldbookControl,
+      source: 'legacy_settings',
+      bookName: '',
+      duplicateCount: 0,
+      writableBookName: '',
+      reason: 'legacy_settings_fallback',
+    }));
   });
 
   it('excludes database-generated TavernDB entries from Agent candidates', () => {
@@ -303,5 +321,40 @@ describe('agent worldbook skillify candidate filtering', () => {
 
     expect(saveFailedResult).toMatchObject({ totalCandidates: 1, updated: 0, skipped: 0, failed: 1 });
     expect(saveFailedResult.results[0].reason).toBe('写入失败');
+  });
+
+  it('uses worldbook card config before legacy settings for skillify prompt and preset', async () => {
+    mockSettings.plotSettings.agentWorldbookControl = {
+      agentSkillApiPreset: 'legacy-preset',
+      maxSkillifyConcurrency: 1,
+      contextSettings: { agentAiMaxRetries: 1, skillifyMaxEntries: 5 },
+      agentSkillifyPromptSegments: [
+        { role: 'user', deletable: true, content: 'LEGACY={{agent.skillify.bookName}}' },
+      ],
+    };
+    mockReadAgentWorldbookControl.mockResolvedValueOnce({
+      control: {
+        ...mockSettings.plotSettings.agentWorldbookControl,
+        agentSkillApiPreset: 'worldbook-preset',
+        contextSettings: { agentAiMaxRetries: 1, skillifyMaxEntries: 5 },
+        agentSkillifyPromptSegments: [
+          { role: 'user', deletable: true, content: 'WB={{agent.skillify.bookName}};UID={{agent.skillify.uid}}' },
+        ],
+      },
+      source: 'worldbook',
+      bookName: '角色A世界书',
+      duplicateCount: 0,
+      writableBookName: '角色A世界书',
+    });
+    mockGetLorebookEntriesByNames.mockResolvedValueOnce({
+      '剧情书': [{ uid: 'wb-first', comment: '地点A', content: 'A'.repeat(20), enabled: true, keys: ['A'] }],
+    });
+    mockCallAIWithPreset.mockResolvedValueOnce('{"description":"新描述","triggerWhen":"新触发","tk":4}');
+
+    await skillifyWorldbookEntries_ACU(['剧情书']);
+
+    expect(mockCallAIWithPreset).toHaveBeenCalledWith([
+      { role: 'user', content: 'WB=剧情书;UID=wb-first' },
+    ], 'worldbook-preset');
   });
 });

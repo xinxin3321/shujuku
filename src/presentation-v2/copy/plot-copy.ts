@@ -30,6 +30,21 @@ export const plotCopy = {
       inactive: "运行时过滤未启用",
       active: () => "运行时过滤已启用",
     },
+    config: {
+      status: (state: { source: string; bookName?: string; writableBookName?: string; reason?: string }) => {
+        if (state.source === "worldbook" && state.bookName) return `配置保存在世界书：${state.bookName}`;
+        if (state.source === "legacy_settings") {
+          return state.writableBookName
+            ? `正在使用旧全局配置；下次保存会写入世界书：${state.writableBookName}`
+            : "正在使用旧全局配置；当前未找到可写世界书，无法保存为卡级配置。";
+        }
+        if (state.writableBookName) return `当前使用默认配置；保存后写入世界书：${state.writableBookName}`;
+        return "当前使用默认配置；未找到可写世界书，无法保存卡级 Agent 配置。";
+      },
+      saveFailed: (reason: string) => reason === "no_config_host_book"
+        ? "未找到可写世界书，卡级 Agent 配置未保存。"
+        : `卡级 Agent 配置保存失败：${reason || "未知原因"}`,
+    },
     apiPresets: {
       decisionLabel: "Agent 决策 API",
       decisionHint: "用于 Agent 判断世界书条目是否应启用；留空则使用当前 API 配置。",
@@ -52,6 +67,9 @@ export const plotCopy = {
       error: "启用 Agent 运行时过滤失败",
       reasons: {
         empty_scope: "当前世界书范围为空，无法启用运行时过滤。",
+        no_card_agent_config: "当前角色卡世界书尚未保存 Agent 配置，未启用运行时过滤。",
+        not_agent_mode: "当前角色卡未开启 Agent 接管模式，未启用运行时过滤。",
+        no_skill_data: "当前世界书范围没有 Skill 化数据，按普通世界书流程运行。请先执行一键 Skill 化。",
         runtime_filter_only: "Agent 运行时过滤已由提示词模板阶段处理。",
         no_candidates: "当前范围没有可由 Agent 管理的世界书条目。",
       } as Record<string, string>,
@@ -84,6 +102,19 @@ export const plotCopy = {
       partial: (updated: number, skipped: number, failed: number) => `Skill 化部分完成：更新 ${updated} 条，跳过 ${skipped} 条，失败 ${failed} 条。`,
       noCandidates: "当前范围没有可 Skill 化的世界书条目。",
       error: "一键 Skill 化失败",
+    },
+    clearSkillMeta: {
+      button: "清除 Skill 化",
+      confirm: {
+        title: "清除世界书 Skill 元数据",
+        message: "将删除当前 Agent 世界书范围内条目的 Skill 元数据块。此操作不会恢复接管状态，也不会删除世界书条目正文或 Agent 配置条目。",
+        confirmLabel: "确认清除",
+        cancelLabel: "取消",
+      },
+      success: (cleared: number) => `已清除 ${cleared} 条世界书 Skill 元数据。`,
+      partial: (cleared: number, skipped: number, failed: number) => `Skill 元数据清除部分完成：清除 ${cleared} 条，跳过 ${skipped} 条，失败 ${failed} 条。`,
+      noop: "当前 Agent 世界书范围内没有可清除的 Skill 元数据。",
+      error: "清除 Skill 元数据失败",
     },
     advanced: {
       button: "Agent 高级设置",

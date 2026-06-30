@@ -9,6 +9,8 @@
     </div>
 
     <div class="acu-v2-agent-wb-control__body">
+      <p class="acu-v2-agent-wb-control__config-source">{{ agentControl.configStatusText.value }}</p>
+
       <AcuSegmentedControl
         :model-value="agentControl.mode.value"
         :options="modeOptions"
@@ -54,6 +56,9 @@
         </AcuButton>
         <AcuButton size="sm" variant="primary" :loading="agentControl.busy.value === 'skillify'" :disabled="agentControl.busy.value !== null" @click="runSkillify">
           {{ plotCopy.agentControl.skillify.button }}
+        </AcuButton>
+        <AcuButton size="sm" variant="danger" :loading="agentControl.busy.value === 'clearSkillMeta'" :disabled="agentControl.busy.value !== null" @click="runClearSkillMeta">
+          {{ plotCopy.agentControl.clearSkillMeta.button }}
         </AcuButton>
       </div>
     </div>
@@ -108,14 +113,27 @@ async function runRestore(): Promise<void> {
 async function runSkillify(): Promise<void> {
   if (await agentControl.skillifyAll()) emit('changed');
 }
+async function runClearSkillMeta(): Promise<void> {
+  if (await agentControl.clearSkillMeta()) emit('changed');
+}
 </script>
 
 <style scoped>
-.acu-v2-agent-wb-control { display: flex; flex-direction: column; gap: 10px; padding: 10px; border-radius: var(--acu-radius-sm); background: var(--acu-bg-2); }
-.acu-v2-agent-wb-control__head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.acu-v2-agent-wb-control { display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 100%; box-sizing: border-box; padding: 10px; border-radius: var(--acu-radius-sm); background: var(--acu-bg-2); }
+.acu-v2-agent-wb-control__head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; min-width: 0; max-width: 100%; }
 .acu-v2-agent-wb-control__title { font-size: var(--acu-font-size-body-lg, 13px); font-weight: 600; color: var(--acu-text-1); }
 .acu-v2-agent-wb-control__desc { margin: 3px 0 0; font-size: var(--acu-font-size-caption, 11px); color: var(--acu-text-3); line-height: 1.5; }
-.acu-v2-agent-wb-control__body { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.acu-v2-agent-wb-control__api-selects { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 8px; flex: 1 1 380px; min-width: 240px; }
-.acu-v2-agent-wb-control__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.acu-v2-agent-wb-control__body { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; max-width: 100%; }
+.acu-v2-agent-wb-control__config-source { flex: 1 1 100%; min-width: 0; margin: 0; font-size: var(--acu-font-size-caption, 11px); color: var(--acu-text-3); line-height: 1.5; overflow-wrap: anywhere; }
+.acu-v2-agent-wb-control__api-selects { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; flex: 1 1 380px; min-width: 0; max-width: 100%; }
+.acu-v2-agent-wb-control__actions { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; max-width: 100%; }
+
+@media (max-width: 720px) {
+  .acu-v2-agent-wb-control__api-selects { flex-basis: 100%; grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 480px) {
+  .acu-v2-agent-wb-control__actions { width: 100%; }
+  .acu-v2-agent-wb-control__actions :deep(.acu-btn) { flex: 1 1 100%; }
+}
 </style>

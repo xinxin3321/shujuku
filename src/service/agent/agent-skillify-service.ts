@@ -1,8 +1,10 @@
+import type { AgentWorldbookControl_ACU } from '../../data/models/settings-model';
 import { callAIWithPreset_ACU } from '../ai/api-call';
 import { settings_ACU } from '../runtime/state-manager';
 import { getCharLorebooks_ACU } from '../worldbook/worldbook-service';
 import { getLorebookEntriesByNames_ACU } from '../worldbook/pipeline';
 import { estimateTextTk_ACU, normalizeTkBudgetNumber_ACU } from '../../shared/token-estimate';
+import { buildDefaultAgentWorldbookControl_ACU } from '../../shared/defaults';
 import {
   parseWorldbookSkillMetaFromComment_ACU,
   saveWorldbookEntrySkillMeta_ACU,
@@ -14,6 +16,9 @@ import {
   normalizeAgentContextSettings_ACU,
   renderAgentPromptSegments_ACU,
 } from './agent-prompt-template';
+import {
+  readAgentWorldbookControlFromWorldbooks_ACU,
+} from './agent-worldbook-config-meta';
 
 export interface AgentSkillifyWorldbookEntrySummary_ACU {
   bookName: string;
@@ -66,6 +71,40 @@ export interface AgentSkillifyOptions_ACU {
   maxConcurrency?: number;
   maxAiRetries?: number;
   onProgress?: (event: AgentSkillifyProgressEvent_ACU) => void;
+}
+
+function readLegacyAgentSkillifyControl_ACU(): AgentWorldbookControl_ACU {
+  const defaults = buildDefaultAgentWorldbookControl_ACU() as AgentWorldbookControl_ACU;
+  const legacy = (settings_ACU.plotSettings as any)?.agentWorldbookControl;
+  if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) return defaults;
+
+  const maxEntriesPerChannel = legacy.maxEntriesPerChannel && typeof legacy.maxEntriesPerChannel === 'object'
+    ? legacy.maxEntriesPerChannel
+    : defaults.maxEntriesPerChannel;
+  return {
+    ...defaults,
+    ...legacy,
+    contextSettings: normalizeAgentContextSettings_ACU(legacy.contextSettings),
+    agentDecisionPromptSegments: Array.isArray(legacy.agentDecisionPromptSegments)
+      ? legacy.agentDecisionPromptSegments
+      : defaults.agentDecisionPromptSegments,
+    agentSkillifyPromptSegments: Array.isArray(legacy.agentSkillifyPromptSegments)
+      ? legacy.agentSkillifyPromptSegments
+      : defaults.agentSkillifyPromptSegments,
+    maxEntriesPerChannel: {
+      ...defaults.maxEntriesPerChannel,
+      ...maxEntriesPerChannel,
+    },
+  } as AgentWorldbookControl_ACU;
+}
+
+async function resolveAgentSkillifyControl_ACU(): Promise<AgentWorldbookControl_ACU> {
+  try {
+    const result = await readAgentWorldbookControlFromWorldbooks_ACU();
+    return result.control;
+  } catch {
+    return readLegacyAgentSkillifyControl_ACU();
+  }
 }
 
 function normalizeStringArray_ACU(value: unknown): string[] {
@@ -169,8 +208,10 @@ export function shouldSkipSkillifyEntry_ACU(
   return null;
 }
 
-export function buildWorldbookSkillifyPrompt_ACU(summary: AgentSkillifyWorldbookEntrySummary_ACU): Array<{ role: string; content: string }> {
-  const control = (settings_ACU.plotSettings as any)?.agentWorldbookControl || {};
+export function buildWorldbookSkillifyPrompt_ACU(
+  summary: AgentSkillifyWorldbookEntrySummary_ACU,
+  control: AgentWorldbookControl_ACU = readLegacyAgentSkillifyControl_ACU(),
+): Array<{ role: string; content: string }> {
   const placeholders = {
     'agent.skillify.bookName': summary.bookName,
     'agent.skillify.uid': summary.uid,
@@ -215,8 +256,8 @@ export function parseAgentSkillifyResponse_ACU(responseText: string, fallbackTk 
   }
 }
 
-function resolveAgentAiMaxAttempts_ACU(options: AgentSkillifyOptions_ACU = {}): number {
-  const contextSettings = normalizeAgentContextSettings_ACU((settings_ACU.plotSettings as any)?.agentWorldbookControl?.contextSettings);
+function resolveAgentAiMaxAttempts_ACU(options: AgentSkillifyOptions_ACU = {}, control: AgentWorldbookControl_ACU = readLegacyAgentSkillifyControl_ACU()): number {
+  const contextSettings = normalizeAgentContextSettings_ACU(control.contextSettings);
   const raw = Number.isFinite(Number(options.maxAiRetries)) && Number(options.maxAiRetries) > 0
     ? Number(options.maxAiRetries)
     : contextSettings.agentAiMaxRetries;
@@ -226,6 +267,7 @@ function resolveAgentAiMaxAttempts_ACU(options: AgentSkillifyOptions_ACU = {}): 
 async function skillifySingleEntry_ACU(
   summary: AgentSkillifyWorldbookEntrySummary_ACU,
   options: AgentSkillifyOptions_ACU,
+  control: AgentWorldbookControl_ACU,
   progressState?: { current: number; total: number; updated: number; skipped: number; failed: number },
 ): Promise<AgentSkillifyEntryResult_ACU> {
   const skipReason = shouldSkipSkillifyEntry_ACU(summary, options);
@@ -233,9 +275,9 @@ async function skillifySingleEntry_ACU(
     return { status: 'skipped', bookName: summary.bookName, uid: summary.uid, reason: skipReason };
   }
 
-  const presetName = options.presetName ?? (settings_ACU.plotSettings as any)?.agentWorldbookControl?.agentSkillApiPreset ?? '';
-  const messages = buildWorldbookSkillifyPrompt_ACU(summary);
-  const maxAttempts = resolveAgentAiMaxAttempts_ACU(options);
+  const presetName = options.presetName ?? control.agentSkillApiPreset ?? '';
+  const messages = buildWorldbookSkillifyPrompt_ACU(summary, control);
+  const maxAttempts = resolveAgentAiMaxAttempts_ACU(options, control);
   let lastReason = 'AI 未返回内容';
   let meta: Pick<WorldbookSkillMeta_ACU, 'description' | 'triggerWhen' | 'tk'> | null = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -306,8 +348,10 @@ function summarizeRunResults_ACU(results: AgentSkillifyEntryResult_ACU[]): Agent
 export async function collectWorldbookSkillifyCandidates_ACU(
   bookNames: string[],
   options: AgentSkillifyOptions_ACU = {},
+  resolvedControl?: AgentWorldbookControl_ACU,
 ): Promise<AgentSkillifyWorldbookEntrySummary_ACU[]> {
-  const contextSettings = normalizeAgentContextSettings_ACU((settings_ACU.plotSettings as any)?.agentWorldbookControl?.contextSettings);
+  const control = resolvedControl || await resolveAgentSkillifyControl_ACU();
+  const contextSettings = normalizeAgentContextSettings_ACU(control.contextSettings);
   const entriesMap = await getLorebookEntriesByNames_ACU(bookNames);
   const summaries: AgentSkillifyWorldbookEntrySummary_ACU[] = [];
 
@@ -330,7 +374,8 @@ export async function skillifyWorldbookEntries_ACU(
   options: AgentSkillifyOptions_ACU = {},
 ): Promise<AgentSkillifyRunResult_ACU> {
   options.onProgress?.({ phase: 'collecting', current: 0, total: 0, updated: 0, skipped: 0, failed: 0 });
-  const candidates = await collectWorldbookSkillifyCandidates_ACU(bookNames, options);
+  const control = await resolveAgentSkillifyControl_ACU();
+  const candidates = await collectWorldbookSkillifyCandidates_ACU(bookNames, options, control);
   if (candidates.length === 0) {
     const empty = summarizeRunResults_ACU([]);
     options.onProgress?.({ phase: 'complete', current: 0, total: 0, updated: 0, skipped: 0, failed: 0 });
@@ -339,12 +384,12 @@ export async function skillifyWorldbookEntries_ACU(
 
   const configuredConcurrency = Number.isFinite(Number(options.maxConcurrency)) && Number(options.maxConcurrency) > 0
     ? Number(options.maxConcurrency)
-    : (Number((settings_ACU.plotSettings as any)?.agentWorldbookControl?.maxSkillifyConcurrency) || 1);
+    : (Number(control.maxSkillifyConcurrency) || 1);
   const concurrency = Math.max(1, Math.min(configuredConcurrency, 5));
   const progressState = { current: 0, total: candidates.length, updated: 0, skipped: 0, failed: 0 };
   options.onProgress?.({ phase: 'processing', ...progressState });
   const results = await runWithConcurrency_ACU(candidates, concurrency, async (summary, index) => {
-    const result = await skillifySingleEntry_ACU(summary, options, progressState);
+    const result = await skillifySingleEntry_ACU(summary, options, control, progressState);
     progressState.current += 1;
     if (result.status === 'updated') progressState.updated += 1;
     else if (result.status === 'skipped') progressState.skipped += 1;

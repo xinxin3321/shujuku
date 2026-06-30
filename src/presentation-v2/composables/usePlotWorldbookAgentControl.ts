@@ -1,17 +1,14 @@
 import { computed, ref } from 'vue';
-import {
-  AGENT_CONTEXT_SETTINGS_LIMITS_ACU,
-  buildDefaultAgentWorldbookControl_ACU,
-} from '../../shared/defaults';
+import { AGENT_CONTEXT_SETTINGS_LIMITS_ACU } from '../../shared/defaults';
 import type {
   AgentContextSettings_ACU,
   AgentPlotExecutionMode_ACU,
+  AgentWorldbookControl_ACU,
   AgentWorldbookControlMode_ACU,
   AgentWorldbookControlSnapshot_ACU,
   PromptSegment_ACU,
 } from '../../data/models/settings-model';
 import { settings_ACU, _set_pendingFinalGenerationGreenlights_ACU } from '../../service/runtime/state-manager';
-import { saveSettings_ACU } from '../../service/settings/settings-service';
 import {
   clonePromptSegments_ACU,
   getDefaultAgentDecisionPromptSegments_ACU,
@@ -29,11 +26,21 @@ import {
   skillifyCurrentPlotWorldbookSelection_ACU,
   type AgentSkillifyProgressEvent_ACU,
 } from '../../service/agent/agent-skillify-service';
+import {
+  clearWorldbookSkillMetaBlocks_ACU,
+  resolveAgentWorldbookFilterAvailability_ACU,
+} from '../../service/agent/agent-worldbook-skill-meta';
+import {
+  readAgentWorldbookControlFromWorldbooks_ACU,
+  writeAgentWorldbookControlToWorldbook_ACU,
+  type AgentWorldbookConfigSource_ACU,
+  type AgentWorldbookControlWriteResult_ACU,
+} from '../../service/agent/agent-worldbook-config-meta';
 import { plotCopy } from '../copy/plot-copy';
 import { useDialogStore } from '../stores/dialog-store';
 import { useToastStore } from '../stores/toast-store';
 
-export type AgentWorldbookBusyAction = 'takeover' | 'restore' | 'skillify' | null;
+export type AgentWorldbookBusyAction = 'takeover' | 'restore' | 'skillify' | 'clearSkillMeta' | null;
 
 interface AgentApiPresetOption {
   value: string;
@@ -43,19 +50,6 @@ interface AgentApiPresetOption {
 export type AgentPromptKind_ACU = 'decision' | 'skillify';
 export type AgentContextSettingKey_ACU = keyof AgentContextSettings_ACU;
 export type AgentPlotExecutionModeSetting_ACU = AgentPlotExecutionMode_ACU;
-
-function ensureAgentControl_ACU(): Record<string, any> {
-  if (!settings_ACU.plotSettings || typeof settings_ACU.plotSettings!== 'object') settings_ACU.plotSettings = {} as any;
-  const plot = settings_ACU.plotSettings as Record<string, any>;
-  if (!plot.agentWorldbookControl || typeof plot.agentWorldbookControl !== 'object') {
-    plot.agentWorldbookControl = buildDefaultAgentWorldbookControl_ACU();
-  }
-  const control = plot.agentWorldbookControl as Record<string, any>;
-  if (!['disabled', 'passive', 'agent'].includes(String(control.mode))) control.mode = 'disabled';
-  if (!['sequential', 'concurrent'].includes(String(control.agentPlotExecutionMode))) control.agentPlotExecutionMode = 'sequential';
-  control.enabled = control.mode !== 'disabled';
-  return control;
-}
 
 function getPromptFallback_ACU(kind: AgentPromptKind_ACU): PromptSegment_ACU[] {
   return kind === 'decision' ? getDefaultAgentDecisionPromptSegments_ACU() : getDefaultAgentSkillifyPromptSegments_ACU();
@@ -127,11 +121,15 @@ export function usePlotWorldbookAgentControl() {
   const toast = useToastStore();
   const dialog = useDialogStore();
   const mode = ref<AgentWorldbookControlMode_ACU>('disabled');
-  const agentPlotExecutionMode = ref<AgentPlotExecutionMode_ACU>('sequential');
+  const agentPlotExecutionMode = ref<AgentPlotExecutionMode_ACU>('concurrent');
   const agentApiPreset = ref('');
   const agentSkillApiPreset = ref('');
   const snapshot = ref<AgentWorldbookControlSnapshot_ACU>(getPlotAgentWorldbookSnapshot_ACU());
   const busy = ref<AgentWorldbookBusyAction>(null);
+  const configSource = ref<AgentWorldbookConfigSource_ACU>('default');
+  const configBookName = ref('');
+  const writableConfigBookName = ref('');
+  const configReason = ref('');
   const contextSettings = ref<AgentContextSettings_ACU>(normalizeAgentContextSettings_ACU(undefined));
   const agentDecisionPromptSegments = ref<PromptSegment_ACU[]>(getDefaultAgentDecisionPromptSegments_ACU());
   const agentSkillifyPromptSegments = ref<PromptSegment_ACU[]>(getDefaultAgentSkillifyPromptSegments_ACU());
@@ -139,31 +137,47 @@ export function usePlotWorldbookAgentControl() {
   const isAgentMode = computed(() => mode.value === 'agent');
   const snapshotEntryCount = computed(() => countSnapshotEntries(snapshot.value));
   const apiPresetOptions = computed<AgentApiPresetOption[]>(getAgentApiPresetOptions_ACU);
+  const configStatusText = computed(() => plotCopy.agentControl.config.status({
+    source: configSource.value,
+    bookName: configBookName.value,
+    writableBookName: writableConfigBookName.value,
+    reason: configReason.value,
+  }));
+
+  function applyControlToRefs(control: AgentWorldbookControl_ACU): void {
+    mode.value = control.mode;
+    agentPlotExecutionMode.value = control.agentPlotExecutionMode;
+    agentApiPreset.value = normalizeAgentApiPreset_ACU(control.agentApiPreset);
+    agentSkillApiPreset.value = normalizeAgentApiPreset_ACU(control.agentSkillApiPreset);
+    contextSettings.value = cloneContextSettings_ACU(normalizeAgentContextSettings_ACU(control.contextSettings));
+    agentDecisionPromptSegments.value = clonePromptSegments_ACU(readPromptSegments_ACU(control as unknown as Record<string, any>, 'decision'));
+    agentSkillifyPromptSegments.value = clonePromptSegments_ACU(readPromptSegments_ACU(control as unknown as Record<string, any>, 'skillify'));
+  }
 
   async function refresh(): Promise<void> {
-    const control = ensureAgentControl_ACU();
-    const nextAgentApiPreset = normalizeAgentApiPreset_ACU(control.agentApiPreset);
-    const nextAgentSkillApiPreset = normalizeAgentApiPreset_ACU(control.agentSkillApiPreset);
-    const shouldSave = control.agentApiPreset !== nextAgentApiPreset || control.agentSkillApiPreset !== nextAgentSkillApiPreset;
-    control.agentApiPreset = nextAgentApiPreset;
-    control.agentSkillApiPreset = nextAgentSkillApiPreset;
-    if (shouldSave) saveSettings_ACU();
-    mode.value = control.mode as AgentWorldbookControlMode_ACU;
-    agentPlotExecutionMode.value = control.agentPlotExecutionMode as AgentPlotExecutionMode_ACU;
-    agentApiPreset.value = nextAgentApiPreset;
-    agentSkillApiPreset.value = nextAgentSkillApiPreset;
-    contextSettings.value = cloneContextSettings_ACU(normalizeAgentContextSettings_ACU(control.contextSettings));
-    agentDecisionPromptSegments.value = clonePromptSegments_ACU(readPromptSegments_ACU(control, 'decision'));
-    agentSkillifyPromptSegments.value = clonePromptSegments_ACU(readPromptSegments_ACU(control, 'skillify'));
+    const result = await readAgentWorldbookControlFromWorldbooks_ACU();
+    configSource.value = result.source;
+    configBookName.value = result.bookName || '';
+    writableConfigBookName.value = result.writableBookName || '';
+    configReason.value = result.reason || '';
+    applyControlToRefs(result.control);
     snapshot.value = await refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU();
   }
 
-  async function setMode(next: AgentWorldbookControlMode_ACU): Promise<void> {
-    const control = ensureAgentControl_ACU();
-    control.mode = next;
-    control.enabled = next !== 'disabled';
-    saveSettings_ACU();
+  async function writeControlPatch(patch: Partial<AgentWorldbookControl_ACU>): Promise<AgentWorldbookControlWriteResult_ACU | null> {
+    const result = await writeAgentWorldbookControlToWorldbook_ACU(patch);
+    if (!result.updated) {
+      toast.error(plotCopy.agentControl.config.saveFailed(result.reason || 'unknown'), { muteable: false });
+      applyControlToRefs(result.control);
+      return null;
+    }
     await refresh();
+    return result;
+  }
+
+  async function setMode(next: AgentWorldbookControlMode_ACU): Promise<void> {
+    const saved = await writeControlPatch({ mode: next, enabled: next !== 'disabled' });
+    if (!saved) return;
     if (next === 'agent') {
       busy.value = 'takeover';
       try {
@@ -205,50 +219,38 @@ export function usePlotWorldbookAgentControl() {
   }
 
   async function setAgentPlotExecutionMode(next: AgentPlotExecutionMode_ACU): Promise<void> {
-    const control = ensureAgentControl_ACU();
-    control.agentPlotExecutionMode = next === 'concurrent' ? 'concurrent' : 'sequential';
-    saveSettings_ACU();
-    await refresh();
+    await writeControlPatch({ agentPlotExecutionMode: next === 'concurrent' ? 'concurrent' : 'sequential' });
   }
 
   async function setAgentApiPreset(next: string): Promise<void> {
-    const control = ensureAgentControl_ACU();
-    control.agentApiPreset = normalizeAgentApiPreset_ACU(next);
-    saveSettings_ACU();
-    await refresh();
+    await writeControlPatch({ agentApiPreset: normalizeAgentApiPreset_ACU(next) });
   }
 
   async function setAgentSkillApiPreset(next: string): Promise<void> {
-    const control = ensureAgentControl_ACU();
-    control.agentSkillApiPreset = normalizeAgentApiPreset_ACU(next);
-    saveSettings_ACU();
-    await refresh();
+    await writeControlPatch({ agentSkillApiPreset: normalizeAgentApiPreset_ACU(next) });
   }
 
   async function setContextSetting(key: AgentContextSettingKey_ACU, value: unknown): Promise<boolean> {
     const next = normalizeContextPatch_ACU(contextSettings.value, key, value);
     if (!next) return false;
-    const control = ensureAgentControl_ACU();
-    control.contextSettings = next;
-    control.contextSettingsConfigured = true;
-    saveSettings_ACU();
-    await refresh();
-    return true;
+    return Boolean(await writeControlPatch({ contextSettings: next, contextSettingsConfigured: true }));
   }
 
   async function resetContextSettings(): Promise<void> {
-    const control = ensureAgentControl_ACU();
-    control.contextSettings = normalizeAgentContextSettings_ACU(undefined);
-    control.contextSettingsConfigured = true;
-    saveSettings_ACU();
-    await refresh();
+    await writeControlPatch({
+      contextSettings: normalizeAgentContextSettings_ACU(undefined),
+      contextSettingsConfigured: true,
+    });
   }
 
   async function setPromptSegments(kind: AgentPromptKind_ACU, segments: PromptSegment_ACU[]): Promise<void> {
-    const control = ensureAgentControl_ACU();
+    const control = {
+      agentDecisionPromptSegments: agentDecisionPromptSegments.value,
+      agentSkillifyPromptSegments: agentSkillifyPromptSegments.value,
+    } as Record<string, any>;
     writePromptSegments_ACU(control, kind, segments);
-    saveSettings_ACU();
-    await refresh();
+    const key = kind === 'decision' ? 'agentDecisionPromptSegments' : 'agentSkillifyPromptSegments';
+    await writeControlPatch({ [key]: control[key] } as Partial<AgentWorldbookControl_ACU>);
   }
 
   async function resetPromptSegments(kind: AgentPromptKind_ACU): Promise<void> {
@@ -345,7 +347,6 @@ export function usePlotWorldbookAgentControl() {
     busy.value = 'skillify';
     let progressToastId: string | null = null;
     try {
-      const control = ensureAgentControl_ACU();
       const progressOptions = { durationMs: 0, muteable: false, dismissible: false };
       const formatProgressText = (event: AgentSkillifyProgressEvent_ACU): string => {
         if (event.phase === 'collecting') return '正在扫描当前世界书范围内可 Skill 化的条目...';
@@ -372,9 +373,9 @@ export function usePlotWorldbookAgentControl() {
         progressToastId = toast.info(text, progressOptions);
       };
       const result = await skillifyCurrentPlotWorldbookSelection_ACU({
-        presetName: String(control.agentSkillApiPreset || ''),
+        presetName: agentSkillApiPreset.value,
         overwriteManual: false,
-        maxAiRetries: control.contextSettings.agentAiMaxRetries,
+        maxAiRetries: contextSettings.value.agentAiMaxRetries,
         onProgress: notifyProgress,
       });
       if (result.totalCandidates === 0) {
@@ -386,15 +387,66 @@ export function usePlotWorldbookAgentControl() {
       const text = result.failed > 0
         ? plotCopy.agentControl.skillify.partial(result.updated, result.skipped, result.failed)
         : plotCopy.agentControl.skillify.success(result.updated, result.skipped);
-      if (progressToastId && toast.update(progressToastId, result.failed > 0 ? 'warning' : 'success', text, { muteable: false })) return result.updated > 0;
-      if (result.failed > 0) toast.warning(text, { muteable: false });
-      else toast.success(text, { muteable: false });
-      return result.updated > 0;
+      const toastUpdated = progressToastId && toast.update(progressToastId, result.failed > 0 ? 'warning' : 'success', text, { muteable: false });
+      if (!toastUpdated) {
+        if (result.failed > 0) toast.warning(text, { muteable: false });
+        else toast.success(text, { muteable: false });
+      }
+
+      let takeoverUpdated = false;
+      if (mode.value === 'agent') {
+        const takeoverResult = await takeoverWorldbookGreenlights_ACU();
+        await refresh();
+        takeoverUpdated = takeoverResult.updated;
+        if (!takeoverResult.updated) {
+          const message = plotCopy.agentControl.takeover.reasons[takeoverResult.reason || ''] || plotCopy.agentControl.takeover.noop;
+          toast.info(message, { muteable: false });
+        }
+      }
+      return result.updated > 0 || takeoverUpdated;
     } catch (e: any) {
       const errorText = `${plotCopy.agentControl.skillify.error}${e?.message ? `：${e.message}` : ''}`;
       if (!progressToastId || !toast.update(progressToastId, 'error', errorText, { muteable: false })) {
         toast.error(errorText, { muteable: false });
       }
+      return false;
+    } finally {
+      busy.value = null;
+    }
+  }
+
+  async function clearSkillMeta(): Promise<boolean> {
+    const confirmed = await dialog.confirm({ ...plotCopy.agentControl.clearSkillMeta.confirm, confirmVariant: 'danger' });
+    if (!confirmed) return false;
+    busy.value = 'clearSkillMeta';
+    try {
+      const availability = await resolveAgentWorldbookFilterAvailability_ACU();
+      configSource.value = availability.configSource;
+      configBookName.value = availability.configBookName;
+      writableConfigBookName.value = availability.writableBookName;
+      configReason.value = availability.reason;
+      applyControlToRefs(availability.control);
+
+      const result = await clearWorldbookSkillMetaBlocks_ACU(availability.bookNames);
+      const nextAvailability = await resolveAgentWorldbookFilterAvailability_ACU();
+      configSource.value = nextAvailability.configSource;
+      configBookName.value = nextAvailability.configBookName;
+      writableConfigBookName.value = nextAvailability.writableBookName;
+      configReason.value = nextAvailability.reason;
+      applyControlToRefs(nextAvailability.control);
+
+      if (result.failed > 0) {
+        toast.warning(plotCopy.agentControl.clearSkillMeta.partial(result.cleared, result.skipped, result.failed), { muteable: false });
+        return result.cleared > 0;
+      }
+      if (result.cleared > 0) {
+        toast.success(plotCopy.agentControl.clearSkillMeta.success(result.cleared), { muteable: false });
+        return true;
+      }
+      toast.info(plotCopy.agentControl.clearSkillMeta.noop, { muteable: false });
+      return false;
+    } catch (e: any) {
+      toast.error(`${plotCopy.agentControl.clearSkillMeta.error}${e?.message ? `：${e.message}` : ''}`, { muteable: false });
       return false;
     } finally {
       busy.value = null;
@@ -410,6 +462,10 @@ export function usePlotWorldbookAgentControl() {
     agentSkillApiPreset,
     snapshot,
     busy,
+    configSource,
+    configBookName,
+    writableConfigBookName,
+    configStatusText,
     contextSettings,
     contextSettingsLimits: AGENT_CONTEXT_SETTINGS_LIMITS_ACU,
     agentDecisionPromptSegments,
@@ -433,5 +489,6 @@ export function usePlotWorldbookAgentControl() {
     movePromptSegment,
     restore,
     skillifyAll,
+    clearSkillMeta,
   };
 }

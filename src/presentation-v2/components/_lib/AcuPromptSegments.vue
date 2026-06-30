@@ -133,12 +133,13 @@ function onSlot(index: number, raw: string): void {
 </script>
 
 <style scoped>
-.acu-prompt-segs { display: flex; flex-direction: column; gap: 10px; }
-.acu-prompt-segs__add { display: flex; justify-content: center; }
+.acu-prompt-segs { display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 100%; }
+.acu-prompt-segs__add { display: flex; justify-content: center; min-width: 0; max-width: 100%; }
+.acu-prompt-segs__add-btn { max-width: 100%; white-space: normal; }
 
 .acu-prompt-segs__list {
   list-style: none; margin: 0; padding: 0;
-  display: flex; flex-direction: column; gap: 10px;
+  display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 100%;
 }
 
 .acu-prompt-segs__item {
@@ -146,6 +147,7 @@ function onSlot(index: number, raw: string): void {
   border-radius: 0;
   background: transparent; padding: 0 0 12px;
   display: flex; flex-direction: column; gap: 8px;
+  min-width: 0; max-width: 100%;
 }
 
 .acu-prompt-segs__item:last-child {
@@ -154,7 +156,7 @@ function onSlot(index: number, raw: string): void {
 }
 
 .acu-prompt-segs__item-head {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; max-width: 100%;
 }
 
 .acu-prompt-segs__index {
@@ -163,8 +165,8 @@ function onSlot(index: number, raw: string): void {
   font-family: var(--acu-font-mono);
 }
 
-.acu-prompt-segs__role { min-width: 110px; }
-.acu-prompt-segs__slot { min-width: 120px; }
+.acu-prompt-segs__role { flex: 1 1 110px; min-width: 0; max-width: 180px; }
+.acu-prompt-segs__slot { flex: 1 1 120px; min-width: 0; max-width: 200px; }
 
 .acu-prompt-segs__actions {
   margin-left: auto;
@@ -172,6 +174,15 @@ function onSlot(index: number, raw: string): void {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  min-width: 0;
+}
+
+.acu-prompt-segs :deep(.acu-textarea),
+.acu-prompt-segs :deep(textarea) {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .acu-prompt-segs__empty {
@@ -179,5 +190,14 @@ function onSlot(index: number, raw: string): void {
   color: var(--acu-text-3); font-size: var(--acu-font-size-body, 12px);
   border-top: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--acu-text-3) 14%, transparent);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .acu-prompt-segs__item-head { align-items: stretch; }
+  .acu-prompt-segs__index { flex: 0 0 100%; }
+  .acu-prompt-segs__role,
+  .acu-prompt-segs__slot { flex-basis: 100%; max-width: 100%; }
+  .acu-prompt-segs__actions { width: 100%; margin-left: 0; justify-content: flex-end; }
 }
 </style>

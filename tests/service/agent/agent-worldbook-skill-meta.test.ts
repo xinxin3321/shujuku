@@ -1,0 +1,60 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { mockEntriesByBook, mockSetLorebookEntries } = vi.hoisted(() => ({
+  mockEntriesByBook: new Map<string, any[]>(),
+  mockSetLorebookEntries: vi.fn(async (bookName: string, patches: any[]) => {
+    const patchByUid = new Map((patches || []).map(patch => [String(patch.uid), patch]));
+    const entries = mockEntriesByBook.get(bookName) || [];
+    mockEntriesByBook.set(bookName, entries.map(entry => {
+      const patch = patchByUid.get(String(entry.uid));
+      return patch ? { ...entry, ...patch } : entry;
+    }));
+  }),
+}));
+
+vi.mock('../../../src/data/gateways/worldbook-gateway', () => ({
+  getLorebookEntries_ACU: vi.fn(async (bookName: string) => mockEntriesByBook.get(bookName) || []),
+  setLorebookEntries_ACU: mockSetLorebookEntries,
+}));
+
+vi.mock('../../../src/service/agent/agent-worldbook-config-meta', () => ({
+  readAgentWorldbookControlFromWorldbooks_ACU: vi.fn(),
+  resolveAgentWorldbookConfigBookNames_ACU: vi.fn(),
+}));
+
+import { clearWorldbookSkillMetaBlocks_ACU } from '../../../src/service/agent/agent-worldbook-skill-meta';
+
+const skillBlock = '<!-- ACU_SKILL_META_START\n{"version":1,"description":"描述","triggerWhen":"触发","tk":12,"updatedAt":1,"updatedBy":"agent-skillify"}\nACU_SKILL_META_END -->';
+const takeoverBlock = '<!-- ACU_AGENT_WORLDBOOK_TAKEOVER_META_START\n{"previousEnabled":true}\nACU_AGENT_WORLDBOOK_TAKEOVER_META_END -->';
+
+describe('clearWorldbookSkillMetaBlocks_ACU', () => {
+  beforeEach(() => {
+    mockEntriesByBook.clear();
+    mockSetLorebookEntries.mockClear();
+  });
+
+  it('clears only ACU skill meta blocks and keeps config/takeover comments untouched', async () => {
+    mockEntriesByBook.set('角色A世界书', [
+      { uid: 1, comment: `普通条目\n${skillBlock}\n${takeoverBlock}` },
+      { uid: 2, comment: 'TavernDB-ACU-AgentWorldbookConfig' },
+      { uid: 3, comment: `仅接管\n${takeoverBlock}` },
+    ]);
+
+    const result = await clearWorldbookSkillMetaBlocks_ACU(['角色A世界书']);
+
+    expect(result).toMatchObject({ total: 1, cleared: 1, skipped: 0, failed: 0, errors: [] });
+    expect(mockSetLorebookEntries).toHaveBeenCalledTimes(1);
+    const entries = mockEntriesByBook.get('角色A世界书') || [];
+    expect(entries[0].comment).not.toContain('ACU_SKILL_META_START');
+    expect(entries[0].comment).toContain('ACU_AGENT_WORLDBOOK_TAKEOVER_META_START');
+    expect(entries[1].comment).toBe('TavernDB-ACU-AgentWorldbookConfig');
+    expect(entries[2].comment).toContain('ACU_AGENT_WORLDBOOK_TAKEOVER_META_START');
+  });
+
+  it('does not scan or write when book names are empty', async () => {
+    const result = await clearWorldbookSkillMetaBlocks_ACU();
+
+    expect(result).toMatchObject({ total: 0, cleared: 0, skipped: 0, failed: 0, errors: [] });
+    expect(mockSetLorebookEntries).not.toHaveBeenCalled();
+  });
+});

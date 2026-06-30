@@ -23,6 +23,7 @@ import { runAgentDecisionForPlot_ACU, type AgentDecisionResult_ACU, type AgentWo
 import { normalizeAgentContextSettings_ACU } from '../../agent/agent-prompt-template';
 import { getWorldbookEntryKeywordsForSkillify_ACU, isDatabaseGeneratedWorldbookEntryForAgent_ACU } from '../../agent/agent-skillify-service';
 import { clearFinalGenerationGreenlights_ACU, writeFinalGenerationGreenlights_ACU } from '../../agent/agent-worldbook-takeover';
+import { resolveAgentWorldbookFilterAvailability_ACU } from '../../agent/agent-worldbook-skill-meta';
 
   type PlotWorldbookAgentMode_ACU = 'normal' | 'agent-controlled';
 
@@ -549,7 +550,16 @@ import { clearFinalGenerationGreenlights_ACU, writeFinalGenerationGreenlights_AC
     });
     checkPlotAbortRequested_ACU();
 
-    const agentExecutionMode = plotSettings?.agentWorldbookControl?.agentPlotExecutionMode === 'concurrent'
+    const agentAvailability = await resolveAgentWorldbookFilterAvailability_ACU();
+    const agentWorldbookControl = agentAvailability.available ? agentAvailability.control : null;
+    const effectivePlotSettings = agentWorldbookControl
+      ? { ...plotSettings, agentWorldbookControl }
+      : plotSettings;
+    sharedContext.plotSettings = effectivePlotSettings;
+    sharedContext.agentWorldbookAvailability = agentAvailability;
+    if (agentWorldbookControl) sharedContext.agentWorldbookControl = agentWorldbookControl;
+
+    const agentExecutionMode = agentWorldbookControl?.agentPlotExecutionMode === 'concurrent'
       ? 'concurrent'
       : 'sequential';
     let agentDecisionPromise: Promise<AgentDecisionResult_ACU> | null = null;
@@ -564,18 +574,20 @@ import { clearFinalGenerationGreenlights_ACU, writeFinalGenerationGreenlights_AC
       }
     }
 
-    if (agentExecutionMode === 'concurrent') {
+    if (agentWorldbookControl && agentExecutionMode === 'concurrent') {
       sharedContext.forceNormalWorldbook = true;
       agentDecisionPromise = runAgentDecisionForPlot_ACU({
-        plotSettings,
+        plotSettings: effectivePlotSettings,
+        agentWorldbookControl,
         userMessage,
         sharedContext,
         enabledTasks,
         requireTaskPlan: false,
       });
-    } else {
+    } else if (agentWorldbookControl) {
       const agentDecision: AgentDecisionResult_ACU = await runAgentDecisionForPlot_ACU({
-        plotSettings,
+        plotSettings: effectivePlotSettings,
+        agentWorldbookControl,
         userMessage,
         sharedContext,
         enabledTasks,

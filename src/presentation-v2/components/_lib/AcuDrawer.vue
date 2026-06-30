@@ -160,16 +160,17 @@ function clearCloseTimer(): void {
 .acu-v2-drawer__header {
   flex: 0 0 auto;
   display: flex; align-items: center; justify-content: space-between;
+  min-width: 0;
   gap: var(--acu-panel-gap, 12px); padding: var(--acu-page-gap, 14px) var(--acu-panel-padding, 16px);
   border-bottom: 0;
 }
 
-.acu-v2-drawer__header-left { display: flex; align-items: center; gap: var(--acu-space-250, 10px); }
-.acu-v2-drawer__header h3 { margin: 0; font-size: var(--acu-font-size-panel-title, 15px); }
+.acu-v2-drawer__header-left { display: flex; align-items: center; gap: var(--acu-space-250, 10px); min-width: 0; }
+.acu-v2-drawer__header h3 { margin: 0; min-width: 0; font-size: var(--acu-font-size-panel-title, 15px); overflow-wrap: anywhere; }
 
 .acu-v2-drawer__body {
   flex: 1; min-height: 0;
-  overflow-y: auto; padding: var(--acu-panel-padding, 16px);
+  min-width: 0; overflow-y: auto; overflow-x: hidden; padding: var(--acu-panel-padding, 16px);
   display: flex; flex-direction: column; gap: var(--acu-page-gap, 14px);
 }
 
@@ -194,6 +195,6 @@ function clearCloseTimer(): void {
 }
 
 @media (max-width: 860px) {
-  .acu-v2-drawer { width: 100% !important; border-left: 0; }
+  .acu-v2-drawer { width: 100vw !important; max-width: 100vw; border-left: 0; }
 }
 </style>

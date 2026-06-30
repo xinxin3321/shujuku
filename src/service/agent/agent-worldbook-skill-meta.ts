@@ -1,6 +1,16 @@
-import type { WorldbookSkillMeta_ACU, WorldbookSkillMetaUpdatedBy_ACU } from '../../data/models/settings-model';
+import type {
+  AgentWorldbookControl_ACU,
+  AgentWorldbookControlMode_ACU,
+  WorldbookSkillMeta_ACU,
+  WorldbookSkillMetaUpdatedBy_ACU,
+} from '../../data/models/settings-model';
 import { getLorebookEntries_ACU, setLorebookEntries_ACU } from '../../data/gateways/worldbook-gateway';
 export type { WorldbookSkillMeta_ACU, WorldbookSkillMetaUpdatedBy_ACU } from '../../data/models/settings-model';
+import {
+  readAgentWorldbookControlFromWorldbooks_ACU,
+  resolveAgentWorldbookConfigBookNames_ACU,
+  type AgentWorldbookConfigSource_ACU,
+} from './agent-worldbook-config-meta';
 
 export const ACU_SKILL_META_START_ACU = 'ACU_SKILL_META_START';
 export const ACU_SKILL_META_END_ACU = 'ACU_SKILL_META_END';
@@ -19,6 +29,27 @@ export interface WorldbookSkillMetaReadResult_ACU {
   comment: string;
   label: string;
   skillMeta: WorldbookSkillMeta_ACU;
+}
+
+export interface ClearWorldbookSkillMetaBlocksResult_ACU {
+  total: number;
+  cleared: number;
+  skipped: number;
+  failed: number;
+  errors: Array<{ bookName: string; uid: string | number; reason: string }>;
+}
+
+export interface AgentWorldbookFilterAvailability_ACU {
+  configuredMode: AgentWorldbookControlMode_ACU;
+  control: AgentWorldbookControl_ACU;
+  configSource: AgentWorldbookConfigSource_ACU;
+  available: boolean;
+  skillCount: number;
+  bookNames: string[];
+  configBookName: string;
+  writableBookName: string;
+  reason: 'available' | 'empty_scope' | 'no_card_agent_config' | 'not_agent_mode' | 'no_skill_data';
+  skillMetas: WorldbookSkillMetaReadResult_ACU[];
 }
 
 function normalizeCommentText_ACU(comment: unknown): string {
@@ -194,4 +225,52 @@ export async function listWorldbookSkillMetas_ACU(
     }
   }
   return results;
+}
+
+export async function clearWorldbookSkillMetaBlocks_ACU(
+  bookNames: string[] = [],
+): Promise<ClearWorldbookSkillMetaBlocksResult_ACU> {
+  const targets = await listWorldbookSkillMetas_ACU(bookNames);
+  const result: ClearWorldbookSkillMetaBlocksResult_ACU = {
+    total: targets.length,
+    cleared: 0,
+    skipped: 0,
+    failed: 0,
+    errors: [],
+  };
+
+  for (const target of targets) {
+    try {
+      const deleteResult = await deleteWorldbookEntrySkillMeta_ACU(target.bookName, target.uid);
+      if (deleteResult.updated) result.cleared += 1;
+      else result.skipped += 1;
+    } catch (error: any) {
+      result.failed += 1;
+      result.errors.push({ bookName: target.bookName, uid: target.uid, reason: error?.message || '清除 Skill 元数据失败' });
+    }
+  }
+
+  return result;
+}
+
+export async function resolveAgentWorldbookFilterAvailability_ACU(): Promise<AgentWorldbookFilterAvailability_ACU> {
+  const config = await readAgentWorldbookControlFromWorldbooks_ACU();
+  const bookNames = await resolveAgentWorldbookConfigBookNames_ACU();
+  const skillMetas = bookNames.length > 0 ? await listWorldbookSkillMetas_ACU(bookNames) : [];
+  const base = {
+    configuredMode: config.control.mode,
+    control: config.control,
+    configSource: config.source,
+    skillCount: skillMetas.length,
+    bookNames,
+    configBookName: config.bookName || '',
+    writableBookName: config.writableBookName || '',
+    skillMetas,
+  };
+
+  if (bookNames.length === 0) return { ...base, available: false, reason: 'empty_scope' };
+  if (config.source !== 'worldbook') return { ...base, available: false, reason: 'no_card_agent_config' };
+  if (config.control.mode !== 'agent') return { ...base, available: false, reason: 'not_agent_mode' };
+  if (skillMetas.length === 0) return { ...base, available: false, reason: 'no_skill_data' };
+  return { ...base, available: true, reason: 'available' };
 }

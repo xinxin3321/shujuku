@@ -55,6 +55,7 @@ const sizeClass = computed(() => `acu-btn--${props.size}`);
   border-radius: var(--acu-radius-sm);
   cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; gap: var(--acu-space-150, 6px);
+  min-width: 0; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
 }
 .acu-btn--md { min-height: var(--acu-button-height-md, 32px); padding: var(--acu-control-padding-y-md, 6px) var(--acu-control-padding-x-md, 9px); font-size: var(--acu-font-size-body-lg, 13px); }

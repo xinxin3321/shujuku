@@ -17,6 +17,21 @@ const dialog = {
 };
 const mockSaveSettings = vi.fn();
 const mockRefreshSnapshot = vi.fn(async () => ({ active: false, selectionSignature: '', createdAt: 0, books: {} }));
+const mockTakeover = vi.fn(async () => ({ updated: false, reason: 'noop' }));
+const mockRestore = vi.fn(async () => ({ updated: false, reason: 'noop' }));
+const mockClearSkillMeta = vi.fn(async () => ({ total: 2, cleared: 2, skipped: 0, failed: 0, errors: [] }));
+const mockResolveAvailability = vi.fn(async () => ({
+  configuredMode: 'agent',
+  control: createSettings().plotSettings.agentWorldbookControl,
+  configSource: 'worldbook',
+  available: true,
+  skillCount: 2,
+  bookNames: ['角色A世界书'],
+  configBookName: '角色A世界书',
+  writableBookName: '角色A世界书',
+  reason: 'available',
+  skillMetas: [],
+}));
 const mockSkillify = vi.fn(async (options: any) => {
   options.onProgress?.({ phase: 'collecting' });
   throw new Error('boom');
@@ -55,11 +70,28 @@ async function getComposable() {
   vi.doMock('../../../src/service/agent/agent-worldbook-takeover', () => ({
     getPlotAgentWorldbookSnapshot_ACU: () => settings.plotSettings.agentWorldbookControlSnapshot,
     refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU: mockRefreshSnapshot,
-    restoreWorldbookGreenlights_ACU: vi.fn(),
-    takeoverWorldbookGreenlights_ACU: vi.fn(),
+    restoreWorldbookGreenlights_ACU: mockRestore,
+    takeoverWorldbookGreenlights_ACU: mockTakeover,
   }));
   vi.doMock('../../../src/service/agent/agent-skillify-service', () => ({
     skillifyCurrentPlotWorldbookSelection_ACU: mockSkillify,
+  }));
+  vi.doMock('../../../src/service/agent/agent-worldbook-skill-meta', () => ({
+    clearWorldbookSkillMetaBlocks_ACU: mockClearSkillMeta,
+    resolveAgentWorldbookFilterAvailability_ACU: mockResolveAvailability,
+  }));
+  vi.doMock('../../../src/service/agent/agent-worldbook-config-meta', () => ({
+    readAgentWorldbookControlFromWorldbooks_ACU: vi.fn(async () => ({
+      source: 'worldbook',
+      bookName: '角色A世界书',
+      writableBookName: '角色A世界书',
+      reason: '',
+      control: settings.plotSettings.agentWorldbookControl,
+    })),
+    writeAgentWorldbookControlToWorldbook_ACU: vi.fn(async (patch: any) => {
+      Object.assign(settings.plotSettings.agentWorldbookControl, patch || {});
+      return { updated: true, control: settings.plotSettings.agentWorldbookControl };
+    }),
   }));
   vi.doMock('../../../src/service/agent/agent-prompt-template', () => ({
     clonePromptSegments_ACU: (segments: any[]) => [...segments],
@@ -85,6 +117,10 @@ describe('usePlotWorldbookAgentControl', () => {
     mockSaveSettings.mockClear();
     mockRefreshSnapshot.mockClear();
     mockSkillify.mockClear();
+    mockTakeover.mockClear();
+    mockRestore.mockClear();
+    mockClearSkillMeta.mockClear();
+    mockResolveAvailability.mockClear();
     dialog.confirm.mockClear();
     toast.success.mockClear();
     toast.info.mockClear();
@@ -98,6 +134,21 @@ describe('usePlotWorldbookAgentControl', () => {
     mockSkillify.mockImplementation(async (options: any) => {
       options.onProgress?.({ phase: 'collecting' });
       throw new Error('boom');
+    });
+    mockTakeover.mockResolvedValue({ updated: false, reason: 'noop' });
+    mockRestore.mockResolvedValue({ updated: false, reason: 'noop' });
+    mockClearSkillMeta.mockResolvedValue({ total: 2, cleared: 2, skipped: 0, failed: 0, errors: [] });
+    mockResolveAvailability.mockResolvedValue({
+      configuredMode: 'agent',
+      control: createSettings().plotSettings.agentWorldbookControl,
+      configSource: 'worldbook',
+      available: true,
+      skillCount: 2,
+      bookNames: ['角色A世界书'],
+      configBookName: '角色A世界书',
+      writableBookName: '角色A世界书',
+      reason: 'available',
+      skillMetas: [],
     });
   });
 
@@ -138,5 +189,38 @@ describe('usePlotWorldbookAgentControl', () => {
       expect.stringContaining('boom'),
       { muteable: false },
     );
+  });
+
+  it('clearSkillMeta 取消确认时不清除也不触发接管', async () => {
+    dialog.confirm.mockResolvedValue(false);
+    const c = await getComposable();
+
+    const result = await c.clearSkillMeta();
+
+    expect(result).toBe(false);
+    expect(mockClearSkillMeta).not.toHaveBeenCalled();
+    expect(mockTakeover).not.toHaveBeenCalled();
+    expect(mockRestore).not.toHaveBeenCalled();
+  });
+
+  it('clearSkillMeta 清除当前 Agent 世界书范围并且不触发接管或恢复', async () => {
+    const c = await getComposable();
+
+    const result = await c.clearSkillMeta();
+
+    expect(result).toBe(true);
+    expect(mockResolveAvailability).toHaveBeenCalledTimes(2);
+    expect(mockClearSkillMeta).toHaveBeenCalledWith(['角色A世界书']);
+    expect(mockTakeover).not.toHaveBeenCalled();
+    expect(mockRestore).not.toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledWith('已清除 2 条世界书 Skill 元数据。', { muteable: false });
+  });
+
+  it('clearSkillMeta 无可清除条目时返回 false 并提示 noop', async () => {
+    mockClearSkillMeta.mockResolvedValue({ total: 0, cleared: 0, skipped: 0, failed: 0, errors: [] });
+    const c = await getComposable();
+
+    await expect(c.clearSkillMeta()).resolves.toBe(false);
+    expect(toast.info).toHaveBeenCalledWith('当前 Agent 世界书范围内没有可清除的 Skill 元数据。', { muteable: false });
   });
 });

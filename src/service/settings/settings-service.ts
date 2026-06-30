@@ -74,6 +74,9 @@ function hasNonEmptyPromptSegments_ACU(value: unknown): boolean {
 }
 
 function ensureAgentWorldbookControlDefaults_ACU(): boolean {
+  // Legacy/template compatibility only: card-level Agent worldbook control is
+  // stored in TavernDB-ACU-AgentWorldbookConfig entries. Do not treat this
+  // settings field as the current character card's configuration source.
   if (!settings_ACU.plotSettings || typeof settings_ACU.plotSettings !== 'object' || Array.isArray(settings_ACU.plotSettings)) {
     settings_ACU.plotSettings = JSON.parse(JSON.stringify(DEFAULT_PLOT_SETTINGS_ACU));
   }

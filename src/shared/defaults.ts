@@ -98,7 +98,7 @@ export function buildDefaultAgentWorldbookControl_ACU() {
   return {
     enabled: false,
     mode: 'disabled' as const,
-    agentPlotExecutionMode: 'sequential' as const,
+    agentPlotExecutionMode: 'concurrent' as const,
     scopeMode: 'follow_worldbook_page_selection' as const,
     agentApiPreset: '',
     agentSkillApiPreset: '',

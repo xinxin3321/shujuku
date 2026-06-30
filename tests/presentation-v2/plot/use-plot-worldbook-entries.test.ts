@@ -76,51 +76,20 @@ describe('usePlotWorldbookEntries', () => {
     expect(uids).not.toContain(5);
   });
 
-  it('loadEntries 隐藏启用的 final generation 蓝灯条目但不删除已有 enabledEntries', async () => {
-    settings = createSettings();
-    settings.plotSettings.plotWorldbookConfig.enabledEntries = { MyBook: [1, 7, 8] };
-    settings.plotSettings.agentWorldbookControlSnapshot = {
-      active: true,
-      selectionSignature: 'test-selection',
-      createdAt: Date.now(),
-      books: {
-        MyBook: [{ uid: 7, previousEnabled: true }],
-      },
-    };
-    mockGetEntries.mockResolvedValue({
-      'MyBook': [
-        { uid: 1, comment: '普通条目', name: '普通条目', enabled: true, type: 'selective', keys: ['普通'] },
-        { uid: 7, comment: '正文蓝灯', name: '正文蓝灯', enabled: true, type: 'constant', keys: [] },
-        { uid: 8, comment: '无关键词普通条目', name: '无关键词普通条目', enabled: true, type: 'selective', keys: [] },
-      ],
-    });
-
-    vi.resetModules();
-    vi.doMock('../../../src/service/runtime/state-manager', () => ({ settings_ACU: settings }));
-    vi.doMock('../../../src/service/settings/settings-service', () => ({ saveSettings_ACU: mockSaveSettings }));
-    vi.doMock('../../../src/service/worldbook/pipeline', () => ({ getLorebookEntriesByNames_ACU: mockGetEntries }));
-    const mod = await import('../../../src/presentation-v2/composables/usePlotWorldbookEntries');
-    const c = mod.usePlotWorldbookEntries();
-    await c.loadEntries(['MyBook']);
-
-    expect(c.groups.value[0].entries.map(e => e.uid)).toEqual([1, 8]);
-    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries.MyBook).toEqual([1, 7, 8]);
-  });
-
-  it('loadEntries 不把 snapshot 外的 constant 空 keys 普通条目误判为蓝灯', async () => {
+  it('loadEntries 不再使用 legacy snapshot 隐藏 constant 空 keys 条目', async () => {
     settings = createSettings();
     settings.plotSettings.agentWorldbookControlSnapshot = {
       active: true,
       selectionSignature: 'test-selection',
       createdAt: Date.now(),
       books: {
-        MyBook: [{ uid: 99, previousEnabled: true }],
+        MyBook: [{ uid: 7, previousEnabled: true, previousKeys: ['旧关键词'], previousType: 'selective' }],
       },
     };
     mockGetEntries.mockResolvedValue({
       'MyBook': [
         { uid: 1, comment: '普通条目', name: '普通条目', enabled: true, type: 'selective', keys: ['普通'] },
-        { uid: 7, comment: '用户常驻空关键词条目', name: '用户常驻空关键词条目', enabled: true, type: 'constant', keys: [] },
+        { uid: 7, comment: 'legacy snapshot 命中的常驻空关键词条目', name: 'legacy snapshot 命中的常驻空关键词条目', enabled: true, type: 'constant', keys: [] },
       ],
     });
 
@@ -129,52 +98,6 @@ describe('usePlotWorldbookEntries', () => {
 
     expect(c.groups.value[0].entries.map(e => e.uid)).toEqual([1, 7]);
     expect(settings.plotSettings.plotWorldbookConfig.enabledEntries.MyBook).toEqual([1, 7]);
-  });
-
-  it('loadEntries 不把其他书同 uid 的 snapshot 条目误用于当前书', async () => {
-    settings = createSettings();
-    settings.plotSettings.agentWorldbookControlSnapshot = {
-      active: true,
-      selectionSignature: 'test-selection',
-      createdAt: Date.now(),
-      books: {
-        OtherBook: [{ uid: 7, previousEnabled: true }],
-      },
-    };
-    mockGetEntries.mockResolvedValue({
-      'MyBook': [
-        { uid: 7, comment: '当前书普通常驻条目', name: '当前书普通常驻条目', enabled: true, type: 'constant', keys: [] },
-      ],
-    });
-
-    const c = await getComposable(settings);
-    await c.loadEntries(['MyBook']);
-
-    expect(c.groups.value[0].entries.map(e => e.uid)).toEqual([7]);
-    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries.MyBook).toEqual([7]);
-  });
-
-  it('loadEntries 不使用 inactive snapshot 隐藏同书同 uid 的 constant 空 keys 条目', async () => {
-    settings = createSettings();
-    settings.plotSettings.agentWorldbookControlSnapshot = {
-      active: false,
-      selectionSignature: 'test-selection',
-      createdAt: Date.now(),
-      books: {
-        MyBook: [{ uid: 7, previousEnabled: true }],
-      },
-    };
-    mockGetEntries.mockResolvedValue({
-      'MyBook': [
-        { uid: 7, comment: '历史快照中的普通常驻条目', name: '历史快照中的普通常驻条目', enabled: true, type: 'constant', keys: [] },
-      ],
-    });
-
-    const c = await getComposable(settings);
-    await c.loadEntries(['MyBook']);
-
-    expect(c.groups.value[0].entries.map(e => e.uid)).toEqual([7]);
-    expect(settings.plotSettings.plotWorldbookConfig.enabledEntries.MyBook).toEqual([7]);
   });
 
   it('loadEntries 过滤屏蔽词条目', async () => {

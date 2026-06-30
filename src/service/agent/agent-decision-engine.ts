@@ -1,3 +1,4 @@
+import type { AgentWorldbookControl_ACU } from '../../data/models/settings-model';
 import { getChatArray_ACU } from '../../data/gateways/chat-gateway';
 import { getLorebookEntries_ACU } from '../../data/gateways/worldbook-gateway';
 import { normalizeNonNegativeInteger_ACU, normalizePositiveInteger_ACU, logWarn_ACU } from '../../shared/utils';
@@ -164,9 +165,18 @@ function emptyDecision_ACU(effectiveTasks: any[], fallbackReason: string): Agent
   };
 }
 
-function isAgentModeEnabled_ACU(plotSettings: Record<string, any>): boolean {
-  const control = plotSettings?.agentWorldbookControl || {};
+function isAgentModeEnabled_ACU(control: AgentWorldbookControl_ACU | null): boolean {
   return control.enabled === true && control.mode === 'agent';
+}
+
+function resolveResolvedAgentWorldbookControl_ACU(params: {
+  agentWorldbookControl?: AgentWorldbookControl_ACU | null;
+  sharedContext?: Record<string, any>;
+}): AgentWorldbookControl_ACU | null {
+  const direct = params.agentWorldbookControl;
+  if (direct && typeof direct === 'object') return direct;
+  const fromContext = params.sharedContext?.agentWorldbookControl;
+  return fromContext && typeof fromContext === 'object' ? fromContext as AgentWorldbookControl_ACU : null;
 }
 
 function parseAgentDecisionResponse_ACU(responseText: string): any | null {
@@ -525,6 +535,7 @@ function normalizePlotGreenlights_ACU(
 
 export async function runAgentDecisionForPlot_ACU(params: {
   plotSettings: Record<string, any>;
+  agentWorldbookControl?: AgentWorldbookControl_ACU | null;
   userMessage: string;
   sharedContext: Record<string, any>;
   enabledTasks: any[];
@@ -532,9 +543,10 @@ export async function runAgentDecisionForPlot_ACU(params: {
 }): Promise<AgentDecisionResult_ACU> {
   const originalTasks = Array.isArray(params.enabledTasks) ? params.enabledTasks : [];
   try {
-    if (!isAgentModeEnabled_ACU(params.plotSettings)) return emptyDecision_ACU(originalTasks, 'agent_mode_disabled');
+    const control = resolveResolvedAgentWorldbookControl_ACU(params);
+    if (!isAgentModeEnabled_ACU(control)) return emptyDecision_ACU(originalTasks, 'agent_mode_disabled');
 
-    const control = params.plotSettings?.agentWorldbookControl || {};
+    const effectivePlotSettings = { ...params.plotSettings, agentWorldbookControl: control };
     const contextSettings = normalizeAgentContextSettings_ACU(control.contextSettings);
     const maxAiAttempts = Math.max(1, Math.min(10, Math.trunc(Number(contextSettings.agentAiMaxRetries) || 1)));
     const { summaries, allowedKeys } = await collectWorldbookSummariesFromSnapshot_ACU(contextSettings);
@@ -548,7 +560,7 @@ export async function runAgentDecisionForPlot_ACU(params: {
     let lastFailureReason = 'empty_agent_response';
     for (let attempt = 1; attempt <= maxAiAttempts; attempt++) {
       const messages = buildAgentDecisionPrompt_ACU({
-        plotSettings: params.plotSettings,
+        plotSettings: effectivePlotSettings,
         userMessage: params.userMessage,
         sharedContext: params.sharedContext,
         enabledTasks: agentDecidableTasks,
@@ -581,7 +593,11 @@ export async function runAgentDecisionForPlot_ACU(params: {
       .filter(task => task.agentControl?.selectable !== false)
       .map(task => task.id)
       .filter(Boolean));
-    const maxEntriesPerChannel = control.maxEntriesPerChannel || {};
+    const maxEntriesPerChannel: AgentWorldbookControl_ACU['maxEntriesPerChannel'] = control?.maxEntriesPerChannel || {
+      plot: 0,
+      tableFill: 0,
+      finalGeneration: 0,
+    };
     const plotGreenlights = normalizePlotGreenlights_ACU(parsed.plotGreenlights, allowedKeys, enabledTaskIds, summaries, contextSettings.greenlightMaxTkBudget, maxEntriesPerChannel);
     const finalGenerationGreenlights = applyGreenlightTkBudget_ACU(normalizeWorldbookRefs_ACU(parsed.finalGenerationGreenlights, allowedKeys, summaries), summaries, contextSettings.greenlightMaxTkBudget, maxEntriesPerChannel.finalGeneration);
 

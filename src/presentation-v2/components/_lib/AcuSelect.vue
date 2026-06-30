@@ -86,6 +86,8 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   margin: 0 !important;
   padding: 0 !important;
   border: 0 !important;
@@ -96,6 +98,7 @@ onBeforeUnmount(() => {
 
 .acu-select__trigger {
   display: flex; align-items: center; gap: var(--acu-space-2, 8px); width: 100%;
+  min-width: 0; max-width: 100%; box-sizing: border-box;
   min-height: var(--acu-control-height-md, 32px); padding: var(--acu-control-padding-y-md, 6px) var(--acu-control-padding-x-md, 9px);
   margin: 0 !important;
   background: var(--acu-bg-2) !important; border: 0 !important;
@@ -125,6 +128,7 @@ onBeforeUnmount(() => {
   margin: 0; padding: var(--acu-space-1, 4px) 0; list-style: none;
   background: var(--acu-bg-1); border: 1px solid var(--acu-border);
   border-radius: var(--acu-radius-sm); box-shadow: var(--acu-shadow);
+  min-width: 0; max-width: 100%; box-sizing: border-box;
   max-height: var(--acu-menu-max-height, 240px); overflow-y: auto;
 }
 

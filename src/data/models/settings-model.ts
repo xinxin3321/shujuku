@@ -78,6 +78,14 @@ export interface AgentWorldbookControl_ACU {
   };
 }
 
+/** 世界书内存储的单卡 Agent 配置元数据；作为新架构下 Agent 控制配置的主事实源。 */
+export interface AgentWorldbookCardConfigMeta_ACU {
+  version: 1;
+  kind: 'agent_worldbook_config';
+  updatedAt: number;
+  control: Partial<AgentWorldbookControl_ACU>;
+}
+
 /** Agent 世界书接管快照条目结构；用于禁用原生触发后按原状态恢复。 */
 export interface AgentWorldbookControlSnapshotEntry_ACU {
   uid: string | number;

@@ -15,6 +15,10 @@ import {
   isWorldbookEntrySkillifyCandidate_ACU,
   resolvePlotWorldbookSkillifyBookNames_ACU,
 } from './agent-skillify-service';
+import {
+  resolveAgentWorldbookFilterAvailability_ACU,
+  type WorldbookSkillMetaReadResult_ACU,
+} from './agent-worldbook-skill-meta';
 
 export interface AgentWorldbookTakeoverEntryUpdate_ACU {
   bookName: string;
@@ -53,11 +57,28 @@ export interface AgentWorldbookRestoreResult_ACU {
 
 export const AGENT_WORLDBOOK_SNAPSHOT_COMMENT_ACU = 'TavernDB-ACU-AgentWorldbookSnapshot';
 export const AGENT_FINAL_GENERATION_GREENLIGHT_COMMENT_ACU = 'TavernDB-ACU-AgentFinalGenerationGreenlights';
+const AGENT_TAKEOVER_META_START_ACU = 'ACU_AGENT_WORLDBOOK_TAKEOVER_META_START';
+const AGENT_TAKEOVER_META_END_ACU = 'ACU_AGENT_WORLDBOOK_TAKEOVER_META_END';
+const AGENT_TAKEOVER_META_PATTERN_ACU = /\n?<!--\s*ACU_AGENT_WORLDBOOK_TAKEOVER_META_START\s*\n([\s\S]*?)\nACU_AGENT_WORLDBOOK_TAKEOVER_META_END\s*-->\n?/g;
 
+interface AgentWorldbookTakeoverMeta_ACU {
+  version: 1;
+  kind: 'agent_worldbook_takeover';
+  selectionSignature: string;
+  createdAt: number;
+  previousEnabled: boolean;
+  previousKeys?: string[];
+  previousType?: string;
+  commentHash?: string;
+}
 
 function normalizeBookNamesForTakeover_ACU(bookNames: unknown): string[] {
   if (!Array.isArray(bookNames)) return [];
   return [...new Set(bookNames.map(name => String(name || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeCommentText_ACU(comment: unknown): string {
+  return typeof comment === 'string' ? comment : '';
 }
 
 function hasValidWorldbookUid_ACU(uid: unknown): uid is string | number {
@@ -140,6 +161,17 @@ function buildFinalGreenlightKey_ACU(bookName: string, uid: unknown): string {
   return `${String(bookName || '').trim()}\u0000${String(uid ?? '').trim()}`;
 }
 
+function buildSkillMetaUidSetByBook_ACU(skillMetas: WorldbookSkillMetaReadResult_ACU[]): Map<string, Set<string>> {
+  const uidSetByBook = new Map<string, Set<string>>();
+  for (const meta of Array.isArray(skillMetas) ? skillMetas : []) {
+    const bookName = String(meta?.bookName || '').trim();
+    if (!bookName || !hasValidWorldbookUid_ACU(meta?.uid)) continue;
+    if (!uidSetByBook.has(bookName)) uidSetByBook.set(bookName, new Set());
+    uidSetByBook.get(bookName)!.add(String(meta.uid));
+  }
+  return uidSetByBook;
+}
+
 async function patchSnapshotEntries_ACU(snapshotUidSetByBook: Map<string, Set<string>>, buildPatch: (bookName: string, entry: Record<string, any>) => Record<string, any> | null): Promise<number> {
   let patched = 0;
   for (const [bookName, uidSet] of snapshotUidSetByBook.entries()) {
@@ -168,14 +200,60 @@ function buildInactiveSnapshot_ACU(selectionSignature = ''): AgentWorldbookContr
   return { active: false, selectionSignature, createdAt: 0, books: {} };
 }
 
-function ensurePlotSettingsContainer_ACU(): Record<string, any> {
-  if (!settings_ACU.plotSettings || typeof settings_ACU.plotSettings !== 'object') {
-    settings_ACU.plotSettings = {};
-  }
-  return settings_ACU.plotSettings as Record<string, any>;
+let cachedPlotAgentWorldbookSnapshot_ACU: AgentWorldbookControlSnapshot_ACU = buildInactiveSnapshot_ACU();
+
+function stripTakeoverMetaBlock_ACU(comment: unknown): string {
+  return normalizeCommentText_ACU(comment)
+    .replace(AGENT_TAKEOVER_META_PATTERN_ACU, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
-export function getPlotAgentWorldbookSnapshot_ACU(): AgentWorldbookControlSnapshot_ACU {
+function parseTakeoverMetaFromComment_ACU(comment: unknown): AgentWorldbookTakeoverMeta_ACU | null {
+  const text = normalizeCommentText_ACU(comment);
+  const pattern = new RegExp(AGENT_TAKEOVER_META_PATTERN_ACU.source, 'g');
+  const match = pattern.exec(text);
+  if (!match) return null;
+  try {
+    const raw = JSON.parse(match[1].trim()) as Record<string, unknown>;
+    if (raw.version !== 1 || raw.kind !== 'agent_worldbook_takeover') return null;
+    const selectionSignature = String(raw.selectionSignature || '').trim();
+    if (!selectionSignature) return null;
+    const previousKeys = Array.isArray(raw.previousKeys) ? raw.previousKeys.map(key => String(key || '').trim()).filter(Boolean) : [];
+    const previousType = raw.previousType === undefined || raw.previousType === null ? undefined : String(raw.previousType);
+    const commentHash = String(raw.commentHash || '').trim();
+    return {
+      version: 1,
+      kind: 'agent_worldbook_takeover',
+      selectionSignature,
+      createdAt: Number.isFinite(Number(raw.createdAt)) ? Number(raw.createdAt) : 0,
+      previousEnabled: raw.previousEnabled !== false,
+      previousKeys,
+      previousType,
+      commentHash: commentHash || undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildTakeoverMetaComment_ACU(comment: unknown, selectionSignature: string, createdAt: number, snapshotEntry: AgentWorldbookControlSnapshotEntry_ACU): string {
+  const baseComment = stripTakeoverMetaBlock_ACU(comment);
+  const meta: AgentWorldbookTakeoverMeta_ACU = {
+    version: 1,
+    kind: 'agent_worldbook_takeover',
+    selectionSignature,
+    createdAt,
+    previousEnabled: snapshotEntry.previousEnabled !== false,
+    previousKeys: Array.isArray(snapshotEntry.previousKeys) ? snapshotEntry.previousKeys : [],
+    previousType: snapshotEntry.previousType,
+    commentHash: snapshotEntry.commentHash,
+  };
+  const metaBlock = `<!-- ${AGENT_TAKEOVER_META_START_ACU}\n${JSON.stringify(meta)}\n${AGENT_TAKEOVER_META_END_ACU} -->`;
+  return [baseComment, metaBlock].filter(Boolean).join('\n\n');
+}
+
+function getLegacyPlotAgentWorldbookSnapshot_ACU(): AgentWorldbookControlSnapshot_ACU {
   const snapshot = (settings_ACU.plotSettings as any)?.agentWorldbookControlSnapshot;
   if (!snapshot || typeof snapshot !== 'object') return buildInactiveSnapshot_ACU();
   return {
@@ -186,23 +264,49 @@ export function getPlotAgentWorldbookSnapshot_ACU(): AgentWorldbookControlSnapsh
   };
 }
 
-export function setPlotAgentWorldbookSnapshot_ACU(snapshot: AgentWorldbookControlSnapshot_ACU): void {
-  const plotSettings = ensurePlotSettingsContainer_ACU();
-  plotSettings.agentWorldbookControlSnapshot = snapshot;
+function clearLegacyPlotAgentWorldbookSnapshot_ACU(): boolean {
+  if (!settings_ACU.plotSettings || typeof settings_ACU.plotSettings !== 'object') return false;
+  if (!Object.prototype.hasOwnProperty.call(settings_ACU.plotSettings, 'agentWorldbookControlSnapshot')) return false;
+  delete (settings_ACU.plotSettings as any).agentWorldbookControlSnapshot;
   persistTavernSettings_ACU();
+  return true;
+}
+
+export function getPlotAgentWorldbookSnapshot_ACU(): AgentWorldbookControlSnapshot_ACU {
+  return cachedPlotAgentWorldbookSnapshot_ACU;
+}
+
+export function setPlotAgentWorldbookSnapshot_ACU(snapshot: AgentWorldbookControlSnapshot_ACU): void {
+  cachedPlotAgentWorldbookSnapshot_ACU = snapshot;
 }
 
 export async function refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU(): Promise<AgentWorldbookControlSnapshot_ACU> {
   const resolvedBookNames = await resolveTakeoverBookNames_ACU();
   const selectionSignature = buildWorldbookSelectionSignature_ACU(resolvedBookNames);
-  const currentSnapshot = getPlotAgentWorldbookSnapshot_ACU();
-  if (currentSnapshot.active === true && currentSnapshot.selectionSignature === selectionSignature) {
-    return currentSnapshot;
+  const snapshotBooks: Record<string, AgentWorldbookControlSnapshotEntry_ACU[]> = {};
+  let createdAt = 0;
+  for (const bookName of resolvedBookNames) {
+    const entries = await getLorebookEntries_ACU(bookName);
+    const bookSnapshot: AgentWorldbookControlSnapshotEntry_ACU[] = [];
+    for (const entry of entries || []) {
+      if (!hasValidWorldbookUid_ACU(entry?.uid)) continue;
+      const meta = parseTakeoverMetaFromComment_ACU(entry?.comment);
+      if (!meta || meta.selectionSignature !== selectionSignature) continue;
+      bookSnapshot.push({
+        uid: entry.uid,
+        previousEnabled: meta.previousEnabled !== false,
+        previousKeys: Array.isArray(meta.previousKeys) ? meta.previousKeys : [],
+        previousType: meta.previousType,
+        commentHash: meta.commentHash,
+      });
+      createdAt = Math.max(createdAt, meta.createdAt || 0);
+    }
+    if (bookSnapshot.length > 0) snapshotBooks[bookName] = bookSnapshot;
   }
-  const snapshot = buildInactiveSnapshot_ACU(selectionSignature);
-  if (currentSnapshot.active !== false || currentSnapshot.selectionSignature !== selectionSignature) {
-    setPlotAgentWorldbookSnapshot_ACU(snapshot);
-  }
+  const snapshot = Object.keys(snapshotBooks).length > 0
+    ? { active: true, selectionSignature, createdAt: createdAt || Date.now(), books: snapshotBooks }
+    : buildInactiveSnapshot_ACU(selectionSignature);
+  setPlotAgentWorldbookSnapshot_ACU(snapshot);
   return snapshot;
 }
 
@@ -217,7 +321,7 @@ async function resolveTakeoverBookNames_ACU(): Promise<string[]> {
 function buildSnapshotEntry_ACU(entry: Record<string, any>): AgentWorldbookControlSnapshotEntry_ACU | null {
   if (!hasValidWorldbookUid_ACU(entry?.uid)) return null;
   const previousType = entry?.type === undefined || entry?.type === null ? undefined : String(entry.type);
-  const comment = typeof entry?.comment === 'string' ? entry.comment : '';
+  const comment = stripTakeoverMetaBlock_ACU(entry?.comment);
   return {
     uid: entry.uid,
     previousEnabled: entry.enabled !== false,
@@ -227,7 +331,7 @@ function buildSnapshotEntry_ACU(entry: Record<string, any>): AgentWorldbookContr
   };
 }
 
-async function collectTakeoverCandidates_ACU(bookNames: string[]): Promise<{
+async function collectTakeoverCandidates_ACU(bookNames: string[], allowedUidSetByBook?: Map<string, Set<string>>): Promise<{
   snapshotBooks: Record<string, AgentWorldbookControlSnapshotEntry_ACU[]>;
   updates: AgentWorldbookTakeoverEntryUpdate_ACU[];
 }> {
@@ -237,8 +341,10 @@ async function collectTakeoverCandidates_ACU(bookNames: string[]): Promise<{
   for (const bookName of bookNames) {
     const entries = await getLorebookEntries_ACU(bookName);
     const bookSnapshot: AgentWorldbookControlSnapshotEntry_ACU[] = [];
+    const allowedUidSet = allowedUidSetByBook?.get(bookName);
     for (const entry of entries || []) {
       if (!isWorldbookEntrySkillifyCandidate_ACU(entry)) continue;
+      if (allowedUidSet && !allowedUidSet.has(String(entry?.uid))) continue;
       const snapshotEntry = buildSnapshotEntry_ACU(entry);
       if (!snapshotEntry) continue;
       bookSnapshot.push(snapshotEntry);
@@ -250,14 +356,24 @@ async function collectTakeoverCandidates_ACU(bookNames: string[]): Promise<{
   return { snapshotBooks, updates };
 }
 
-async function disableTakeoverCandidates_ACU(updates: AgentWorldbookTakeoverEntryUpdate_ACU[]): Promise<{ disabled: number; failed: number }> {
+async function disableTakeoverCandidates_ACU(
+  snapshotBooks: Record<string, AgentWorldbookControlSnapshotEntry_ACU[]>,
+  selectionSignature: string,
+  createdAt: number,
+): Promise<{ disabled: number; failed: number }> {
   const updatesByBook = new Map<string, Set<string>>();
-  for (const update of updates) {
-    if (!hasValidWorldbookUid_ACU(update.uid)) continue;
-    const bookName = String(update.bookName || '').trim();
+  const snapshotEntryByBookAndUid = new Map<string, Map<string, AgentWorldbookControlSnapshotEntry_ACU>>();
+  for (const [bookName, snapshotEntries] of Object.entries(snapshotBooks || {})) {
     if (!bookName) continue;
+    const uidMap = new Map<string, AgentWorldbookControlSnapshotEntry_ACU>();
+    for (const snapshotEntry of Array.isArray(snapshotEntries) ? snapshotEntries : []) {
+      if (!hasValidWorldbookUid_ACU(snapshotEntry?.uid)) continue;
+      uidMap.set(String(snapshotEntry.uid), snapshotEntry);
+    }
+    if (uidMap.size === 0) continue;
     if (!updatesByBook.has(bookName)) updatesByBook.set(bookName, new Set());
-    updatesByBook.get(bookName)!.add(String(update.uid));
+    for (const uid of uidMap.keys()) updatesByBook.get(bookName)!.add(uid);
+    snapshotEntryByBookAndUid.set(bookName, uidMap);
   }
 
   let disabled = 0;
@@ -266,8 +382,13 @@ async function disableTakeoverCandidates_ACU(updates: AgentWorldbookTakeoverEntr
     try {
       const entries = await getLorebookEntries_ACU(bookName);
       const patchEntries = (entries || [])
-        .filter(entry => uidSet.has(String(entry?.uid)) && entry?.enabled !== false)
-        .map(entry => ({ uid: entry.uid, enabled: false }));
+        .filter(entry => uidSet.has(String(entry?.uid)))
+        .map(entry => {
+          const snapshotEntry = snapshotEntryByBookAndUid.get(bookName)?.get(String(entry?.uid));
+          if (!snapshotEntry) return null;
+          return { uid: entry.uid, enabled: false, comment: buildTakeoverMetaComment_ACU(entry?.comment, selectionSignature, createdAt, snapshotEntry) };
+        })
+        .filter(Boolean) as Record<string, any>[];
       if (patchEntries.length === 0) continue;
       await setLorebookEntries_ACU(bookName, patchEntries);
       disabled += patchEntries.length;
@@ -291,6 +412,7 @@ async function restoreSnapshotEntries_ACU(snapshot: AgentWorldbookControlSnapsho
       const currentEntries = await getLorebookEntries_ACU(normalizedBookName);
       const currentByUid = new Map((currentEntries || []).map(entry => [String(entry?.uid), entry]));
       const patches: any[] = [];
+      let restoredInBook = 0;
       for (const snapshotEntry of entriesToRestore) {
         if (!hasValidWorldbookUid_ACU(snapshotEntry?.uid)) {
           logWarn_ACU(
@@ -307,23 +429,27 @@ async function restoreSnapshotEntries_ACU(snapshot: AgentWorldbookControlSnapsho
           continue;
         }
         const currentComment = typeof currentEntry.comment === 'string' ? currentEntry.comment : '';
-        if (snapshotEntry.commentHash && hashUserInput_ACU(currentComment) !== snapshotEntry.commentHash) {
+        const strippedComment = stripTakeoverMetaBlock_ACU(currentComment);
+        if (snapshotEntry.commentHash && hashUserInput_ACU(strippedComment) !== snapshotEntry.commentHash) {
           logWarn_ACU(
             `[Agent世界书] 跳过恢复世界书条目：${normalizedBookName}#${snapshotEntry.uid} comment 已变化，避免覆盖用户修改。`,
           );
+          if (strippedComment !== currentComment) patches.push({ uid: snapshotEntry.uid, comment: strippedComment });
           skipped += 1;
           continue;
         }
         patches.push({
           uid: snapshotEntry.uid,
+          comment: strippedComment,
           enabled: snapshotEntry.previousEnabled !== false,
           keys: Array.isArray(snapshotEntry.previousKeys) ? snapshotEntry.previousKeys : [],
           type: snapshotEntry.previousType,
         });
+        restoredInBook += 1;
       }
       if (patches.length > 0) {
         await setLorebookEntries_ACU(normalizedBookName, patches);
-        restored += patches.length;
+        restored += restoredInBook;
       }
     } catch (error) {
       logWarn_ACU(`[Agent世界书] 恢复世界书条目失败：${normalizedBookName}`, error);
@@ -379,7 +505,8 @@ export async function readFinalGenerationGreenlights_ACU(): Promise<AgentWorldbo
 }
 
 export async function clearFinalGenerationGreenlights_ACU(): Promise<number> {
-  const snapshotUidSetByBook = buildSnapshotUidSetByBook_ACU(getPlotAgentWorldbookSnapshot_ACU());
+  const snapshot = await refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU();
+  const snapshotUidSetByBook = buildSnapshotUidSetByBook_ACU(snapshot);
   const patched = await patchSnapshotEntries_ACU(snapshotUidSetByBook, (_bookName, entry) => {
     if (!isFinalGenerationBlueLightEntry_ACU(entry)) return null;
     return { uid: entry.uid, enabled: false };
@@ -390,15 +517,16 @@ export async function clearFinalGenerationGreenlights_ACU(): Promise<number> {
 }
 
 export async function takeoverWorldbookGreenlights_ACU(): Promise<AgentWorldbookTakeoverResult_ACU> {
-  const resolvedBookNames = await resolveTakeoverBookNames_ACU();
+  const availability = await resolveAgentWorldbookFilterAvailability_ACU();
+  const resolvedBookNames = availability.bookNames;
   const selectionSignature = buildWorldbookSelectionSignature_ACU(resolvedBookNames);
 
-  if (resolvedBookNames.length === 0) {
+  if (!availability.available) {
     const snapshot = buildInactiveSnapshot_ACU(selectionSignature);
     setPlotAgentWorldbookSnapshot_ACU(snapshot);
     return {
       updated: false,
-      reason: 'empty_scope',
+      reason: availability.reason,
       bookNames: resolvedBookNames,
       selectionSignature,
       totalCandidates: 0,
@@ -409,14 +537,17 @@ export async function takeoverWorldbookGreenlights_ACU(): Promise<AgentWorldbook
     };
   }
 
-  const { snapshotBooks, updates } = await collectTakeoverCandidates_ACU(resolvedBookNames);
+  const allowedUidSetByBook = buildSkillMetaUidSetByBook_ACU(availability.skillMetas);
+  const { snapshotBooks, updates } = await collectTakeoverCandidates_ACU(resolvedBookNames, allowedUidSetByBook);
   const totalCandidates = updates.length || Object.values(snapshotBooks || {}).reduce((sum, entries) => sum + (Array.isArray(entries) ? entries.length : 0), 0);
   const existingSnapshot = getPlotAgentWorldbookSnapshot_ACU();
   const shouldKeepExistingActiveSnapshot = totalCandidates === 0 && existingSnapshot.active === true && existingSnapshot.selectionSignature === selectionSignature;
   const snapshot = totalCandidates > 0
     ? buildActiveSnapshot_ACU(selectionSignature, snapshotBooks)
     : (shouldKeepExistingActiveSnapshot ? existingSnapshot : buildInactiveSnapshot_ACU(selectionSignature));
-  const { disabled, failed } = await disableTakeoverCandidates_ACU(updates);
+  const { disabled, failed } = totalCandidates > 0
+    ? await disableTakeoverCandidates_ACU(snapshotBooks, selectionSignature, snapshot.createdAt)
+    : { disabled: 0, failed: 0 };
   setPlotAgentWorldbookSnapshot_ACU(snapshot);
 
   return {
@@ -437,14 +568,21 @@ export async function takeoverWorldbookGreenlights_ACU(): Promise<AgentWorldbook
 export async function restoreWorldbookGreenlights_ACU(): Promise<AgentWorldbookRestoreResult_ACU> {
   const resolvedBookNames = await resolveTakeoverBookNames_ACU();
   const selectionSignature = buildWorldbookSelectionSignature_ACU(resolvedBookNames);
-  const snapshot = getPlotAgentWorldbookSnapshot_ACU();
+  const worldbookSnapshot = await refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU();
+  const legacySnapshot = getLegacyPlotAgentWorldbookSnapshot_ACU();
+  const shouldUseWorldbookSnapshot = worldbookSnapshot.active === true && worldbookSnapshot.selectionSignature === selectionSignature;
+  const shouldUseLegacySnapshot = !shouldUseWorldbookSnapshot && legacySnapshot.active === true && legacySnapshot.selectionSignature === selectionSignature;
+  const snapshot = shouldUseWorldbookSnapshot
+    ? worldbookSnapshot
+    : (shouldUseLegacySnapshot ? legacySnapshot : worldbookSnapshot);
   const shouldRestoreSnapshot = snapshot.active === true && snapshot.selectionSignature === selectionSignature;
   const restoreResult = shouldRestoreSnapshot
     ? await restoreSnapshotEntries_ACU(snapshot)
     : { restored: 0, skipped: 0, failed: 0 };
   const deletedFinalGreenlights = await deleteInternalEntriesByComment_ACU(resolvedBookNames, AGENT_FINAL_GENERATION_GREENLIGHT_COMMENT_ACU);
   const deletedSnapshots = await deleteInternalEntriesByComment_ACU(resolvedBookNames, AGENT_WORLDBOOK_SNAPSHOT_COMMENT_ACU);
-  const cleaned = deletedFinalGreenlights + deletedSnapshots;
+  const legacySnapshotCleared = shouldUseLegacySnapshot && clearLegacyPlotAgentWorldbookSnapshot_ACU() ? 1 : 0;
+  const cleaned = deletedFinalGreenlights + deletedSnapshots + legacySnapshotCleared;
   const changed = restoreResult.restored + restoreResult.failed + cleaned;
   setPlotAgentWorldbookSnapshot_ACU(buildInactiveSnapshot_ACU(selectionSignature));
 
