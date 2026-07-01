@@ -6,7 +6,10 @@ import { estimateTextTk_ACU, normalizeTkBudgetNumber_ACU } from '../../shared/to
 import { callAIWithPreset_ACU } from '../ai/api-call';
 import { normalizePlotTask_ACU } from '../plot/plot-logic';
 import { refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU } from './agent-worldbook-takeover';
-import { parseWorldbookSkillMetaFromComment_ACU } from './agent-worldbook-skill-meta';
+import {
+  parseWorldbookSkillMetaFromComment_ACU,
+  stripWorldbookSkillMetaBlock_ACU,
+} from './agent-worldbook-skill-meta';
 import {
   getDefaultAgentDecisionPromptSegments_ACU,
   normalizeAgentContextSettings_ACU,
@@ -202,6 +205,16 @@ function hasUsableWorldbookSkillMeta_ACU(meta: ReturnType<typeof parseWorldbookS
   return !!meta && (!!String(meta.description || '').trim() || !!String(meta.triggerWhen || '').trim());
 }
 
+function buildFallbackWorldbookSummaryText_ACU(entry: Record<string, any>, comment: string, keys: string[]): { description: string; triggerWhen: string } {
+  const normalizedComment = stripWorldbookSkillMetaBlock_ACU(comment).trim();
+  const name = String(entry?.name || '').trim();
+  const description = normalizedComment || name || keys.join('、') || '未命名世界书条目';
+  const triggerWhen = keys.length > 0
+    ? `关键词：${keys.join('、')}`
+    : '未提供 Skill 元数据；请根据条目名称与上下文判断是否相关';
+  return { description, triggerWhen };
+}
+
 async function collectWorldbookSummariesFromSnapshot_ACU(
   contextSettings: ReturnType<typeof normalizeAgentContextSettings_ACU>,
 ): Promise<{ summaries: AgentWorldbookSummary_ACU[]; allowedKeys: Set<string> }> {
@@ -219,7 +232,8 @@ async function collectWorldbookSummariesFromSnapshot_ACU(
       if (!entry) continue;
       const comment = String(entry.comment || entry.name || '');
       const meta = parseWorldbookSkillMetaFromComment_ACU(comment);
-      if (!hasUsableWorldbookSkillMeta_ACU(meta)) continue;
+      const keys = getWorldbookEntryKeywordsForSkillify_ACU(entry);
+      const fallback = hasUsableWorldbookSkillMeta_ACU(meta) ? null : buildFallbackWorldbookSummaryText_ACU(entry, comment, keys);
       allowedKeys.add(refKey_ACU(bookName, uid));
       const index = summaries.length + 1;
       summaries.push({
@@ -227,9 +241,9 @@ async function collectWorldbookSummariesFromSnapshot_ACU(
         uid,
         index,
         comment,
-        keys: getWorldbookEntryKeywordsForSkillify_ACU(entry),
-        description: meta?.description || '',
-        triggerWhen: meta?.triggerWhen || '',
+        keys,
+        description: meta?.description || fallback?.description || '',
+        triggerWhen: meta?.triggerWhen || fallback?.triggerWhen || '',
         tk: resolveWorldbookEntryTk_ACU(entry, meta, comment),
       });
     }

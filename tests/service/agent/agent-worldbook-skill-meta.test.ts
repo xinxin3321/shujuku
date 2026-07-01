@@ -22,7 +22,11 @@ vi.mock('../../../src/service/agent/agent-worldbook-config-meta', () => ({
   resolveAgentWorldbookConfigBookNames_ACU: vi.fn(),
 }));
 
-import { clearWorldbookSkillMetaBlocks_ACU } from '../../../src/service/agent/agent-worldbook-skill-meta';
+import {
+  readAgentWorldbookControlFromWorldbooks_ACU,
+  resolveAgentWorldbookConfigBookNames_ACU,
+} from '../../../src/service/agent/agent-worldbook-config-meta';
+import { clearWorldbookSkillMetaBlocks_ACU, resolveAgentWorldbookFilterAvailability_ACU } from '../../../src/service/agent/agent-worldbook-skill-meta';
 
 const skillBlock = '<!-- ACU_SKILL_META_START\n{"version":1,"description":"描述","triggerWhen":"触发","tk":12,"updatedAt":1,"updatedBy":"agent-skillify"}\nACU_SKILL_META_END -->';
 const takeoverBlock = '<!-- ACU_AGENT_WORLDBOOK_TAKEOVER_META_START\n{"previousEnabled":true}\nACU_AGENT_WORLDBOOK_TAKEOVER_META_END -->';
@@ -31,6 +35,8 @@ describe('clearWorldbookSkillMetaBlocks_ACU', () => {
   beforeEach(() => {
     mockEntriesByBook.clear();
     mockSetLorebookEntries.mockClear();
+    vi.mocked(readAgentWorldbookControlFromWorldbooks_ACU).mockReset();
+    vi.mocked(resolveAgentWorldbookConfigBookNames_ACU).mockReset();
   });
 
   it('clears only ACU skill meta blocks and keeps config/takeover comments untouched', async () => {
@@ -56,5 +62,36 @@ describe('clearWorldbookSkillMetaBlocks_ACU', () => {
 
     expect(result).toMatchObject({ total: 0, cleared: 0, skipped: 0, failed: 0, errors: [] });
     expect(mockSetLorebookEntries).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveAgentWorldbookFilterAvailability_ACU', () => {
+  beforeEach(() => {
+    mockEntriesByBook.clear();
+    mockSetLorebookEntries.mockClear();
+    vi.mocked(readAgentWorldbookControlFromWorldbooks_ACU).mockReset();
+    vi.mocked(resolveAgentWorldbookConfigBookNames_ACU).mockReset();
+  });
+
+  it('agent 模式且世界书范围非空时 skillMetas 为空仍可用', async () => {
+    vi.mocked(readAgentWorldbookControlFromWorldbooks_ACU).mockResolvedValue({
+      control: { mode: 'agent' },
+      source: 'worldbook',
+      bookName: '角色A世界书',
+      duplicateCount: 0,
+      writableBookName: '角色A世界书',
+    } as any);
+    vi.mocked(resolveAgentWorldbookConfigBookNames_ACU).mockResolvedValue(['角色A世界书']);
+    mockEntriesByBook.set('角色A世界书', [
+      { uid: 1, comment: '没有 Skill 元数据的普通条目', enabled: true, keys: ['钥匙A'] },
+    ]);
+
+    const result = await resolveAgentWorldbookFilterAvailability_ACU();
+
+    expect(result.available).toBe(true);
+    expect(result.reason).toBe('available');
+    expect(result.skillCount).toBe(0);
+    expect(result.skillMetas).toEqual([]);
+    expect(result.bookNames).toEqual(['角色A世界书']);
   });
 });

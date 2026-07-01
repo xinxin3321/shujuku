@@ -805,7 +805,7 @@ describe('runPlotTasksRuntime_ACU', () => {
     expect(options.isSelected({ bookName: '剧情书', uid: 999, normalizedComment: 'TavernDB-ACU-自动生成条目' })).toBe(false);
   });
 
-  it('并发模式下 Agent 不改写剧情任务，任务级世界书按 normal 模式处理，剧情成功后才写正文蓝灯', async () => {
+  it('并发模式下 skillMetas 为空仍运行 Agent 决策，剧情成功后写正文蓝灯', async () => {
     const finalGreenlights = [{ bookName: '剧情书', uid: 12, reason: '正文需要' }];
     mockResolveAgentWorldbookFilterAvailability.mockResolvedValueOnce({
       available: true,
@@ -813,9 +813,9 @@ describe('runPlotTasksRuntime_ACU', () => {
       configuredMode: 'agent',
       control: { mode: 'agent', agentPlotExecutionMode: 'concurrent' },
       configSource: 'worldbook',
-      skillCount: 1,
+      skillCount: 0,
       bookNames: ['剧情书'],
-      skillMetas: [{ bookName: '剧情书', uid: 7, skillMeta: { description: '任务需要', triggerWhen: '任务执行' } }],
+      skillMetas: [],
       configBookName: '剧情书',
       writableBookName: '剧情书',
     });

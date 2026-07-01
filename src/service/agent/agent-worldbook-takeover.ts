@@ -17,7 +17,6 @@ import {
 } from './agent-skillify-service';
 import {
   resolveAgentWorldbookFilterAvailability_ACU,
-  type WorldbookSkillMetaReadResult_ACU,
   stripWorldbookSkillMetaBlock_ACU,
 } from './agent-worldbook-skill-meta';
 import {
@@ -164,17 +163,6 @@ function isFinalGenerationBlueLightEntry_ACU(entry: Record<string, any>): boolea
 
 function buildFinalGreenlightKey_ACU(bookName: string, uid: unknown): string {
   return `${String(bookName || '').trim()}\u0000${String(uid ?? '').trim()}`;
-}
-
-function buildSkillMetaUidSetByBook_ACU(skillMetas: WorldbookSkillMetaReadResult_ACU[]): Map<string, Set<string>> {
-  const uidSetByBook = new Map<string, Set<string>>();
-  for (const meta of Array.isArray(skillMetas) ? skillMetas : []) {
-    const bookName = String(meta?.bookName || '').trim();
-    if (!bookName || !hasValidWorldbookUid_ACU(meta?.uid)) continue;
-    if (!uidSetByBook.has(bookName)) uidSetByBook.set(bookName, new Set());
-    uidSetByBook.get(bookName)!.add(String(meta.uid));
-  }
-  return uidSetByBook;
 }
 
 async function patchSnapshotEntries_ACU(snapshotUidSetByBook: Map<string, Set<string>>, buildPatch: (bookName: string, entry: Record<string, any>) => Record<string, any> | null): Promise<number> {
@@ -378,7 +366,7 @@ function buildSnapshotEntry_ACU(entry: Record<string, any>): AgentWorldbookContr
   };
 }
 
-async function collectTakeoverCandidates_ACU(bookNames: string[], allowedUidSetByBook?: Map<string, Set<string>>): Promise<{
+async function collectTakeoverCandidates_ACU(bookNames: string[]): Promise<{
   snapshotBooks: Record<string, AgentWorldbookControlSnapshotEntry_ACU[]>;
   updates: AgentWorldbookTakeoverEntryUpdate_ACU[];
 }> {
@@ -388,10 +376,8 @@ async function collectTakeoverCandidates_ACU(bookNames: string[], allowedUidSetB
   for (const bookName of bookNames) {
     const entries = await getLorebookEntries_ACU(bookName);
     const bookSnapshot: AgentWorldbookControlSnapshotEntry_ACU[] = [];
-    const allowedUidSet = allowedUidSetByBook?.get(bookName);
     for (const entry of entries || []) {
       if (!isWorldbookEntrySkillifyCandidate_ACU(entry)) continue;
-      if (allowedUidSet && !allowedUidSet.has(String(entry?.uid))) continue;
       const snapshotEntry = buildSnapshotEntry_ACU(entry);
       if (!snapshotEntry) continue;
       bookSnapshot.push(snapshotEntry);
@@ -573,8 +559,7 @@ export async function takeoverWorldbookGreenlights_ACU(): Promise<AgentWorldbook
     };
   }
 
-  const allowedUidSetByBook = buildSkillMetaUidSetByBook_ACU(availability.skillMetas);
-  const { snapshotBooks, updates } = await collectTakeoverCandidates_ACU(resolvedBookNames, allowedUidSetByBook);
+  const { snapshotBooks, updates } = await collectTakeoverCandidates_ACU(resolvedBookNames);
   const totalCandidates = updates.length || Object.values(snapshotBooks || {}).reduce((sum, entries) => sum + (Array.isArray(entries) ? entries.length : 0), 0);
   const existingSnapshot = getPlotAgentWorldbookSnapshot_ACU();
   const shouldKeepExistingActiveSnapshot = totalCandidates === 0 && existingSnapshot.active === true && existingSnapshot.selectionSignature === selectionSignature;

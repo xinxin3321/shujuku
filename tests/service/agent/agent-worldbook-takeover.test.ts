@@ -47,7 +47,16 @@ vi.mock('../../../src/service/runtime/state-manager', () => ({
 
 vi.mock('../../../src/service/agent/agent-skillify-service', () => ({
   resolvePlotWorldbookSkillifyBookNames_ACU: mockResolveBookNames,
-  isWorldbookEntrySkillifyCandidate_ACU: vi.fn((entry: any) => entry?.enabled !== false && String(entry?.type || '').toLowerCase() !== 'constant'),
+  isWorldbookEntrySkillifyCandidate_ACU: vi.fn((entry: any) => {
+    const comment = String(entry?.comment || entry?.name || '').trim();
+    if (entry?.enabled === false) return false;
+    if (String(entry?.type || '').toLowerCase() === 'constant') return false;
+    if (comment.startsWith('TavernDB-ACU-AgentWorldbookConfig')) return false;
+    if (comment.startsWith('TavernDB-ACU-AgentWorldbookSnapshot')) return false;
+    if (comment.startsWith('TavernDB-ACU-AgentFinalGenerationGreenlights')) return false;
+    if (comment.startsWith('TavernDB-ACU-') && !comment.startsWith('TavernDB-ACU-AgentGreenlight')) return false;
+    return true;
+  }),
   getWorldbookEntryKeywordsForSkillify_ACU: vi.fn((entry: any) => entry?.keys || []),
 }));
 
@@ -241,6 +250,30 @@ describe('agent worldbook takeover native trigger suppression', () => {
     expect(result.reason).toBe('empty_scope');
     expect(result.totalCandidates).toBe(0);
     expect(getPlotAgentWorldbookSnapshot_ACU().active).toBe(false);
+  });
+
+  it('skillMetas 为空时仍按普通关键词候选写入 active snapshot，但排除 constant 与 Agent 内部/数据库生成条目', async () => {
+    mockEntriesByBook.set('角色A世界书', [
+      { uid: 1, enabled: true, keys: ['钥匙A'], type: 'selective', comment: '普通条目A', content: '内容A' },
+      { uid: 2, enabled: true, keys: ['常量'], type: 'constant', comment: '常量条目', content: '内容B' },
+      { uid: 3, enabled: true, keys: ['内部'], type: 'selective', comment: 'TavernDB-ACU-AgentWorldbookConfig', content: '{}' },
+      { uid: 4, enabled: true, keys: ['数据库'], type: 'selective', comment: 'TavernDB-ACU-自动生成条目', content: '内容D' },
+      { uid: 5, enabled: false, keys: ['关闭'], type: 'selective', comment: '已关闭条目', content: '内容E' },
+    ]);
+
+    const result = await takeoverWorldbookGreenlights_ACU();
+
+    expect(result.reason).toBe('native_worldbook_trigger_disabled');
+    expect(result.totalCandidates).toBe(1);
+    expect(result.snapshot.active).toBe(true);
+    expect(result.snapshot.books['角色A世界书']).toEqual([
+      expect.objectContaining({ uid: 1, previousKeys: ['钥匙A'], previousType: 'selective' }),
+    ]);
+    expect(result.updates).toEqual([{ bookName: '角色A世界书', uid: 1 }]);
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 1)).toMatchObject({ enabled: false });
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 2)).toMatchObject({ enabled: true, type: 'constant' });
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 3)).toMatchObject({ enabled: true });
+    expect(mockEntriesByBook.get('角色A世界书')?.find(entry => entry.uid === 4)).toMatchObject({ enabled: true });
   });
 
   it('刷新快照时保留当前 selection 的 active snapshot，确保 takeover 后 UI refresh 不破坏 restore', async () => {

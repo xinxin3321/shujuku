@@ -271,6 +271,5 @@ export async function resolveAgentWorldbookFilterAvailability_ACU(): Promise<Age
   if (bookNames.length === 0) return { ...base, available: false, reason: 'empty_scope' };
   if (config.source !== 'worldbook') return { ...base, available: false, reason: 'no_card_agent_config' };
   if (config.control.mode !== 'agent') return { ...base, available: false, reason: 'not_agent_mode' };
-  if (skillMetas.length === 0) return { ...base, available: false, reason: 'no_skill_data' };
   return { ...base, available: true, reason: 'available' };
 }

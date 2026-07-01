@@ -531,14 +531,30 @@ export async function writeAgentWorldbookControlToWorldbook_ACU(
   };
 }
 
+async function resolveAgentWorldbookStateCleanupBookNames_ACU(explicitBookName: string): Promise<string[]> {
+  if (explicitBookName) return [explicitBookName];
+
+  const names: string[] = [
+    await resolveAgentWorldbookConfigHostBook_ACU(),
+    ...(await resolveAgentWorldbookConfigBookNames_ACU()),
+    ...getManualPlotWorldbookNames_ACU(),
+  ];
+
+  try {
+    const charLorebooks = await getCharLorebooks_ACU({ type: 'all' });
+    const primary = String(charLorebooks?.primary || '').trim();
+    if (primary) names.push(primary);
+    names.push(...normalizeBookNameList_ACU(charLorebooks?.additional));
+  } catch {
+    // Cleanup must remain best-effort across host/config changes; existing host/config names above are still valid.
+  }
+
+  return normalizeBookNameList_ACU(names);
+}
+
 export async function deleteAgentWorldbookStateEntry_ACU(bookName?: string): Promise<number> {
   const explicitBookName = String(bookName || '').trim();
-  const scanBookNames = explicitBookName
-    ? [explicitBookName]
-    : normalizeBookNameList_ACU([
-      await resolveAgentWorldbookConfigHostBook_ACU(),
-      ...(await resolveAgentWorldbookConfigBookNames_ACU()),
-    ]);
+  const scanBookNames = await resolveAgentWorldbookStateCleanupBookNames_ACU(explicitBookName);
   let deleted = 0;
   for (const targetBookName of scanBookNames) {
     const entries = await getLorebookEntries_ACU(targetBookName);

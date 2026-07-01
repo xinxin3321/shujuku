@@ -21,6 +21,7 @@ import {
   getPlotAgentWorldbookSnapshot_ACU,
   refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU,
   restoreWorldbookGreenlights_ACU,
+  takeoverWorldbookGreenlights_ACU,
 } from '../../service/agent/agent-worldbook-takeover';
 import {
   skillifyCurrentPlotWorldbookSelection_ACU,
@@ -209,6 +210,18 @@ export function usePlotWorldbookAgentControl() {
     const saved = await writeControlPatch({ mode: next, enabled: next !== 'disabled' });
     if (!saved) return;
     if (next === 'agent') {
+      try {
+        const takeoverResult = await takeoverWorldbookGreenlights_ACU();
+        snapshot.value = await refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU();
+        if (takeoverResult.failed > 0 || snapshot.value.active !== true) {
+          toast.warning(`Agent 世界书已切换为接管模式，但物理接管未完全完成：${takeoverResult.reason || 'unknown'}`, { muteable: false });
+          return;
+        }
+      } catch (error: any) {
+        snapshot.value = await refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU();
+        toast.warning(`Agent 世界书已切换为接管模式，但物理接管失败：${error?.message || '未知错误'}`, { muteable: false });
+        return;
+      }
       toast.info(plotCopy.agentControl.modeChanged.agent, { muteable: false });
       return;
     }

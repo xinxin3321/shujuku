@@ -151,10 +151,17 @@ describe('runAgentDecisionForPlot_ACU', () => {
     expect(messages[0].content).not.toContain('blocked_task');
   });
 
-  it('does not trigger Agent decision when snapshot entries do not contain usable Skill metadata', async () => {
+  it('uses active snapshot entries without Skill metadata as fallback decision candidates', async () => {
     mockGetLorebookEntries.mockResolvedValueOnce([
       { uid: 12, comment: '陈默人物档案', keys: ['陈默'], content: '陈默内容', enabled: true },
     ]);
+    mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
+      taskPlan: [{ taskId: 'task_id', run: true, effectiveStage: 1, effectiveOrder: 0 }],
+      plotGreenlights: {},
+      finalGenerationGreenlights: [{ entries: [1], reason: '最终生成' }],
+      fallbackMode: false,
+      reason: 'ok',
+    }));
 
     const result = await runAgentDecisionForPlot_ACU({
       plotSettings: { agentWorldbookControl: { enabled: true, mode: 'agent' } },
@@ -163,16 +170,25 @@ describe('runAgentDecisionForPlot_ACU', () => {
       enabledTasks: [{ id: 'task id', name: '默认任务', description: '需要判断的剧情任务', enabled: true, promptGroup: { messages: [] } }],
     });
 
-    expect(result.active).toBe(false);
-    expect(result.fallbackReason).toBe('empty_worldbook_scope');
-    expect(mockCallAIWithPreset).not.toHaveBeenCalled();
+    expect(result.active).toBe(true);
+    expect(result.finalGenerationGreenlights).toEqual([{ bookName: '剧情书', uid: 12, reason: '最终生成' }]);
+    const promptText = mockCallAIWithPreset.mock.calls[0][0].map((message: any) => String(message.content || '')).join('\n');
+    expect(promptText).toContain('陈默人物档案');
+    expect(promptText).toContain('关键词：陈默');
   });
 
-  it('does not trigger Agent decision when Skill metadata block has no description or triggerWhen', async () => {
+  it('uses snapshot entries with empty Skill metadata as fallback decision candidates', async () => {
     const emptySkillMetaBlock = '<!-- ACU_SKILL_META_START\n{"version":1,"description":"","triggerWhen":"","updatedAt":1,"updatedBy":"agent-skillify"}\nACU_SKILL_META_END -->';
     mockGetLorebookEntries.mockResolvedValueOnce([
       { uid: 12, comment: `陈默人物档案\n\n${emptySkillMetaBlock}`, keys: ['陈默'], content: '陈默内容', enabled: true },
     ]);
+    mockCallAIWithPreset.mockResolvedValue(JSON.stringify({
+      taskPlan: [{ taskId: 'task_id', run: true, effectiveStage: 1, effectiveOrder: 0 }],
+      plotGreenlights: {},
+      finalGenerationGreenlights: [{ entries: [1], reason: '最终生成' }],
+      fallbackMode: false,
+      reason: 'ok',
+    }));
 
     const result = await runAgentDecisionForPlot_ACU({
       plotSettings: { agentWorldbookControl: { enabled: true, mode: 'agent' } },
@@ -181,9 +197,13 @@ describe('runAgentDecisionForPlot_ACU', () => {
       enabledTasks: [{ id: 'task id', name: '默认任务', description: '需要判断的剧情任务', enabled: true, promptGroup: { messages: [] } }],
     });
 
-    expect(result.active).toBe(false);
-    expect(result.fallbackReason).toBe('empty_worldbook_scope');
-    expect(mockCallAIWithPreset).not.toHaveBeenCalled();
+    expect(result.active).toBe(true);
+    expect(result.finalGenerationGreenlights).toEqual([{ bookName: '剧情书', uid: 12, reason: '最终生成' }]);
+    const promptText = mockCallAIWithPreset.mock.calls[0][0].map((message: any) => String(message.content || '')).join('\n');
+    expect(promptText).toContain('陈默人物档案');
+    expect(promptText).toContain('关键词：陈默');
+    expect(promptText).not.toContain('ACU_SKILL_META_START');
+    expect(mockCallAIWithPreset).toHaveBeenCalledTimes(1);
   });
 
   it('uses user-layer plot records from recent context instead of independent plot context messages', async () => {

@@ -245,6 +245,38 @@ describe('usePlotWorldbookAgentControl', () => {
     expect(mockTakeover).not.toHaveBeenCalled();
   });
 
+  it('setMode agent 保存成功后触发物理接管并刷新 active snapshot', async () => {
+    mockTakeover.mockResolvedValueOnce({ updated: true, reason: 'native_worldbook_trigger_disabled', failed: 0 });
+    const activeSnapshot = { active: true, selectionSignature: 'sig', createdAt: 1, books: { '角色A世界书': [{ uid: 1 }] } };
+    mockRefreshSnapshot
+      .mockResolvedValue(activeSnapshot)
+      .mockResolvedValueOnce({ active: false, selectionSignature: '', createdAt: 0, books: {} })
+      .mockResolvedValueOnce(activeSnapshot);
+    const c = await getComposable();
+
+    await c.setMode('agent');
+
+    expect(mockWriteControl).toHaveBeenCalledWith({ mode: 'agent', enabled: true });
+    expect(mockTakeover).toHaveBeenCalledTimes(1);
+    expect(mockRefreshSnapshot).toHaveBeenCalled();
+    expect(c.snapshot.value.active).toBe(true);
+    expect(toast.info).toHaveBeenCalledWith('Agent 世界书已切换为接管模式。', { muteable: false });
+    expect(toast.warning).not.toHaveBeenCalled();
+  });
+
+  it('setMode agent 接管失败时提示 warning，不把失败伪装成成功', async () => {
+    mockTakeover.mockResolvedValueOnce({ updated: true, reason: 'snapshot_state_write_failed', failed: 1 });
+    mockRefreshSnapshot.mockResolvedValue({ active: false, selectionSignature: 'sig', createdAt: 0, books: {} });
+    const c = await getComposable();
+
+    await c.setMode('agent');
+
+    expect(mockWriteControl).toHaveBeenCalledWith({ mode: 'agent', enabled: true });
+    expect(mockTakeover).toHaveBeenCalledTimes(1);
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('snapshot_state_write_failed'), { muteable: false });
+    expect(toast.info).not.toHaveBeenCalledWith('Agent 世界书已切换为接管模式。', { muteable: false });
+  });
+
   it('setMode disabled 只关闭模式，不执行清理并初始化', async () => {
     const c = await getComposable();
     const settings = (c as any).__settings;

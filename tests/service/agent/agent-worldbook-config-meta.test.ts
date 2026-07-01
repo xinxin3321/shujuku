@@ -28,6 +28,7 @@ vi.mock('../../../src/data/gateways/worldbook-gateway', () => ({
 
 vi.mock('../../../src/service/runtime/state-manager', () => ({ settings_ACU: mockSettings }));
 
+import { getCharLorebooks_ACU } from '../../../src/data/gateways/worldbook-gateway';
 import {
   AGENT_WORLDBOOK_CONFIG_COMMENT_ACU,
   deleteAgentWorldbookStateEntry_ACU,
@@ -45,6 +46,7 @@ describe('agent worldbook config/state meta', () => {
     vi.clearAllMocks();
     mockEntriesByBook.clear();
     mockSettings.plotSettings = {};
+    vi.mocked(getCharLorebooks_ACU).mockResolvedValue({ primary: '主世界书', additional: [] } as any);
   });
 
   it('reads legacy version 1 config as control with inactive snapshot', async () => {
@@ -260,5 +262,32 @@ describe('agent worldbook config/state meta', () => {
     expect(deleted).toBe(2);
     expect(mockDeleted).toHaveBeenCalledWith('主世界书', ['cfg-1', 'cfg-2']);
     expect(mockEntriesByBook.get('主世界书')).toEqual([{ uid: 'normal', comment: 'TavernDB-ACU-AgentWorldbookConfig-用户条目' }]);
+  });
+
+  it('未传 bookName 时会扫描角色 all lorebooks 与 manualSelection 中残留的 state/config，但不误删相似前缀', async () => {
+    vi.mocked(getCharLorebooks_ACU).mockResolvedValue({ primary: '', additional: ['旧附加书'] } as any);
+    mockSettings.plotSettings = {
+      plotWorldbookConfig: {
+        source: 'manual',
+        manualSelection: ['手动书'],
+      },
+    };
+    mockEntriesByBook.set('主世界书', [{ uid: 'normal-main', comment: '普通条目' }]);
+    mockEntriesByBook.set('手动书', [
+      configEntry({ version: 2, kind: 'agent_worldbook_state', updatedAt: 1, control: {}, snapshot: {} }, 'manual-cfg'),
+      { uid: 'manual-normal', comment: 'TavernDB-ACU-AgentWorldbookConfig-用户条目' },
+    ]);
+    mockEntriesByBook.set('旧附加书', [
+      configEntry({ version: 1, kind: 'agent_worldbook_config', updatedAt: 1, control: {} }, 'legacy-cfg'),
+      { uid: 'additional-normal', comment: '普通条目' },
+    ]);
+
+    const deleted = await deleteAgentWorldbookStateEntry_ACU();
+
+    expect(deleted).toBe(2);
+    expect(mockDeleted).toHaveBeenCalledWith('手动书', ['manual-cfg']);
+    expect(mockDeleted).toHaveBeenCalledWith('旧附加书', ['legacy-cfg']);
+    expect(mockEntriesByBook.get('手动书')).toEqual([{ uid: 'manual-normal', comment: 'TavernDB-ACU-AgentWorldbookConfig-用户条目' }]);
+    expect(mockEntriesByBook.get('旧附加书')).toEqual([{ uid: 'additional-normal', comment: '普通条目' }]);
   });
 });
