@@ -82,6 +82,7 @@ export const plotCopy = {
       },
       success: (updated: number, skipped: number) => `Skill 化完成：更新 ${updated} 条，跳过 ${skipped} 条。`,
       partial: (updated: number, skipped: number, failed: number) => `Skill 化部分完成：更新 ${updated} 条，跳过 ${skipped} 条，失败 ${failed} 条。`,
+      noSelection: "请先勾选要 Skill 化的世界书条目。",
       noCandidates: "当前范围没有可 Skill 化的世界书条目。",
       error: "一键 Skill 化失败",
     },

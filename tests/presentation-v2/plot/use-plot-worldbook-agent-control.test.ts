@@ -18,8 +18,8 @@ const dialog = {
 const mockSaveSettings = vi.fn();
 const mockRefreshSnapshot = vi.fn(async () => ({ active: false, selectionSignature: '', createdAt: 0, books: {} }));
 const mockWriteControl = vi.fn();
-const mockTakeover = vi.fn(async () => ({ updated: false, reason: 'noop' }));
-const mockRestore = vi.fn(async () => ({ updated: false, reason: 'noop' }));
+const mockTakeover = vi.fn(async () => ({ updated: false, reason: 'noop', failed: 0 }));
+const mockRestore = vi.fn(async () => ({ updated: false, reason: 'noop', skipped: 0, failed: 0 }));
 const mockClearSkillMeta = vi.fn(async () => ({ total: 2, cleared: 2, skipped: 0, failed: 0, errors: [] }));
 const mockResolveAvailability = vi.fn(async () => ({
   configuredMode: 'agent',
@@ -144,8 +144,8 @@ describe('usePlotWorldbookAgentControl', () => {
       options.onProgress?.({ phase: 'collecting' });
       throw new Error('boom');
     });
-    mockTakeover.mockResolvedValue({ updated: false, reason: 'noop' });
-    mockRestore.mockResolvedValue({ updated: false, reason: 'noop' });
+    mockTakeover.mockResolvedValue({ updated: false, reason: 'noop', failed: 0 });
+    mockRestore.mockResolvedValue({ updated: false, reason: 'noop', skipped: 0, failed: 0 });
     mockClearSkillMeta.mockResolvedValue({ total: 2, cleared: 2, skipped: 0, failed: 0, errors: [] });
     mockResolveAvailability.mockResolvedValue({
       configuredMode: 'agent',
@@ -218,6 +218,38 @@ describe('usePlotWorldbookAgentControl', () => {
     }));
   });
 
+
+  it('skillifySelected 空选择时 warning 且不调用 Skill 化服务', async () => {
+    const c = await getComposable();
+
+    const result = await c.skillifySelected([]);
+
+    expect(result).toBe(false);
+    expect(mockSkillify).not.toHaveBeenCalled();
+    expect(dialog.confirm).not.toHaveBeenCalled();
+    expect(toast.warning).toHaveBeenCalledWith('请先勾选要 Skill 化的世界书条目。', { muteable: false });
+  });
+
+  it('skillifySelected 非空选择时透传 selectedEntries 并复用 Skill 化流程', async () => {
+    mockSkillify.mockImplementation(async (options: any) => {
+      options.onProgress?.({ phase: 'collecting' });
+      options.onProgress?.({ phase: 'complete', current: 1, total: 1, updated: 1, skipped: 0, failed: 0 });
+      return { totalCandidates: 1, updated: 1, skipped: 0, failed: 0 };
+    });
+    const c = await getComposable();
+
+    const result = await c.skillifySelected([{ bookName: '角色A世界书', uid: 2 }]);
+
+    expect(result).toBe(true);
+    expect(dialog.confirm).toHaveBeenCalledTimes(1);
+    expect(mockSkillify).toHaveBeenCalledWith(expect.objectContaining({
+      selectedEntries: [{ bookName: '角色A世界书', uid: 2 }],
+      maxConcurrency: 3,
+      maxAiRetries: 2,
+      overwriteManual: false,
+    }));
+  });
+
   it('setMaxSkillifyConcurrency 保存夹紧后的并发数', async () => {
     const c = await getComposable();
 
@@ -231,18 +263,62 @@ describe('usePlotWorldbookAgentControl', () => {
     expect(mockWriteControl).not.toHaveBeenCalled();
   });
 
-  it('skillifyAll 成功后不再自动触发物理接管', async () => {
+  it('skillifyAll 成功更新 Skill 后在 Agent 模式同步物理接管并刷新 snapshot', async () => {
     mockSkillify.mockImplementation(async (options: any) => {
       options.onProgress?.({ phase: 'collecting' });
       options.onProgress?.({ phase: 'complete', current: 1, total: 1, updated: 1, skipped: 0, failed: 0 });
       return { totalCandidates: 1, updated: 1, skipped: 0, failed: 0 };
     });
+    const activeSnapshot = { active: true, selectionSignature: 'sig', createdAt: 1, books: { '角色A世界书': [{ uid: 1 }] } };
+    mockTakeover.mockResolvedValueOnce({ updated: true, reason: 'native_worldbook_trigger_disabled', failed: 0 });
+    mockRefreshSnapshot.mockResolvedValue(activeSnapshot);
     const c = await getComposable();
 
     const result = await c.skillifyAll();
 
     expect(result).toBe(true);
+    expect(mockTakeover).toHaveBeenCalledTimes(1);
+    expect(c.snapshot.value).toEqual(activeSnapshot);
+  });
+
+  it('syncAgentWorldbookTakeoverAfterSkillChange 在非 Agent 模式不触发物理接管', async () => {
+    const c = await getComposable();
+    await c.setMode('passive');
+    mockTakeover.mockClear();
+    mockRefreshSnapshot.mockClear();
+
+    const result = await c.syncAgentWorldbookTakeoverAfterSkillChange();
+
+    expect(result).toBe(false);
     expect(mockTakeover).not.toHaveBeenCalled();
+    expect(mockRefreshSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('syncAgentWorldbookTakeoverAfterSkillChange 在 Agent 模式触发物理接管并刷新 snapshot', async () => {
+    const activeSnapshot = { active: true, selectionSignature: 'sig', createdAt: 1, books: { '角色A世界书': [{ uid: 1 }] } };
+    mockTakeover.mockResolvedValueOnce({ updated: true, reason: 'native_worldbook_trigger_disabled', failed: 0 });
+    mockRefreshSnapshot.mockResolvedValue(activeSnapshot);
+    const c = await getComposable();
+
+    const result = await c.syncAgentWorldbookTakeoverAfterSkillChange();
+
+    expect(result).toBe(true);
+    expect(mockTakeover).toHaveBeenCalledTimes(1);
+    expect(c.snapshot.value).toEqual(activeSnapshot);
+  });
+
+  it('syncAgentWorldbookTakeoverAfterSkillChange 刷新配置失败时不抛出且不触发物理接管', async () => {
+    const c = await getComposable();
+    await Promise.resolve();
+    mockRefreshSnapshot.mockClear();
+    mockRefreshSnapshot.mockRejectedValueOnce(new Error('refresh failed'));
+
+    const result = await c.syncAgentWorldbookTakeoverAfterSkillChange();
+
+    expect(result).toBe(false);
+    expect(mockTakeover).not.toHaveBeenCalled();
+    expect(mockRefreshSnapshot).toHaveBeenCalledTimes(2);
+    expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('refresh failed'), { muteable: false });
   });
 
   it('setMode agent 保存成功后触发物理接管并刷新 active snapshot', async () => {
@@ -277,18 +353,35 @@ describe('usePlotWorldbookAgentControl', () => {
     expect(toast.info).not.toHaveBeenCalledWith('Agent 世界书已切换为接管模式。', { muteable: false });
   });
 
-  it('setMode disabled 只关闭模式，不执行清理并初始化', async () => {
+  it('setMode disabled 保存成功后执行 restore_only 恢复但保留 legacy snapshot', async () => {
     const c = await getComposable();
     const settings = (c as any).__settings;
 
     await c.setMode('disabled');
 
     expect(mockWriteControl).toHaveBeenCalledWith({ mode: 'disabled', enabled: false });
-    expect(mockRestore).not.toHaveBeenCalled();
+    expect(mockRestore).toHaveBeenCalledWith({ cleanupMode: 'restore_only' });
+    expect(mockRestore).toHaveBeenCalledTimes(1);
     expect(settings.plotSettings.agentWorldbookControl.mode).toBe('disabled');
     expect(settings.plotSettings.agentWorldbookControl.enabled).toBe(false);
     expect(settings.plotSettings.agentWorldbookControlSnapshot).toBeDefined();
     expect(mockSaveSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('setMode disabled 恢复失败时 warning，不把关闭模式伪装成完整成功', async () => {
+    mockRestore.mockResolvedValueOnce({ updated: true, reason: 'native_worldbook_trigger_restore_failed', skipped: 0, failed: 1 });
+    const c = await getComposable();
+    const settings = (c as any).__settings;
+
+    await c.setMode('disabled');
+
+    expect(mockWriteControl).toHaveBeenCalledWith({ mode: 'disabled', enabled: false });
+    expect(mockRestore).toHaveBeenCalledWith({ cleanupMode: 'restore_only' });
+    expect(settings.plotSettings.agentWorldbookControl.mode).toBe('disabled');
+    expect(settings.plotSettings.agentWorldbookControl.enabled).toBe(false);
+    expect(settings.plotSettings.agentWorldbookControlSnapshot).toBeDefined();
+    expect(toast.warning).toHaveBeenCalledWith('部分世界书条目恢复失败，已保留 Agent 快照以避免永久丢失；Agent 模式已关闭。', { muteable: false });
+    expect(toast.info).not.toHaveBeenCalledWith('Agent 世界书已关闭。', { muteable: false });
   });
 
   it('restore 取消确认时不清理也不关闭 Agent 模式', async () => {
@@ -315,7 +408,7 @@ describe('usePlotWorldbookAgentControl', () => {
     await expect(c.restore()).resolves.toBe(true);
 
     expect(mockWriteControl).toHaveBeenCalledWith({ mode: 'disabled', enabled: false });
-    expect(mockRestore).toHaveBeenCalledWith({ cleanupStateEntry: true });
+    expect(mockRestore).toHaveBeenCalledWith({ cleanupMode: 'full' });
     expect(mockRestore).toHaveBeenCalledTimes(1);
     expect(settings.plotSettings.agentWorldbookControl.mode).toBe('disabled');
     expect(settings.plotSettings.agentWorldbookControl.enabled).toBe(false);
@@ -335,7 +428,7 @@ describe('usePlotWorldbookAgentControl', () => {
     await expect(c.restore()).resolves.toBe(false);
 
     expect(mockWriteControl).toHaveBeenCalledWith({ mode: 'disabled', enabled: false });
-    expect(mockRestore).toHaveBeenCalledWith({ cleanupStateEntry: true });
+    expect(mockRestore).toHaveBeenCalledWith({ cleanupMode: 'full' });
     expect(settings.plotSettings.agentWorldbookControl.mode).toBe('disabled');
     expect(settings.plotSettings.agentWorldbookControl.enabled).toBe(false);
     expect(settings.plotSettings.agentWorldbookControlSnapshot).toBeDefined();

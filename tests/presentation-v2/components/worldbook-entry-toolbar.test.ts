@@ -17,6 +17,9 @@ const mounted: Mounted[] = [];
 function mountToolbar() {
   const selectAll = vi.fn();
   const deselectAll = vi.fn();
+  const skillifySelectAll = vi.fn();
+  const skillifyDeselectAll = vi.fn();
+  const skillifySelected = vi.fn();
 
   const wrapper = defineComponent({
     setup() {
@@ -26,6 +29,9 @@ function mountToolbar() {
         'onUpdate:filter': (value: string) => { filter.value = value; },
         onSelectAll: selectAll,
         onDeselectAll: deselectAll,
+        onSkillifySelectAll: skillifySelectAll,
+        onSkillifyDeselectAll: skillifyDeselectAll,
+        onSkillifySelected: skillifySelected,
       });
     },
   });
@@ -35,7 +41,7 @@ function mountToolbar() {
   const app = createApp(wrapper);
   app.mount(el);
   mounted.push({ app, el });
-  return { el, selectAll, deselectAll };
+  return { el, selectAll, deselectAll, skillifySelectAll, skillifyDeselectAll, skillifySelected };
 }
 
 afterEach(() => {
@@ -49,21 +55,27 @@ afterEach(() => {
 
 describe('WorldbookEntryToolbar', () => {
   it('批量按钮和搜索输入统一使用 md 高度，并透传操作事件', async () => {
-    const { el, selectAll, deselectAll } = mountToolbar();
+    const { el, selectAll, deselectAll, skillifySelectAll, skillifyDeselectAll, skillifySelected } = mountToolbar();
 
     const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>('.acu-btn'));
     const input = el.querySelector<HTMLInputElement>('.acu-input');
 
-    expect(buttons).toHaveLength(2);
+    expect(buttons).toHaveLength(5);
     expect(buttons.every(button => button.classList.contains('acu-btn--md'))).toBe(true);
     expect(buttons.some(button => button.classList.contains('acu-btn--sm'))).toBe(false);
     expect(input?.classList.contains('acu-input--md')).toBe(true);
 
     buttons[0].click();
     buttons[1].click();
+    buttons[2].click();
+    buttons[3].click();
+    buttons[4].click();
     await Promise.resolve();
 
     expect(selectAll).toHaveBeenCalledTimes(1);
     expect(deselectAll).toHaveBeenCalledTimes(1);
+    expect(skillifySelectAll).toHaveBeenCalledTimes(1);
+    expect(skillifyDeselectAll).toHaveBeenCalledTimes(1);
+    expect(skillifySelected).toHaveBeenCalledTimes(1);
   });
 });

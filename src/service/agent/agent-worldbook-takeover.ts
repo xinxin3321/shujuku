@@ -16,6 +16,7 @@ import {
   resolvePlotWorldbookSkillifyBookNames_ACU,
 } from './agent-skillify-service';
 import {
+  hasUsableWorldbookSkillMeta_ACU,
   resolveAgentWorldbookFilterAvailability_ACU,
   stripWorldbookSkillMetaBlock_ACU,
 } from './agent-worldbook-skill-meta';
@@ -378,6 +379,7 @@ async function collectTakeoverCandidates_ACU(bookNames: string[]): Promise<{
     const bookSnapshot: AgentWorldbookControlSnapshotEntry_ACU[] = [];
     for (const entry of entries || []) {
       if (!isWorldbookEntrySkillifyCandidate_ACU(entry)) continue;
+      if (!hasUsableWorldbookSkillMeta_ACU(entry?.comment)) continue;
       const snapshotEntry = buildSnapshotEntry_ACU(entry);
       if (!snapshotEntry) continue;
       bookSnapshot.push(snapshotEntry);
@@ -387,6 +389,57 @@ async function collectTakeoverCandidates_ACU(bookNames: string[]): Promise<{
   }
 
   return { snapshotBooks, updates };
+}
+
+async function reconcileExistingTakeoverSnapshotWithSkillMeta_ACU(
+  existingSnapshot: AgentWorldbookControlSnapshot_ACU,
+  selectionSignature: string,
+): Promise<{
+  snapshot: AgentWorldbookControlSnapshot_ACU;
+  restored: number;
+  skipped: number;
+  failed: number;
+  pruned: number;
+}> {
+  const keptBooks: Record<string, AgentWorldbookControlSnapshotEntry_ACU[]> = {};
+  const staleBooks: Record<string, AgentWorldbookControlSnapshotEntry_ACU[]> = {};
+  let pruned = 0;
+
+  for (const [bookName, snapshotEntries] of Object.entries(existingSnapshot.books || {})) {
+    const normalizedBookName = String(bookName || '').trim();
+    const entriesToCheck = Array.isArray(snapshotEntries) ? snapshotEntries : [];
+    if (!normalizedBookName || entriesToCheck.length === 0) continue;
+    const currentEntries = await getLorebookEntries_ACU(normalizedBookName);
+    const currentByUid = new Map((currentEntries || []).map(entry => [String(entry?.uid), entry]));
+    for (const snapshotEntry of entriesToCheck) {
+      if (!hasValidWorldbookUid_ACU(snapshotEntry?.uid)) continue;
+      const currentEntry = currentByUid.get(String(snapshotEntry.uid));
+      const stillHasSkillMeta = currentEntry ? hasUsableWorldbookSkillMeta_ACU(currentEntry?.comment) : false;
+      if (stillHasSkillMeta) {
+        if (!keptBooks[normalizedBookName]) keptBooks[normalizedBookName] = [];
+        keptBooks[normalizedBookName].push(snapshotEntry);
+        continue;
+      }
+      if (!staleBooks[normalizedBookName]) staleBooks[normalizedBookName] = [];
+      staleBooks[normalizedBookName].push(snapshotEntry);
+      pruned += 1;
+    }
+  }
+
+  const staleSnapshot = pruned > 0
+    ? buildActiveSnapshot_ACU(selectionSignature, staleBooks)
+    : buildInactiveSnapshot_ACU(selectionSignature);
+  const restoreResult = pruned > 0
+    ? await restoreSnapshotEntries_ACU(staleSnapshot)
+    : { restored: 0, skipped: 0, failed: 0 };
+  const hasKeptEntries = Object.values(keptBooks).some(entries => Array.isArray(entries) && entries.length > 0);
+  return {
+    snapshot: hasKeptEntries ? buildActiveSnapshot_ACU(selectionSignature, keptBooks) : buildInactiveSnapshot_ACU(selectionSignature),
+    restored: restoreResult.restored,
+    skipped: restoreResult.skipped,
+    failed: restoreResult.failed,
+    pruned,
+  };
 }
 
 async function disableTakeoverCandidates_ACU(
@@ -563,18 +616,21 @@ export async function takeoverWorldbookGreenlights_ACU(): Promise<AgentWorldbook
   const totalCandidates = updates.length || Object.values(snapshotBooks || {}).reduce((sum, entries) => sum + (Array.isArray(entries) ? entries.length : 0), 0);
   const existingSnapshot = getPlotAgentWorldbookSnapshot_ACU();
   const shouldKeepExistingActiveSnapshot = totalCandidates === 0 && existingSnapshot.active === true && existingSnapshot.selectionSignature === selectionSignature;
+  const reconciledExistingSnapshot = shouldKeepExistingActiveSnapshot
+    ? await reconcileExistingTakeoverSnapshotWithSkillMeta_ACU(existingSnapshot, selectionSignature)
+    : { snapshot: buildInactiveSnapshot_ACU(selectionSignature), restored: 0, skipped: 0, failed: 0, pruned: 0 };
   const snapshot = totalCandidates > 0
     ? buildActiveSnapshot_ACU(selectionSignature, snapshotBooks)
-    : (shouldKeepExistingActiveSnapshot ? existingSnapshot : buildInactiveSnapshot_ACU(selectionSignature));
+    : (shouldKeepExistingActiveSnapshot ? reconciledExistingSnapshot.snapshot : buildInactiveSnapshot_ACU(selectionSignature));
 
   let stateWriteFailed = 0;
-  if (snapshot.active === true) {
+  if (snapshot.active === true || reconciledExistingSnapshot.pruned > 0) {
     try {
       const stateWriteResult = await writeAgentWorldbookStateToWorldbook_ACU({ snapshot });
-      if (!stateWriteResult.updated) stateWriteFailed = totalCandidates;
+      if (!stateWriteResult.updated) stateWriteFailed = totalCandidates > 0 ? totalCandidates : reconciledExistingSnapshot.pruned;
     } catch (error) {
       logWarn_ACU('[Agent世界书] 写入独立接管快照失败，已阻止本次物理禁用以避免无法恢复。', error);
-      stateWriteFailed = totalCandidates;
+      stateWriteFailed = totalCandidates > 0 ? totalCandidates : reconciledExistingSnapshot.pruned;
     }
   }
 
@@ -584,17 +640,20 @@ export async function takeoverWorldbookGreenlights_ACU(): Promise<AgentWorldbook
   setPlotAgentWorldbookSnapshot_ACU(stateWriteFailed > 0
     ? buildInactiveSnapshot_ACU(selectionSignature)
     : snapshot);
-  const totalFailed = failed + stateWriteFailed;
+  const totalFailed = failed + stateWriteFailed + reconciledExistingSnapshot.failed;
+  const reconciledChanged = reconciledExistingSnapshot.restored > 0 || reconciledExistingSnapshot.skipped > 0 || reconciledExistingSnapshot.failed > 0 || reconciledExistingSnapshot.pruned > 0;
 
   return {
-    updated: disabled > 0 || totalFailed > 0,
+    updated: disabled > 0 || totalFailed > 0 || reconciledChanged,
     reason: stateWriteFailed > 0
       ? 'snapshot_state_write_failed'
       : (totalCandidates > 0
         ? 'native_worldbook_trigger_disabled'
-        : (shouldKeepExistingActiveSnapshot
+        : (reconciledExistingSnapshot.pruned > 0
+          ? 'native_worldbook_trigger_snapshot_reconciled'
+          : (shouldKeepExistingActiveSnapshot
           ? 'native_worldbook_trigger_already_disabled'
-          : 'empty_candidates')),
+          : 'empty_candidates'))),
     bookNames: resolvedBookNames,
     selectionSignature,
     totalCandidates,
@@ -606,8 +665,9 @@ export async function takeoverWorldbookGreenlights_ACU(): Promise<AgentWorldbook
 }
 
 export async function restoreWorldbookGreenlights_ACU(options: {
-  cleanupStateEntry?: boolean;
+  cleanupMode?: 'full' | 'restore_only';
 } = {}): Promise<AgentWorldbookRestoreResult_ACU> {
+  const cleanupMode = options.cleanupMode || 'full';
   const resolvedBookNames = await resolveTakeoverBookNames_ACU();
   const selectionSignature = buildWorldbookSelectionSignature_ACU(resolvedBookNames);
   const stateSnapshot = await readPlotAgentWorldbookStateSnapshotOnly_ACU(selectionSignature);
@@ -622,15 +682,15 @@ export async function restoreWorldbookGreenlights_ACU(options: {
   const restoreResult = shouldRestoreSnapshot
     ? await restoreSnapshotEntries_ACU(snapshot)
     : { restored: 0, skipped: 0, failed: 0 };
-  const canDeleteStateEntry = shouldRestoreSnapshot && restoreResult.skipped === 0 && restoreResult.failed === 0;
-  const canClearLegacySnapshot = shouldUseLegacySnapshot && restoreResult.skipped === 0 && restoreResult.failed === 0;
+  const canCleanupPersistentSnapshot = cleanupMode === 'full' && shouldRestoreSnapshot && restoreResult.skipped === 0 && restoreResult.failed === 0;
+  const canClearLegacySnapshot = cleanupMode === 'full' && shouldUseLegacySnapshot && restoreResult.skipped === 0 && restoreResult.failed === 0;
   const deletedFinalGreenlights = await deleteInternalEntriesByComment_ACU(resolvedBookNames, AGENT_FINAL_GENERATION_GREENLIGHT_COMMENT_ACU);
-  const deletedSnapshots = await deleteInternalEntriesByComment_ACU(resolvedBookNames, AGENT_WORLDBOOK_SNAPSHOT_COMMENT_ACU);
-  const deletedStateEntries = canDeleteStateEntry ? await deleteAgentWorldbookStateEntry_ACU() : 0;
+  const deletedSnapshots = cleanupMode === 'full' ? await deleteInternalEntriesByComment_ACU(resolvedBookNames, AGENT_WORLDBOOK_SNAPSHOT_COMMENT_ACU) : 0;
+  const deletedStateEntries = canCleanupPersistentSnapshot ? await deleteAgentWorldbookStateEntry_ACU() : 0;
   const legacySnapshotCleared = canClearLegacySnapshot && clearLegacyPlotAgentWorldbookSnapshot_ACU() ? 1 : 0;
   const cleaned = deletedFinalGreenlights + deletedSnapshots + deletedStateEntries + legacySnapshotCleared;
   const changed = restoreResult.restored + restoreResult.failed + cleaned;
-  const shouldKeepSnapshotCache = shouldRestoreSnapshot && (restoreResult.skipped > 0 || restoreResult.failed > 0);
+  const shouldKeepSnapshotCache = shouldRestoreSnapshot && (cleanupMode === 'restore_only' || restoreResult.skipped > 0 || restoreResult.failed > 0);
   setPlotAgentWorldbookSnapshot_ACU(shouldKeepSnapshotCache
     ? snapshot
     : buildInactiveSnapshot_ACU(selectionSignature));

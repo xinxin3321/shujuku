@@ -100,6 +100,12 @@ export function parseWorldbookSkillMetaFromComment_ACU(comment: unknown): Worldb
   }
 }
 
+export function hasUsableWorldbookSkillMeta_ACU(comment: unknown): boolean {
+  const meta = parseWorldbookSkillMetaFromComment_ACU(comment);
+  if (!meta) return false;
+  return !!meta.description || !!meta.triggerWhen || meta.tk > 0;
+}
+
 export function normalizeWorldbookSkillMetaDraft_ACU(
   draft: Partial<WorldbookSkillMeta_ACU>,
   updatedBy: WorldbookSkillMetaUpdatedBy_ACU = 'manual',

@@ -131,6 +131,42 @@ function ensureBuiltinPlotPresets_ACU(): boolean {
   return changed;
 }
 
+function parseTableTemplateObjectFromString_ACU(templateStr: any): any {
+  if (!templateStr) return null;
+  const first = typeof templateStr === 'string' ? safeJsonParse_ACU(templateStr, null) : templateStr;
+  return typeof first === 'string' ? safeJsonParse_ACU(first, null) : first;
+}
+
+function buildTemplateSignatureSet_ACU(templateObj: any): Set<string> {
+  const signatures = new Set<string>();
+  if (!templateObj || typeof templateObj !== 'object' || Array.isArray(templateObj)) return signatures;
+  Object.keys(templateObj).forEach((key) => {
+    const sheet = templateObj[key];
+    if (!sheet?.name || !Array.isArray(sheet.content?.[0])) return;
+    signatures.add(`${sheet.name}::${JSON.stringify(sheet.content[0])}`);
+  });
+  return signatures;
+}
+
+function setsEqual_ACU(left: Set<string>, right: Set<string>): boolean {
+  if (left.size !== right.size) return false;
+  for (const item of left) {
+    if (!right.has(item)) return false;
+  }
+  return true;
+}
+
+function isDefaultTableTemplateCandidate_ACU(templateStr: any): boolean {
+  const templateObj = parseTableTemplateObjectFromString_ACU(templateStr);
+  const candidateSignatures = buildTemplateSignatureSet_ACU(templateObj);
+  if (candidateSignatures.size === 0) return false;
+  const defaultCandidates = [DEFAULT_TABLE_TEMPLATE_ACU, ORIGINAL_DEFAULT_TABLE_TEMPLATE_ACU]
+    .map(parseTableTemplateObjectFromString_ACU)
+    .map(buildTemplateSignatureSet_ACU)
+    .filter((signatures) => signatures.size > 0);
+  return defaultCandidates.some((signatures) => setsEqual_ACU(candidateSignatures, signatures));
+}
+
 function relaxStoredOriginalDefaultDdls_ACU(templateObj: any): boolean {
   if (!templateObj || typeof templateObj !== 'object' || Array.isArray(templateObj)) return false;
   const parseDefaultTemplate_ACU = () => {
@@ -638,24 +674,24 @@ function refreshDefaultTableTemplateOnce_ACU(activeCode: string) {
 
           const code = normalizeIsolationCode_ACU(activeCode || settings_ACU.dataIsolationCode || globalMeta_ACU?.activeIsolationCode || '');
           const existingTemplate = readProfileTemplateFromStorage_ACU(code);
-          if (existingTemplate && existingTemplate.trim()) {
-              settings_ACU.tableTemplateDefaultsRefreshVersion = TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU;
-              saveSettings_ACU();
-              logDebug_ACU(`[模板默认值] 当前 profile 已有模板，保留用户/旧默认模板并记录版本: ${TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU}`);
-              return;
-          }
-
           const defaultSnapshot = getDefaultTemplateSnapshot_ACU();
           if (!defaultSnapshot?.templateStr) {
               logWarn_ACU('[模板默认值] 默认表格模板快照无效，跳过一次性刷新。');
               return;
           }
 
+          if (existingTemplate && existingTemplate.trim() && !isDefaultTableTemplateCandidate_ACU(existingTemplate)) {
+              settings_ACU.tableTemplateDefaultsRefreshVersion = TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU;
+              saveSettings_ACU();
+              logDebug_ACU(`[模板默认值] 当前 profile 已有用户自定义模板，保留并记录版本: ${TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU}`);
+              return;
+          }
+
           _set_TABLE_TEMPLATE_ACU(defaultSnapshot.templateStr);
-          writeProfileTemplateToStorage_ACU(code, TABLE_TEMPLATE_ACU);
+          writeProfileTemplateToStorage_ACU(code, defaultSnapshot.templateStr);
           settings_ACU.tableTemplateDefaultsRefreshVersion = TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU;
           saveSettings_ACU();
-          logDebug_ACU(`[模板默认值] 已刷新当前 profile 默认表格模板: ${TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU}`);
+          logDebug_ACU(`[模板默认值] 已强制刷新当前 profile 默认表格模板: ${TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU}`);
       } catch (error) {
           logWarn_ACU('[模板默认值] 默认表格模板一次性刷新失败:', error);
       }

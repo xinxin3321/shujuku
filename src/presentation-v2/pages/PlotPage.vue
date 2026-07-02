@@ -26,6 +26,10 @@
           @select-all="wbEntries.selectAll()"
           @deselect-all="wbEntries.deselectAll()"
           @toggle="(bookName: string, uid: number, checked: boolean) => wbEntries.toggleEntry(bookName, uid, checked)"
+          @skillify-select-all="wbEntries.selectAllForSkillify()"
+          @skillify-deselect-all="wbEntries.deselectAllForSkillify()"
+          @toggle-skillify="(bookName: string, uid: number, checked: boolean) => wbEntries.toggleSkillifyEntry(bookName, uid, checked)"
+          @skillify-selected="onSkillifySelectedWorldbookEntries"
           @toggle-group="wbEntries.toggleGroupExpanded($event)"
           @save-skill="onSaveWorldbookSkill"
           @delete-skill="onDeleteWorldbookSkill"
@@ -45,6 +49,7 @@ import WorldbookAgentControlBar from '../components/WorldbookAgentControlBar.vue
 import WorldbookEntryPickerBody from '../components/WorldbookEntryPickerBody.vue';
 import { useWorldbookSelector } from '../composables/useWorldbookSelector';
 import { usePlotWorldbookConfig } from '../composables/usePlotWorldbookConfig';
+import { usePlotWorldbookAgentControl } from '../composables/usePlotWorldbookAgentControl';
 import { usePlotWorldbookEntries } from '../composables/usePlotWorldbookEntries';
 import { useChatChangedTick } from '../composables/useChatChangedListener';
 import { plotCopy } from '../copy/plot-copy';
@@ -57,7 +62,10 @@ type WorldbookSkillDraft = {
 
 const worldbook = useWorldbookSelector();
 const plotWorldbook = usePlotWorldbookConfig();
-const wbEntries = usePlotWorldbookEntries();
+const agentControl = usePlotWorldbookAgentControl();
+const wbEntries = usePlotWorldbookEntries({
+  onSkillMetaChanged: agentControl.syncAgentWorldbookTakeoverAfterSkillChange,
+});
 const entryFilter = ref('');
 const entryEmptyText = ref(plotCopy.worldbook.emptyDefault);
 
@@ -89,10 +97,19 @@ function onManualWorldbookToggle(name: string, checked: boolean): void {
 
 async function onSaveWorldbookSkill(bookName: string, uid: number, draft: WorldbookSkillDraft): Promise<void> {
   await wbEntries.saveEntrySkillMeta(bookName, uid, draft, 'manual');
+  await refreshWorldbookEntries();
 }
 
 async function onDeleteWorldbookSkill(bookName: string, uid: number): Promise<void> {
   await wbEntries.deleteEntrySkillMeta(bookName, uid);
+  await refreshWorldbookEntries();
+}
+
+async function onSkillifySelectedWorldbookEntries(): Promise<void> {
+  const updated = await agentControl.skillifySelected(wbEntries.getSelectedSkillifyEntries());
+  if (updated) {
+    await refreshWorldbookEntries();
+  }
 }
 
 const currentWorldbookLabel = computed<string>(() => {

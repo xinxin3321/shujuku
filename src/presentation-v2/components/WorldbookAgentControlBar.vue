@@ -97,8 +97,9 @@ const statusText = computed(() => agentControl.isAgentMode.value
   ? plotCopy.agentControl.status.active()
   : plotCopy.agentControl.status.inactive);
 
-function onModeChange(value: string): void {
-  agentControl.setMode(value as AgentWorldbookControlMode_ACU);
+async function onModeChange(value: string): Promise<void> {
+  await agentControl.setMode(value as AgentWorldbookControlMode_ACU);
+  emit('changed');
 }
 
 async function runRestore(): Promise<void> {

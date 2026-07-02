@@ -19,6 +19,9 @@
       @update:filter="$emit('update:filter', $event)"
       @select-all="$emit('select-all')"
       @deselect-all="$emit('deselect-all')"
+      @skillify-select-all="$emit('skillify-select-all')"
+      @skillify-deselect-all="$emit('skillify-deselect-all')"
+      @skillify-selected="$emit('skillify-selected')"
     />
     <WorldbookEntryList
       :groups="groups"
@@ -26,6 +29,7 @@
       :loading="loading"
       :empty-text="emptyText"
       @toggle="(bookName: string, uid: number, checked: boolean) => $emit('toggle', bookName, uid, checked)"
+      @toggle-skillify="(bookName: string, uid: number, checked: boolean) => $emit('toggle-skillify', bookName, uid, checked)"
       @toggle-group="$emit('toggle-group', $event)"
       @save-skill="(bookName: string, uid: number, draft: WorldbookSkillDraft) => $emit('save-skill', bookName, uid, draft)"
       @delete-skill="(bookName: string, uid: number) => $emit('delete-skill', bookName, uid)"
@@ -57,7 +61,10 @@ interface WorldbookEntryItem {
   label: string;
   comment?: string;
   skillMeta?: WorldbookSkillMetaView | null;
+  hasSkill: boolean;
+  agentTakeoverState: 'native' | 'skill_ready' | 'taken_over' | 'final_greenlight' | 'initial_disabled';
   checked: boolean;
+  skillifySelected: boolean;
   disabled: boolean;
 }
 
@@ -90,7 +97,11 @@ defineEmits<{
   (e: 'update:filter', value: string): void;
   (e: 'select-all'): void;
   (e: 'deselect-all'): void;
+  (e: 'skillify-select-all'): void;
+  (e: 'skillify-deselect-all'): void;
+  (e: 'skillify-selected'): void;
   (e: 'toggle', bookName: string, uid: number, checked: boolean): void;
+  (e: 'toggle-skillify', bookName: string, uid: number, checked: boolean): void;
   (e: 'toggle-group', bookName: string): void;
   (e: 'save-skill', bookName: string, uid: number, draft: WorldbookSkillDraft): void;
   (e: 'delete-skill', bookName: string, uid: number): void;

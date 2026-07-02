@@ -64,10 +64,16 @@ export interface AgentSkillifyProgressEvent_ACU {
   message?: string;
 }
 
+export interface AgentSkillifySelectedEntry_ACU {
+  bookName: string;
+  uid: string | number;
+}
+
 export interface AgentSkillifyOptions_ACU {
   presetName?: string;
   overwriteManual?: boolean;
   maxEntries?: number;
+  selectedEntries?: AgentSkillifySelectedEntry_ACU[];
   maxConcurrency?: number;
   maxAiRetries?: number;
   onProgress?: (event: AgentSkillifyProgressEvent_ACU) => void;
@@ -346,6 +352,20 @@ function summarizeRunResults_ACU(results: AgentSkillifyEntryResult_ACU[]): Agent
   };
 }
 
+function getSkillifySelectionKey_ACU(bookName: string, uid: string | number): string {
+  return `${String(bookName || '').trim()}\u0000${String(uid)}`;
+}
+
+function normalizeSelectedSkillifyEntryKeys_ACU(
+  selectedEntries: AgentSkillifyOptions_ACU['selectedEntries'],
+): Set<string> | null {
+  if (!Array.isArray(selectedEntries)) return null;
+  const keys = selectedEntries
+    .filter(entry => String(entry?.bookName || '').trim() && entry?.uid !== undefined && entry?.uid !== null)
+    .map(entry => getSkillifySelectionKey_ACU(entry.bookName, entry.uid));
+  return new Set(keys);
+}
+
 export async function collectWorldbookSkillifyCandidates_ACU(
   bookNames: string[],
   options: AgentSkillifyOptions_ACU = {},
@@ -354,12 +374,14 @@ export async function collectWorldbookSkillifyCandidates_ACU(
   const control = resolvedControl || await resolveAgentSkillifyControl_ACU();
   const contextSettings = normalizeAgentContextSettings_ACU(control.contextSettings);
   const entriesMap = await getLorebookEntriesByNames_ACU(bookNames);
+  const selectedKeys = normalizeSelectedSkillifyEntryKeys_ACU(options.selectedEntries);
   const summaries: AgentSkillifyWorldbookEntrySummary_ACU[] = [];
 
   for (const bookName of [...new Set(bookNames.map(name => String(name || '').trim()).filter(Boolean))]) {
     const entries = Array.isArray(entriesMap[bookName]) ? entriesMap[bookName] : [];
     for (const entry of entries) {
       if (!isWorldbookEntrySkillifyCandidate_ACU(entry)) continue;
+      if (selectedKeys && !selectedKeys.has(getSkillifySelectionKey_ACU(bookName, entry.uid))) continue;
       summaries.push(buildEntrySummary_ACU(bookName, entry));
     }
   }

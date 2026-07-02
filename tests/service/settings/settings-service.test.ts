@@ -41,6 +41,9 @@ const {
   mockEnsureConfigIdbCacheLoaded,
   mockMigrateKeyToTavernStorage,
   mockSetPendingSettingsReloadFromIdb,
+  DEFAULT_TEMPLATE_STR_ACU,
+  NEW_DEFAULT_TEMPLATE_STR_ACU,
+  CUSTOM_TEMPLATE_STR_ACU,
 } = vi.hoisted(() => {
   const mockSettings: any = {
     dataIsolationCode: '',
@@ -69,6 +72,9 @@ const {
     migratedLegacySingleStore: true,
     zeroTkOccupyModeGlobal: false,
   };
+  const DEFAULT_TEMPLATE_STR_ACU = '{"mate":{"type":"chatSheets","version":1},"sheet_0":{"name":"默认表","content":[["row_id","值"]],"sourceData":{"ddl":"CREATE TABLE default_table (row_id INTEGER PRIMARY KEY, value TEXT);"}}}';
+  const NEW_DEFAULT_TEMPLATE_STR_ACU = '{"mate":{"type":"chatSheets","version":1},"sheet_0":{"name":"默认表","content":[["row_id","值"]],"sourceData":{"ddl":"CREATE TABLE default_table (row_id INTEGER PRIMARY KEY, value TEXT);"},"updated":true}}';
+  const CUSTOM_TEMPLATE_STR_ACU = '{"mate":{"type":"chatSheets","version":1},"sheet_custom":{"name":"自定义表","content":[["row_id","自定义列"]],"sourceData":{"ddl":"CREATE TABLE custom_table (row_id INTEGER PRIMARY KEY, custom_value TEXT);"}}}';
   return {
     mockSettings,
     mockGlobalMeta,
@@ -108,6 +114,9 @@ const {
     mockEnsureConfigIdbCacheLoaded: vi.fn().mockResolvedValue(undefined),
     mockMigrateKeyToTavernStorage: vi.fn(),
     mockSetPendingSettingsReloadFromIdb: vi.fn(),
+    DEFAULT_TEMPLATE_STR_ACU,
+    NEW_DEFAULT_TEMPLATE_STR_ACU,
+    CUSTOM_TEMPLATE_STR_ACU,
   };
 });
 
@@ -124,8 +133,8 @@ vi.mock('../../../src/shared/defaults-json.js', () => ({
   DEFAULT_CHAR_CARD_PROMPT_SQL_STRICT_JSON_ACU: [{ role: 'USER', content: '默认 sql strict json 提示词' }],
   DEFAULT_MERGE_SUMMARY_PROMPT_ACU: '默认合并提示词',
   DEFAULT_PLOT_SETTINGS_ACU: { enabled: false },
-  DEFAULT_TABLE_TEMPLATE_ACU: '{"mate":{"type":"chatSheets","version":1},"sheet_0":{"name":"默认表"}}',
-  ORIGINAL_DEFAULT_TABLE_TEMPLATE_ACU: JSON.stringify('{"mate":{"type":"chatSheets","version":1},"sheet_0":{"name":"默认表","content":[["row_id","值"]],"sourceData":{"ddl":"CREATE TABLE default_table (row_id INTEGER PRIMARY KEY, value TEXT);"}}}'),
+  DEFAULT_TABLE_TEMPLATE_ACU: DEFAULT_TEMPLATE_STR_ACU,
+  ORIGINAL_DEFAULT_TABLE_TEMPLATE_ACU: JSON.stringify(DEFAULT_TEMPLATE_STR_ACU),
   get TABLE_TEMPLATE_ACU() { return '{"mate":{"type":"chatSheets","version":1}}'; },
   _set_TABLE_TEMPLATE_ACU: mockSetTableTemplate,
 }));
@@ -141,6 +150,10 @@ vi.mock('../../../src/shared/defaults', () => ({
   DEFAULT_CHECKPOINT_SINGLE_OPERATION_RATIO_PERCENT_ACU: 50,
   TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU: 'test-table-defaults-refresh',
   VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU: 'spv3.6.3-keyword-prompt-content-based-refresh',
+  defaultWorldbookConfig_ACU: {
+    zeroTkOccupyMode: false,
+    outlineEntryEnabled: true,
+  },
   defaultVectorMemoryConfig_ACU: { 
     enabled: false,
     archiveTriggerCount: 9,
@@ -268,6 +281,20 @@ import {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetConfigStorage.mockReset().mockReturnValue(undefined);
+  mockIsIndexedDbAvailable.mockReset().mockReturnValue(false);
+  mockReadProfileSettings.mockReset().mockReturnValue(null);
+  mockReadProfileTemplate.mockReset().mockReturnValue(null);
+  mockGetCurrentWorldbookConfig.mockReset().mockReturnValue({ zeroTkOccupyMode: false, outlineEntryEnabled: true });
+  mockGetCurrentChatTemplateScopeState.mockReset().mockReturnValue(null);
+  mockMigrateLegacyTemplateScopeForCurrentChat.mockReset().mockReturnValue(null);
+  mockNormalizeTemplatePresetSelectionValue.mockReset().mockImplementation((v: any) => v || '');
+  mockGetTemplatePreset.mockReset().mockReturnValue(null);
+  mockSanitizeTemplateSnapshotForChat.mockReset().mockImplementation((str: any) => str ? { templateStr: str } : null);
+  mockGetDefaultTemplateSnapshot.mockReset().mockReturnValue(null);
+  mockGetGlobalTemplateSnapshotForCurrentProfile.mockReset().mockReturnValue(null);
+  mockSanitizeChatSheetsObject.mockReset().mockImplementation((obj: any) => obj);
+  mockEnsureSheetOrderNumbers.mockReset().mockReturnValue(false);
   mockSettings.dataIsolationCode = '';
   mockSettings.dataIsolationEnabled = false;
   mockSettings.charCardPrompt = [];
@@ -275,6 +302,7 @@ beforeEach(() => {
   mockSettings.plotSettings = { plotWorldbookConfig: null };
   mockSettings.plotPresetBindings = {};
   mockSettings.currentTemplatePresetName = '';
+  mockSettings.tableTemplateDefaultsRefreshVersion = '';
   mockSettings.maxConcurrentGroups = 1;
   mockSettings.zeroTkOccupyModeDefault = false;
   mockSettings.characterSettings = {};
@@ -535,5 +563,41 @@ describe('loadSettings_ACU', () => {
     // 异常路径也会调用 _set_settings_ACU(buildDefaultSettings_ACU())
     const calledWith = mockSetSettings.mock.calls[0][0];
     expect(calledWith.autoUpdateEnabled).toBe(true);
+  });
+
+  it('一次性默认模板刷新会覆盖旧默认模板', () => {
+    mockReadProfileTemplate.mockReturnValue(DEFAULT_TEMPLATE_STR_ACU);
+    mockGetDefaultTemplateSnapshot.mockReturnValue({ templateStr: NEW_DEFAULT_TEMPLATE_STR_ACU });
+
+    loadSettings_ACU();
+
+    expect(mockSetTableTemplate).toHaveBeenCalledWith(NEW_DEFAULT_TEMPLATE_STR_ACU);
+    expect(mockWriteProfileTemplate).toHaveBeenCalledWith('', NEW_DEFAULT_TEMPLATE_STR_ACU);
+    expect(mockSettings.tableTemplateDefaultsRefreshVersion).toBe('test-table-defaults-refresh');
+  });
+
+  it('一次性默认模板刷新遇到命名预设时只记录版本，不覆盖模板', () => {
+    mockReadProfileSettings.mockReturnValue({ currentTemplatePresetName: '我的预设' });
+    mockReadProfileTemplate.mockReturnValue(DEFAULT_TEMPLATE_STR_ACU);
+    mockGetDefaultTemplateSnapshot.mockReturnValue({ templateStr: NEW_DEFAULT_TEMPLATE_STR_ACU });
+
+    loadSettings_ACU();
+
+    expect(mockNormalizeTemplatePresetSelectionValue).toHaveBeenCalledWith('我的预设');
+    expect(mockSettings.currentTemplatePresetName).toBe('我的预设');
+    expect(mockWriteProfileTemplate).not.toHaveBeenCalledWith('', NEW_DEFAULT_TEMPLATE_STR_ACU);
+    expect(mockSetTableTemplate).not.toHaveBeenCalledWith(NEW_DEFAULT_TEMPLATE_STR_ACU);
+    expect(mockSettings.tableTemplateDefaultsRefreshVersion).toBe('test-table-defaults-refresh');
+  });
+
+  it('一次性默认模板刷新会保留结构不同的用户自定义默认槽位模板', () => {
+    mockReadProfileTemplate.mockReturnValue(CUSTOM_TEMPLATE_STR_ACU);
+    mockGetDefaultTemplateSnapshot.mockReturnValue({ templateStr: NEW_DEFAULT_TEMPLATE_STR_ACU });
+
+    loadSettings_ACU();
+
+    expect(mockWriteProfileTemplate).not.toHaveBeenCalledWith('', NEW_DEFAULT_TEMPLATE_STR_ACU);
+    expect(mockSetTableTemplate).not.toHaveBeenCalledWith(NEW_DEFAULT_TEMPLATE_STR_ACU);
+    expect(mockSettings.tableTemplateDefaultsRefreshVersion).toBe('test-table-defaults-refresh');
   });
 });

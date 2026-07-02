@@ -358,6 +358,18 @@ describe('validateDDLAgainstHeaders', () => {
     expect(result.mismatches).toHaveLength(0);
   });
 
+  it('宽松 DDL 不因缺少 NOT NULL/UNIQUE/CHECK 等业务约束而失败', () => {
+    const ddl = `CREATE TABLE chronicle ( -- 纪要表
+      row_id INTEGER PRIMARY KEY, -- 行号
+      code_index TEXT, -- 编码索引
+      time_span TEXT, -- 时间跨度
+      summary TEXT -- 概览
+    );`;
+    const result = validateDDLAgainstHeaders(ddl, ['row_id', '编码索引', '时间跨度', '概览']);
+    expect(result.valid).toBe(true);
+    expect(result.mismatches).toHaveLength(0);
+  });
+
   it('中文“行号”表头视为 row_id 别名，不导致 DDL/表头错位误报', () => {
     const ddl = `CREATE TABLE tdoll_construction (
       row_id INTEGER PRIMARY KEY, -- 行号

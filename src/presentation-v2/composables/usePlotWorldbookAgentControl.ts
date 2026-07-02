@@ -26,6 +26,7 @@ import {
 import {
   skillifyCurrentPlotWorldbookSelection_ACU,
   type AgentSkillifyProgressEvent_ACU,
+  type AgentSkillifySelectedEntry_ACU,
 } from '../../service/agent/agent-skillify-service';
 import {
   clearWorldbookSkillMetaBlocks_ACU,
@@ -226,10 +227,23 @@ export function usePlotWorldbookAgentControl() {
       return;
     }
     if (next === 'disabled') {
-      _set_pendingFinalGenerationGreenlights_ACU([]);
-      disableLegacyAgentWorldbookControl_ACU();
-      toast.info(plotCopy.agentControl.modeChanged.disabled, { muteable: false });
-      return;
+      try {
+        _set_pendingFinalGenerationGreenlights_ACU([]);
+        disableLegacyAgentWorldbookControl_ACU();
+        const restoreResult = await restoreWorldbookGreenlights_ACU({ cleanupMode: 'restore_only' });
+        snapshot.value = await refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU();
+        if (restoreResult.skipped > 0 || restoreResult.failed > 0) {
+          const message = plotCopy.agentControl.restore.reasons[restoreResult.reason || ''] || `Agent 世界书已关闭，但恢复受控条目未完全完成：${restoreResult.reason || 'unknown'}`;
+          toast.warning(message, { muteable: false });
+          return;
+        }
+        toast.info(plotCopy.agentControl.modeChanged.disabled, { muteable: false });
+        return;
+      } catch (error: any) {
+        snapshot.value = await refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU();
+        toast.warning(`Agent 世界书已关闭，但恢复受控条目失败：${error?.message || '未知错误'}`, { muteable: false });
+        return;
+      }
     }
     toast.info(plotCopy.agentControl.modeChanged[next], { muteable: false });
   }
@@ -322,7 +336,7 @@ export function usePlotWorldbookAgentControl() {
       const saved = await writeControlPatch({ mode: 'disabled', enabled: false });
       disableLegacyAgentWorldbookControl_ACU();
       if (!saved) return false;
-      const result = await restoreWorldbookGreenlights_ACU({ cleanupStateEntry: true });
+      const result = await restoreWorldbookGreenlights_ACU({ cleanupMode: 'full' });
       disableLegacyAgentWorldbookControl_ACU({ clearSnapshot: result.updated && result.skipped === 0 && result.failed === 0 });
       await refresh();
       const message = plotCopy.agentControl.restore.reasons[result.reason || ''] || plotCopy.agentControl.restore.noop;
@@ -344,7 +358,28 @@ export function usePlotWorldbookAgentControl() {
     }
   }
 
+  async function syncAgentWorldbookTakeoverAfterSkillChange(): Promise<boolean> {
+    try {
+      await refresh();
+      if (!isAgentMode.value) return false;
+      const takeoverResult = await takeoverWorldbookGreenlights_ACU();
+      snapshot.value = await refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU();
+      if (takeoverResult.failed > 0) {
+        toast.warning(`Skill 元数据已更新，但 Agent 世界书接管同步未完全完成：${takeoverResult.reason || 'unknown'}`, { muteable: false });
+      }
+      return true;
+    } catch (error: any) {
+      try { snapshot.value = await refreshPlotAgentWorldbookSnapshotFromWorldbooks_ACU(); } catch {}
+      toast.warning(`Skill 元数据已更新，但 Agent 世界书接管同步失败：${error?.message || '未知错误'}`, { muteable: false });
+      return false;
+    }
+  }
+
   async function skillifyAll(): Promise<boolean> {
+    return runSkillifyWithOptions_ACU();
+  }
+
+  async function runSkillifyWithOptions_ACU(optionsPatch: { selectedEntries?: AgentSkillifySelectedEntry_ACU[] } = {}): Promise<boolean> {
     await refresh();
     const confirmed = await dialog.confirm(plotCopy.agentControl.skillify.confirm);
     if (!confirmed) return false;
@@ -381,6 +416,7 @@ export function usePlotWorldbookAgentControl() {
         overwriteManual: false,
         maxAiRetries: contextSettings.value.agentAiMaxRetries,
         maxConcurrency: maxSkillifyConcurrency.value,
+        ...optionsPatch,
         onProgress: notifyProgress,
       });
       if (result.totalCandidates === 0) {
@@ -398,7 +434,11 @@ export function usePlotWorldbookAgentControl() {
         else toast.success(text, { muteable: false });
       }
 
-      return result.updated > 0;
+      const updated = result.updated > 0;
+      if (updated) {
+        await syncAgentWorldbookTakeoverAfterSkillChange();
+      }
+      return updated;
     } catch (e: any) {
       const errorText = `${plotCopy.agentControl.skillify.error}${e?.message ? `：${e.message}` : ''}`;
       if (!progressToastId || !toast.update(progressToastId, 'error', errorText, { muteable: false })) {
@@ -408,6 +448,14 @@ export function usePlotWorldbookAgentControl() {
     } finally {
       busy.value = null;
     }
+  }
+
+  async function skillifySelected(selectedEntries: AgentSkillifySelectedEntry_ACU[]): Promise<boolean> {
+    if (!Array.isArray(selectedEntries) || selectedEntries.length === 0) {
+      toast.warning(plotCopy.agentControl.skillify.noSelection, { muteable: false });
+      return false;
+    }
+    return runSkillifyWithOptions_ACU({ selectedEntries });
   }
 
   async function clearSkillMeta(): Promise<boolean> {
@@ -486,6 +534,8 @@ export function usePlotWorldbookAgentControl() {
     movePromptSegment,
     restore,
     skillifyAll,
+    skillifySelected,
+    syncAgentWorldbookTakeoverAfterSkillChange,
     clearSkillMeta,
   };
 }

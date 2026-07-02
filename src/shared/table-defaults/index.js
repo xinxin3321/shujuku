@@ -22,6 +22,76 @@ function cloneTableDefault_ACU(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function relaxDefaultTableDdlLine_ACU(line) {
+  const trimmed = String(line || '').trim();
+  if (!trimmed) return line;
+  if (/^CREATE\s+TABLE\b/i.test(trimmed) || isDefaultTableDdlClosingLine_ACU(line)) {
+    return line;
+  }
+  if (/^(?:PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK|CONSTRAINT)\b/i.test(trimmed)) {
+    return null;
+  }
+
+  const commentIndex = line.indexOf('--');
+  const beforeComment = commentIndex >= 0 ? line.slice(0, commentIndex) : line;
+  const comment = commentIndex >= 0 ? line.slice(commentIndex).trimEnd() : '';
+  const comma = /,\s*$/.test(beforeComment) ? ',' : '';
+  const columnMatch = beforeComment.trim().match(/^([^\s,()]+)/);
+  if (!columnMatch) return line;
+
+  const indentMatch = line.match(/^\s*/);
+  const indent = indentMatch ? indentMatch[0] : '';
+  const columnName = columnMatch[1];
+  const suffix = comment ? `${comma ? ',' : ''} ${comment}` : comma;
+
+  if (columnName.toLowerCase() === 'row_id') {
+    return `${indent}row_id INTEGER PRIMARY KEY${suffix}`.trimEnd();
+  }
+
+  return `${indent}${columnName} TEXT${suffix}`.trimEnd();
+}
+
+function isDefaultTableDdlClosingLine_ACU(line) {
+  return /^\)\s*;?\s*(?:--.*)?$/i.test(String(line || '').trim());
+}
+
+function removeTrailingCommaFromDdlLine_ACU(line) {
+  return String(line || '').replace(/,(\s*(?:--.*)?)$/, '$1').trimEnd();
+}
+
+function removeTrailingCommaBeforeDdlClose_ACU(lines) {
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (!isDefaultTableDdlClosingLine_ACU(lines[i])) continue;
+
+    for (let j = i - 1; j >= 0; j -= 1) {
+      if (!String(lines[j] || '').trim()) continue;
+      lines[j] = removeTrailingCommaFromDdlLine_ACU(lines[j]);
+      break;
+    }
+  }
+  return lines;
+}
+
+export function relaxDefaultTableDdl_ACU(ddl) {
+  if (typeof ddl !== 'string' || !ddl.trim()) return ddl;
+  const lines = ddl.split('\n');
+  const relaxedLines = [];
+  for (const line of lines) {
+    const relaxedLine = relaxDefaultTableDdlLine_ACU(line);
+    if (relaxedLine !== null) relaxedLines.push(relaxedLine);
+  }
+  return removeTrailingCommaBeforeDdlClose_ACU(relaxedLines).join('\n');
+}
+
+function relaxDefaultTableTemplateObjectDdls_ACU(templateObj) {
+  Object.keys(templateObj || {}).forEach((key) => {
+    const sheet = templateObj[key];
+    if (!sheet?.sourceData || typeof sheet.sourceData.ddl !== 'string') return;
+    sheet.sourceData.ddl = relaxDefaultTableDdl_ACU(sheet.sourceData.ddl);
+  });
+  return templateObj;
+}
+
 function buildOriginalDefaultTableTemplateObjectInternal_ACU() {
   return {
     [globalStateSheet.uid]: cloneTableDefault_ACU(globalStateSheet),
@@ -60,7 +130,7 @@ function applyRomanceDefaultOverrides_ACU(base) {
  * 该模板保留 8 张原默认表，仅放宽 DDL 约束，供旧用户已保存模板继续使用。
  */
 export function buildOriginalDefaultTableTemplateObject_ACU() {
-  return buildOriginalDefaultTableTemplateObjectInternal_ACU();
+  return relaxDefaultTableTemplateObjectDdls_ACU(buildOriginalDefaultTableTemplateObjectInternal_ACU());
 }
 
 /**
@@ -68,7 +138,9 @@ export function buildOriginalDefaultTableTemplateObject_ACU() {
  * 当前默认以原默认 8 张表为基础，同名表使用恋爱特化表内容覆盖，不引入恋爱表新增表。
  */
 export function buildDefaultTableTemplateObject_ACU() {
-  return applyRomanceDefaultOverrides_ACU(buildOriginalDefaultTableTemplateObjectInternal_ACU());
+  return relaxDefaultTableTemplateObjectDdls_ACU(
+    applyRomanceDefaultOverrides_ACU(buildOriginalDefaultTableTemplateObjectInternal_ACU())
+  );
 }
 
 export function buildOriginalDefaultTableTemplateString_ACU() {

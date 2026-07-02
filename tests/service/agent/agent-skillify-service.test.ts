@@ -145,6 +145,48 @@ describe('agent worldbook skillify candidate filtering', () => {
     expect(candidates[0].tk).toBe(3);
   });
 
+  it('filters skillify candidates by selectedEntries after hard candidate filtering', async () => {
+    mockGetLorebookEntriesByNames.mockResolvedValueOnce({
+      '剧情书': [
+        { uid: 'a', comment: '地点A', content: 'A'.repeat(20), enabled: true, keys: ['A'] },
+        { uid: 'b', comment: '地点B', content: 'B'.repeat(20), enabled: true, keys: ['B'] },
+        { uid: 'disabled-selected', comment: '禁用但被选择', content: 'D'.repeat(20), enabled: false, keys: ['D'] },
+        { uid: 'constant-selected', comment: '常驻但被选择', content: 'C'.repeat(20), enabled: true, type: 'constant', keys: ['C'] },
+      ],
+      '资料书': [
+        { uid: 7, comment: '资料地点', content: 'Z'.repeat(20), enabled: true, keys: ['Z'] },
+      ],
+    });
+
+    const candidates = await collectWorldbookSkillifyCandidates_ACU(['剧情书', '资料书'], {
+      selectedEntries: [
+        { bookName: '剧情书', uid: 'b' },
+        { bookName: '剧情书', uid: 'disabled-selected' },
+        { bookName: '剧情书', uid: 'constant-selected' },
+        { bookName: '资料书', uid: 7 },
+        { bookName: '剧情书', uid: 'missing' },
+      ],
+    });
+
+    expect(candidates.map(candidate => ({ bookName: candidate.bookName, uid: candidate.uid }))).toEqual([
+      { bookName: '剧情书', uid: 'b' },
+      { bookName: '资料书', uid: 7 },
+    ]);
+  });
+
+  it('returns no skillify candidates when selectedEntries is an empty array', async () => {
+    mockGetLorebookEntriesByNames.mockResolvedValueOnce({
+      '剧情书': [
+        { uid: 'a', comment: '地点A', content: 'A'.repeat(20), enabled: true, keys: ['A'] },
+      ],
+    });
+
+    const candidates = await collectWorldbookSkillifyCandidates_ACU(['剧情书'], { selectedEntries: [] });
+
+    expect(candidates).toEqual([]);
+  });
+
+
   it('renders editable skillify prompt placeholders', () => {
     mockSettings.plotSettings.agentWorldbookControl.agentSkillifyPromptSegments = [
       { role: 'user', deletable: true, content: 'B={{agent.skillify.bookName}};U={{agent.skillify.uid}};K={{agent.skillify.keysText}};TK={{agent.skillify.tk}};C={{agent.skillify.contentPreview}};M={{agent.skillify.existingSkillMetaJson}}' },

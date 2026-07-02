@@ -157,7 +157,7 @@ export const DEFAULT_CHECKPOINT_SINGLE_OPERATION_RATIO_PERCENT_ACU = 50;
 
 // --- 一次性默认值刷新版本标记 ---
 export const VECTOR_MEMORY_DEFAULTS_REFRESH_VERSION_ACU = 'spv3.6.3-keyword-prompt-content-based-refresh';
-export const TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU = 'spv2.1.2-table-template-defaults';
+export const TABLE_TEMPLATE_DEFAULTS_REFRESH_VERSION_ACU = 'spv2.1.3-table-template-ddl-relaxed-force-default';
 
 // --- 交火模式纪要索引全局默认配置（独立于世界书配置，跟随数据库全局设置） ---
 export const defaultVectorMemoryConfig_ACU = {

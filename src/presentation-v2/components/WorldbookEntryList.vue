@@ -36,6 +36,13 @@
           />
           <div class="acu-v2-wb-entry-item__actions">
             <span v-if="entry.skillMeta" class="acu-v2-wb-entry-item__skill-badge">Skill</span>
+            <span v-if="formatAgentTakeoverState(entry)" class="acu-v2-wb-entry-item__state-badge">{{ formatAgentTakeoverState(entry) }}</span>
+            <AcuCheckbox
+              :model-value="entry.skillifySelected"
+              label="Skill 化"
+              :disabled="entry.disabled"
+              @update:model-value="$emit('toggle-skillify', entry.bookName, entry.uid, $event)"
+            />
             <AcuButton size="sm" @click="toggleSkillEditor(entry)">
               {{ isSkillEditorOpen(entry) ? '收起 Skill' : '编辑 Skill' }}
             </AcuButton>
@@ -94,6 +101,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (e: 'toggle', bookName: string, uid: number, checked: boolean): void;
+  (e: 'toggle-skillify', bookName: string, uid: number, checked: boolean): void;
   (e: 'toggle-group', bookName: string): void;
   (e: 'save-skill', bookName: string, uid: number, draft: WorldbookSkillDraft): void;
   (e: 'delete-skill', bookName: string, uid: number): void;
@@ -120,7 +128,22 @@ const filteredGroups = computed(() => {
 
 function formatGroupMeta(group: WorldbookEntryGroup): string {
   const checkedCount = group.entries.filter(entry => entry.checked).length;
-  return `${checkedCount}/${group.entries.length} 条`;
+  const skillCount = group.entries.filter(entry => entry.hasSkill).length;
+  const controlledCount = group.entries.filter(entry => entry.agentTakeoverState === 'taken_over' || entry.agentTakeoverState === 'final_greenlight').length;
+  const suffix = [
+    skillCount > 0 ? `Skill ${skillCount}` : '',
+    controlledCount > 0 ? `接管 ${controlledCount}` : '',
+  ].filter(Boolean).join(' · ');
+  return suffix ? `${checkedCount}/${group.entries.length} 条 · ${suffix}` : `${checkedCount}/${group.entries.length} 条`;
+}
+
+function formatAgentTakeoverState(entry: WorldbookEntryItem): string {
+  if (entry.agentTakeoverState === 'initial_disabled') return '原本关闭';
+  if (entry.agentTakeoverState === 'native') return '原生逻辑';
+  if (entry.agentTakeoverState === 'skill_ready') return '可接管';
+  if (entry.agentTakeoverState === 'taken_over') return 'Agent 接管';
+  if (entry.agentTakeoverState === 'final_greenlight') return '正文放行';
+  return '';
 }
 
 function onToggle(bookName: string, uid: number, checked: boolean): void {
@@ -201,6 +224,15 @@ function saveSkill(entry: WorldbookEntryItem): void {
   padding: 1px 6px;
   background: color-mix(in srgb, var(--acu-accent) 14%, transparent);
   color: var(--acu-accent);
+  font-size: var(--acu-font-size-caption, 11px);
+  line-height: 1.5;
+}
+
+.acu-v2-wb-entry-item__state-badge {
+  border-radius: 999px;
+  padding: 1px 6px;
+  background: color-mix(in srgb, var(--acu-warning) 14%, transparent);
+  color: var(--acu-warning);
   font-size: var(--acu-font-size-caption, 11px);
   line-height: 1.5;
 }
