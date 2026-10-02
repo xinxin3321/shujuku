@@ -2482,3 +2482,55 @@ describe('runPlotTasksRuntime_ACU', () => {
   });
 
 });
+describe('剧情推进 $7 前文上下文', () => {
+  const runWithContextPrompt = async (contextTurnCount: number) => {
+    await runPlotTasksRuntime_ACU({
+      contextTurnCount,
+      tasks: [{
+        id: 'task-context', name: '前文检查', stage: 1, order: 1, maxRetries: 1,
+        promptGroup: [{ role: 'user', content: '$7' }],
+      }],
+    }, '本轮输入');
+    return String(mockCallApiWithPlotPreset.mock.calls[0][0][0].content);
+  };
+
+  it('按轮次包含历史 user 输入与 AI 回复，且不重复本轮输入', async () => {
+    mockGetChatArray.mockReturnValue([
+      { is_user: false, mes: '开场白' },
+      { is_user: true, mes: '用户输入-1' },
+      { is_user: false, mes: '前文AI-1' },
+      { is_user: true, mes: '用户输入-2' },
+      { is_user: false, mes: '前文AI-2' },
+      { is_user: true, mes: '本轮输入' },
+    ]);
+
+    const content = await runWithContextPrompt(2);
+
+    expect(content).toBe(
+      '以下是前文的故事发展，给你用作参考：\n '
+      + 'user："用户输入-1" \n assistant："前文AI-1" \n user："用户输入-2" \n assistant："前文AI-2"',
+    );
+  });
+
+  it('标签过滤只作用于 AI 回复，user 输入保持原样', async () => {
+    mockGetChatArray.mockReturnValue([
+      { is_user: true, mes: '用户输入-1' },
+      { is_user: false, mes: '前文AI-1' },
+      { is_user: true, mes: '本轮输入' },
+    ]);
+    mockApplyContextTagFilters.mockImplementation((text: string) => `过滤后:${text}`);
+
+    const content = await runPlotTasksRuntime_ACU({
+      contextTurnCount: 1,
+      contextExtractTags: 'content',
+      tasks: [{
+        id: 'task-context', name: '前文检查', stage: 1, order: 1, maxRetries: 1,
+        promptGroup: [{ role: 'user', content: '$7' }],
+      }],
+    }, '本轮输入').then(() => String(mockCallApiWithPlotPreset.mock.calls[0][0][0].content));
+
+    expect(content).toContain('user："用户输入-1"');
+    expect(content).toContain('assistant："过滤后:前文AI-1"');
+    expect(mockApplyContextTagFilters).toHaveBeenCalledTimes(1);
+  });
+});

@@ -97,7 +97,7 @@ export function generateCoreFuncTabHTML(): string {
                                     <code>$1</code> - 自动替换为世界书内容（默认开启）<br>
                                     <code>$6</code> - 自动替换为上一轮保存的剧情规划数据<br>
                                     <code>$5</code> - 自动替换为"总体大纲"表内容（含表头）<br>
-                                    <code>$7</code> - 自动替换为本次实际读取的前文上下文（仅包含历史AI输出，不含任何用户输入）<br>
+                                    <code>$7</code> - 自动替换为本次实际读取的前文上下文<br>
                                     <code>$8</code> - 自动替换为本轮用户输入（可自由放置）<br>
                                     <code>{{标签名}}</code> - 在剧情任务提示词与最终注入指令中插入标签块内容<br>
                                     <code>sulv1-4</code> - 剧情推进速率设置<br>
