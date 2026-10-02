@@ -7,7 +7,6 @@ import { manualExtraHint_ACU } from '../../runtime/state-manager';
 import { currentJsonTableData_ACU, settings_ACU } from '../../runtime/state-manager';
 import type { TemplateScope_ACU } from '../../template/chat-scope';
 import type { SqlTableApplyScope_ACU } from '../../../shared/table-storage-provider';
-import { getUserName_ACU } from '../../../data/gateways/host-state-gateway';
 import { attachSeedRowsToCurrentDataFromGuide_ACU, ensureChatSheetGuideSeeded_ACU, getEffectiveSeedRowsForSheet_ACU, getSortedSheetKeys_ACU, filterSheetKeysByTemplateScope_ACU, projectSheetForTemplateScope_ACU, resolveTemplateScope_ACU } from '../../template/chat-scope';
 import { getCombinedWorldbookContent_ACU } from '../../worldbook/pipeline';
 import { isDatabaseGeneratedLorebookEntry_ACU, resolveGeneratedEntriesForTable_ACU, resolveUniqueTableExportIdentity_ACU } from '../../worldbook/worldbook-placeholder-classification';
@@ -350,8 +349,9 @@ function resolvePromptRowWindow_ACU(
         const excludeTags = (settings_ACU.tableContextExcludeTags || '').trim();
         const excludeRules = normalizeExcludeRules_ACU(settings_ACU.tableContextExcludeRules, excludeTags);
 
+        // 不加 "名字:" 前缀，楼层之间空一行：故事正文里常有多个角色与第一/第三人称混用，
+        // 行首名字容易让 AI 误判叙述主体
         messagesText += messages.map((msg: any) => {
-            const prefix = msg.is_user ? getUserName_ACU() : msg.name || '角色';
             let content = msg.mes || msg.message || '';
 
             if (!msg.is_user && (extractTags || extractRules.length > 0 || excludeTags || excludeRules.length > 0)) {
@@ -361,8 +361,8 @@ function resolvePromptRowWindow_ACU(
                 conditionalSeedParts.push(content);
             }
 
-            return `${prefix}: ${content}`;
-        }).join('\n');
+            return typeof content === 'string' ? content : String(content ?? '');
+        }).filter((content: string) => content.trim()).join('\n\n');
     } else {
         messagesText += '(无最新对话内容)';
     }
