@@ -352,12 +352,14 @@ import { hasUsableWorldbookSkillMeta_ACU, resolveAgentWorldbookFilterAvailabilit
         .trim();
     };
 
+    // 不加身份前缀与外层引号，楼层之间空一行，保持故事正文完整连贯
     const formattedHistory = (slicedContext && Array.isArray(slicedContext) ? slicedContext : [])
-      .map(msg => `${msg.role === 'user' ? 'user' : 'assistant'}："${sanitizeHtml(msg.content)}"`)
-      .join(' \n ');
+      .map(msg => sanitizeHtml(msg.content))
+      .filter(text => text)
+      .join('\n\n');
 
     const contextInjectionText = formattedHistory && formattedHistory.trim()
-      ? `以下是前文的故事发展，给你用作参考：\n ${formattedHistory}`
+      ? `以下是前文的故事发展，给你用作参考：\n${formattedHistory}`
       : '';
 
     let userInfoContent_Plot = '';

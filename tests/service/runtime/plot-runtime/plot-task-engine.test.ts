@@ -2507,8 +2507,8 @@ describe('剧情推进 $7 前文上下文', () => {
     const content = await runWithContextPrompt(2);
 
     expect(content).toBe(
-      '以下是前文的故事发展，给你用作参考：\n '
-      + 'user："用户输入-1" \n assistant："前文AI-1" \n user："用户输入-2" \n assistant："前文AI-2"',
+      '以下是前文的故事发展，给你用作参考：\n'
+      + '用户输入-1\n\n前文AI-1\n\n用户输入-2\n\n前文AI-2',
     );
   });
 
@@ -2529,8 +2529,7 @@ describe('剧情推进 $7 前文上下文', () => {
       }],
     }, '本轮输入').then(() => String(mockCallApiWithPlotPreset.mock.calls[0][0][0].content));
 
-    expect(content).toContain('user："用户输入-1"');
-    expect(content).toContain('assistant："过滤后:前文AI-1"');
+    expect(content).toBe('以下是前文的故事发展，给你用作参考：\n用户输入-1\n\n过滤后:前文AI-1');
     expect(mockApplyContextTagFilters).toHaveBeenCalledTimes(1);
   });
 });
