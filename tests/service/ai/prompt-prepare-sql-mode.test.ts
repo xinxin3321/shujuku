@@ -1006,8 +1006,7 @@ describe('prepareAIInput_ACU — SQL 模式', () => {
 
     const result = await prepareAIInput_ACU(messages, 'standard');
     expect(result).not.toBeNull();
-    expect(result!.messagesText).toContain('用户: 你好');
-    expect(result!.messagesText).toContain('角色: 你好啊');
+    expect(result!.messagesText).toBe('当前最新对话内容:\n你好\n\n你好啊');
   });
 
   it('空消息数组时输出无最新对话内容', async () => {

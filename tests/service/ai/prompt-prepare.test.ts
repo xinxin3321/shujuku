@@ -526,7 +526,8 @@ describe('prepareAIInput_ACU — 显式 tableData 模式', () => {
     const result = await prepareAIInput_ACU(messages, 'standard', null, { tableData: explicitTableData });
 
     expect(result?.conditionalSeedContent).toBe('用户关键词应进入 seed\n范围内 AI 第一层\n用户补充也应进入 seed\n范围内 AI 第二层');
-    expect(result?.messagesText).toContain('用户关键词应进入 seed');
+    // $1 不加名字前缀，楼层之间空一行
+    expect(result?.messagesText).toBe('当前最新对话内容:\n用户关键词应进入 seed\n\n范围内 AI 第一层\n\n用户补充也应进入 seed\n\n范围内 AI 第二层');
   });
 
   it('if seed 复用 $1 的 extract/exclude 过滤结果，被移除的 AI 关键词不进入 seed', async () => {

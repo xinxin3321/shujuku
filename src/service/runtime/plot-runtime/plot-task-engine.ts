@@ -180,11 +180,21 @@ import { hasUsableWorldbookSkillMeta_ACU, resolveAgentWorldbookFilterAvailabilit
       let aiCount = 0;
       const extracted: { role: string; content: string }[] = [];
 
-      for (let i = contextEndIndex; i >= 0 && aiCount < contextTurnCount; i--) {
+      // 历史 user 输入也纳入前文（不计入轮数，不做标签过滤），保证剧情连贯
+      const pushUserMessage = (msg: any) => {
+        const userContent = String(msg?.mes || '');
+        if (userContent.trim()) extracted.unshift({ role: 'user', content: userContent });
+      };
+
+      let i = contextEndIndex;
+      for (; i >= 0 && aiCount < contextTurnCount; i--) {
         const msg = chat[i];
         if (!msg) continue;
-        if (msg.is_user) continue;
         if (msg._qrf_from_planning || msg._qrf_plot_pending_placeholder) continue;
+        if (msg.is_user) {
+          pushUserMessage(msg);
+          continue;
+        }
 
         let content = msg.mes;
         const extractTags = (plotSettings.contextExtractTags || '').trim();
@@ -197,6 +207,11 @@ import { hasUsableWorldbookSkillMeta_ACU, resolveAgentWorldbookFilterAvailabilit
 
         extracted.unshift({ role: 'assistant', content });
         aiCount++;
+      }
+
+      // 补上最早那条 AI 回复之前紧挨着的 user 输入，保持一问一答完整
+      if (aiCount > 0 && i >= 0 && chat[i]?.is_user && !chat[i]._qrf_from_planning && !chat[i]._qrf_plot_pending_placeholder) {
+        pushUserMessage(chat[i]);
       }
 
       slicedContext = extracted;
@@ -348,12 +363,14 @@ import { hasUsableWorldbookSkillMeta_ACU, resolveAgentWorldbookFilterAvailabilit
         .trim();
     };
 
+    // 不加身份前缀与外层引号，楼层之间空一行，保持故事正文完整连贯
     const formattedHistory = (slicedContext && Array.isArray(slicedContext) ? slicedContext : [])
-      .map(msg => `assistant："${sanitizeHtml(msg.content)}"`)
-      .join(' \n ');
+      .map(msg => sanitizeHtml(msg.content))
+      .filter(text => text)
+      .join('\n\n');
 
     const contextInjectionText = formattedHistory && formattedHistory.trim()
-      ? `以下是前文的故事发展（AI输出），给你用作参考：\n ${formattedHistory}`
+      ? `以下是前文的故事发展，给你用作参考：\n${formattedHistory}`
       : '';
 
     let userInfoContent_Plot = '';
